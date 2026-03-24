@@ -1,0 +1,81 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { DEV_CONTEXT } from '../context/dev';
+import { prisma } from '../lib/prisma';
+
+type Params = { patientId: string };
+
+// Montado en /api/patients/:patientId/evaluation
+const router = Router({ mergeParams: true });
+
+const evaluationSelect = {
+  id: true,
+  patientId: true,
+  globalPosture: true,
+  breathingPattern: true,
+  medicalHistory: true,
+  reasonForConsultation: true,
+  notes: true,
+  evaluatedAt: true,
+  updatedAt: true,
+} as const;
+
+const EvaluationSchema = z.object({
+  reasonForConsultation: z.string().optional().nullable(),
+  medicalHistory: z.string().optional().nullable(),
+  globalPosture: z.string().optional().nullable(),
+  breathingPattern: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+// Verificar que el paciente pertenece al tenant antes de operar.
+async function getPatient(patientId: string) {
+  return prisma.patient.findFirst({
+    where: { id: patientId, tenantId: DEV_CONTEXT.tenantId },
+    select: { id: true },
+  });
+}
+
+// GET /api/patients/:patientId/evaluation
+router.get<Params>('/', async (req, res) => {
+  const patient = await getPatient(req.params.patientId);
+  if (!patient) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  const evaluation = await prisma.initialEvaluation.findUnique({
+    where: { patientId: req.params.patientId },
+    select: evaluationSelect,
+  });
+
+  // 200 con data: null si aún no existe — el frontend decide qué mostrar.
+  res.json({ data: evaluation ?? null });
+});
+
+// PUT /api/patients/:patientId/evaluation
+// Upsert: crea si no existe, actualiza si ya existe.
+router.put<Params>('/', async (req, res) => {
+  const patient = await getPatient(req.params.patientId);
+  if (!patient) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  const body = EvaluationSchema.parse(req.body);
+
+  const evaluation = await prisma.initialEvaluation.upsert({
+    where: { patientId: req.params.patientId },
+    create: {
+      ...body,
+      patientId: req.params.patientId,
+      tenantId: DEV_CONTEXT.tenantId,
+    },
+    update: body,
+    select: evaluationSelect,
+  });
+
+  res.json({ data: evaluation });
+});
+
+export default router;

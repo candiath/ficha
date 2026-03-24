@@ -1,0 +1,267 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-tenancy row-level: TODA tabla de dominio lleva tenantId para garantizar
+// que no se filtren datos entre clínicas. Sin excepción.
+// Tablas de catálogo global (body_regions) son la única excepción permitida.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users               User[]
+  patients            Patient[]
+  sessions            Session[]
+  initialEvaluations  InitialEvaluation[]
+  techniques          Technique[]
+  sessionPackages     SessionPackage[]
+  payments            Payment[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  sessions Session[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model Patient {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  fullName         String    @map("full_name")
+  birthDate        DateTime? @map("birth_date") @db.Date
+  sex              Sex?
+  phone            String?
+  occupation       String?
+  referringDoctor  String?   @map("referring_doctor")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  sessions          Session[]
+  initialEvaluation InitialEvaluation?
+  sessionPackages   SessionPackage[]
+  payments          Payment[]
+
+  @@index([tenantId])
+  @@map("patients")
+}
+
+model InitialEvaluation {
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  patientId             String   @unique @map("patient_id")
+  globalPosture         String?  @map("global_posture")
+  breathingPattern      String?  @map("breathing_pattern")
+  medicalHistory        String?  @map("medical_history")
+  reasonForConsultation String?  @map("reason_for_consultation")
+  notes                 String?
+  evaluatedAt           DateTime @default(now()) @map("evaluated_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant             @relation(fields: [tenantId], references: [id])
+  patient Patient            @relation(fields: [patientId], references: [id])
+  photos  EvaluationPhoto[]
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@map("initial_evaluations")
+}
+
+model EvaluationPhoto {
+  id                  String   @id @default(uuid())
+  initialEvaluationId String   @map("initial_evaluation_id")
+  storageKey          String   @map("storage_key")
+  caption             String?
+  takenAt             DateTime? @map("taken_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  initialEvaluation InitialEvaluation @relation(fields: [initialEvaluationId], references: [id])
+
+  @@map("evaluation_photos")
+}
+
+enum SessionType {
+  SESSION
+  NOTE
+  DISCHARGE
+}
+
+model Session {
+  id               String      @id @default(uuid())
+  tenantId         String      @map("tenant_id")
+  patientId        String      @map("patient_id")
+  userId           String      @map("user_id")
+  sessionType      SessionType @default(SESSION) @map("session_type")
+  sessionDate      DateTime    @map("session_date")
+  preSesionState   String?     @map("pre_session_state")
+  reEvaluationNotes String?    @map("re_evaluation_notes")
+  patientResponse  String?     @map("patient_response")
+  painScaleBefore  Int?        @map("pain_scale_before")
+  painScaleAfter   Int?        @map("pain_scale_after")
+  observations     String?
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id])
+  patient    Patient          @relation(fields: [patientId], references: [id])
+  user       User             @relation(fields: [userId], references: [id])
+  photos     SessionPhoto[]
+  techniques SessionTechnique[]
+  payment    Payment?
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@map("sessions")
+}
+
+model SessionPhoto {
+  id         String    @id @default(uuid())
+  sessionId  String    @map("session_id")
+  storageKey String    @map("storage_key")
+  caption    String?
+  takenAt    DateTime? @map("taken_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  session Session @relation(fields: [sessionId], references: [id])
+
+  @@map("session_photos")
+}
+
+// tenant_id nullable: null = técnica global (disponible a todos los tenants),
+// valor = técnica personalizada de ese tenant.
+model Technique {
+  id        String   @id @default(uuid())
+  tenantId  String?  @map("tenant_id")
+  name      String
+  isGlobal  Boolean  @default(false) @map("is_global")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant?           @relation(fields: [tenantId], references: [id])
+  sessions SessionTechnique[]
+
+  @@index([tenantId])
+  @@map("techniques")
+}
+
+// Catálogo global de regiones corporales. Sin tenant_id: es compartido.
+model BodyRegion {
+  id        String   @id @default(uuid())
+  name      String
+  zone      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  sessions SessionTechnique[]
+
+  @@map("body_regions")
+}
+
+model SessionTechnique {
+  id           String   @id @default(uuid())
+  sessionId    String   @map("session_id")
+  techniqueId  String   @map("technique_id")
+  bodyRegionId String?  @map("body_region_id")
+  variantNotes String?  @map("variant_notes")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session    Session    @relation(fields: [sessionId], references: [id])
+  technique  Technique  @relation(fields: [techniqueId], references: [id])
+  bodyRegion BodyRegion? @relation(fields: [bodyRegionId], references: [id])
+
+  @@map("session_techniques")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  WAIVED
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+}
+
+// Un paquete de sesiones prepagadas para un paciente.
+// El precio individual se fija al crear el paquete.
+// Las sesiones debitan del paquete usando packageId en Payment.
+model SessionPackage {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  patientId       String   @map("patient_id")
+  name            String
+  totalSessions   Int      @map("total_sessions")
+  pricePerSession Decimal  @map("price_per_session") @db.Decimal(10, 2)
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  patient  Patient   @relation(fields: [patientId], references: [id])
+  payments Payment[]
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@map("session_packages")
+}
+
+// Un cobro por sesión. Se crea junto con la sesión (status PENDING).
+// discount y finalAmount permiten descuentos granulares.
+model Payment {
+  id          String         @id @default(uuid())
+  tenantId    String         @map("tenant_id")
+  patientId   String         @map("patient_id")
+  sessionId   String         @unique @map("session_id")
+  packageId   String?        @map("package_id")
+
+  baseAmount  Decimal        @map("base_amount") @db.Decimal(10, 2)
+  discount    Decimal        @default(0) @db.Decimal(10, 2)
+  finalAmount Decimal        @map("final_amount") @db.Decimal(10, 2)
+
+  status      PaymentStatus  @default(PENDING)
+  method      PaymentMethod?
+  paidAt      DateTime?      @map("paid_at")
+  notes       String?
+
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id])
+  patient  Patient         @relation(fields: [patientId], references: [id])
+  session  Session         @relation(fields: [sessionId], references: [id])
+  package  SessionPackage? @relation(fields: [packageId], references: [id])
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([sessionId])
+  @@map("payments")
+}

@@ -1,0 +1,112 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { DEV_CONTEXT } from '../context/dev';
+import { prisma } from '../lib/prisma';
+
+const router = Router();
+
+// Campos que se exponen en las respuestas. tenantId se excluye
+// intencionalmente: es un detalle de implementación interno.
+const patientSelect = {
+  id: true,
+  fullName: true,
+  birthDate: true,
+  sex: true,
+  phone: true,
+  occupation: true,
+  referringDoctor: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+// z.coerce.date() convierte strings ISO / 'YYYY-MM-DD' a Date automáticamente.
+const PatientCreateSchema = z.object({
+  fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  birthDate: z.coerce.date().optional().nullable(),
+  sex: z.enum(['MALE', 'FEMALE', 'OTHER']).optional().nullable(),
+  phone: z.string().optional().nullable(),
+  occupation: z.string().optional().nullable(),
+  referringDoctor: z.string().optional().nullable(),
+});
+
+const PatientUpdateSchema = PatientCreateSchema.partial();
+
+// GET /api/patients
+router.get('/', async (_req, res) => {
+  const patients = await prisma.patient.findMany({
+    where: { tenantId: DEV_CONTEXT.tenantId },
+    select: patientSelect,
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({ data: patients });
+});
+
+// GET /api/patients/:id
+router.get('/:id', async (req, res) => {
+  const patient = await prisma.patient.findFirst({
+    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    select: patientSelect,
+  });
+
+  if (!patient) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  res.json({ data: patient });
+});
+
+// POST /api/patients
+router.post('/', async (req, res) => {
+  const body = PatientCreateSchema.parse(req.body);
+
+  const patient = await prisma.patient.create({
+    data: { ...body, tenantId: DEV_CONTEXT.tenantId },
+    select: patientSelect,
+  });
+
+  res.status(201).json({ data: patient });
+});
+
+// PATCH /api/patients/:id
+router.patch('/:id', async (req, res) => {
+  const body = PatientUpdateSchema.parse(req.body);
+
+  // Verificar existencia + pertenencia al tenant antes de actualizar.
+  // Nunca usar findUnique solo por id: un tenant podría adivinar IDs ajenos.
+  const existing = await prisma.patient.findFirst({
+    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  const patient = await prisma.patient.update({
+    where: { id: req.params.id },
+    data: body,
+    select: patientSelect,
+  });
+
+  res.json({ data: patient });
+});
+
+// DELETE /api/patients/:id
+router.delete('/:id', async (req, res) => {
+  const existing = await prisma.patient.findFirst({
+    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  await prisma.patient.delete({ where: { id: req.params.id } });
+  res.status(204).send();
+});
+
+export default router;

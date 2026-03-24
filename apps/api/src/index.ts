@@ -1,0 +1,44 @@
+import 'dotenv/config';
+import cors from 'cors';
+import express from 'express';
+import { errorHandler } from './middlewares/errorHandler';
+import { prisma } from './lib/prisma';
+import evaluationRouter from './routes/evaluations';
+import globalSessionsRouter from './routes/globalSessions';
+import packagesRouter from './routes/packages';
+import paymentsRouter from './routes/payments';
+import patientsRouter from './routes/patients';
+import sessionsRouter from './routes/sessions';
+import techniquesRouter from './routes/techniques';
+
+const app = express();
+const PORT = process.env.PORT ?? 3001;
+
+// Permite localhost y cualquier IP de red local (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+const ALLOWED_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/;
+app.use(cors({ origin: ALLOWED_ORIGIN }));
+app.use(express.json());
+
+app.get('/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'error', error: 'Base de datos no disponible' });
+  }
+});
+
+app.use('/api/patients', patientsRouter);
+app.use('/api/patients/:patientId/evaluation', evaluationRouter);
+app.use('/api/patients/:patientId/sessions', sessionsRouter);
+app.use('/api/sessions', globalSessionsRouter);
+app.use('/api/techniques', techniquesRouter);
+app.use('/api/packages', packagesRouter);
+app.use('/api/payments', paymentsRouter);
+
+// El error handler siempre va al final, después de todas las rutas.
+app.use(errorHandler);
+
+app.listen(PORT, () => {
+  console.log(`[api] corriendo en http://localhost:${PORT}`);
+});

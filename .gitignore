@@ -1,0 +1,14 @@
+# Dependencias
+node_modules/
+
+# Compilados
+dist/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Misc
+*.local
+.DS_Store
