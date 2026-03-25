@@ -10,6 +10,7 @@ import PatientsPage from '@/pages/PatientsPage'
 import PaymentsPage from '@/pages/PaymentsPage'
 import SessionsPage from '@/pages/SessionsPage'
 import TechniquesPage from '@/pages/TechniquesPage'
+import TurnosPage from '@/pages/TurnosPage'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -55,6 +56,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route path="patients" element={<PatientsPage />} />
         <Route path="patients/:id" element={<PatientDetailPage />} />
+        <Route path="turnos" element={<TurnosPage />} />
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="techniques" element={<TechniquesPage />} />

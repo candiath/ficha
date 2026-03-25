@@ -1,4 +1,4 @@
-import { Building2, CalendarDays, CreditCard, Stethoscope, User, Users } from 'lucide-react';
+import { Building2, CalendarCheck, CalendarDays, CreditCard, Stethoscope, User, Users } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   Sidebar,
@@ -20,6 +20,7 @@ import { Separator } from '@/components/ui/separator';
 
 const clinicItems = [
   { to: '/patients', label: 'Pacientes', icon: Users },
+  { to: '/turnos', label: 'Turnos', icon: CalendarCheck },
   { to: '/sessions', label: 'Sesiones', icon: CalendarDays },
   { to: '/payments', label: 'Cobros', icon: CreditCard, disabled: false },
 ];
