@@ -38,7 +38,7 @@ export default function SessionsPage() {
   });
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6 max-w-8xl mx-auto">
       <div className="mb-6">
         <h2 className="text-2xl font-semibold tracking-tight">Sesiones</h2>
         <p className="text-muted-foreground text-sm mt-1">

@@ -3,8 +3,12 @@ import { Route, Routes } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 import AppLayout from '@/components/layout/AppLayout'
 import AccountPage from '@/pages/AccountPage'
+import AgendaPage from '@/pages/AgendaPage'
 import ClinicPage from '@/pages/ClinicPage'
+import DashboardPage from '@/pages/DashboardPage'
+import EjerciciosPage from '@/pages/EjerciciosPage'
 import LandingPage from '@/pages/LandingPage'
+import MensajesPage from '@/pages/MensajesPage'
 import PatientDetailPage from '@/pages/PatientDetailPage'
 import PatientsPage from '@/pages/PatientsPage'
 import PaymentsPage from '@/pages/PaymentsPage'
@@ -54,12 +58,16 @@ export default function App() {
       <Routes>
       <Route index element={<LandingPage />} />
       <Route element={<AppLayout />}>
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="agenda" element={<AgendaPage />} />
         <Route path="patients" element={<PatientsPage />} />
         <Route path="patients/:id" element={<PatientDetailPage />} />
         <Route path="turnos" element={<TurnosPage />} />
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="techniques" element={<TechniquesPage />} />
+        <Route path="exercises" element={<EjerciciosPage />} />
+        <Route path="messages" element={<MensajesPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="clinic" element={<ClinicPage />} />
       </Route>

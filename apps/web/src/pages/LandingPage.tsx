@@ -8,7 +8,7 @@ import {
   FileText,
   Users,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -86,17 +86,17 @@ const STEPS = [
 ]
 
 export default function LandingPage() {
+  const navigate = useNavigate()
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Navbar */}
       <header className="border-b sticky top-0 bg-background/95 backdrop-blur z-10">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <span className="font-semibold text-lg tracking-tight">Ficha RPG</span>
-          <Button asChild size="sm">
-            <Link to="/patients">
-              Abrir app
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Link>
+          <Button size="sm" onClick={() => navigate('/patients')}>
+            Abrir app
+            <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         </div>
       </header>
@@ -116,15 +116,11 @@ export default function LandingPage() {
           desde una sola herramienta, diseñada para la práctica de RPG.
         </p>
         <div className="flex items-center justify-center gap-3">
-          <Button asChild size="lg">
-            <Link to="/patients">
-              Empezar ahora
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Link>
+          <Button size="lg" onClick={() => navigate('/patients')}>
+            Empezar ahora
+            <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
-          <Button variant="outline" size="lg" asChild>
-            <a href="#features">Ver funcionalidades</a>
-          </Button>
+          <Button variant="outline" size="lg" onClick={() => document.querySelector('#features')?.scrollIntoView({ behavior: 'smooth' })}>Ver funcionalidades</Button>
         </div>
       </section>
 
@@ -215,9 +211,7 @@ export default function LandingPage() {
                 </div>
               ))}
               <div className="pt-4">
-                <Button className="w-full" asChild>
-                  <Link to="/patients">Empezar ahora</Link>
-                </Button>
+                <Button className="w-full" onClick={() => navigate('/patients')}>Empezar ahora</Button>
               </div>
             </CardContent>
           </Card>
@@ -233,11 +227,9 @@ export default function LandingPage() {
           <p className="text-muted-foreground text-lg mb-8 max-w-xl mx-auto">
             Dejá de usar planillas y papel. Toda la información de tus pacientes, siempre ordenada y accesible.
           </p>
-          <Button size="lg" asChild>
-            <Link to="/patients">
-              Abrir la app
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Link>
+          <Button size="lg" onClick={() => navigate('/patients')}>
+            Abrir la app
+            <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         </div>
       </section>

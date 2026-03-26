@@ -1,4 +1,4 @@
-import { Building2, CalendarCheck, CalendarDays, CreditCard, Stethoscope, User, Users } from 'lucide-react';
+import { Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, MessageSquare, Stethoscope, User, Users } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   Sidebar,
@@ -19,10 +19,14 @@ import {
 import { Separator } from '@/components/ui/separator';
 
 const clinicItems = [
-  { to: '/patients', label: 'Pacientes', icon: Users },
-  { to: '/turnos', label: 'Turnos', icon: CalendarCheck },
-  { to: '/sessions', label: 'Sesiones', icon: CalendarDays },
-  { to: '/payments', label: 'Cobros', icon: CreditCard, disabled: false },
+  { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard },
+  { to: '/agenda',    label: 'Agenda',     icon: CalendarRange },
+  { to: '/patients',  label: 'Pacientes',  icon: Users },
+  { to: '/turnos',    label: 'Turnos',     icon: CalendarCheck },
+  { to: '/sessions',  label: 'Sesiones',   icon: CalendarDays },
+  { to: '/payments',  label: 'Cobros',     icon: CreditCard },
+  { to: '/exercises', label: 'Ejercicios', icon: Dumbbell },
+  { to: '/messages',  label: 'Mensajes',   icon: MessageSquare },
 ];
 
 const settingsItems = [
