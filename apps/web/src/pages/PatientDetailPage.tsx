@@ -20,8 +20,11 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
+import ConsentTab from '@/components/patients/ConsentTab';
+import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/SessionFormDialog';
+import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
@@ -257,6 +260,9 @@ function SessionsTab({ patientId }: { patientId: string }) {
 
   return (
     <>
+      {/* Gráfico de evolución del dolor */}
+      <PainEvolutionChart sessions={sessions} />
+
       {/* Header de sección */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">
@@ -451,6 +457,8 @@ export default function PatientDetailPage() {
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
           <TabsTrigger value="sesiones">Sesiones</TabsTrigger>
+          <TabsTrigger value="consentimiento">Consentimiento</TabsTrigger>
+          <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
         <Separator />
 
@@ -495,6 +503,16 @@ export default function PatientDetailPage() {
         {/* ── Sesiones ── */}
         <TabsContent value="sesiones" className="mt-6">
           <SessionsTab patientId={id!} />
+        </TabsContent>
+
+        {/* ── Consentimiento ── */}
+        <TabsContent value="consentimiento" className="mt-6">
+          <ConsentTab patient={patient} />
+        </TabsContent>
+
+        {/* ── Actividad ── */}
+        <TabsContent value="actividad" className="mt-6">
+          <ActivityTimeline patientId={id!} />
         </TabsContent>
       </Tabs>
 

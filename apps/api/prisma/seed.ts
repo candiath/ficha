@@ -73,7 +73,7 @@ async function main() {
   });
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
-  await prisma.session.upsert({
+  const session1 = await prisma.session.upsert({
     where: { id: 'dev-session-001' },
     update: {},
     create: {
@@ -108,6 +108,111 @@ async function main() {
       reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable. Cabeza sigue adelantada.',
       patientResponse: 'Excelente respuesta. Se incorporó postura parado en la pared sin dificultad.',
       observations: 'Sesión combinada: rana en el suelo + parado en la pared. Trabajo específico sobre sector cervical.',
+    },
+  });
+
+  // ── Técnicas aplicadas en sesión 1 ────────────────────────────────────
+  await prisma.sessionTechnique.upsert({
+    where: { id: 'dev-st-001' },
+    update: {},
+    create: {
+      id: 'dev-st-001',
+      sessionId: session1.id,
+      techniqueId: 'tech-rana-suelo',
+      bodyRegionId: 'br-lumbar',
+      variantNotes: '20 min, respiración diafragmática guiada',
+    },
+  });
+
+  // ── Registros de auditoría de ejemplo ──────────────────────────────────
+  await prisma.auditLog.upsert({
+    where: { id: 'dev-audit-001' },
+    update: {},
+    create: {
+      id: 'dev-audit-001',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      userId: user.id,
+      entity: 'PATIENT',
+      entityId: patient.id,
+      action: 'CREATED',
+      description: 'Paciente María García creada en el sistema',
+      createdAt: new Date('2026-02-01T09:00:00.000Z'),
+    },
+  });
+
+  await prisma.auditLog.upsert({
+    where: { id: 'dev-audit-002' },
+    update: {},
+    create: {
+      id: 'dev-audit-002',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      userId: user.id,
+      entity: 'EVALUATION',
+      entityId: patient.id,
+      action: 'CREATED',
+      description: 'Evaluación inicial registrada',
+      createdAt: new Date('2026-02-01T09:30:00.000Z'),
+    },
+  });
+
+  await prisma.auditLog.upsert({
+    where: { id: 'dev-audit-003' },
+    update: {},
+    create: {
+      id: 'dev-audit-003',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      userId: user.id,
+      entity: 'SESSION',
+      entityId: 'dev-session-001',
+      action: 'CREATED',
+      description: 'Sesión de tratamiento registrada',
+      createdAt: new Date('2026-02-10T10:30:00.000Z'),
+    },
+  });
+
+  await prisma.auditLog.upsert({
+    where: { id: 'dev-audit-004' },
+    update: {},
+    create: {
+      id: 'dev-audit-004',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      userId: user.id,
+      entity: 'SESSION',
+      entityId: 'dev-session-002',
+      action: 'CREATED',
+      description: 'Sesión de tratamiento registrada',
+      createdAt: new Date('2026-02-24T10:30:00.000Z'),
+    },
+  });
+
+  // ── Alertas clínicas de ejemplo ────────────────────────────────────────
+  await prisma.clinicalAlert.upsert({
+    where: { id: 'dev-alert-001' },
+    update: {},
+    create: {
+      id: 'dev-alert-001',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      type: 'FOLLOW_UP',
+      message: 'María García lleva 30 días sin sesión — agendar seguimiento',
+      createdAt: new Date('2026-03-24T08:00:00.000Z'),
+    },
+  });
+
+  await prisma.clinicalAlert.upsert({
+    where: { id: 'dev-alert-002' },
+    update: {},
+    create: {
+      id: 'dev-alert-002',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      type: 'PAYMENT',
+      message: 'María García tiene 1 cobro pendiente',
+      createdAt: new Date('2026-03-20T08:00:00.000Z'),
     },
   });
 

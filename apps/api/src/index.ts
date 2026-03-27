@@ -3,12 +3,17 @@ import cors from 'cors';
 import express from 'express';
 import { errorHandler } from './middlewares/errorHandler';
 import { prisma } from './lib/prisma';
+import alertsRouter from './routes/alerts';
+import auditLogRouter from './routes/auditLog';
+import bodyRegionsRouter from './routes/bodyRegions';
+import consentRouter from './routes/consent';
 import evaluationRouter from './routes/evaluations';
 import globalSessionsRouter from './routes/globalSessions';
 import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
+import sessionTechniquesRouter from './routes/sessionTechniques';
 import techniquesRouter from './routes/techniques';
 
 const app = express();
@@ -31,10 +36,15 @@ app.get('/health', async (_req, res) => {
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/evaluation', evaluationRouter);
 app.use('/api/patients/:patientId/sessions', sessionsRouter);
+app.use('/api/patients/:patientId/sessions/:sessionId/techniques', sessionTechniquesRouter);
+app.use('/api/patients/:patientId/audit-log', auditLogRouter);
+app.use('/api/patients/:patientId/consent', consentRouter);
 app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/techniques', techniquesRouter);
+app.use('/api/body-regions', bodyRegionsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
+app.use('/api/alerts', alertsRouter);
 
 // El error handler siempre va al final, después de todas las rutas.
 app.use(errorHandler);

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
+import { auditLogRepo } from '../repositories';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -117,6 +118,26 @@ router.post<ParentParams>('/', async (req, res) => {
     select: sessionSelect,
   });
 
+  const sessionTypeDesc: Record<string, string> = {
+    SESSION: 'Sesión RPG registrada',
+    NOTE: 'Nota clínica registrada',
+    DISCHARGE: 'Alta registrada',
+  };
+  const painSuffix =
+    body.painScaleBefore != null && body.painScaleAfter != null
+      ? ` — Dolor ${body.painScaleBefore} → ${body.painScaleAfter}`
+      : '';
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: req.params.patientId,
+      userId,
+      entity: 'SESSION',
+      entityId: session.id,
+      action: 'CREATED',
+      description: `${sessionTypeDesc[body.sessionType ?? 'SESSION'] ?? 'Sesión registrada'}${painSuffix}`,
+    })
+    .catch((err) => console.error('[audit]', err));
+
   res.status(201).json({ data: session });
 });
 
@@ -153,6 +174,16 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     data: updateData,
     select: sessionSelect,
   });
+
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: req.params.patientId,
+      entity: 'SESSION',
+      entityId: session.id,
+      action: 'UPDATED',
+      description: 'Sesión actualizada',
+    })
+    .catch((err) => console.error('[audit]', err));
 
   res.json({ data: session });
 });

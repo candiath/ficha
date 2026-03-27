@@ -94,7 +94,7 @@ export default function LandingPage() {
       <header className="border-b sticky top-0 bg-background/95 backdrop-blur z-10">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <span className="font-semibold text-lg tracking-tight">Ficha RPG</span>
-          <Button size="sm" onClick={() => navigate('/patients')}>
+          <Button size="sm" onClick={() => navigate('/dashboard')}>
             Abrir app
             <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
@@ -116,7 +116,7 @@ export default function LandingPage() {
           desde una sola herramienta, diseñada para la práctica de RPG.
         </p>
         <div className="flex items-center justify-center gap-3">
-          <Button size="lg" onClick={() => navigate('/patients')}>
+          <Button size="lg" onClick={() => navigate('/dashboard')}>
             Empezar ahora
             <ChevronRight className="h-4 w-4 ml-1" />
           </Button>

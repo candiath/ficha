@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
+import { auditLogRepo } from '../repositories';
 
 const router = Router();
 
@@ -147,6 +148,16 @@ router.post('/', async (req, res) => {
   });
 
   res.status(201).json({ data: serializePayment(payment) });
+
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: body.patientId,
+      entity: 'PAYMENT',
+      entityId: payment.id,
+      action: 'CREATED',
+      description: `Cobro registrado — $${finalAmount}`,
+    })
+    .catch((err) => console.error('[audit]', err));
 });
 
 // PATCH /api/payments/:id
@@ -192,6 +203,17 @@ router.patch('/:id', async (req, res) => {
   });
 
   res.json({ data: serializePayment(payment) });
+
+  const statusDesc = body.status ? ` — Estado: ${body.status}` : '';
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: payment.patientId,
+      entity: 'PAYMENT',
+      entityId: payment.id,
+      action: 'UPDATED',
+      description: `Cobro actualizado${statusDesc}`,
+    })
+    .catch((err) => console.error('[audit]', err));
 });
 
 export default router;

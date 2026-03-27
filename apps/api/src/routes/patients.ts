@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
+import { auditLogRepo } from '../repositories';
 
 const router = Router();
 
@@ -65,6 +66,16 @@ router.post('/', async (req, res) => {
     select: patientSelect,
   });
 
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: patient.id,
+      entity: 'PATIENT',
+      entityId: patient.id,
+      action: 'CREATED',
+      description: `Paciente registrado en el sistema`,
+    })
+    .catch((err) => console.error('[audit]', err));
+
   res.status(201).json({ data: patient });
 });
 
@@ -89,6 +100,16 @@ router.patch('/:id', async (req, res) => {
     data: body,
     select: patientSelect,
   });
+
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: patient.id,
+      entity: 'PATIENT',
+      entityId: patient.id,
+      action: 'UPDATED',
+      description: 'Ficha del paciente actualizada',
+    })
+    .catch((err) => console.error('[audit]', err));
 
   res.json({ data: patient });
 });

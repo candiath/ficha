@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/pay
 import { sessionApi, sessionKeys } from '@/services/sessions';
 import { SESSION_TYPE_LABELS } from '@/lib/labels';
 import { toast } from 'sonner';
+import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPicker';
+import type { TechniqueEntry } from '@/components/sessions/SessionTechniquesPicker';
 import type { Session } from '@/types/session';
 
 const schema = z.object({
@@ -63,6 +65,7 @@ interface Props {
 export default function SessionFormDialog({ open, onClose, patientId, session }: Props) {
   const queryClient = useQueryClient();
   const isEditing = !!session;
+  const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([]);
 
   // Último precio base para pre-llenar (solo en modo creación)
   const { data: lastPriceData } = useQuery({
@@ -132,6 +135,7 @@ export default function SessionFormDialog({ open, onClose, patientId, session }:
         packageId: '',
         paymentNotes: '',
       });
+      setTechniqueEntries([]);
     }
   }, [open, session, lastPriceData]);
 
@@ -363,6 +367,13 @@ export default function SessionFormDialog({ open, onClose, patientId, session }:
                   <FormMessage />
                 </FormItem>
               )}
+            />
+
+            {/* ── Técnicas aplicadas ── */}
+            <Separator />
+            <SessionTechniquesPicker
+              value={techniqueEntries}
+              onChange={setTechniqueEntries}
             />
 
             {/* ── Sección de pago (solo en creación) ── */}

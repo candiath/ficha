@@ -1,4 +1,5 @@
 ﻿import { useState } from 'react';
+import { Stethoscope } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -119,6 +120,20 @@ export default function SessionDetailSheet({ session, patientId, onClose }: Prop
               <DetailSection label="Re-evaluación" value={session.reEvaluationNotes} />
               <DetailSection label="Respuesta del paciente" value={session.patientResponse} />
               <DetailSection label="Observaciones / técnicas" value={session.observations} />
+            </div>
+
+            {/* Técnicas aplicadas */}
+            <Separator />
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Stethoscope className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Técnicas aplicadas
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground italic">
+                Las técnicas registradas en cada sesión se mostrarán aquí.
+              </p>
             </div>
 
             {!hasPainData &&

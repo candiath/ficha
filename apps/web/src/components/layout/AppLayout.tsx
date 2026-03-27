@@ -1,5 +1,5 @@
-import { Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, MessageSquare, Stethoscope, User, Users } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Bell, Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, MessageSquare, Stethoscope, User, Users } from 'lucide-react';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +17,9 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
+import QuickNoteButton from '@/components/layout/QuickNoteButton';
+import { useQuery } from '@tanstack/react-query';
+import { alertApi, alertKeys } from '@/services/alerts';
 
 const clinicItems = [
   { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard },
@@ -25,6 +28,7 @@ const clinicItems = [
   { to: '/turnos',    label: 'Turnos',     icon: CalendarCheck },
   { to: '/sessions',  label: 'Sesiones',   icon: CalendarDays },
   { to: '/payments',  label: 'Cobros',     icon: CreditCard },
+  { to: '/alerts',    label: 'Alertas',    icon: Bell },
   { to: '/exercises', label: 'Ejercicios', icon: Dumbbell },
   { to: '/messages',  label: 'Mensajes',   icon: MessageSquare },
 ];
@@ -74,6 +78,13 @@ function NavItems({
 const DEV_USER = { name: 'Admin Demo', email: 'admin@ficha.dev' };
 
 export default function AppLayout() {
+  const { data: stats } = useQuery({
+    queryKey: alertKeys.stats,
+    queryFn: alertApi.stats,
+    refetchInterval: 60_000,
+  });
+  const unreadAlertCount = stats?.unread ?? 0;
+
   return (
     <SidebarProvider>
       <Sidebar>
@@ -127,10 +138,20 @@ export default function AppLayout() {
       <SidebarInset>
         <header className="flex items-center h-12 px-4 border-b shrink-0">
           <SidebarTrigger className="-ml-1" />
+          <div className="flex-1" />
+          <Link to="/alerts" className="relative p-1.5 rounded-md hover:bg-muted transition-colors">
+            <Bell className="h-5 w-5 text-muted-foreground" />
+            {unreadAlertCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center">
+                {unreadAlertCount}
+              </span>
+            )}
+          </Link>
         </header>
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
+        <QuickNoteButton />
       </SidebarInset>
     </SidebarProvider>
   );

@@ -45,3 +45,17 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: 'Efectivo',
   TRANSFER: 'Transferencia',
 };
+
+export const ALERT_TYPE_LABELS: Record<string, string> = {
+  FOLLOW_UP: 'Seguimiento',
+  NO_SHOW: 'Inasistencia',
+  PAYMENT: 'Pago pendiente',
+  CUSTOM: 'Personalizada',
+};
+
+export const ALERT_TYPE_CLASS: Record<string, string> = {
+  FOLLOW_UP: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  NO_SHOW: 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300',
+  PAYMENT: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300',
+  CUSTOM: 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400',
+};

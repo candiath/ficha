@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
+import { auditLogRepo } from '../repositories';
 
 type Params = { patientId: string };
 
@@ -64,6 +65,11 @@ router.put<Params>('/', async (req, res) => {
 
   const body = EvaluationSchema.parse(req.body);
 
+  const evalExists = await prisma.initialEvaluation.findUnique({
+    where: { patientId: req.params.patientId },
+    select: { id: true },
+  });
+
   const evaluation = await prisma.initialEvaluation.upsert({
     where: { patientId: req.params.patientId },
     create: {
@@ -74,6 +80,18 @@ router.put<Params>('/', async (req, res) => {
     update: body,
     select: evaluationSelect,
   });
+
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: req.params.patientId,
+      entity: 'EVALUATION',
+      entityId: evaluation.id,
+      action: evalExists ? 'UPDATED' : 'CREATED',
+      description: evalExists
+        ? 'Evaluación inicial actualizada'
+        : 'Evaluación inicial registrada',
+    })
+    .catch((err) => console.error('[audit]', err));
 
   res.json({ data: evaluation });
 });

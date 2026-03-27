@@ -27,6 +27,9 @@ model Tenant {
   techniques          Technique[]
   sessionPackages     SessionPackage[]
   payments            Payment[]
+  informedConsents    InformedConsent[]
+  auditLogs           AuditLog[]
+  clinicalAlerts      ClinicalAlert[]
 
   @@map("tenants")
 }
@@ -70,6 +73,9 @@ model Patient {
   initialEvaluation InitialEvaluation?
   sessionPackages   SessionPackage[]
   payments          Payment[]
+  informedConsent   InformedConsent?
+  auditLogs         AuditLog[]
+  clinicalAlerts    ClinicalAlert[]
 
   @@index([tenantId])
   @@map("patients")
@@ -264,4 +270,90 @@ model Payment {
   @@index([patientId])
   @@index([sessionId])
   @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Consentimiento informado: un paciente firma (o no) antes de iniciar tratamiento.
+// ─────────────────────────────────────────────────────────────────────────────
+model InformedConsent {
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  patientId String    @unique @map("patient_id")
+  signed    Boolean   @default(false)
+  signedAt  DateTime? @map("signed_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@index([tenantId])
+  @@map("informed_consents")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Registro de auditoría: cambios en las entidades clínicas de un paciente.
+// ─────────────────────────────────────────────────────────────────────────────
+enum AuditAction {
+  CREATED
+  UPDATED
+  DELETED
+}
+
+enum AuditEntity {
+  PATIENT
+  EVALUATION
+  SESSION
+  PAYMENT
+  CONSENT
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  tenantId    String      @map("tenant_id")
+  patientId   String      @map("patient_id")
+  userId      String?     @map("user_id")
+  entity      AuditEntity
+  entityId    String      @map("entity_id")
+  action      AuditAction
+  description String
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alertas clínicas automáticas: seguimiento, cobros, inasistencias.
+// ─────────────────────────────────────────────────────────────────────────────
+enum AlertType {
+  FOLLOW_UP
+  NO_SHOW
+  PAYMENT
+  CUSTOM
+}
+
+model ClinicalAlert {
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  patientId String    @map("patient_id")
+  type      AlertType
+  message   String
+  isRead    Boolean   @default(false) @map("is_read")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([isRead])
+  @@map("clinical_alerts")
 }
