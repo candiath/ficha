@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
@@ -17,6 +18,11 @@ const evaluationSelect = {
   medicalHistory: true,
   reasonForConsultation: true,
   notes: true,
+  morphotype: true,
+  retractionMap: true,
+  footEvaluation: true,
+  breathingPatternDetail: true,
+  flexibilityNotes: true,
   evaluatedAt: true,
   updatedAt: true,
 } as const;
@@ -27,6 +33,11 @@ const EvaluationSchema = z.object({
   globalPosture: z.string().optional().nullable(),
   breathingPattern: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  morphotype: z.string().optional().nullable(),
+  retractionMap: z.unknown().optional().nullable(),
+  footEvaluation: z.string().optional().nullable(),
+  breathingPatternDetail: z.string().optional().nullable(),
+  flexibilityNotes: z.string().optional().nullable(),
 });
 
 // Verificar que el paciente pertenece al tenant antes de operar.
@@ -74,10 +85,14 @@ router.put<Params>('/', async (req, res) => {
     where: { patientId: req.params.patientId },
     create: {
       ...body,
+      retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
       patientId: req.params.patientId,
       tenantId: DEV_CONTEXT.tenantId,
     },
-    update: body,
+    update: {
+      ...body,
+      retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
+    },
     select: evaluationSelect,
   });
 

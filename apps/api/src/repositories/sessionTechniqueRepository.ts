@@ -8,6 +8,12 @@ export interface BodyRegionDTO {
   zone: string | null;
 }
 
+export interface MuscularChainDTO {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 export interface SessionTechniqueDTO {
   id: string;
   sessionId: string;
@@ -15,6 +21,8 @@ export interface SessionTechniqueDTO {
   techniqueName: string;
   bodyRegionId: string | null;
   bodyRegionName: string | null;
+  muscularChainId: string | null;
+  muscularChainName: string | null;
   variantNotes: string | null;
   createdAt: string;
 }
@@ -22,6 +30,7 @@ export interface SessionTechniqueDTO {
 export interface SessionTechniqueCreateDTO {
   techniqueId: string;
   bodyRegionId?: string | null;
+  muscularChainId?: string | null;
   variantNotes?: string | null;
 }
 
@@ -29,6 +38,7 @@ export interface SessionTechniqueCreateDTO {
 
 export interface SessionTechniqueRepository {
   listBodyRegions(): Promise<BodyRegionDTO[]>;
+  listMuscularChains(): Promise<MuscularChainDTO[]>;
 
   listBySession(
     ctx: TenantContext,

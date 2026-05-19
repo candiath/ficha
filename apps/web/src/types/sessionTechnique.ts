@@ -5,6 +5,8 @@ export interface SessionTechnique {
   techniqueName: string;
   bodyRegionId: string | null;
   bodyRegionName: string | null;
+  muscularChainId: string | null;
+  muscularChainName: string | null;
   variantNotes: string | null;
   createdAt: string;
 }
@@ -12,5 +14,6 @@ export interface SessionTechnique {
 export interface SessionTechniqueCreateEntry {
   techniqueId: string;
   bodyRegionId?: string | null;
+  muscularChainId?: string | null;
   variantNotes?: string | null;
 }

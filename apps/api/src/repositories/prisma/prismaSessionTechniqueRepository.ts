@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma';
 import type { TenantContext } from '../types';
 import type {
   BodyRegionDTO,
+  MuscularChainDTO,
   SessionTechniqueCreateDTO,
   SessionTechniqueDTO,
   SessionTechniqueRepository,
@@ -12,10 +13,12 @@ const techniqueEntrySelect = {
   sessionId: true,
   techniqueId: true,
   bodyRegionId: true,
+  muscularChainId: true,
   variantNotes: true,
   createdAt: true,
   technique: { select: { name: true } },
   bodyRegion: { select: { name: true } },
+  muscularChain: { select: { name: true } },
 } as const;
 
 function toDTO(
@@ -24,10 +27,12 @@ function toDTO(
     sessionId: string;
     techniqueId: string;
     bodyRegionId: string | null;
+    muscularChainId: string | null;
     variantNotes: string | null;
     createdAt: Date;
     technique: { name: string };
     bodyRegion: { name: string } | null;
+    muscularChain: { name: string } | null;
   },
 ): SessionTechniqueDTO {
   return {
@@ -37,6 +42,8 @@ function toDTO(
     techniqueName: row.technique.name,
     bodyRegionId: row.bodyRegionId,
     bodyRegionName: row.bodyRegion?.name ?? null,
+    muscularChainId: row.muscularChainId,
+    muscularChainName: row.muscularChain?.name ?? null,
     variantNotes: row.variantNotes,
     createdAt: row.createdAt.toISOString(),
   };
@@ -47,6 +54,14 @@ export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
     const rows = await prisma.bodyRegion.findMany({
       orderBy: [{ zone: 'asc' }, { name: 'asc' }],
       select: { id: true, name: true, zone: true },
+    });
+    return rows;
+  },
+
+  async listMuscularChains(): Promise<MuscularChainDTO[]> {
+    const rows = await prisma.muscularChain.findMany({
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, description: true },
     });
     return rows;
   },
@@ -94,6 +109,7 @@ export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
             sessionId,
             techniqueId: e.techniqueId,
             bodyRegionId: e.bodyRegionId ?? null,
+            muscularChainId: e.muscularChainId ?? null,
             variantNotes: e.variantNotes ?? null,
           },
         }),

@@ -12,3 +12,4 @@ dist/
 # Misc
 *.local
 .DS_Store
+v0_example

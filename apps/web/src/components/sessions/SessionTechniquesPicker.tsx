@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { techniqueApi, techniqueKeys } from '@/services/techniques';
 import { bodyRegionApi, bodyRegionKeys } from '@/services/bodyRegions';
+import { muscularChainApi, muscularChainKeys } from '@/services/muscularChains';
 
 export interface TechniqueEntry {
   id: string;
@@ -20,6 +21,8 @@ export interface TechniqueEntry {
   techniqueName: string;
   bodyRegionId: string;
   bodyRegionName: string;
+  muscularChainId: string;
+  muscularChainName: string;
   variantNotes: string;
 }
 
@@ -39,8 +42,14 @@ export default function SessionTechniquesPicker({ value, onChange }: Props) {
     queryFn: bodyRegionApi.list,
   });
 
+  const { data: muscularChains = [] } = useQuery({
+    queryKey: muscularChainKeys.all,
+    queryFn: muscularChainApi.list,
+  });
+
   const [selectedTechnique, setSelectedTechnique] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('');
+  const [selectedChain, setSelectedChain] = useState('');
   const [variantNotes, setVariantNotes] = useState('');
 
   function addEntry() {
@@ -48,6 +57,7 @@ export default function SessionTechniquesPicker({ value, onChange }: Props) {
     const technique = techniques.find((t) => t.id === selectedTechnique);
     if (!technique) return;
     const region = bodyRegions.find((r) => r.id === selectedRegion);
+    const chain = muscularChains.find((c) => c.id === selectedChain);
 
     const entry: TechniqueEntry = {
       id: crypto.randomUUID(),
@@ -55,12 +65,15 @@ export default function SessionTechniquesPicker({ value, onChange }: Props) {
       techniqueName: technique.name,
       bodyRegionId: region?.id ?? '',
       bodyRegionName: region?.name ?? '',
+      muscularChainId: chain?.id ?? '',
+      muscularChainName: chain?.name ?? '',
       variantNotes,
     };
 
     onChange([...value, entry]);
     setSelectedTechnique('');
     setSelectedRegion('');
+    setSelectedChain('');
     setVariantNotes('');
   }
 
@@ -76,7 +89,7 @@ export default function SessionTechniquesPicker({ value, onChange }: Props) {
       </div>
 
       {/* Fila para agregar */}
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-end">
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Técnica *</label>
           <Select value={selectedTechnique} onValueChange={(v) => setSelectedTechnique(v ?? '')}>
@@ -110,6 +123,22 @@ export default function SessionTechniquesPicker({ value, onChange }: Props) {
               {bodyRegions.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {r.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Cadena muscular</label>
+          <Select value={selectedChain} onValueChange={(v) => setSelectedChain(v ?? '')}>
+            <SelectTrigger>
+              <SelectValue placeholder="Opcional" />
+            </SelectTrigger>
+            <SelectContent>
+              {muscularChains.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -163,6 +192,14 @@ export default function SessionTechniquesPicker({ value, onChange }: Props) {
                       {entry.bodyRegionName}
                     </Badge>
                   )}
+                  {entry.muscularChainName && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
+                    >
+                      {entry.muscularChainName}
+                    </Badge>
+                  )}  
                   {entry.variantNotes && (
                     <span className="text-muted-foreground text-xs truncate max-w-[160px]">
                       — {entry.variantNotes}

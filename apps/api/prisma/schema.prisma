@@ -30,6 +30,8 @@ model Tenant {
   informedConsents    InformedConsent[]
   auditLogs           AuditLog[]
   clinicalAlerts      ClinicalAlert[]
+  treatmentCycles     TreatmentCycle[]
+  functionalScales    FunctionalScale[]
 
   @@map("tenants")
 }
@@ -65,6 +67,9 @@ model Patient {
   phone            String?
   occupation       String?
   referringDoctor  String?   @map("referring_doctor")
+  insuranceName    String?   @map("insurance_name")
+  insuranceNumber  String?   @map("insurance_number")
+  insurancePlan    String?   @map("insurance_plan")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -76,22 +81,29 @@ model Patient {
   informedConsent   InformedConsent?
   auditLogs         AuditLog[]
   clinicalAlerts    ClinicalAlert[]
+  treatmentCycles   TreatmentCycle[]
+  functionalScales  FunctionalScale[]
 
   @@index([tenantId])
   @@map("patients")
 }
 
 model InitialEvaluation {
-  id                    String   @id @default(uuid())
-  tenantId              String   @map("tenant_id")
-  patientId             String   @unique @map("patient_id")
-  globalPosture         String?  @map("global_posture")
-  breathingPattern      String?  @map("breathing_pattern")
-  medicalHistory        String?  @map("medical_history")
-  reasonForConsultation String?  @map("reason_for_consultation")
-  notes                 String?
-  evaluatedAt           DateTime @default(now()) @map("evaluated_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                      String   @id @default(uuid())
+  tenantId                String   @map("tenant_id")
+  patientId               String   @unique @map("patient_id")
+  globalPosture           String?  @map("global_posture")
+  breathingPattern        String?  @map("breathing_pattern")
+  medicalHistory          String?  @map("medical_history")
+  reasonForConsultation   String?  @map("reason_for_consultation")
+  notes                   String?
+  morphotype              String?
+  retractionMap           Json?    @map("retraction_map")
+  footEvaluation          String?  @map("foot_evaluation")
+  breathingPatternDetail  String?  @map("breathing_pattern_detail")
+  flexibilityNotes        String?  @map("flexibility_notes")
+  evaluatedAt             DateTime @default(now()) @map("evaluated_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
 
   tenant  Tenant             @relation(fields: [tenantId], references: [id])
   patient Patient            @relation(fields: [patientId], references: [id])
@@ -191,17 +203,33 @@ model BodyRegion {
   @@map("body_regions")
 }
 
-model SessionTechnique {
-  id           String   @id @default(uuid())
-  sessionId    String   @map("session_id")
-  techniqueId  String   @map("technique_id")
-  bodyRegionId String?  @map("body_region_id")
-  variantNotes String?  @map("variant_notes")
-  createdAt    DateTime @default(now()) @map("created_at")
+// Catálogo global de cadenas musculares según el Método Souchard (RPG).
+// Sin tenant_id: es compartido por todos los tenants.
+model MuscularChain {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  session    Session    @relation(fields: [sessionId], references: [id])
-  technique  Technique  @relation(fields: [techniqueId], references: [id])
-  bodyRegion BodyRegion? @relation(fields: [bodyRegionId], references: [id])
+  sessions        SessionTechnique[]
+  treatmentCycles TreatmentCycle[]
+
+  @@map("muscular_chains")
+}
+
+model SessionTechnique {
+  id              String   @id @default(uuid())
+  sessionId       String   @map("session_id")
+  techniqueId     String   @map("technique_id")
+  bodyRegionId    String?  @map("body_region_id")
+  muscularChainId String?  @map("muscular_chain_id")
+  variantNotes    String?  @map("variant_notes")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  session       Session       @relation(fields: [sessionId], references: [id])
+  technique     Technique     @relation(fields: [techniqueId], references: [id])
+  bodyRegion    BodyRegion?   @relation(fields: [bodyRegionId], references: [id])
+  muscularChain MuscularChain? @relation(fields: [muscularChainId], references: [id])
 
   @@map("session_techniques")
 }
@@ -356,4 +384,71 @@ model ClinicalAlert {
   @@index([patientId])
   @@index([isRead])
   @@map("clinical_alerts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan de tratamiento por ciclos (Método Souchard).
+// Un paciente puede tener varios ciclos en el tiempo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum CycleStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+}
+
+model TreatmentCycle {
+  id                String      @id @default(uuid())
+  tenantId          String      @map("tenant_id")
+  patientId         String      @map("patient_id")
+  name              String
+  mainChainId       String?     @map("main_chain_id")
+  objective         String?
+  targetSessions    Int?        @map("target_sessions")
+  reevalEvery       Int?        @map("reeval_every")
+  dischargeCriteria String?     @map("discharge_criteria")
+  status            CycleStatus @default(ACTIVE)
+  startedAt         DateTime    @default(now()) @map("started_at")
+  completedAt       DateTime?   @map("completed_at")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  patient     Patient        @relation(fields: [patientId], references: [id])
+  mainChain   MuscularChain? @relation(fields: [mainChainId], references: [id])
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@map("treatment_cycles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Escalas funcionales estandarizadas (Oswestry, NDI).
+// responses almacena el mapa {pregunta: valor} como JSON.
+// score e interpretation se calculan en el servidor al momento de guardar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ScaleType {
+  OSWESTRY
+  NDI
+}
+
+model FunctionalScale {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  patientId      String    @map("patient_id")
+  scaleType      ScaleType @map("scale_type")
+  responses      Json
+  score          Int
+  interpretation String
+  appliedAt      DateTime  @default(now()) @map("applied_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([appliedAt])
+  @@map("functional_scales")
 }

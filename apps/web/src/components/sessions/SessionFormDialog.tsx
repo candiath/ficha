@@ -30,6 +30,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments';
 import { sessionApi, sessionKeys } from '@/services/sessions';
+import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques';
 import { SESSION_TYPE_LABELS } from '@/lib/labels';
 import { toast } from 'sonner';
 import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPicker';
@@ -66,6 +67,30 @@ export default function SessionFormDialog({ open, onClose, patientId, session }:
   const queryClient = useQueryClient();
   const isEditing = !!session;
   const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([]);
+
+  // Cargar técnicas existentes al editar
+  const { data: existingTechniques } = useQuery({
+    queryKey: sessionTechniqueKeys.list(patientId, session?.id ?? ''),
+    queryFn: () => sessionTechniqueApi.list(patientId, session!.id),
+    enabled: isEditing && !!session?.id,
+  });
+
+  useEffect(() => {
+    if (isEditing && existingTechniques) {
+      setTechniqueEntries(
+        existingTechniques.map((t) => ({
+          id: t.id,
+          techniqueId: t.techniqueId,
+          techniqueName: t.techniqueName,
+          bodyRegionId: t.bodyRegionId ?? '',
+          bodyRegionName: t.bodyRegionName ?? '',
+          muscularChainId: t.muscularChainId ?? '',
+          muscularChainName: t.muscularChainName ?? '',
+          variantNotes: t.variantNotes ?? '',
+        })),
+      );
+    }
+  }, [isEditing, existingTechniques]);
 
   // Último precio base para pre-llenar (solo en modo creación)
   const { data: lastPriceData } = useQuery({
@@ -162,10 +187,24 @@ export default function SessionFormDialog({ open, onClose, patientId, session }:
       };
 
       if (isEditing) {
-        return sessionApi.update(patientId, session.id, sessionData);
+        const updated = await sessionApi.update(patientId, session.id, sessionData);
+        // Guardar técnicas en edición también
+        if (techniqueEntries.length > 0 || existingTechniques?.length) {
+          await sessionTechniqueApi.bulkReplace(
+            patientId,
+            session.id,
+            techniqueEntries.map((e) => ({
+              techniqueId: e.techniqueId,
+              bodyRegionId: e.bodyRegionId || null,
+              muscularChainId: e.muscularChainId || null,
+              variantNotes: e.variantNotes || null,
+            })),
+          );
+        }
+        return updated;
       }
 
-      // Crear sesión y luego el pago asociado
+      // Crear sesión y luego el pago y técnicas
       const newSession = await sessionApi.create(patientId, sessionData);
       await paymentApi.create({
         patientId,
@@ -175,6 +214,18 @@ export default function SessionFormDialog({ open, onClose, patientId, session }:
         discount: values.discount ? parseFloat(values.discount) : 0,
         notes: values.paymentNotes || null,
       });
+      if (techniqueEntries.length > 0) {
+        await sessionTechniqueApi.bulkReplace(
+          patientId,
+          newSession.id,
+          techniqueEntries.map((e) => ({
+            techniqueId: e.techniqueId,
+            bodyRegionId: e.bodyRegionId || null,
+            muscularChainId: e.muscularChainId || null,
+            variantNotes: e.variantNotes || null,
+          })),
+        );
+      }
       return newSession;
     },
     onSuccess: () => {

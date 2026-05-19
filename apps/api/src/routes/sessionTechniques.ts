@@ -13,6 +13,7 @@ const BulkReplaceSchema = z.object({
     z.object({
       techniqueId: z.string().uuid(),
       bodyRegionId: z.string().uuid().optional().nullable(),
+      muscularChainId: z.string().uuid().optional().nullable(),
       variantNotes: z.string().optional().nullable(),
     }),
   ),

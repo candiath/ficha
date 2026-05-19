@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronLeft, ChevronRight, Pencil, Plus } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -16,12 +16,17 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
+import TreatmentCycleTab from '@/components/patients/TreatmentCycleTab';
+import FunctionalScalesTab from '@/components/patients/FunctionalScalesTab';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/SessionFormDialog';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
@@ -29,6 +34,7 @@ import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
 import { SEX_CLASS, SEX_LABELS, SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
+import type { BodyMarker } from '@/types/evaluation';
 import type { Session } from '@/types/session';
 
 const evalSchema = z.object({
@@ -37,6 +43,10 @@ const evalSchema = z.object({
   globalPosture: z.string().optional().or(z.literal('')),
   breathingPattern: z.string().optional().or(z.literal('')),
   notes: z.string().optional().or(z.literal('')),
+  morphotype: z.string().optional().or(z.literal('')),
+  footEvaluation: z.string().optional().or(z.literal('')),
+  breathingPatternDetail: z.string().optional().or(z.literal('')),
+  flexibilityNotes: z.string().optional().or(z.literal('')),
 });
 
 type EvalFormValues = z.infer<typeof evalSchema>;
@@ -74,6 +84,7 @@ function DetailField({ label, value }: { label: string; value?: React.ReactNode 
 
 function EvaluationTab({ patientId }: { patientId: string }) {
   const queryClient = useQueryClient();
+  const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
 
   const { data: evaluation, isLoading } = useQuery({
     queryKey: evaluationKeys.detail(patientId),
@@ -88,6 +99,10 @@ function EvaluationTab({ patientId }: { patientId: string }) {
       globalPosture: '',
       breathingPattern: '',
       notes: '',
+      morphotype: '',
+      footEvaluation: '',
+      breathingPatternDetail: '',
+      flexibilityNotes: '',
     },
   });
 
@@ -100,7 +115,12 @@ function EvaluationTab({ patientId }: { patientId: string }) {
         globalPosture: evaluation.globalPosture ?? '',
         breathingPattern: evaluation.breathingPattern ?? '',
         notes: evaluation.notes ?? '',
+        morphotype: evaluation.morphotype ?? '',
+        footEvaluation: evaluation.footEvaluation ?? '',
+        breathingPatternDetail: evaluation.breathingPatternDetail ?? '',
+        flexibilityNotes: evaluation.flexibilityNotes ?? '',
       });
+      setRetractionMap(evaluation.retractionMap ?? []);
     }
   }, [evaluation, form]);
 
@@ -112,6 +132,11 @@ function EvaluationTab({ patientId }: { patientId: string }) {
         globalPosture: values.globalPosture || null,
         breathingPattern: values.breathingPattern || null,
         notes: values.notes || null,
+        morphotype: values.morphotype || null,
+        retractionMap: retractionMap.length > 0 ? retractionMap : null,
+        footEvaluation: values.footEvaluation || null,
+        breathingPatternDetail: values.breathingPatternDetail || null,
+        flexibilityNotes: values.flexibilityNotes || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId) });
@@ -194,17 +219,58 @@ function EvaluationTab({ patientId }: { patientId: string }) {
                 </FormItem>
               )}
             />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="morphotype"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Morfotipo</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Inspiratorio-retraído, abierto..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="breathingPatternDetail"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Patrón respiratorio detallado</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="costal_superior">Costal superior</SelectItem>
+                        <SelectItem value="diafragmatico">Diafragmático</SelectItem>
+                        <SelectItem value="abdominal">Abdominal</SelectItem>
+                        <SelectItem value="paradojico">Paradójico</SelectItem>
+                        <SelectItem value="mixto">Mixto</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <FormField
               control={form.control}
               name="breathingPattern"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Patrón respiratorio</FormLabel>
+                  <FormLabel>Patrón respiratorio (notas)</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Tipo de respiración, restricciones..."
+                      placeholder="Detalles adicionales sobre la respiración..."
                       className="resize-none"
-                      rows={3}
+                      rows={2}
                       {...field}
                     />
                   </FormControl>
@@ -212,6 +278,69 @@ function EvaluationTab({ patientId }: { patientId: string }) {
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="footEvaluation"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Evaluación de pies</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Pie plano, cavo, valgo, varo..."
+                      className="resize-none"
+                      rows={2}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="flexibilityNotes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Test de flexibilidad / acortamientos</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Isquiotibiales, psoas, trapecio superior..."
+                      className="resize-none"
+                      rows={2}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <Separator />
+
+            {/* Mapa corporal */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Mapa corporal — Retracciones</h3>
+              <p className="text-xs text-muted-foreground">
+                Marcá zonas de retracción, dolor o alteración en el diagrama.
+                Los cambios se guardan junto con la evaluación.
+              </p>
+              <BodyDiagram
+                markers={retractionMap}
+                onAddMarker={(marker) =>
+                  setRetractionMap((prev) => [
+                    ...prev,
+                    { ...marker, id: crypto.randomUUID() },
+                  ])
+                }
+                onRemoveMarker={(id) =>
+                  setRetractionMap((prev) => prev.filter((m) => m.id !== id))
+                }
+              />
+            </div>
+
+            <Separator />
             <FormField
               control={form.control}
               name="notes"
@@ -445,10 +574,16 @@ export default function PatientDetailPage() {
             {age && ` · ${age}`}
           </p>
         </div>
-        <Button variant="outline" onClick={() => setEditOpen(true)}>
-          <Pencil className="h-4 w-4 mr-2" />
-          Editar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" disabled>
+            <FileText className="h-4 w-4 mr-2" />
+            Descargar informe
+          </Button>
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Editar
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -457,6 +592,8 @@ export default function PatientDetailPage() {
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
           <TabsTrigger value="sesiones">Sesiones</TabsTrigger>
+          <TabsTrigger value="plan">Plan</TabsTrigger>
+          <TabsTrigger value="escalas">Escalas</TabsTrigger>
           <TabsTrigger value="consentimiento">Consentimiento</TabsTrigger>
           <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
@@ -490,6 +627,14 @@ export default function PatientDetailPage() {
                 <DetailField label="Teléfono" value={patient.phone} />
                 <DetailField label="Ocupación" value={patient.occupation} />
                 <DetailField label="Médico derivante" value={patient.referringDoctor} />
+                {(patient.insuranceName || patient.insuranceNumber || patient.insurancePlan) && (
+                  <>
+                    <div className="col-span-2 border-t mt-1 pt-1" />
+                    <DetailField label="Obra social" value={patient.insuranceName} />
+                    <DetailField label="N° afiliado" value={patient.insuranceNumber} />
+                    <DetailField label="Plan" value={patient.insurancePlan} />
+                  </>
+                )}
               </dl>
             </CardContent>
           </Card>
@@ -503,6 +648,16 @@ export default function PatientDetailPage() {
         {/* ── Sesiones ── */}
         <TabsContent value="sesiones" className="mt-6">
           <SessionsTab patientId={id!} />
+        </TabsContent>
+
+        {/* ── Plan ── */}
+        <TabsContent value="plan" className="mt-6">
+          <TreatmentCycleTab patientId={id!} />
+        </TabsContent>
+
+        {/* ── Escalas ── */}
+        <TabsContent value="escalas" className="mt-6">
+          <FunctionalScalesTab patientId={id!} />
         </TabsContent>
 
         {/* ── Consentimiento ── */}

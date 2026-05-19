@@ -37,6 +37,9 @@ const schema = z.object({
   phone: z.string().optional().or(z.literal('')),
   occupation: z.string().optional().or(z.literal('')),
   referringDoctor: z.string().optional().or(z.literal('')),
+  insuranceName: z.string().optional().or(z.literal('')),
+  insuranceNumber: z.string().optional().or(z.literal('')),
+  insurancePlan: z.string().optional().or(z.literal('')),
 });
 
 import { SEX_LABELS } from '@/lib/labels';
@@ -62,6 +65,9 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
       phone: '',
       occupation: '',
       referringDoctor: '',
+      insuranceName: '',
+      insuranceNumber: '',
+      insurancePlan: '',
     },
   });
 
@@ -75,6 +81,9 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
         phone: patient?.phone ?? '',
         occupation: patient?.occupation ?? '',
         referringDoctor: patient?.referringDoctor ?? '',
+        insuranceName: patient?.insuranceName ?? '',
+        insuranceNumber: patient?.insuranceNumber ?? '',
+        insurancePlan: patient?.insurancePlan ?? '',
       });
     }
   }, [open, patient]);
@@ -87,6 +96,9 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
         phone: values.phone || null,
         occupation: values.occupation || null,
         referringDoctor: values.referringDoctor || null,
+        insuranceName: values.insuranceName || null,
+        insuranceNumber: values.insuranceNumber || null,
+        insurancePlan: values.insurancePlan || null,
       };
       return isEditing
         ? patientApi.update(patient.id, data)
@@ -213,6 +225,54 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
                 </FormItem>
               )}
             />
+
+            {/* Cobertura médica */}
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium mb-3">Cobertura médica</p>
+              <div className="space-y-3">
+                <FormField
+                  control={form.control}
+                  name="insuranceName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Obra social / Prepaga</FormLabel>
+                      <FormControl>
+                        <Input placeholder="OSDE, Swiss Medical, IOMA…" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="insuranceNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Número de afiliado</FormLabel>
+                        <FormControl>
+                          <Input placeholder="1234567" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="insurancePlan"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Plan</FormLabel>
+                        <FormControl>
+                          <Input placeholder="210, Gold…" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </div>
 
             {mutation.isError && (
               <p className="text-destructive text-sm">

@@ -16,6 +16,9 @@ const patientSelect = {
   phone: true,
   occupation: true,
   referringDoctor: true,
+  insuranceName: true,
+  insuranceNumber: true,
+  insurancePlan: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -28,6 +31,9 @@ const PatientCreateSchema = z.object({
   phone: z.string().optional().nullable(),
   occupation: z.string().optional().nullable(),
   referringDoctor: z.string().optional().nullable(),
+  insuranceName: z.string().optional().nullable(),
+  insuranceNumber: z.string().optional().nullable(),
+  insurancePlan: z.string().optional().nullable(),
 });
 
 const PatientUpdateSchema = PatientCreateSchema.partial();
