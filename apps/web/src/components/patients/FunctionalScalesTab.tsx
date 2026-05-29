@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ChevronDown, TrendingUp } from 'lucide-react';
+import { Plus, Trash2, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -474,7 +474,7 @@ export default function FunctionalScalesTab({ patientId }: Props) {
                   <Select
                     value={responses[q.key] !== undefined ? String(responses[q.key]) : ''}
                     onValueChange={(v) =>
-                      setResponses((prev) => ({ ...prev, [q.key]: parseInt(v, 10) }))
+                      setResponses((prev) => ({ ...prev, [q.key]: parseInt(v ?? '', 10) }))
                     }
                   >
                     <SelectTrigger>
