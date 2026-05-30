@@ -20,5 +20,5 @@ export const treatmentCycleApi = {
     api.patch<TreatmentCycle>(`/api/patients/${patientId}/cycles/${cycleId}`, data),
 
   delete: (patientId: string, cycleId: string) =>
-    api.delete<void>(`/api/patients/${patientId}/cycles/${cycleId}`),
+    api.delete(`/api/patients/${patientId}/cycles/${cycleId}`),
 };
