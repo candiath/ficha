@@ -22,8 +22,11 @@ import functionalScalesRouter from './routes/functionalScales';
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-// Permite localhost y cualquier IP de red local (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
-const ALLOWED_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/;
+// Permite localhost, IPs locales y el despliegue en Netlify
+const ALLOWED_ORIGIN = [
+  /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/,
+  /^https:\/\/(.+\.)?netlify\.app$/,
+];
 app.use(cors({ origin: ALLOWED_ORIGIN }));
 app.use(express.json());
 
