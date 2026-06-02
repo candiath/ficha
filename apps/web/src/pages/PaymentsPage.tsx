@@ -18,7 +18,7 @@ import {
   ChevronsRight,
   CreditCard,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -167,6 +167,7 @@ function buildColumns(onMarkPaid: (p: Payment) => void): ColumnDef<Payment>[] {
 }
 
 export default function PaymentsPage() {
+  useEffect(() => { document.title = 'Pagos'; }, []);
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sorting, setSorting] = useState<SortingState>([]);

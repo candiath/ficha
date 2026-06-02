@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { CalendarDays } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useDisclosure } from '@/hooks/useDisclosure';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
+import SessionFormModalWide from '@/components/sessions/sessionFormModalWide';
 import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
 import { globalSessionApi, globalSessionKeys } from '@/services/globalSessions';
 import type { GlobalSession } from '@/types/globalSession';
@@ -30,7 +32,9 @@ function PainDelta({ before, after }: { before: number | null; after: number | n
 }
 
 export default function SessionsPage() {
+  useEffect(() => { document.title = 'Sesiones'; }, []);
   const [selected, setSelected] = useState<GlobalSession | null>(null);
+  const newSession = useDisclosure();
 
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: globalSessionKeys.all,
@@ -39,11 +43,14 @@ export default function SessionsPage() {
 
   return (
     <div className="p-6 max-w-8xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold tracking-tight">Sesiones</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Historial de sesiones de todos los pacientes
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Sesiones</h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            Historial de sesiones de todos los pacientes
+          </p>
+        </div>
+        <Button onClick={newSession.onOpen}>Nueva sesión</Button>
       </div>
 
       {isLoading ? (
@@ -114,6 +121,11 @@ export default function SessionsPage() {
           </Table>
         </div>
       )}
+
+      <SessionFormModalWide
+        open={newSession.open}
+        onOpenChange={newSession.onOpenChange}
+      />
 
       <SessionDetailSheet
         session={selected as never}

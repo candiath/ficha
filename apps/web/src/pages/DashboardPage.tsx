@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -60,6 +60,7 @@ function getUpcoming() {
 }
 
 export default function DashboardPage() {
+  useEffect(() => { document.title = 'Dashboard'; }, []);
   const [query, setQuery] = useState('')
   const [showResults, setShowResults] = useState(false)
 

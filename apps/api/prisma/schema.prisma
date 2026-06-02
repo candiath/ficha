@@ -102,6 +102,11 @@ model InitialEvaluation {
   footEvaluation          String?  @map("foot_evaluation")
   breathingPatternDetail  String?  @map("breathing_pattern_detail")
   flexibilityNotes        String?  @map("flexibility_notes")
+  physicalActivity        String?  @map("physical_activity")
+  painAppearanceMoment    String?  @map("pain_appearance_moment")
+  familyPainAppearance    Json?    @map("family_pain_appearance")
+  familyPainDisappearance Json?    @map("family_pain_disappearance")
+  evaScale                Int?     @map("eva_scale")
   evaluatedAt             DateTime @default(now()) @map("evaluated_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 

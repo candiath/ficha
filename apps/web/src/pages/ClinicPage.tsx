@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Building2, Clock, Globe, Mail, MapPin, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,7 @@ const DEV_TENANT = {
 };
 
 export default function ClinicPage() {
+  useEffect(() => { document.title = 'Clínica'; }, []);
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-6">

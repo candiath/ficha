@@ -23,6 +23,11 @@ const evaluationSelect = {
   footEvaluation: true,
   breathingPatternDetail: true,
   flexibilityNotes: true,
+  physicalActivity: true,
+  painAppearanceMoment: true,
+  familyPainAppearance: true,
+  familyPainDisappearance: true,
+  evaScale: true,
   evaluatedAt: true,
   updatedAt: true,
 } as const;
@@ -38,6 +43,11 @@ const EvaluationSchema = z.object({
   footEvaluation: z.string().optional().nullable(),
   breathingPatternDetail: z.string().optional().nullable(),
   flexibilityNotes: z.string().optional().nullable(),
+  physicalActivity: z.string().optional().nullable(),
+  painAppearanceMoment: z.string().optional().nullable(),
+  familyPainAppearance: z.unknown().optional().nullable(),
+  familyPainDisappearance: z.unknown().optional().nullable(),
+  evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 
 // Verificar que el paciente pertenece al tenant antes de operar.
@@ -86,12 +96,16 @@ router.put<Params>('/', async (req, res) => {
     create: {
       ...body,
       retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
+      familyPainAppearance: body.familyPainAppearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
+      familyPainDisappearance: body.familyPainDisappearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
       patientId: req.params.patientId,
       tenantId: DEV_CONTEXT.tenantId,
     },
     update: {
       ...body,
       retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
+      familyPainAppearance: body.familyPainAppearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
+      familyPainDisappearance: body.familyPainDisappearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
     },
     select: evaluationSelect,
   });

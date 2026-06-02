@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Dumbbell, Search, Clock, RotateCcw, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,7 @@ const DIFFICULTY_VARIANTS: Record<ExerciseDifficulty, 'outline' | 'secondary' | 
 }
 
 export default function EjerciciosPage() {
+  useEffect(() => { document.title = 'Ejercicios'; }, []);
   const [query,             setQuery]             = useState('')
   const [category,          setCategory]          = useState<ExerciseCategory | 'Todos'>('Todos')
   const [expanded,          setExpanded]          = useState<string | null>(null)

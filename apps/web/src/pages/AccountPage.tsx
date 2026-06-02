@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { KeyRound, Mail, ShieldCheck, User, UserCog } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ const DEV_USER = {
 };
 
 export default function AccountPage() {
+  useEffect(() => { document.title = 'Mi cuenta'; }, []);
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-6">
