@@ -11,6 +11,11 @@ export interface InitialEvaluation {
   footEvaluation: string | null;
   breathingPatternDetail: string | null;
   flexibilityNotes: string | null;
+  physicalActivity: string | null;
+  painAppearanceMoment: string | null;
+  familyPainAppearance: string[] | null;
+  familyPainDisappearance: string[] | null;
+  evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
 }

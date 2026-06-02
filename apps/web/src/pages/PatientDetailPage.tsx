@@ -28,7 +28,7 @@ import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import TreatmentCycleTab from '@/components/patients/TreatmentCycleTab';
 import FunctionalScalesTab from '@/components/patients/FunctionalScalesTab';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
-import SessionFormDialog from '@/components/sessions/SessionFormDialog';
+import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
@@ -47,6 +47,11 @@ const evalSchema = z.object({
   footEvaluation: z.string().optional().or(z.literal('')),
   breathingPatternDetail: z.string().optional().or(z.literal('')),
   flexibilityNotes: z.string().optional().or(z.literal('')),
+  physicalActivity: z.string().optional().or(z.literal('')),
+  painAppearanceMoment: z.string().optional().or(z.literal('')),
+  familyPainAppearance: z.array(z.string()).optional(),
+  familyPainDisappearance: z.array(z.string()).optional(),
+  evaScale: z.string().optional().or(z.literal('')),
 });
 
 type EvalFormValues = z.infer<typeof evalSchema>;
@@ -103,6 +108,11 @@ function EvaluationTab({ patientId }: { patientId: string }) {
       footEvaluation: '',
       breathingPatternDetail: '',
       flexibilityNotes: '',
+      physicalActivity: '',
+      painAppearanceMoment: '',
+      familyPainAppearance: [],
+      familyPainDisappearance: [],
+      evaScale: '',
     },
   });
 
@@ -119,6 +129,11 @@ function EvaluationTab({ patientId }: { patientId: string }) {
         footEvaluation: evaluation.footEvaluation ?? '',
         breathingPatternDetail: evaluation.breathingPatternDetail ?? '',
         flexibilityNotes: evaluation.flexibilityNotes ?? '',
+        physicalActivity: evaluation.physicalActivity ?? '',
+        painAppearanceMoment: evaluation.painAppearanceMoment ?? '',
+        familyPainAppearance: (evaluation.familyPainAppearance as string[] | null) ?? [],
+        familyPainDisappearance: (evaluation.familyPainDisappearance as string[] | null) ?? [],
+        evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
       setRetractionMap(evaluation.retractionMap ?? []);
     }
@@ -137,6 +152,11 @@ function EvaluationTab({ patientId }: { patientId: string }) {
         footEvaluation: values.footEvaluation || null,
         breathingPatternDetail: values.breathingPatternDetail || null,
         flexibilityNotes: values.flexibilityNotes || null,
+        physicalActivity: values.physicalActivity || null,
+        painAppearanceMoment: values.painAppearanceMoment || null,
+        familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
+        familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
+        evaScale: values.evaScale ? Number(values.evaScale) : null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId) });
@@ -309,6 +329,154 @@ function EvaluationTab({ patientId }: { patientId: string }) {
                       placeholder="Isquiotibiales, psoas, trapecio superior..."
                       className="resize-none"
                       rows={2}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="physicalActivity"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Realiza actividad física</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Descripción de la actividad física que realiza..."
+                      className="resize-none"
+                      rows={2}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="painAppearanceMoment"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Momento de aparición del dolor</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Ej: Por las mañanas, después de actividad, en reposo..."
+                      className="resize-none"
+                      rows={2}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="familyPainAppearance"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Aparición del dolor en familia</FormLabel>
+                    <FormControl>
+                      <div className="space-y-2">
+                        <Select value="" onValueChange={(value) => {
+                          if (value && !field.value?.includes(value)) {
+                            field.onChange([...(field.value ?? []), value]);
+                          }
+                        }}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar familia..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Familia 1</SelectItem>
+                            <SelectItem value="2">Familia 2</SelectItem>
+                            <SelectItem value="3">Familia 3</SelectItem>
+                            <SelectItem value="4">Familia 4</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <div className="flex flex-wrap gap-2">
+                          {field.value?.map((familyId) => (
+                            <span key={familyId} className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded-full text-xs">
+                              Familia {familyId}
+                              <button
+                                type="button"
+                                onClick={() => field.onChange(field.value?.filter(id => id !== familyId) ?? [])}
+                                className="ml-1 hover:opacity-70"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="familyPainDisappearance"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Desaparición del dolor en familia</FormLabel>
+                    <FormControl>
+                      <div className="space-y-2">
+                        <Select value="" onValueChange={(value) => {
+                          if (value && !field.value?.includes(value)) {
+                            field.onChange([...(field.value ?? []), value]);
+                          }
+                        }}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar familia..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Familia 1</SelectItem>
+                            <SelectItem value="2">Familia 2</SelectItem>
+                            <SelectItem value="3">Familia 3</SelectItem>
+                            <SelectItem value="4">Familia 4</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <div className="flex flex-wrap gap-2">
+                          {field.value?.map((familyId) => (
+                            <span key={familyId} className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded-full text-xs">
+                              Familia {familyId}
+                              <button
+                                type="button"
+                                onClick={() => field.onChange(field.value?.filter(id => id !== familyId) ?? [])}
+                                className="ml-1 hover:opacity-70"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="evaScale"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Escala EVA (cuando siente dolor)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="10"
+                      placeholder="0-10"
                       {...field}
                     />
                   </FormControl>
@@ -513,7 +681,7 @@ function SessionsTab({ patientId }: { patientId: string }) {
 
       <SessionFormDialog
         open={newOpen}
-        onClose={() => setNewOpen(false)}
+        onOpenChange={setNewOpen}
         patientId={patientId}
       />
 
@@ -526,10 +694,21 @@ function SessionsTab({ patientId }: { patientId: string }) {
   );
 }
 
+const TAB_COMPONENT: Record<string, string> = {
+  resumen: 'PatientDetailPage',
+  evaluacion: 'EvaluationTab',
+  sesiones: 'SessionsTab',
+  plan: 'TreatmentCycleTab',
+  escalas: 'FunctionalScalesTab',
+  consentimiento: 'ConsentTab',
+  actividad: 'ActivityTimeline',
+};
+
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('resumen');
 
   const {
     data: patient,
@@ -540,6 +719,8 @@ export default function PatientDetailPage() {
     queryFn: () => patientApi.get(id!),
     enabled: !!id,
   });
+
+  useEffect(() => { document.title = TAB_COMPONENT[activeTab] ?? 'PatientDetailPage'; }, [activeTab]);
 
   if (isLoading) {
     return <div className="p-6 text-sm text-muted-foreground">Cargando...</div>;
@@ -587,7 +768,7 @@ export default function PatientDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="resumen">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList variant="line">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>

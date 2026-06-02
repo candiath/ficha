@@ -21,7 +21,7 @@ import {
   Pencil,
   Plus,
   Trash2,
-} from 'lucide-react';import { Link } from 'react-router-dom';import { useState } from 'react';
+} from 'lucide-react';import { Link } from 'react-router-dom';import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -161,6 +161,7 @@ function buildColumns(
 }
 
 export default function PatientsPage() {
+  useEffect(() => { document.title = 'Pacientes'; }, []);
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | undefined>();

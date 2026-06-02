@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
-import SessionFormDialog from '@/components/sessions/SessionFormDialog';
+import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import type { Session } from '@/types/session';
 
 function PainScale({ value, label }: { value: number | null; label: string }) {
@@ -160,7 +160,7 @@ export default function SessionDetailSheet({ session, patientId, onClose }: Prop
 
       <SessionFormDialog
         open={editOpen}
-        onClose={() => setEditOpen(false)}
+        onOpenChange={setEditOpen}
         patientId={patientId}
         session={session}
       />

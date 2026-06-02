@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -105,6 +105,7 @@ function firstDayOfMonth(year: number, month: number) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TurnosPage() {
+  useEffect(() => { document.title = 'Turnos'; }, []);
   const [currentDate, setCurrentDate]         = useState(new Date(2026, 2, 1))
   const [selectedDate, setSelectedDate]       = useState(TODAY)
   const [showNewAppointment, setShowNewAppointment] = useState(false)

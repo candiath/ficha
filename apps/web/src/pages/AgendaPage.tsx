@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, Printer } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -62,6 +62,7 @@ function formatDateRange(dates: Date[]): string {
 }
 
 export default function AgendaPage() {
+  useEffect(() => { document.title = 'Agenda'; }, []);
   const [weekStart, setWeekStart] = useState(() => getMondayOf(new Date()))
 
   const weekDates = getWeekDates(weekStart)

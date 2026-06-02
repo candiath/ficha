@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MessageSquare, Plus, Copy, Bell, AlertCircle, Calendar, CreditCard, Check } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -57,6 +57,7 @@ function interpolate(content: string, patientName: string) {
 }
 
 export default function MensajesPage() {
+  useEffect(() => { document.title = 'Mensajes'; }, []);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
   const [selectedPatient,  setSelectedPatient]  = useState<string>('')
   const [preview,          setPreview]          = useState('')
