@@ -1,9 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
@@ -30,6 +32,7 @@ import FunctionalScalesTab from '@/components/patients/FunctionalScalesTab';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
+import { toast } from 'sonner';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
@@ -78,6 +81,20 @@ function getAge(iso: string | null | undefined): string | undefined {
   return `${age} años`;
 }
 
+function DirtyLabel({ label, dirty }: { label: string; dirty?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      {label}
+      {dirty && (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+          Modificado
+        </span>
+      )}
+    </span>
+  );
+}
+
 function DetailField({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
     <div className="space-y-1">
@@ -89,9 +106,10 @@ function DetailField({ label, value }: { label: string; value?: React.ReactNode 
   );
 }
 
-function EvaluationTab({ patientId, occupation }: { patientId: string; occupation?: string | null }) {
+function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { patientId: string; occupation?: string | null; onUnsavedChangesChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
+  const [retractionMapDirty, setRetractionMapDirty] = useState(false);
 
   const { data: evaluation, isLoading } = useQuery({
     queryKey: evaluationKeys.detail(patientId),
@@ -119,6 +137,19 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
       evaScale: '',
     },
   });
+  const { isDirty, dirtyFields } = form.formState;
+  const hasUnsavedChanges = isDirty || retractionMapDirty;
+
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onUnsavedChangesChange]);
+
+  // Advertir al cerrar/recargar el browser
+  useBeforeUnload(
+    useCallback((e) => {
+      if (hasUnsavedChanges) e.preventDefault();
+    }, [hasUnsavedChanges]),
+  );
 
   // Pre-fill when data loads (evaluation may be null on first visit)
   useEffect(() => {
@@ -145,9 +176,11 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
         familyPainDisappearance: (evaluation.familyPainDisappearance as string[] | null) ?? [],
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRetractionMap(evaluation.retractionMap ?? []);
+      setRetractionMapDirty(false);
     }
-  }, [evaluation, form]);
+  }, [evaluation, form, occupation]);
 
   const mutation = useMutation({
     mutationFn: async (values: EvalFormValues) => {
@@ -178,6 +211,8 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
+      setRetractionMapDirty(false);
+      toast.success('Evaluación guardada');
     },
   });
 
@@ -209,7 +244,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="physicalActivity"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Realiza actividad física</FormLabel>
+                  <FormLabel><DirtyLabel label="Realiza actividad física" dirty={dirtyFields.physicalActivity} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Descripción de la actividad física que realiza..."
@@ -228,7 +263,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="occupation"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Ocupación</FormLabel>
+                  <FormLabel><DirtyLabel label="Ocupación" dirty={dirtyFields.occupation} /></FormLabel>
                   <FormControl>
                     <Input placeholder="Ej: Docente, oficinista, deportista..." {...field} />
                   </FormControl>
@@ -243,7 +278,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
                 name="painAppearanceMoment"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Momento de aparición del dolor</FormLabel>
+                    <FormLabel><DirtyLabel label="Momento de aparición del dolor" dirty={dirtyFields.painAppearanceMoment} /></FormLabel>
                     <FormControl>
                       <Textarea
                         placeholder="Ej: Por las mañanas, después de actividad, en reposo..."
@@ -261,7 +296,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
                 name="painFrequency"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Frecuencia del dolor</FormLabel>
+                    <FormLabel><DirtyLabel label="Frecuencia del dolor" dirty={dirtyFields.painFrequency} /></FormLabel>
                     <FormControl>
                       <Textarea
                         placeholder="Ej: Diario, intermitente, solo al moverse..."
@@ -281,7 +316,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="reasonForConsultation"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Motivo de consulta</FormLabel>
+                  <FormLabel><DirtyLabel label="Motivo de consulta" dirty={dirtyFields.reasonForConsultation} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="¿Por qué consulta el paciente?"
@@ -299,7 +334,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="medicalHistory"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Historia clínica</FormLabel>
+                  <FormLabel><DirtyLabel label="Historia clínica" dirty={dirtyFields.medicalHistory} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Antecedentes relevantes, diagnósticos previos..."
@@ -317,7 +352,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="globalPosture"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Postura global</FormLabel>
+                  <FormLabel><DirtyLabel label="Postura global" dirty={dirtyFields.globalPosture} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Observaciones posturales..."
@@ -337,7 +372,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
                 name="morphotype"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Morfotipo</FormLabel>
+                    <FormLabel><DirtyLabel label="Morfotipo" dirty={dirtyFields.morphotype} /></FormLabel>
                     <FormControl>
                       <Input placeholder="Inspiratorio-retraído, abierto..." {...field} />
                     </FormControl>
@@ -350,7 +385,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
                 name="breathingPatternDetail"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Patrón respiratorio detallado</FormLabel>
+                    <FormLabel><DirtyLabel label="Patrón respiratorio detallado" dirty={dirtyFields.breathingPatternDetail} /></FormLabel>
                     <Select onValueChange={field.onChange} value={field.value ?? ''}>
                       <FormControl>
                         <SelectTrigger>
@@ -376,7 +411,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="breathingPattern"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Patrón respiratorio (notas)</FormLabel>
+                  <FormLabel><DirtyLabel label="Patrón respiratorio (notas)" dirty={dirtyFields.breathingPattern} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Detalles adicionales sobre la respiración..."
@@ -395,7 +430,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="footEvaluation"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Evaluación de pies</FormLabel>
+                  <FormLabel><DirtyLabel label="Evaluación de pies" dirty={dirtyFields.footEvaluation} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Pie plano, cavo, valgo, varo..."
@@ -414,7 +449,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="flexibilityNotes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Test de flexibilidad / acortamientos</FormLabel>
+                  <FormLabel><DirtyLabel label="Test de flexibilidad / acortamientos" dirty={dirtyFields.flexibilityNotes} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Isquiotibiales, psoas, trapecio superior..."
@@ -436,7 +471,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
                 name="familyPainAppearance"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Aparición del dolor en familia</FormLabel>
+                    <FormLabel><DirtyLabel label="Aparición del dolor en familia" dirty={!!dirtyFields.familyPainAppearance?.length} /></FormLabel>
                     <FormControl>
                       <div className="space-y-2">
                         <Select value="" onValueChange={(value) => {
@@ -480,7 +515,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
                 name="familyPainDisappearance"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Desaparición del dolor en familia</FormLabel>
+                    <FormLabel><DirtyLabel label="Desaparición del dolor en familia" dirty={!!dirtyFields.familyPainDisappearance?.length} /></FormLabel>
                     <FormControl>
                       <div className="space-y-2">
                         <Select value="" onValueChange={(value) => {
@@ -525,7 +560,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="evaScale"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Escala EVA (cuando siente dolor)</FormLabel>
+                  <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -551,15 +586,14 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               </p>
               <BodyDiagram
                 markers={retractionMap}
-                onAddMarker={(marker) =>
-                  setRetractionMap((prev) => [
-                    ...prev,
-                    { ...marker, id: crypto.randomUUID() },
-                  ])
-                }
-                onRemoveMarker={(id) =>
-                  setRetractionMap((prev) => prev.filter((m) => m.id !== id))
-                }
+                onAddMarker={(marker) => {
+                  setRetractionMap((prev) => [...prev, { ...marker, id: crypto.randomUUID() }]);
+                  setRetractionMapDirty(true);
+                }}
+                onRemoveMarker={(id) => {
+                  setRetractionMap((prev) => prev.filter((m) => m.id !== id));
+                  setRetractionMapDirty(true);
+                }}
               />
             </div>
 
@@ -569,7 +603,7 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notas adicionales</FormLabel>
+                  <FormLabel><DirtyLabel label="Notas adicionales" dirty={dirtyFields.notes} /></FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Cualquier otra observación relevante..."
@@ -583,13 +617,25 @@ function EvaluationTab({ patientId, occupation }: { patientId: string; occupatio
               )}
             />
             <div className="flex justify-end pt-2">
-              <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
-              </Button>
+              <TooltipProvider>
+                <Tooltip disabled={hasUnsavedChanges}>
+                  <TooltipTrigger>
+                    <span className="inline-flex">
+                      <Button type="submit" disabled={mutation.isPending || !hasUnsavedChanges}>
+                        {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>No hay cambios para guardar</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </CardContent>
         </Card>
       </form>
+
     </Form>
   );
 }
@@ -764,6 +810,8 @@ export default function PatientDetailPage() {
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('resumen');
+  const [evalHasChanges, setEvalHasChanges] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
   const {
     data: patient,
@@ -795,7 +843,13 @@ export default function PatientDetailPage() {
         variant="ghost"
         size="sm"
         className="-ml-3 mb-4 text-muted-foreground"
-        onClick={() => navigate('/patients')}
+        onClick={() => {
+          if (evalHasChanges) {
+            setPendingAction(() => () => navigate('/patients'));
+          } else {
+            navigate('/patients');
+          }
+        }}
       >
         <ArrowLeft className="h-4 w-4 mr-1" />
         Pacientes
@@ -823,7 +877,13 @@ export default function PatientDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(tab) => {
+        if (evalHasChanges && activeTab === 'evaluacion') {
+          setPendingAction(() => () => setActiveTab(tab));
+        } else {
+          setActiveTab(tab);
+        }
+      }}>
         <TabsList variant="line">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
@@ -878,7 +938,7 @@ export default function PatientDetailPage() {
 
         {/* ── Evaluación inicial ── */}
         <TabsContent value="evaluacion" className="mt-6">
-          <EvaluationTab patientId={id!} occupation={patient.occupation} />
+          <EvaluationTab patientId={id!} occupation={patient.occupation} onUnsavedChangesChange={setEvalHasChanges} />
         </TabsContent>
 
         {/* ── Sesiones ── */}
@@ -912,6 +972,28 @@ export default function PatientDetailPage() {
         onClose={() => setEditOpen(false)}
         patient={patient}
       />
+
+      <Dialog open={pendingAction !== null}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Descartar cambios?</DialogTitle>
+            <DialogDescription>
+              Tenés cambios sin guardar en la evaluación. Si navegás ahora, se perderán.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingAction(null)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => {
+              pendingAction?.();
+              setPendingAction(null);
+            }}>
+              Descartar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
