@@ -38,6 +38,7 @@ import type { BodyMarker } from '@/types/evaluation';
 import type { Session } from '@/types/session';
 
 const evalSchema = z.object({
+  occupation: z.string().optional().or(z.literal('')),
   reasonForConsultation: z.string().optional().or(z.literal('')),
   medicalHistory: z.string().optional().or(z.literal('')),
   globalPosture: z.string().optional().or(z.literal('')),
@@ -49,6 +50,7 @@ const evalSchema = z.object({
   flexibilityNotes: z.string().optional().or(z.literal('')),
   physicalActivity: z.string().optional().or(z.literal('')),
   painAppearanceMoment: z.string().optional().or(z.literal('')),
+  painFrequency: z.string().optional().or(z.literal('')),
   familyPainAppearance: z.array(z.string()).optional(),
   familyPainDisappearance: z.array(z.string()).optional(),
   evaScale: z.string().optional().or(z.literal('')),
@@ -87,7 +89,7 @@ function DetailField({ label, value }: { label: string; value?: React.ReactNode 
   );
 }
 
-function EvaluationTab({ patientId }: { patientId: string }) {
+function EvaluationTab({ patientId, occupation }: { patientId: string; occupation?: string | null }) {
   const queryClient = useQueryClient();
   const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
 
@@ -99,6 +101,7 @@ function EvaluationTab({ patientId }: { patientId: string }) {
   const form = useForm<EvalFormValues>({
     resolver: zodResolver(evalSchema),
     defaultValues: {
+      occupation: '',
       reasonForConsultation: '',
       medicalHistory: '',
       globalPosture: '',
@@ -110,16 +113,22 @@ function EvaluationTab({ patientId }: { patientId: string }) {
       flexibilityNotes: '',
       physicalActivity: '',
       painAppearanceMoment: '',
+      painFrequency: '',
       familyPainAppearance: [],
       familyPainDisappearance: [],
       evaScale: '',
     },
   });
 
-  // Pre-fill when data loads
+  // Pre-fill when data loads (evaluation may be null on first visit)
+  useEffect(() => {
+    form.setValue('occupation', occupation ?? '');
+  }, [occupation, form]);
+
   useEffect(() => {
     if (evaluation) {
       form.reset({
+        occupation: occupation ?? '',
         reasonForConsultation: evaluation.reasonForConsultation ?? '',
         medicalHistory: evaluation.medicalHistory ?? '',
         globalPosture: evaluation.globalPosture ?? '',
@@ -131,6 +140,7 @@ function EvaluationTab({ patientId }: { patientId: string }) {
         flexibilityNotes: evaluation.flexibilityNotes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
         painAppearanceMoment: evaluation.painAppearanceMoment ?? '',
+        painFrequency: evaluation.painFrequency ?? '',
         familyPainAppearance: (evaluation.familyPainAppearance as string[] | null) ?? [],
         familyPainDisappearance: (evaluation.familyPainDisappearance as string[] | null) ?? [],
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
@@ -140,8 +150,8 @@ function EvaluationTab({ patientId }: { patientId: string }) {
   }, [evaluation, form]);
 
   const mutation = useMutation({
-    mutationFn: (values: EvalFormValues) =>
-      evaluationApi.upsert(patientId, {
+    mutationFn: async (values: EvalFormValues) => {
+      const evalPromise = evaluationApi.upsert(patientId, {
         reasonForConsultation: values.reasonForConsultation || null,
         medicalHistory: values.medicalHistory || null,
         globalPosture: values.globalPosture || null,
@@ -154,12 +164,20 @@ function EvaluationTab({ patientId }: { patientId: string }) {
         flexibilityNotes: values.flexibilityNotes || null,
         physicalActivity: values.physicalActivity || null,
         painAppearanceMoment: values.painAppearanceMoment || null,
+        painFrequency: values.painFrequency || null,
         familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
         familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
-      }),
+      });
+      const newOccupation = values.occupation || null;
+      if (newOccupation !== (occupation ?? null)) {
+        await patientApi.update(patientId, { occupation: newOccupation });
+      }
+      return evalPromise;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId) });
+      queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
     },
   });
 
@@ -185,6 +203,79 @@ function EvaluationTab({ patientId }: { patientId: string }) {
             )}
           </CardHeader>
           <CardContent className="space-y-5">
+
+            <FormField
+              control={form.control}
+              name="physicalActivity"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Realiza actividad física</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Descripción de la actividad física que realiza..."
+                      className="resize-none"
+                      rows={2}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="occupation"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ocupación</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Ej: Docente, oficinista, deportista..." {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="painAppearanceMoment"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Momento de aparición del dolor</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Ej: Por las mañanas, después de actividad, en reposo..."
+                        className="resize-none"
+                        rows={2}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="painFrequency"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Frecuencia del dolor</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Ej: Diario, intermitente, solo al moverse..."
+                        className="resize-none"
+                        rows={2}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <FormField
               control={form.control}
               name="reasonForConsultation"
@@ -337,43 +428,7 @@ function EvaluationTab({ patientId }: { patientId: string }) {
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="physicalActivity"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Realiza actividad física</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Descripción de la actividad física que realiza..."
-                      className="resize-none"
-                      rows={2}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="painAppearanceMoment"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Momento de aparición del dolor</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Ej: Por las mañanas, después de actividad, en reposo..."
-                      className="resize-none"
-                      rows={2}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
@@ -823,7 +878,7 @@ export default function PatientDetailPage() {
 
         {/* ── Evaluación inicial ── */}
         <TabsContent value="evaluacion" className="mt-6">
-          <EvaluationTab patientId={id!} />
+          <EvaluationTab patientId={id!} occupation={patient.occupation} />
         </TabsContent>
 
         {/* ── Sesiones ── */}

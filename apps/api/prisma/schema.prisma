@@ -104,6 +104,7 @@ model InitialEvaluation {
   flexibilityNotes        String?  @map("flexibility_notes")
   physicalActivity        String?  @map("physical_activity")
   painAppearanceMoment    String?  @map("pain_appearance_moment")
+  painFrequency           String?  @map("pain_frequency")
   familyPainAppearance    Json?    @map("family_pain_appearance")
   familyPainDisappearance Json?    @map("family_pain_disappearance")
   evaScale                Int?     @map("eva_scale")

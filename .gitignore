@@ -13,3 +13,5 @@ dist/
 *.local
 .DS_Store
 v0_example
+
+tsconfig.tsbuildinfo
