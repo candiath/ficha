@@ -13,6 +13,7 @@ export interface InitialEvaluation {
   flexibilityNotes: string | null;
   physicalActivity: string | null;
   painAppearanceMoment: string | null;
+  painFrequency: string | null;
   familyPainAppearance: string[] | null;
   familyPainDisappearance: string[] | null;
   evaScale: number | null;
