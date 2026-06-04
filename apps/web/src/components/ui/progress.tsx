@@ -1,4 +1,5 @@
-import { Progress as ProgressPrimitive } from "@base-ui/react/progress"
+import * as ProgressPrimitive from "@radix-ui/react-progress"
+import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -7,7 +8,7 @@ function Progress({
   children,
   value,
   ...props
-}: ProgressPrimitive.Root.Props) {
+}: React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>) {
   return (
     <ProgressPrimitive.Root
       value={value}
@@ -17,15 +18,18 @@ function Progress({
     >
       {children}
       <ProgressTrack>
-        <ProgressIndicator />
+        <ProgressIndicator style={{ width: `${value ?? 0}%` }} />
       </ProgressTrack>
     </ProgressPrimitive.Root>
   )
 }
 
-function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
+function ProgressTrack({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <ProgressPrimitive.Track
+    <div
       className={cn(
         "relative flex h-1 w-full items-center overflow-x-hidden rounded-full bg-muted",
         className
@@ -39,7 +43,7 @@ function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
 function ProgressIndicator({
   className,
   ...props
-}: ProgressPrimitive.Indicator.Props) {
+}: React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Indicator>) {
   return (
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
@@ -49,9 +53,12 @@ function ProgressIndicator({
   )
 }
 
-function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props) {
+function ProgressLabel({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement>) {
   return (
-    <ProgressPrimitive.Label
+    <span
       className={cn("text-sm font-medium", className)}
       data-slot="progress-label"
       {...props}
@@ -59,9 +66,12 @@ function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props) {
   )
 }
 
-function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
+function ProgressValue({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement>) {
   return (
-    <ProgressPrimitive.Value
+    <span
       className={cn(
         "ml-auto text-sm text-muted-foreground tabular-nums",
         className
