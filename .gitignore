@@ -15,3 +15,5 @@ dist/
 v0_example
 
 tsconfig.tsbuildinfo
+
+.claude
