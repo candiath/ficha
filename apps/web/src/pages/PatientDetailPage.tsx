@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -23,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { PulseDot } from '@/components/ui/pulse-dot';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
@@ -81,7 +83,7 @@ function getAge(iso: string | null | undefined): string | undefined {
   return `${age} años`;
 }
 
-function DirtyLabel({ label, dirty }: { label: string; dirty?: boolean }) {
+export function DirtyLabel({ label, dirty }: { label: string; dirty?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2">
       {label}
@@ -311,6 +313,184 @@ function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { pati
               />
             </div>
 
+            {/* Card demo — Dolor en familia (tabla) */}
+            <Card className="border-dashed">
+              <CardHeader className="pb-3 pt-4 px-4">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  Dolor en familia — tabla
+                  <PulseDot variant="demo" />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <FormField
+                  control={form.control}
+                  name="familyPainAppearance"
+                  render={({ field: appearanceField }) => (
+                    <FormField
+                      control={form.control}
+                      name="familyPainDisappearance"
+                      render={({ field: disappearanceField }) => (
+                        <FormItem>
+                          <FormControl>
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr>
+                                  <th className="text-left font-normal text-muted-foreground pb-2 w-12"></th>
+                                  <th className="text-center font-normal text-muted-foreground pb-2 px-3">Aparición</th>
+                                  <th className="text-center font-normal text-muted-foreground pb-2 px-3">Desaparición</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(['1', '2', '3', '4'] as const).map((id) => {
+                                  const appearsActive = appearanceField.value?.includes(id);
+                                  const disappearsActive = disappearanceField.value?.includes(id);
+                                  return (
+                                    <tr key={id} className="border-t border-border/50">
+                                      <td className="py-2.5 font-medium">{id}</td>
+                                      <td className="py-2.5 text-center">
+                                        <Checkbox
+                                          checked={!!appearsActive}
+                                          onCheckedChange={() =>
+                                            appearanceField.onChange(
+                                              appearsActive
+                                                ? (appearanceField.value ?? []).filter((v) => v !== id)
+                                                : [...(appearanceField.value ?? []), id]
+                                            )
+                                          }
+                                        />
+                                      </td>
+                                      <td className="py-2.5 text-center">
+                                        <Checkbox
+                                          checked={!!disappearsActive}
+                                          onCheckedChange={() =>
+                                            disappearanceField.onChange(
+                                              disappearsActive
+                                                ? (disappearanceField.value ?? []).filter((v) => v !== id)
+                                                : [...(disappearanceField.value ?? []), id]
+                                            )
+                                          }
+                                        />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Card demo — Dolor en familia (columnas) */}
+            <Card className="border-dashed">
+              <CardHeader className="pb-3 pt-4 px-4">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  Dolor en familia — columnas
+                  <PulseDot variant="demo" />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="familyPainAppearance"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs text-muted-foreground">Aparición</FormLabel>
+                        <FormControl>
+                          <div className="space-y-2">
+                            {(['1', '2', '3', '4'] as const).map((id) => {
+                              const active = field.value?.includes(id);
+                              return (
+                                <div
+                                  key={id}
+                                  className={`flex items-center space-x-2 p-2 rounded-md border cursor-pointer transition-colors ${
+                                    active ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
+                                  }`}
+                                  onClick={() =>
+                                    field.onChange(
+                                      active
+                                        ? (field.value ?? []).filter((v) => v !== id)
+                                        : [...(field.value ?? []), id]
+                                    )
+                                  }
+                                >
+                                  <Checkbox
+                                    id={`col-appearance-${id}`}
+                                    checked={!!active}
+                                    onCheckedChange={() =>
+                                      field.onChange(
+                                        active
+                                          ? (field.value ?? []).filter((v) => v !== id)
+                                          : [...(field.value ?? []), id]
+                                      )
+                                    }
+                                  />
+                                  <label htmlFor={`col-appearance-${id}`} className="text-sm cursor-pointer flex-1">
+                                    {id}
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="familyPainDisappearance"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs text-muted-foreground">Desaparición</FormLabel>
+                        <FormControl>
+                          <div className="space-y-2">
+                            {(['1', '2', '3', '4'] as const).map((id) => {
+                              const active = field.value?.includes(id);
+                              return (
+                                <div
+                                  key={id}
+                                  className={`flex items-center space-x-2 p-2 rounded-md border cursor-pointer transition-colors ${
+                                    active ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
+                                  }`}
+                                  onClick={() =>
+                                    field.onChange(
+                                      active
+                                        ? (field.value ?? []).filter((v) => v !== id)
+                                        : [...(field.value ?? []), id]
+                                    )
+                                  }
+                                >
+                                  <Checkbox
+                                    id={`col-disappearance-${id}`}
+                                    checked={!!active}
+                                    onCheckedChange={() =>
+                                      field.onChange(
+                                        active
+                                          ? (field.value ?? []).filter((v) => v !== id)
+                                          : [...(field.value ?? []), id]
+                                      )
+                                    }
+                                  />
+                                  <label htmlFor={`col-disappearance-${id}`} className="text-sm cursor-pointer flex-1">
+                                    {id}
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
             <FormField
               control={form.control}
               name="reasonForConsultation"
@@ -465,95 +645,6 @@ function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { pati
 
             
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="familyPainAppearance"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Aparición del dolor en familia" dirty={!!dirtyFields.familyPainAppearance?.length} /></FormLabel>
-                    <FormControl>
-                      <div className="space-y-2">
-                        <Select value="" onValueChange={(value) => {
-                          if (value && !field.value?.includes(value)) {
-                            field.onChange([...(field.value ?? []), value]);
-                          }
-                        }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar familia..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">Familia 1</SelectItem>
-                            <SelectItem value="2">Familia 2</SelectItem>
-                            <SelectItem value="3">Familia 3</SelectItem>
-                            <SelectItem value="4">Familia 4</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <div className="flex flex-wrap gap-2">
-                          {field.value?.map((familyId) => (
-                            <span key={familyId} className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded-full text-xs">
-                              Familia {familyId}
-                              <button
-                                type="button"
-                                onClick={() => field.onChange(field.value?.filter(id => id !== familyId) ?? [])}
-                                className="ml-1 hover:opacity-70"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="familyPainDisappearance"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Desaparición del dolor en familia" dirty={!!dirtyFields.familyPainDisappearance?.length} /></FormLabel>
-                    <FormControl>
-                      <div className="space-y-2">
-                        <Select value="" onValueChange={(value) => {
-                          if (value && !field.value?.includes(value)) {
-                            field.onChange([...(field.value ?? []), value]);
-                          }
-                        }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar familia..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1">Familia 1</SelectItem>
-                            <SelectItem value="2">Familia 2</SelectItem>
-                            <SelectItem value="3">Familia 3</SelectItem>
-                            <SelectItem value="4">Familia 4</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <div className="flex flex-wrap gap-2">
-                          {field.value?.map((familyId) => (
-                            <span key={familyId} className="inline-flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded-full text-xs">
-                              Familia {familyId}
-                              <button
-                                type="button"
-                                onClick={() => field.onChange(field.value?.filter(id => id !== familyId) ?? [])}
-                                className="ml-1 hover:opacity-70"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
 
             <FormField
               control={form.control}

@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
+
+const LabPage = import.meta.env.DEV ? lazy(() => import('@/pages/LabPage')) : null;
 import { AlertTriangle } from 'lucide-react'
 import AppLayout from '@/components/layout/AppLayout'
 import AccountPage from '@/pages/AccountPage'
@@ -58,6 +60,9 @@ export default function App() {
       <ApiStatusBanner />
       <Routes>
       <Route index element={<LandingPage />} />
+      {import.meta.env.DEV && LabPage && (
+        <Route path="lab" element={<Suspense fallback={null}><LabPage /></Suspense>} />
+      )}
       <Route element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="agenda" element={<AgendaPage />} />

@@ -44,8 +44,8 @@ import type { Session } from '@/types/session'
 const schema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: z.string().min(1, 'La fecha es requerida'),
-  painScaleBefore: z.number().min(0).max(10),
-  painScaleAfter: z.number().min(0).max(10),
+  painScaleBefore: z.number().min(0).max(10).nullable(),
+  painScaleAfter: z.number().min(0).max(10).nullable(),
   preSesionState: z.string().optional().or(z.literal('')),
   reEvaluationNotes: z.string().optional().or(z.literal('')),
   patientResponse: z.string().optional().or(z.literal('')),
@@ -65,7 +65,8 @@ interface SessionFormModalWideProps {
   session?: Session
 }
 
-function getPainColor(value: number) {
+function getPainColor(value: number | null) {
+  if (value === null) return 'text-muted-foreground'
   if (value <= 3) return 'text-emerald-600'
   if (value <= 6) return 'text-amber-600'
   return 'text-red-600'
@@ -122,8 +123,8 @@ export default function SessionFormModalWide({
     defaultValues: {
       sessionType: 'SESSION',
       sessionDate: new Date().toISOString().slice(0, 16),
-      painScaleBefore: 0,
-      painScaleAfter: 0,
+      painScaleBefore: null,
+      painScaleAfter: null,
       preSesionState: '',
       reEvaluationNotes: '',
       patientResponse: '',
@@ -143,8 +144,8 @@ export default function SessionFormModalWide({
         sessionDate: session.sessionDate
           ? new Date(session.sessionDate).toISOString().slice(0, 16)
           : new Date().toISOString().slice(0, 16),
-        painScaleBefore: session.painScaleBefore ?? 0,
-        painScaleAfter: session.painScaleAfter ?? 0,
+        painScaleBefore: session.painScaleBefore ?? null,
+        painScaleAfter: session.painScaleAfter ?? null,
         preSesionState: session.preSesionState ?? '',
         reEvaluationNotes: session.reEvaluationNotes ?? '',
         patientResponse: session.patientResponse ?? '',
@@ -158,8 +159,8 @@ export default function SessionFormModalWide({
       form.reset({
         sessionType: 'SESSION',
         sessionDate: new Date().toISOString().slice(0, 16),
-        painScaleBefore: 0,
-        painScaleAfter: 0,
+        painScaleBefore: null,
+        painScaleAfter: null,
         preSesionState: '',
         reEvaluationNotes: '',
         patientResponse: '',
@@ -336,12 +337,12 @@ export default function SessionFormModalWide({
                               <div className="flex items-center justify-between">
                                 <span className="text-sm">Antes</span>
                                 <span className={`text-2xl font-bold ${getPainColor(painBefore)}`}>
-                                  {painBefore}
+                                  {painBefore ?? '?'}
                                 </span>
                               </div>
                               <FormControl>
                                 <Slider
-                                  value={[field.value]}
+                                  value={[field.value ?? 0]}
                                   onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
                                   max={10}
                                   step={1}
@@ -362,12 +363,12 @@ export default function SessionFormModalWide({
                               <div className="flex items-center justify-between">
                                 <span className="text-sm">Después</span>
                                 <span className={`text-2xl font-bold ${getPainColor(painAfter)}`}>
-                                  {painAfter}
+                                  {painAfter ?? '?'}
                                 </span>
                               </div>
                               <FormControl>
                                 <Slider
-                                  value={[field.value]}
+                                  value={[field.value ?? 0]}
                                   onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
                                   max={10}
                                   step={1}
