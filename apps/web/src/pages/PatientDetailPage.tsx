@@ -709,17 +709,19 @@ function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { pati
             />
             <div className="flex justify-end pt-2">
               <TooltipProvider>
-                <Tooltip disabled={hasUnsavedChanges}>
-                  <TooltipTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <span className="inline-flex">
                       <Button type="submit" disabled={mutation.isPending || !hasUnsavedChanges}>
                         {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    <p>No hay cambios para guardar</p>
-                  </TooltipContent>
+                  {!hasUnsavedChanges && (
+                    <TooltipContent>
+                      <p>No hay cambios para guardar</p>
+                    </TooltipContent>
+                  )}
                 </Tooltip>
               </TooltipProvider>
             </div>
