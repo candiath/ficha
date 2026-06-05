@@ -35,6 +35,7 @@ import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { toast } from 'sonner';
+import { episodeApi, episodeKeys } from '@/services/episodes';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
@@ -108,14 +109,14 @@ function DetailField({ label, value }: { label: string; value?: React.ReactNode 
   );
 }
 
-function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { patientId: string; occupation?: string | null; onUnsavedChangesChange?: (v: boolean) => void }) {
+function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; onUnsavedChangesChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
   const [retractionMapDirty, setRetractionMapDirty] = useState(false);
 
   const { data: evaluation, isLoading } = useQuery({
-    queryKey: evaluationKeys.detail(patientId),
-    queryFn: () => evaluationApi.get(patientId),
+    queryKey: evaluationKeys.detail(patientId, episodeId),
+    queryFn: () => evaluationApi.get(patientId, episodeId),
   });
 
   const form = useForm<EvalFormValues>({
@@ -186,7 +187,7 @@ function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { pati
 
   const mutation = useMutation({
     mutationFn: async (values: EvalFormValues) => {
-      const evalPromise = evaluationApi.upsert(patientId, {
+      const evalPromise = evaluationApi.upsert(patientId, episodeId, {
         reasonForConsultation: values.reasonForConsultation || null,
         medicalHistory: values.medicalHistory || null,
         globalPosture: values.globalPosture || null,
@@ -211,7 +212,7 @@ function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { pati
       return evalPromise;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId) });
+      queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
       setRetractionMapDirty(false);
       toast.success('Evaluación guardada');
@@ -735,14 +736,14 @@ function EvaluationTab({ patientId, occupation, onUnsavedChangesChange }: { pati
 
 const SESSIONS_PAGE_SIZE = 8;
 
-function SessionsTab({ patientId }: { patientId: string }) {
+function SessionsTab({ patientId, episodeId }: { patientId: string; episodeId: string }) {
   const [newOpen, setNewOpen] = useState(false);
   const [selected, setSelected] = useState<Session | null>(null);
   const [page, setPage] = useState(0);
 
   const { data: sessions = [], isLoading } = useQuery({
-    queryKey: sessionKeys.list(patientId),
-    queryFn: () => sessionApi.list(patientId),
+    queryKey: sessionKeys.list(patientId, episodeId),
+    queryFn: () => sessionApi.list(patientId, episodeId),
   });
 
   if (isLoading) {
@@ -877,6 +878,7 @@ function SessionsTab({ patientId }: { patientId: string }) {
         open={newOpen}
         onOpenChange={setNewOpen}
         patientId={patientId}
+        episodeId={episodeId}
       />
 
       <SessionDetailSheet
@@ -901,10 +903,14 @@ const TAB_COMPONENT: Record<string, string> = {
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('resumen');
   const [evalHasChanges, setEvalHasChanges] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
+  const [newEpisodeOpen, setNewEpisodeOpen] = useState(false);
+  const [newEpisodeComplaint, setNewEpisodeComplaint] = useState('');
 
   const {
     data: patient,
@@ -914,6 +920,30 @@ export default function PatientDetailPage() {
     queryKey: patientKeys.detail(id!),
     queryFn: () => patientApi.get(id!),
     enabled: !!id,
+  });
+
+  const { data: episodes = [] } = useQuery({
+    queryKey: episodeKeys.list(id!),
+    queryFn: () => episodeApi.list(id!),
+    enabled: !!id,
+  });
+
+  // Auto-select the first (most recent) ACTIVE episode, or any episode if none active
+  useEffect(() => {
+    if (episodes.length === 0 || activeEpisodeId) return;
+    const active = episodes.find((e) => e.status === 'ACTIVE') ?? episodes[0];
+    setActiveEpisodeId(active.id);
+  }, [episodes, activeEpisodeId]);
+
+  const createEpisodeMutation = useMutation({
+    mutationFn: (complaint: string) =>
+      episodeApi.create(id!, { mainComplaint: complaint || null }),
+    onSuccess: (newEpisode) => {
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
+      setActiveEpisodeId(newEpisode.id);
+      setNewEpisodeOpen(false);
+      setNewEpisodeComplaint('');
+    },
   });
 
   useEffect(() => { document.title = TAB_COMPONENT[activeTab] ?? 'PatientDetailPage'; }, [activeTab]);
@@ -968,6 +998,44 @@ export default function PatientDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* Selector de episodio */}
+      {episodes.length > 0 && (
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <span className="text-xs text-muted-foreground font-medium">Episodio:</span>
+          <div className="flex items-center gap-1 flex-wrap">
+            {episodes.map((ep, idx) => (
+              <button
+                key={ep.id}
+                type="button"
+                onClick={() => setActiveEpisodeId(ep.id)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  activeEpisodeId === ep.id
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-muted-foreground border-transparent hover:border-border'
+                }`}
+              >
+                {ep.mainComplaint
+                  ? ep.mainComplaint.length > 30
+                    ? ep.mainComplaint.slice(0, 30) + '…'
+                    : ep.mainComplaint
+                  : `Episodio ${episodes.length - idx}`}
+                {ep.status === 'DISCHARGED' && (
+                  <span className="ml-1 text-[10px] opacity-70">(alta)</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setNewEpisodeOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-muted-foreground border border-dashed hover:border-primary hover:text-primary transition-colors"
+          >
+            <Plus className="h-3 w-3" />
+            Nuevo episodio
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(tab) => {
@@ -1031,17 +1099,40 @@ export default function PatientDetailPage() {
 
         {/* ── Evaluación inicial ── */}
         <TabsContent value="evaluacion" className="mt-6">
-          <EvaluationTab patientId={id!} occupation={patient.occupation} onUnsavedChangesChange={setEvalHasChanges} />
+          {activeEpisodeId ? (
+            <EvaluationTab
+              patientId={id!}
+              episodeId={activeEpisodeId}
+              occupation={patient.occupation}
+              onUnsavedChangesChange={setEvalHasChanges}
+            />
+          ) : (
+            <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+              Seleccioná un episodio para ver la evaluación.
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Sesiones ── */}
         <TabsContent value="sesiones" className="mt-6">
-          <SessionsTab patientId={id!} />
+          {activeEpisodeId ? (
+            <SessionsTab patientId={id!} episodeId={activeEpisodeId} />
+          ) : (
+            <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+              Seleccioná un episodio para ver las sesiones.
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Plan ── */}
         <TabsContent value="plan" className="mt-6">
-          <TreatmentCycleTab patientId={id!} />
+          {activeEpisodeId ? (
+            <TreatmentCycleTab patientId={id!} episodeId={activeEpisodeId} />
+          ) : (
+            <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+              Seleccioná un episodio para ver el plan de tratamiento.
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Escalas ── */}
@@ -1059,6 +1150,37 @@ export default function PatientDetailPage() {
           <ActivityTimeline patientId={id!} />
         </TabsContent>
       </Tabs>
+
+      {/* Dialog: Nuevo episodio */}
+      <Dialog open={newEpisodeOpen} onOpenChange={setNewEpisodeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nuevo episodio clínico</DialogTitle>
+            <DialogDescription>
+              Creá un nuevo episodio para registrar una reincidencia o un nuevo motivo de consulta.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Motivo de consulta</label>
+            <Input
+              placeholder="Ej: Dolor cervical, lesión de hombro..."
+              value={newEpisodeComplaint}
+              onChange={(e) => setNewEpisodeComplaint(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewEpisodeOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => createEpisodeMutation.mutate(newEpisodeComplaint)}
+              disabled={createEpisodeMutation.isPending}
+            >
+              {createEpisodeMutation.isPending ? 'Creando...' : 'Crear episodio'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <PatientFormDialog
         open={editOpen}

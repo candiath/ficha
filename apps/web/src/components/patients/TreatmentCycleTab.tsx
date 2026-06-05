@@ -63,16 +63,17 @@ type FormValues = z.infer<typeof formSchema>;
 
 interface Props {
   patientId: string;
+  episodeId: string;
 }
 
-export default function TreatmentCycleTab({ patientId }: Props) {
+export default function TreatmentCycleTab({ patientId, episodeId }: Props) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TreatmentCycle | null>(null);
 
   const { data: cycles = [], isLoading } = useQuery({
-    queryKey: treatmentCycleKeys.list(patientId),
-    queryFn: () => treatmentCycleApi.list(patientId),
+    queryKey: treatmentCycleKeys.list(patientId, episodeId),
+    queryFn: () => treatmentCycleApi.list(patientId, episodeId),
   });
 
   const { data: sessions = [] } = useQuery({
@@ -140,11 +141,11 @@ export default function TreatmentCycleTab({ patientId }: Props) {
           : undefined,
       };
       return editing
-        ? treatmentCycleApi.update(patientId, editing.id, data)
-        : treatmentCycleApi.create(patientId, data);
+        ? treatmentCycleApi.update(patientId, episodeId, editing.id, data)
+        : treatmentCycleApi.create(patientId, episodeId, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: treatmentCycleKeys.list(patientId) });
+      queryClient.invalidateQueries({ queryKey: treatmentCycleKeys.list(patientId, episodeId) });
       toast.success(editing ? 'Ciclo actualizado' : 'Ciclo creado');
       setDialogOpen(false);
     },
@@ -153,20 +154,20 @@ export default function TreatmentCycleTab({ patientId }: Props) {
 
   const statusMutation = useMutation({
     mutationFn: ({ cycleId, status }: { cycleId: string; status: 'ACTIVE' | 'COMPLETED' | 'PAUSED' }) =>
-      treatmentCycleApi.update(patientId, cycleId, {
+      treatmentCycleApi.update(patientId, episodeId, cycleId, {
         status,
         completedAt: status === 'COMPLETED' ? new Date().toISOString() : null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: treatmentCycleKeys.list(patientId) });
+      queryClient.invalidateQueries({ queryKey: treatmentCycleKeys.list(patientId, episodeId) });
     },
     onError: () => toast.error('Error al actualizar el estado'),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (cycleId: string) => treatmentCycleApi.delete(patientId, cycleId),
+    mutationFn: (cycleId: string) => treatmentCycleApi.delete(patientId, episodeId, cycleId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: treatmentCycleKeys.list(patientId) });
+      queryClient.invalidateQueries({ queryKey: treatmentCycleKeys.list(patientId, episodeId) });
       toast.success('Ciclo eliminado');
     },
     onError: () => toast.error('Error al eliminar el ciclo'),

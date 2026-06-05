@@ -6,19 +6,28 @@ import type {
 } from '@/types/treatmentCycle';
 
 export const treatmentCycleKeys = {
-  list: (patientId: string) => ['patients', patientId, 'cycles'] as const,
+  list: (patientId: string, episodeId: string) =>
+    ['patients', patientId, 'episodes', episodeId, 'cycles'] as const,
 };
 
 export const treatmentCycleApi = {
-  list: (patientId: string) =>
-    api.get<TreatmentCycle[]>(`/api/patients/${patientId}/cycles`),
+  list: (patientId: string, episodeId: string) =>
+    api.get<TreatmentCycle[]>(
+      `/api/patients/${patientId}/episodes/${episodeId}/cycles`,
+    ),
 
-  create: (patientId: string, data: TreatmentCycleCreateData) =>
-    api.post<TreatmentCycle>(`/api/patients/${patientId}/cycles`, data),
+  create: (patientId: string, episodeId: string, data: TreatmentCycleCreateData) =>
+    api.post<TreatmentCycle>(
+      `/api/patients/${patientId}/episodes/${episodeId}/cycles`,
+      data,
+    ),
 
-  update: (patientId: string, cycleId: string, data: TreatmentCycleUpdateData) =>
-    api.patch<TreatmentCycle>(`/api/patients/${patientId}/cycles/${cycleId}`, data),
+  update: (patientId: string, episodeId: string, cycleId: string, data: TreatmentCycleUpdateData) =>
+    api.patch<TreatmentCycle>(
+      `/api/patients/${patientId}/episodes/${episodeId}/cycles/${cycleId}`,
+      data,
+    ),
 
-  delete: (patientId: string, cycleId: string) =>
-    api.delete(`/api/patients/${patientId}/cycles/${cycleId}`),
+  delete: (patientId: string, episodeId: string, cycleId: string) =>
+    api.delete(`/api/patients/${patientId}/episodes/${episodeId}/cycles/${cycleId}`),
 };

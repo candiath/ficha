@@ -3,6 +3,7 @@ export type SessionType = 'SESSION' | 'NOTE' | 'DISCHARGE';
 export interface Session {
   id: string;
   patientId: string;
+  episodeId: string | null;
   sessionType: SessionType;
   sessionDate: string;
   preSesionState: string | null;
