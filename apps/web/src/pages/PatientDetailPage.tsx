@@ -1001,6 +1001,7 @@ function SessionsTab({
         onOpenChange={setNewOpen}
         patientId={patientId}
         episodeId={episodeId}
+        onSuccess={() => setPage(0)}
       />
 
       <SessionDetailSheet
@@ -1121,10 +1122,21 @@ export default function PatientDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" disabled>
-            <FileText className="h-4 w-4 mr-2" />
-            Descargar informe
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* El <span> es necesario: un button deshabilitado no dispara
+                    los eventos de mouse que el Tooltip necesita para mostrarse */}
+                <span className="inline-flex">
+                  <Button variant="outline" disabled>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Descargar informe
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Próximamente</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4 mr-2" />
             Editar

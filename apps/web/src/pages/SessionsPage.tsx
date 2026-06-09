@@ -121,7 +121,7 @@ export default function SessionsPage() {
       )}
 
       <SessionDetailSheet
-        session={selected as never}
+        session={selected}
         patientId={selected?.patient.id ?? ''}
         onClose={() => setSelected(null)}
       />

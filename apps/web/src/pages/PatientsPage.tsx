@@ -25,6 +25,14 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -165,6 +173,7 @@ export default function PatientsPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | undefined>();
+  const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
@@ -181,6 +190,7 @@ export default function PatientsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientKeys.all });
       toast.success('Paciente eliminado');
+      setPatientToDelete(null);
     },
     onError: () => toast.error('Error al eliminar el paciente'),
   });
@@ -196,9 +206,7 @@ export default function PatientsPage() {
   }
 
   function handleDelete(patient: Patient) {
-    if (confirm(`¿Eliminar a ${patient.fullName}?`)) {
-      deleteMutation.mutate(patient.id);
-    }
+    setPatientToDelete(patient);
   }
 
   const columns = buildColumns(openEdit, handleDelete);
@@ -359,6 +367,38 @@ export default function PatientsPage() {
         onClose={() => setDialogOpen(false)}
         patient={editing}
       />
+
+      {/* Confirmación de eliminación: reemplaza el confirm() nativo del navegador */}
+      <Dialog
+        open={!!patientToDelete}
+        onOpenChange={(open) => !open && setPatientToDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Eliminar a {patientToDelete?.fullName}?</DialogTitle>
+            <DialogDescription>
+              Esta acción no se puede deshacer. Se eliminará el paciente junto con
+              su información asociada.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPatientToDelete(null)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => patientToDelete && deleteMutation.mutate(patientToDelete.id)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

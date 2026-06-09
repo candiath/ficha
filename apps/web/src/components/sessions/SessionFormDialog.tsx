@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -106,7 +106,10 @@ export default function SessionFormDialog({ open, onClose, patientId, episodeId,
     queryFn: () => packageApi.list(patientId),
   });
 
-  const activePackages = packages.filter((pkg) => pkg.remainingSessions > 0);
+  const activePackages = useMemo(
+    () => packages.filter((pkg) => pkg.remainingSessions > 0),
+    [packages],
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -171,7 +174,7 @@ export default function SessionFormDialog({ open, onClose, patientId, episodeId,
     if (!selectedPackageId) return;
     const pkg = activePackages.find((p) => p.id === selectedPackageId);
     if (pkg) form.setValue('baseAmount', String(pkg.pricePerSession));
-  }, [selectedPackageId]);
+  }, [selectedPackageId, activePackages, form]);
 
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {

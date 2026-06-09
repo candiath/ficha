@@ -22,6 +22,14 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -172,6 +180,7 @@ export default function PaymentsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [paymentToCharge, setPaymentToCharge] = useState<Payment | null>(null);
 
   const { data: payments = [], isLoading, isError } = useQuery({
     queryKey: paymentKeys.list(statusFilter !== 'all' ? { status: statusFilter } : undefined),
@@ -185,17 +194,18 @@ export default function PaymentsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: paymentKeys.all });
       toast.success('Cobro registrado');
+      setPaymentToCharge(null);
     },
     onError: () => toast.error('Error al registrar el cobro'),
   });
 
   function handleMarkPaid(payment: Payment) {
-    if (!window.confirm(`¿Confirmar cobro de ${formatMoney(payment.finalAmount)} a ${payment.patient.fullName}?`)) return;
-    const isTransfer = window.confirm('Método de pago:\nAceptar = Transferencia\nCancelar = Efectivo');
-    markPaidMutation.mutate({
-      id: payment.id,
-      method: isTransfer ? 'TRANSFER' : 'CASH',
-    });
+    setPaymentToCharge(payment);
+  }
+
+  function confirmCharge(method: 'CASH' | 'TRANSFER') {
+    if (!paymentToCharge) return;
+    markPaidMutation.mutate({ id: paymentToCharge.id, method });
   }
 
   const columns = buildColumns(handleMarkPaid);
@@ -344,6 +354,51 @@ export default function PaymentsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Registro de cobro: reemplaza el doble confirm() nativo por un diálogo
+          con dos opciones claras de método de pago */}
+      <Dialog
+        open={!!paymentToCharge}
+        onOpenChange={(open) => !open && setPaymentToCharge(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar cobro</DialogTitle>
+            <DialogDescription>
+              {paymentToCharge && (
+                <>
+                  Cobro de{' '}
+                  <span className="font-medium text-foreground">
+                    {formatMoney(paymentToCharge.finalAmount)}
+                  </span>{' '}
+                  a{' '}
+                  <span className="font-medium text-foreground">
+                    {paymentToCharge.patient.fullName}
+                  </span>
+                  . Elegí el método de pago.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-between gap-2">
+            <Button
+              variant="outline"
+              onClick={() => confirmCharge('CASH')}
+              disabled={markPaidMutation.isPending}
+              className="flex-1"
+            >
+              Efectivo
+            </Button>
+            <Button
+              onClick={() => confirmCharge('TRANSFER')}
+              disabled={markPaidMutation.isPending}
+              className="flex-1"
+            >
+              Transferencia
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
