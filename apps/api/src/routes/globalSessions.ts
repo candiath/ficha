@@ -17,8 +17,12 @@ router.get('/', async (_req, res) => {
       sessionDate: true,
       painScaleBefore: true,
       painScaleAfter: true,
+      preSesionState: true,
+      reEvaluationNotes: true,
+      patientResponse: true,
       observations: true,
       createdAt: true,
+      updatedAt: true,
       patient: {
         select: { id: true, fullName: true },
       },

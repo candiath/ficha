@@ -1,4 +1,5 @@
 ﻿import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Stethoscope } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
+import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques';
 import type { Session } from '@/types/session';
 
 function PainScale({ value, label }: { value: number | null; label: string }) {
@@ -56,6 +58,14 @@ interface Props {
 
 export default function SessionDetailSheet({ session, patientId, onClose }: Props) {
   const [editOpen, setEditOpen] = useState(false);
+
+  // El hook debe ejecutarse siempre (reglas de hooks): se mantiene deshabilitado
+  // mientras no haya sesión seleccionada para no disparar la request.
+  const { data: techniques = [] } = useQuery({
+    queryKey: sessionTechniqueKeys.list(patientId, session?.id ?? ''),
+    queryFn: () => sessionTechniqueApi.list(patientId, session!.id),
+    enabled: !!session && !!patientId,
+  });
 
   if (!session) return null;
 
@@ -131,9 +141,34 @@ export default function SessionDetailSheet({ session, patientId, onClose }: Prop
                   Técnicas aplicadas
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground italic">
-                Las técnicas registradas en cada sesión se mostrarán aquí.
-              </p>
+              {techniques.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">
+                  No se registraron técnicas para esta sesión.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {techniques.map((t) => (
+                    <li key={t.id} className="text-sm">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{t.techniqueName}</span>
+                        {t.bodyRegionName && (
+                          <Badge variant="outline" className="font-normal">
+                            {t.bodyRegionName}
+                          </Badge>
+                        )}
+                        {t.muscularChainName && (
+                          <Badge variant="outline" className="font-normal">
+                            {t.muscularChainName}
+                          </Badge>
+                        )}
+                      </div>
+                      {t.variantNotes && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{t.variantNotes}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {!hasPainData &&

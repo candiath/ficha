@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
@@ -65,6 +65,9 @@ interface SessionFormModalWideProps {
   patientId: string
   episodeId?: string
   session?: Session
+  /** Se invoca tras guardar con éxito. Útil, p. ej., para resetear la paginación
+   *  cuando se crea una sesión nueva (queda en la página 1). */
+  onSuccess?: () => void
 }
 
 function getPainColor(value: number | null) {
@@ -80,6 +83,7 @@ export default function SessionFormModalWide({
   patientId,
   episodeId,
   session,
+  onSuccess,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
   const isEditing = !!session
@@ -119,7 +123,10 @@ export default function SessionFormModalWide({
     queryFn: () => packageApi.list(patientId),
   })
 
-  const activePackages = packages.filter((pkg) => pkg.remainingSessions > 0)
+  const activePackages = useMemo(
+    () => packages.filter((pkg) => pkg.remainingSessions > 0),
+    [packages],
+  )
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -182,7 +189,7 @@ export default function SessionFormModalWide({
     if (!selectedPackageId) return
     const pkg = activePackages.find((p) => p.id === selectedPackageId)
     if (pkg) form.setValue('baseAmount', String(pkg.pricePerSession))
-  }, [selectedPackageId])
+  }, [selectedPackageId, activePackages, form])
 
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
@@ -246,6 +253,7 @@ export default function SessionFormModalWide({
       toast.success(isEditing ? 'Sesión actualizada' : 'Sesión registrada')
       onOpenChange(false)
       form.reset()
+      onSuccess?.()
     },
     onError: () => {
       toast.error('Error al guardar la sesión')
