@@ -60,10 +60,11 @@ interface Props {
   open: boolean;
   onClose: () => void;
   patientId: string;
+  episodeId?: string;
   session?: Session;
 }
 
-export default function SessionFormDialog({ open, onClose, patientId, session }: Props) {
+export default function SessionFormDialog({ open, onClose, patientId, episodeId, session }: Props) {
   const queryClient = useQueryClient();
   const isEditing = !!session;
   const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([]);
@@ -205,7 +206,7 @@ export default function SessionFormDialog({ open, onClose, patientId, session }:
       }
 
       // Crear sesión y luego el pago y técnicas
-      const newSession = await sessionApi.create(patientId, sessionData);
+      const newSession = await sessionApi.create(patientId, { ...sessionData, episodeId: episodeId ?? null });
       await paymentApi.create({
         patientId,
         sessionId: newSession.id,
