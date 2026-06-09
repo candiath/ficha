@@ -30,6 +30,57 @@ const EpisodeUpdateSchema = z.object({
   closedAt: z.string().datetime({ offset: true }).optional().nullable(),
 });
 
+// Días sin sesiones antes de generar alerta de inactividad
+const INACTIVE_DAYS = 21;
+// Días de cooldown para no duplicar alertas del mismo tipo
+const ALERT_COOLDOWN_DAYS = 7;
+
+async function checkInactiveEpisode(
+  tenantId: string,
+  patientId: string,
+  episodeId: string,
+  mainComplaint: string | null,
+) {
+  const lastSession = await prisma.session.findFirst({
+    where: { episodeId, patientId },
+    orderBy: { sessionDate: 'desc' },
+    select: { sessionDate: true },
+  });
+
+  const inactiveCutoff = new Date();
+  inactiveCutoff.setDate(inactiveCutoff.getDate() - INACTIVE_DAYS);
+
+  const isInactive = !lastSession || lastSession.sessionDate < inactiveCutoff;
+  if (!isInactive) return;
+
+  // No crear alerta si ya existe una no leída reciente
+  const alertCutoff = new Date();
+  alertCutoff.setDate(alertCutoff.getDate() - ALERT_COOLDOWN_DAYS);
+  const existing = await prisma.clinicalAlert.findFirst({
+    where: {
+      tenantId,
+      patientId,
+      type: 'NO_SHOW',
+      isRead: false,
+      createdAt: { gte: alertCutoff },
+    },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  const daysSince = lastSession
+    ? Math.floor((Date.now() - lastSession.sessionDate.getTime()) / 86_400_000)
+    : null;
+  const episodeLabel = mainComplaint ? `"${mainComplaint}"` : 'el episodio activo';
+  const message = daysSince
+    ? `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`
+    : `El paciente no tiene sesiones registradas en ${episodeLabel}. Considerá hacer un seguimiento.`;
+
+  await prisma.clinicalAlert.create({
+    data: { tenantId, patientId, type: 'NO_SHOW', message },
+  });
+}
+
 async function getPatient(patientId: string) {
   return prisma.patient.findFirst({
     where: { id: patientId, tenantId: DEV_CONTEXT.tenantId },
@@ -52,6 +103,17 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
   });
 
   res.json({ data: episodes });
+
+  // Verificación de inactividad fire-and-forget (no bloquea la respuesta)
+  const activeEpisodes = episodes.filter((ep) => ep.status === 'ACTIVE');
+  for (const ep of activeEpisodes) {
+    checkInactiveEpisode(
+      DEV_CONTEXT.tenantId,
+      req.params.patientId,
+      ep.id,
+      ep.mainComplaint,
+    ).catch((err) => console.error('[inactive-check]', err));
+  }
 });
 
 // POST /api/patients/:patientId/episodes

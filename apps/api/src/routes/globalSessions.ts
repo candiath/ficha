@@ -12,6 +12,7 @@ router.get('/', async (_req, res) => {
     select: {
       id: true,
       patientId: true,
+      episodeId: true,
       sessionType: true,
       sessionDate: true,
       painScaleBefore: true,
@@ -20,6 +21,9 @@ router.get('/', async (_req, res) => {
       createdAt: true,
       patient: {
         select: { id: true, fullName: true },
+      },
+      episode: {
+        select: { id: true, mainComplaint: true },
       },
     },
   });

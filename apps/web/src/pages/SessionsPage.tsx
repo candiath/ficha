@@ -64,6 +64,7 @@ export default function SessionsPage() {
               <TableRow>
                 <TableHead>Fecha</TableHead>
                 <TableHead>Paciente</TableHead>
+                <TableHead>Episodio</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Dolor (antes → desp.)</TableHead>
                 <TableHead>Observaciones</TableHead>
@@ -91,6 +92,9 @@ export default function SessionsPage() {
                       >
                         {s.patient.fullName}
                       </Link>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
+                      {s.episode?.mainComplaint ?? <span className="italic">Sin episodio</span>}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={SESSION_TYPE_CLASS[s.sessionType]}>

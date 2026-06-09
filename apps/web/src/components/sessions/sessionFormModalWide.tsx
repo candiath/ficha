@@ -37,6 +37,7 @@ import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPick
 import type { TechniqueEntry } from '@/components/sessions/SessionTechniquesPicker'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi, sessionKeys } from '@/services/sessions'
+import { episodeKeys } from '@/services/episodes'
 import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
 import type { Session } from '@/types/session'
@@ -239,6 +240,9 @@ export default function SessionFormModalWide({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId, episodeId) })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      if (episodeId) {
+        queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
+      }
       toast.success(isEditing ? 'Sesión actualizada' : 'Sesión registrada')
       onOpenChange(false)
       form.reset()

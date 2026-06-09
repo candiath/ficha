@@ -128,6 +128,16 @@ router.post<ParentParams>('/', async (req, res) => {
     select: sessionSelect,
   });
 
+  // Cierre automático del episodio al registrar alta
+  if (body.sessionType === 'DISCHARGE' && body.episodeId) {
+    prisma.clinicalEpisode
+      .update({
+        where: { id: body.episodeId },
+        data: { status: 'DISCHARGED', closedAt: new Date() },
+      })
+      .catch((err) => console.error('[episode-close]', err));
+  }
+
   const sessionTypeDesc: Record<string, string> = {
     SESSION: 'Sesión RPG registrada',
     NOTE: 'Nota clínica registrada',

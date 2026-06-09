@@ -1,12 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -30,12 +29,12 @@ import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import TreatmentCycleTab from '@/components/patients/TreatmentCycleTab';
-import FunctionalScalesTab from '@/components/patients/FunctionalScalesTab';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { toast } from 'sonner';
 import { episodeApi, episodeKeys } from '@/services/episodes';
+import type { ClinicalEpisode, EpisodeUpdateData } from '@/types/episode';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
@@ -105,6 +104,127 @@ function DetailField({ label, value }: { label: string; value?: React.ReactNode 
         {label}
       </dt>
       <dd className="text-sm">{value ?? <span className="text-muted-foreground">—</span>}</dd>
+    </div>
+  );
+}
+
+const EPISODE_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Activo',
+  DISCHARGED: 'Alta',
+  ABANDONED: 'Abandonado',
+};
+
+const EPISODE_STATUS_CLASS: Record<string, string> = {
+  ACTIVE: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  DISCHARGED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  ABANDONED: 'bg-gray-100 text-gray-600',
+};
+
+function EpisodeCombobox({
+  episodes,
+  selectedId,
+  onSelect,
+  onNewEpisode,
+}: {
+  episodes: ClinicalEpisode[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onNewEpisode: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const filtered = episodes.filter(
+    (ep) => !search || ep.mainComplaint?.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const selected = episodes.find((e) => e.id === selectedId);
+  const selectedLabel = selected
+    ? selected.mainComplaint || `Episodio ${episodes.length - episodes.indexOf(selected)}`
+    : 'Seleccionar episodio';
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 px-3 py-1.5 text-sm border rounded-md bg-background hover:bg-muted transition-colors min-w-[220px] max-w-xs justify-between"
+      >
+        <span className="truncate text-left">{selectedLabel}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-72 bg-card border rounded-lg shadow-lg">
+          <div className="p-2 border-b">
+            <input
+              type="text"
+              className="w-full px-2 py-1.5 text-sm bg-muted rounded-md outline-none placeholder:text-muted-foreground"
+              placeholder="Buscar episodio..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filtered.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">Sin resultados</p>
+            )}
+            {filtered.map((ep) => {
+              const epNumber = episodes.length - episodes.indexOf(ep);
+              const label = ep.mainComplaint || `Episodio ${epNumber}`;
+              return (
+                <button
+                  key={ep.id}
+                  type="button"
+                  onClick={() => { onSelect(ep.id); setOpen(false); setSearch(''); }}
+                  className={`w-full text-left px-3 py-2.5 text-sm hover:bg-muted transition-colors flex items-start justify-between gap-2 ${
+                    ep.id === selectedId ? 'bg-muted/70' : ''
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-sm">{label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(ep.openedAt).toLocaleDateString('es-AR', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        timeZone: 'UTC',
+                      })}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${EPISODE_STATUS_CLASS[ep.status]}`}>
+                    {EPISODE_STATUS_LABELS[ep.status]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="p-2 border-t">
+            <button
+              type="button"
+              onClick={() => { onNewEpisode(); setOpen(false); setSearch(''); }}
+              className="w-full text-left px-2 py-1.5 text-sm text-primary hover:bg-muted rounded-md transition-colors flex items-center gap-2"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Nuevo episodio
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -314,77 +434,26 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
               />
             </div>
 
-            {/* Card demo — Dolor en familia (tabla) */}
-            <Card className="border-dashed">
-              <CardHeader className="pb-3 pt-4 px-4">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  Dolor en familia — tabla
-                  <PulseDot variant="demo" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <FormField
-                  control={form.control}
-                  name="familyPainAppearance"
-                  render={({ field: appearanceField }) => (
-                    <FormField
-                      control={form.control}
-                      name="familyPainDisappearance"
-                      render={({ field: disappearanceField }) => (
-                        <FormItem>
-                          <FormControl>
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr>
-                                  <th className="text-left font-normal text-muted-foreground pb-2 w-12"></th>
-                                  <th className="text-center font-normal text-muted-foreground pb-2 px-3">Aparición</th>
-                                  <th className="text-center font-normal text-muted-foreground pb-2 px-3">Desaparición</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {(['1', '2', '3', '4'] as const).map((id) => {
-                                  const appearsActive = appearanceField.value?.includes(id);
-                                  const disappearsActive = disappearanceField.value?.includes(id);
-                                  return (
-                                    <tr key={id} className="border-t border-border/50">
-                                      <td className="py-2.5 font-medium">{id}</td>
-                                      <td className="py-2.5 text-center">
-                                        <Checkbox
-                                          checked={!!appearsActive}
-                                          onCheckedChange={() =>
-                                            appearanceField.onChange(
-                                              appearsActive
-                                                ? (appearanceField.value ?? []).filter((v) => v !== id)
-                                                : [...(appearanceField.value ?? []), id]
-                                            )
-                                          }
-                                        />
-                                      </td>
-                                      <td className="py-2.5 text-center">
-                                        <Checkbox
-                                          checked={!!disappearsActive}
-                                          onCheckedChange={() =>
-                                            disappearanceField.onChange(
-                                              disappearsActive
-                                                ? (disappearanceField.value ?? []).filter((v) => v !== id)
-                                                : [...(disappearanceField.value ?? []), id]
-                                            )
-                                          }
-                                        />
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </FormControl>
-                        </FormItem>
-                      )}
+                        {/* Escala EVA */}
+            <FormField
+              control={form.control}
+              name="evaScale"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="10"
+                      placeholder="0-10"
+                      {...field}
                     />
-                  )}
-                />
-              </CardContent>
-            </Card>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             {/* Card demo — Dolor en familia (columnas) */}
             <Card className="border-dashed">
@@ -420,20 +489,10 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                                     )
                                   }
                                 >
-                                  <Checkbox
-                                    id={`col-appearance-${id}`}
-                                    checked={!!active}
-                                    onCheckedChange={() =>
-                                      field.onChange(
-                                        active
-                                          ? (field.value ?? []).filter((v) => v !== id)
-                                          : [...(field.value ?? []), id]
-                                      )
-                                    }
-                                  />
-                                  <label htmlFor={`col-appearance-${id}`} className="text-sm cursor-pointer flex-1">
-                                    {id}
-                                  </label>
+                                  <span className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
+                                    {active && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                                  </span>
+                                  <span className="text-sm flex-1">{id}</span>
                                 </div>
                               );
                             })}
@@ -466,20 +525,10 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                                     )
                                   }
                                 >
-                                  <Checkbox
-                                    id={`col-disappearance-${id}`}
-                                    checked={!!active}
-                                    onCheckedChange={() =>
-                                      field.onChange(
-                                        active
-                                          ? (field.value ?? []).filter((v) => v !== id)
-                                          : [...(field.value ?? []), id]
-                                      )
-                                    }
-                                  />
-                                  <label htmlFor={`col-disappearance-${id}`} className="text-sm cursor-pointer flex-1">
-                                    {id}
-                                  </label>
+                                  <span className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
+                                    {active && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                                  </span>
+                                  <span className="text-sm flex-1">{id}</span>
                                 </div>
                               );
                             })}
@@ -546,7 +595,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                 </FormItem>
               )}
             />
-
+            {/* Agrupar morphotype y breathingPatternDetail en columnas */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -587,6 +636,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
               />
             </div>
 
+            {/* Patrón respiratorio (notas) */}
             <FormField
               control={form.control}
               name="breathingPattern"
@@ -606,6 +656,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
               )}
             />
 
+            {/* Evaluación de pies */}
             <FormField
               control={form.control}
               name="footEvaluation"
@@ -625,6 +676,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
               )}
             />
 
+            {/* Notas de flexibilidad y acortamientos */}
             <FormField
               control={form.control}
               name="flexibilityNotes"
@@ -644,28 +696,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
               )}
             />
 
-            
 
-
-            <FormField
-              control={form.control}
-              name="evaScale"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="10"
-                      placeholder="0-10"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <Separator />
 
@@ -736,8 +767,20 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
 
 const SESSIONS_PAGE_SIZE = 8;
 
-function SessionsTab({ patientId, episodeId }: { patientId: string; episodeId: string }) {
+function SessionsTab({
+  patientId,
+  episodeId,
+  episodeStatus,
+  onNewEpisode,
+}: {
+  patientId: string;
+  episodeId: string;
+  episodeStatus: string;
+  onNewEpisode: () => void;
+}) {
+  const queryClient = useQueryClient();
   const [newOpen, setNewOpen] = useState(false);
+  const [closedWarning, setClosedWarning] = useState(false);
   const [selected, setSelected] = useState<Session | null>(null);
   const [page, setPage] = useState(0);
 
@@ -745,6 +788,35 @@ function SessionsTab({ patientId, episodeId }: { patientId: string; episodeId: s
     queryKey: sessionKeys.list(patientId, episodeId),
     queryFn: () => sessionApi.list(patientId, episodeId),
   });
+
+  const reopenMutation = useMutation({
+    mutationFn: () => episodeApi.update(patientId, episodeId, { status: 'ACTIVE', closedAt: null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) });
+      toast.success('Episodio reabierto');
+      setClosedWarning(false);
+      setNewOpen(true);
+    },
+    onError: () => toast.error('No se pudo reabrir el episodio'),
+  });
+
+  const dischargeSession = sessions.find((s) => s.sessionType === 'DISCHARGE') ?? null;
+  const dischargeDate = dischargeSession
+    ? new Date(dischargeSession.sessionDate).toLocaleDateString('es-AR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : null;
+
+  function handleNewSession() {
+    if (episodeStatus !== 'ACTIVE') {
+      setClosedWarning(true);
+    } else {
+      setNewOpen(true);
+    }
+  }
 
   if (isLoading) {
     return <div className="py-8 text-sm text-muted-foreground">Cargando...</div>;
@@ -762,11 +834,61 @@ function SessionsTab({ patientId, episodeId }: { patientId: string; episodeId: s
             ? 'Sin sesiones registradas'
             : `${sessions.length} sesión${sessions.length !== 1 ? 'es' : ''}`}
         </p>
-        <Button size="sm" onClick={() => setNewOpen(true)}>
+        <Button size="sm" onClick={handleNewSession}>
           <Plus className="h-4 w-4 mr-1" />
           Nueva sesión
         </Button>
       </div>
+
+      {/* Advertencia: episodio cerrado */}
+      <Dialog open={closedWarning} onOpenChange={setClosedWarning}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Episodio cerrado</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 pt-1">
+                <p>
+                  {dischargeDate
+                    ? <>Este paciente fue dado de alta el <span className="font-medium text-foreground">{dischargeDate}</span>.</>
+                    : 'Este episodio está cerrado.'}
+                </p>
+                {dischargeSession && (
+                  <button
+                    type="button"
+                    className="text-sm text-primary underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setClosedWarning(false);
+                      setSelected(dischargeSession);
+                    }}
+                  >
+                    Ver nota de alta
+                  </button>
+                )}
+                <p>Para crear una nueva sesión, debes reabrir el episodio.</p>
+                
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              disabled={reopenMutation.isPending}
+              onClick={() => reopenMutation.mutate()}
+            >
+              Reabrir episodio
+            </Button>
+            <Button
+              onClick={() => {
+                setClosedWarning(false);
+                onNewEpisode();
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Nuevo episodio
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Lista de sesiones */}
       {sessions.length === 0 ? (
@@ -895,7 +1017,6 @@ const TAB_COMPONENT: Record<string, string> = {
   evaluacion: 'EvaluationTab',
   sesiones: 'SessionsTab',
   plan: 'TreatmentCycleTab',
-  escalas: 'FunctionalScalesTab',
   consentimiento: 'ConsentTab',
   actividad: 'ActivityTimeline',
 };
@@ -911,6 +1032,9 @@ export default function PatientDetailPage() {
   const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
   const [newEpisodeOpen, setNewEpisodeOpen] = useState(false);
   const [newEpisodeComplaint, setNewEpisodeComplaint] = useState('');
+  const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
+  const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
 
   const {
     data: patient,
@@ -928,12 +1052,11 @@ export default function PatientDetailPage() {
     enabled: !!id,
   });
 
-  // Auto-select the first (most recent) ACTIVE episode, or any episode if none active
-  useEffect(() => {
-    if (episodes.length === 0 || activeEpisodeId) return;
-    const active = episodes.find((e) => e.status === 'ACTIVE') ?? episodes[0];
-    setActiveEpisodeId(active.id);
-  }, [episodes, activeEpisodeId]);
+  // Episodio efectivo: selección manual del usuario, o el primer ACTIVE, o el primero de la lista
+  const effectiveEpisodeId: string | null =
+    activeEpisodeId ??
+    (episodes.find((e) => e.status === 'ACTIVE') ?? episodes[0])?.id ??
+    null;
 
   const createEpisodeMutation = useMutation({
     mutationFn: (complaint: string) =>
@@ -943,6 +1066,16 @@ export default function PatientDetailPage() {
       setActiveEpisodeId(newEpisode.id);
       setNewEpisodeOpen(false);
       setNewEpisodeComplaint('');
+    },
+  });
+
+  const updateEpisodeMutation = useMutation({
+    mutationFn: (data: EpisodeUpdateData) =>
+      episodeApi.update(id!, effectiveEpisodeId!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
+      setEditEpisodeOpen(false);
+      setConfirmAbandon(false);
     },
   });
 
@@ -999,41 +1132,61 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
-      {/* Selector de episodio */}
-      {episodes.length > 0 && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <span className="text-xs text-muted-foreground font-medium">Episodio:</span>
-          <div className="flex items-center gap-1 flex-wrap">
-            {episodes.map((ep, idx) => (
+      {/* Episodios — CTA si no hay ninguno, combobox si hay */}
+      {episodes.length === 0 ? (
+        <Card className="mb-6 border-dashed">
+          <CardContent className="py-8 flex flex-col items-center text-center gap-3">
+            <div className="rounded-full bg-muted p-3">
+              <FileText className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-medium text-sm">Sin episodios clínicos</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                Registrá la primera consulta para comenzar a trabajar con este paciente.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => setNewEpisodeOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Registrar primera consulta
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <span className="text-xs text-muted-foreground font-medium shrink-0">Episodio:</span>
+          <EpisodeCombobox
+            episodes={episodes}
+            selectedId={effectiveEpisodeId}
+            onSelect={setActiveEpisodeId}
+            onNewEpisode={() => setNewEpisodeOpen(true)}
+          />
+          {effectiveEpisodeId && (
+            <button
+              type="button"
+              title="Editar motivo del episodio"
+              onClick={() => {
+                const ep = episodes.find((e) => e.id === effectiveEpisodeId);
+                setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                setConfirmAbandon(false);
+                setEditEpisodeOpen(true);
+              }}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {effectiveEpisodeId && episodes.find((e) => e.id === effectiveEpisodeId)?.status !== 'ACTIVE' && (
+            <span className="text-xs text-muted-foreground">
+              Episodio cerrado.{' '}
               <button
-                key={ep.id}
                 type="button"
-                onClick={() => setActiveEpisodeId(ep.id)}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                  activeEpisodeId === ep.id
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-muted text-muted-foreground border-transparent hover:border-border'
-                }`}
+                className="text-primary underline-offset-2 hover:underline"
+                onClick={() => setNewEpisodeOpen(true)}
               >
-                {ep.mainComplaint
-                  ? ep.mainComplaint.length > 30
-                    ? ep.mainComplaint.slice(0, 30) + '…'
-                    : ep.mainComplaint
-                  : `Episodio ${episodes.length - idx}`}
-                {ep.status === 'DISCHARGED' && (
-                  <span className="ml-1 text-[10px] opacity-70">(alta)</span>
-                )}
+                ¿Nueva consulta?
               </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setNewEpisodeOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-muted-foreground border border-dashed hover:border-primary hover:text-primary transition-colors"
-          >
-            <Plus className="h-3 w-3" />
-            Nuevo episodio
-          </button>
+            </span>
+          )}
         </div>
       )}
 
@@ -1050,7 +1203,6 @@ export default function PatientDetailPage() {
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
           <TabsTrigger value="sesiones">Sesiones</TabsTrigger>
           <TabsTrigger value="plan">Plan</TabsTrigger>
-          <TabsTrigger value="escalas">Escalas</TabsTrigger>
           <TabsTrigger value="consentimiento">Consentimiento</TabsTrigger>
           <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
@@ -1099,10 +1251,10 @@ export default function PatientDetailPage() {
 
         {/* ── Evaluación inicial ── */}
         <TabsContent value="evaluacion" className="mt-6">
-          {activeEpisodeId ? (
+          {effectiveEpisodeId ? (
             <EvaluationTab
               patientId={id!}
-              episodeId={activeEpisodeId}
+              episodeId={effectiveEpisodeId}
               occupation={patient.occupation}
               onUnsavedChangesChange={setEvalHasChanges}
             />
@@ -1115,8 +1267,13 @@ export default function PatientDetailPage() {
 
         {/* ── Sesiones ── */}
         <TabsContent value="sesiones" className="mt-6">
-          {activeEpisodeId ? (
-            <SessionsTab patientId={id!} episodeId={activeEpisodeId} />
+          {effectiveEpisodeId ? (
+            <SessionsTab
+              patientId={id!}
+              episodeId={effectiveEpisodeId}
+              episodeStatus={episodes.find((e) => e.id === effectiveEpisodeId)?.status ?? 'ACTIVE'}
+              onNewEpisode={() => setNewEpisodeOpen(true)}
+            />
           ) : (
             <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
               Seleccioná un episodio para ver las sesiones.
@@ -1126,18 +1283,13 @@ export default function PatientDetailPage() {
 
         {/* ── Plan ── */}
         <TabsContent value="plan" className="mt-6">
-          {activeEpisodeId ? (
-            <TreatmentCycleTab patientId={id!} episodeId={activeEpisodeId} />
+          {effectiveEpisodeId ? (
+            <TreatmentCycleTab patientId={id!} episodeId={effectiveEpisodeId} />
           ) : (
             <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
               Seleccioná un episodio para ver el plan de tratamiento.
             </div>
           )}
-        </TabsContent>
-
-        {/* ── Escalas ── */}
-        <TabsContent value="escalas" className="mt-6">
-          <FunctionalScalesTab patientId={id!} />
         </TabsContent>
 
         {/* ── Consentimiento ── */}
@@ -1179,6 +1331,94 @@ export default function PatientDetailPage() {
               {createEpisodeMutation.isPending ? 'Creando...' : 'Crear episodio'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Editar episodio (motivo + estado) */}
+      <Dialog open={editEpisodeOpen} onOpenChange={(o) => { setEditEpisodeOpen(o); setConfirmAbandon(false); }}>
+        <DialogContent>
+          {confirmAbandon ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>¿Marcar como abandonado?</DialogTitle>
+                <DialogDescription>
+                  El episodio se cerrará sin alta formal. El paciente no tiene sesiones de cierre registradas.
+                  Podrás reactivarlo en cualquier momento.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfirmAbandon(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => updateEpisodeMutation.mutate({ status: 'ABANDONED', closedAt: new Date().toISOString() })}
+                  disabled={updateEpisodeMutation.isPending}
+                >
+                  {updateEpisodeMutation.isPending ? 'Guardando...' : 'Confirmar abandono'}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Editar episodio</DialogTitle>
+                <DialogDescription>
+                  Modificá el motivo de consulta o el estado del episodio.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Motivo de consulta</label>
+                <Input
+                  placeholder="Ej: Dolor lumbar, cervicalgia..."
+                  value={editEpisodeComplaint}
+                  onChange={(e) => setEditEpisodeComplaint(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint || null });
+                  }}
+                  autoFocus
+                />
+              </div>
+              <DialogFooter className="flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                <div className="flex gap-2">
+                  {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
+                    
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" className="text-xs" onClick={() => setConfirmAbandon(true)}>
+                          Registrar abandono
+                        </Button>
+                        
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Elegí esta opción si el paciente deja de asistir sin alta formal. Podés reactivarlo si regresa.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      className="text-xs"
+                      onClick={() => updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null })}
+                      disabled={updateEpisodeMutation.isPending}
+                    >
+                      Reactivar episodio
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setEditEpisodeOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={() => updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint || null })}
+                    disabled={updateEpisodeMutation.isPending}
+                  >
+                    {updateEpisodeMutation.isPending ? 'Guardando...' : 'Guardar'}
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
