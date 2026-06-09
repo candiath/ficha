@@ -69,13 +69,29 @@ async function main() {
     },
   });
 
-  // ── Evaluación inicial del paciente de prueba ─────────────────────────────
-  await prisma.initialEvaluation.upsert({
-    where: { patientId: patient.id },
+  // ── Episodio clínico del paciente de prueba ───────────────────────────────
+  const episode1 = await prisma.clinicalEpisode.upsert({
+    where: { id: 'dev-episode-001' },
     update: {},
     create: {
+      id: 'dev-episode-001',
       tenantId: tenant.id,
       patientId: patient.id,
+      status: 'ACTIVE',
+      mainComplaint: 'Dolor lumbar crónico y contracturas cervicales',
+      openedAt: new Date('2026-02-01T00:00:00.000Z'),
+    },
+  });
+
+  // ── Evaluación inicial del paciente de prueba ─────────────────────────────
+  await prisma.initialEvaluation.upsert({
+    where: { id: 'dev-eval-001' },
+    update: {},
+    create: {
+      id: 'dev-eval-001',
+      tenantId: tenant.id,
+      patientId: patient.id,
+      episodeId: episode1.id,
       reasonForConsultation: 'Dolor lumbar crónico y contracturas cervicales',
       globalPosture: 'Hiperlordosis lumbar, cabeza adelantada',
       breathingPattern: 'Costal superior predominante',
@@ -90,6 +106,7 @@ async function main() {
       id: 'dev-session-001',
       tenantId: tenant.id,
       patientId: patient.id,
+      episodeId: episode1.id,
       userId: user.id,
       sessionType: 'SESSION',
       sessionDate: new Date('2026-02-10T10:00:00.000Z'),
@@ -109,6 +126,7 @@ async function main() {
       id: 'dev-session-002',
       tenantId: tenant.id,
       patientId: patient.id,
+      episodeId: episode1.id,
       userId: user.id,
       sessionType: 'SESSION',
       sessionDate: new Date('2026-02-24T10:00:00.000Z'),
@@ -251,14 +269,29 @@ async function main() {
     },
   });
 
+  // ── Episodio clínico ─────────────────────────────────────────────────────
+  const episodeP2 = await prisma.clinicalEpisode.upsert({
+    where: { id: 'dev-episode-p2-001' },
+    update: {},
+    create: {
+      id: 'dev-episode-p2-001',
+      tenantId: tenant.id,
+      patientId: p2.id,
+      status: 'ACTIVE',
+      mainComplaint: 'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana.',
+      openedAt: new Date('2025-12-05T00:00:00.000Z'),
+    },
+  });
+
   // ── Evaluación inicial ───────────────────────────────────────────────────
   await prisma.initialEvaluation.upsert({
-    where: { patientId: p2.id },
+    where: { id: 'dev-eval-002' },
     update: {},
     create: {
       id: 'dev-eval-002',
       tenantId: tenant.id,
       patientId: p2.id,
+      episodeId: episodeP2.id,
       reasonForConsultation:
         'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana. Los síntomas empeoran al final de la jornada laboral frente a la pantalla.',
       medicalHistory:
@@ -327,6 +360,7 @@ async function main() {
       id: 'dev-cycle-p2-001',
       tenantId: tenant.id,
       patientId: p2.id,
+      episodeId: episodeP2.id,
       name: 'Ciclo 1 — Fase inicial: debloqueo postural',
       mainChainId: 'mc-respiratoria',
       objective:
@@ -347,6 +381,7 @@ async function main() {
       id: 'dev-cycle-p2-002',
       tenantId: tenant.id,
       patientId: p2.id,
+      episodeId: episodeP2.id,
       name: 'Ciclo 2 — Mantenimiento y prevención de recaídas',
       mainChainId: 'mc-maestra-anterior',
       objective:
@@ -488,6 +523,7 @@ async function main() {
         id: s.id,
         tenantId: tenant.id,
         patientId: p2.id,
+        episodeId: episodeP2.id,
         userId: user.id,
         sessionType: s.type,
         sessionDate: new Date(s.date),
@@ -610,6 +646,7 @@ async function main() {
         id: sc.id,
         tenantId: tenant.id,
         patientId: p2.id,
+        episodeId: episodeP2.id,
         scaleType: 'NDI',
         responses: sc.responses,
         score: sc.score,
@@ -657,10 +694,10 @@ async function main() {
   }
 
   console.log('✓ Seed completado');
-  console.log(`  Tenant:  ${tenant.name} (slug: ${tenant.slug})`);
-  console.log(`  Usuario: ${user.email} / password123`);
-  console.log(`  Paciente 1: ${patient.fullName}`);
-  console.log(`  Paciente 2: ${p2.fullName} (historia clínica completa)`);
+  console.log(`  Tenant:    ${tenant.name} (slug: ${tenant.slug})`);
+  console.log(`  Usuario:   ${user.email} / password123`);
+  console.log(`  Paciente 1: ${patient.fullName} — episodio ${episode1.id}`);
+  console.log(`  Paciente 2: ${p2.fullName} — episodio ${episodeP2.id} (historia clínica completa)`);
   console.log(`  Regiones corporales: ${bodyRegions.length}`);
 }
 
