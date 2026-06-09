@@ -1,5 +1,6 @@
-import * as ProgressPrimitive from "@radix-ui/react-progress"
-import * as React from "react"
+"use client"
+
+import { Progress as ProgressPrimitive } from "@base-ui/react/progress"
 
 import { cn } from "@/lib/utils"
 
@@ -8,7 +9,7 @@ function Progress({
   children,
   value,
   ...props
-}: React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>) {
+}: ProgressPrimitive.Root.Props) {
   return (
     <ProgressPrimitive.Root
       value={value}
@@ -18,18 +19,15 @@ function Progress({
     >
       {children}
       <ProgressTrack>
-        <ProgressIndicator style={{ width: `${value ?? 0}%` }} />
+        <ProgressIndicator />
       </ProgressTrack>
     </ProgressPrimitive.Root>
   )
 }
 
-function ProgressTrack({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
+function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
   return (
-    <div
+    <ProgressPrimitive.Track
       className={cn(
         "relative flex h-1 w-full items-center overflow-x-hidden rounded-full bg-muted",
         className
@@ -43,7 +41,7 @@ function ProgressTrack({
 function ProgressIndicator({
   className,
   ...props
-}: React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Indicator>) {
+}: ProgressPrimitive.Indicator.Props) {
   return (
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
@@ -53,12 +51,9 @@ function ProgressIndicator({
   )
 }
 
-function ProgressLabel({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement>) {
+function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props) {
   return (
-    <span
+    <ProgressPrimitive.Label
       className={cn("text-sm font-medium", className)}
       data-slot="progress-label"
       {...props}
@@ -66,12 +61,9 @@ function ProgressLabel({
   )
 }
 
-function ProgressValue({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement>) {
+function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
   return (
-    <span
+    <ProgressPrimitive.Value
       className={cn(
         "ml-auto text-sm text-muted-foreground tabular-nums",
         className

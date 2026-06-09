@@ -742,13 +742,15 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
             <div className="flex justify-end pt-2">
               <TooltipProvider>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button type="submit" disabled={mutation.isPending || !hasUnsavedChanges}>
-                        {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
+                  <TooltipTrigger
+                    render={
+                      <span className="inline-flex">
+                        <Button type="submit" disabled={mutation.isPending || !hasUnsavedChanges}>
+                          {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
+                        </Button>
+                      </span>
+                    }
+                  />
                   {!hasUnsavedChanges && (
                     <TooltipContent>
                       <p>No hay cambios para guardar</p>
@@ -845,7 +847,8 @@ function SessionsTab({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Episodio cerrado</DialogTitle>
-            <DialogDescription asChild>
+            <DialogDescription
+              render={
               <div className="space-y-3 pt-1">
                 <p>
                   {dischargeDate
@@ -867,7 +870,8 @@ function SessionsTab({
                 <p>Para crear una nueva sesión, debes reabrir el episodio.</p>
                 
               </div>
-            </DialogDescription>
+              }
+            />
           </DialogHeader>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
@@ -1124,16 +1128,18 @@ export default function PatientDetailPage() {
         <div className="flex items-center gap-2">
           <TooltipProvider>
             <Tooltip>
-              <TooltipTrigger asChild>
-                {/* El <span> es necesario: un button deshabilitado no dispara
-                    los eventos de mouse que el Tooltip necesita para mostrarse */}
-                <span className="inline-flex">
-                  <Button variant="outline" disabled>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Descargar informe
-                  </Button>
-                </span>
-              </TooltipTrigger>
+              {/* El <span> es necesario: un button deshabilitado no dispara
+                  los eventos de mouse que el Tooltip necesita para mostrarse */}
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex">
+                    <Button variant="outline" disabled>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Descargar informe
+                    </Button>
+                  </span>
+                }
+              />
               <TooltipContent>Próximamente</TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1396,12 +1402,13 @@ export default function PatientDetailPage() {
                   {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
                     
                     <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" className="text-xs" onClick={() => setConfirmAbandon(true)}>
-                          Registrar abandono
-                        </Button>
-                        
-                      </TooltipTrigger>
+                      <TooltipTrigger
+                        render={
+                          <Button variant="ghost" className="text-xs" onClick={() => setConfirmAbandon(true)}>
+                            Registrar abandono
+                          </Button>
+                        }
+                      />
                       <TooltipContent>
                         <p>Elegí esta opción si el paciente deja de asistir sin alta formal. Podés reactivarlo si regresa.</p>
                       </TooltipContent>
