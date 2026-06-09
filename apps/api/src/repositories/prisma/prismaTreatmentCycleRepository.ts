@@ -10,6 +10,7 @@ import type {
 const cycleSelect = {
   id: true,
   patientId: true,
+  episodeId: true,
   name: true,
   mainChainId: true,
   objective: true,
@@ -27,6 +28,7 @@ const cycleSelect = {
 function toDTO(row: {
   id: string;
   patientId: string;
+  episodeId: string | null;
   name: string;
   mainChainId: string | null;
   objective: string | null;
@@ -43,6 +45,7 @@ function toDTO(row: {
   return {
     id: row.id,
     patientId: row.patientId,
+    episodeId: row.episodeId,
     name: row.name,
     mainChainId: row.mainChainId,
     mainChainName: row.mainChain?.name ?? null,
@@ -66,12 +69,16 @@ async function verifyPatient(ctx: TenantContext, patientId: string) {
 }
 
 export const prismaTreatmentCycleRepository: TreatmentCycleRepository = {
-  async list(ctx, patientId) {
+  async list(ctx, patientId, episodeId?: string) {
     const patient = await verifyPatient(ctx, patientId);
     if (!patient) return [];
 
     const rows = await prisma.treatmentCycle.findMany({
-      where: { patientId, tenantId: ctx.tenantId },
+      where: {
+        patientId,
+        tenantId: ctx.tenantId,
+        ...(episodeId ? { episodeId } : {}),
+      },
       orderBy: { startedAt: 'desc' },
       select: cycleSelect,
     });
@@ -83,6 +90,7 @@ export const prismaTreatmentCycleRepository: TreatmentCycleRepository = {
       data: {
         tenantId: ctx.tenantId,
         patientId,
+        episodeId: data.episodeId ?? null,
         name: data.name,
         mainChainId: data.mainChainId ?? null,
         objective: data.objective ?? null,

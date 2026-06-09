@@ -7,6 +7,7 @@ export type CycleStatus = 'ACTIVE' | 'COMPLETED' | 'PAUSED';
 export interface TreatmentCycleDTO {
   id: string;
   patientId: string;
+  episodeId: string | null;
   name: string;
   mainChainId: string | null;
   mainChainName: string | null;
@@ -23,6 +24,7 @@ export interface TreatmentCycleDTO {
 
 export interface TreatmentCycleCreateDTO {
   name: string;
+  episodeId?: string | null;
   mainChainId?: string | null;
   objective?: string | null;
   targetSessions?: number | null;
@@ -45,7 +47,7 @@ export interface TreatmentCycleUpdateDTO {
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 export interface TreatmentCycleRepository {
-  list(ctx: TenantContext, patientId: string): Promise<TreatmentCycleDTO[]>;
+  list(ctx: TenantContext, patientId: string, episodeId?: string): Promise<TreatmentCycleDTO[]>;
   create(ctx: TenantContext, patientId: string, data: TreatmentCycleCreateDTO): Promise<TreatmentCycleDTO>;
   update(ctx: TenantContext, patientId: string, cycleId: string, data: TreatmentCycleUpdateDTO): Promise<TreatmentCycleDTO | null>;
   delete(ctx: TenantContext, patientId: string, cycleId: string): Promise<boolean>;

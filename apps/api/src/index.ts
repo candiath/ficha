@@ -7,6 +7,7 @@ import alertsRouter from './routes/alerts';
 import auditLogRouter from './routes/auditLog';
 import bodyRegionsRouter from './routes/bodyRegions';
 import consentRouter from './routes/consent';
+import episodesRouter from './routes/episodes';
 import evaluationRouter from './routes/evaluations';
 import globalSessionsRouter from './routes/globalSessions';
 import muscularChainsRouter from './routes/muscularChains';
@@ -40,12 +41,13 @@ app.get('/health', async (_req, res) => {
 });
 
 app.use('/api/patients', patientsRouter);
-app.use('/api/patients/:patientId/evaluation', evaluationRouter);
+app.use('/api/patients/:patientId/episodes', episodesRouter);
+app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', evaluationRouter);
 app.use('/api/patients/:patientId/sessions', sessionsRouter);
 app.use('/api/patients/:patientId/sessions/:sessionId/techniques', sessionTechniquesRouter);
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', consentRouter);
-app.use('/api/patients/:patientId/cycles', treatmentCyclesRouter);
+app.use('/api/patients/:patientId/episodes/:episodeId/cycles', treatmentCyclesRouter);
 app.use('/api/patients/:patientId/scales', functionalScalesRouter);
 app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/techniques', techniquesRouter);

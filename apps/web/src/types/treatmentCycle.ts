@@ -3,6 +3,7 @@ export type CycleStatus = 'ACTIVE' | 'COMPLETED' | 'PAUSED';
 export interface TreatmentCycle {
   id: string;
   patientId: string;
+  episodeId: string | null;
   name: string;
   mainChainId: string | null;
   mainChainName: string | null;

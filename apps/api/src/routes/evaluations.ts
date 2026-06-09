@@ -5,14 +5,15 @@ import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
 
-type Params = { patientId: string };
+type Params = { patientId: string; episodeId: string };
 
-// Montado en /api/patients/:patientId/evaluation
+// Montado en /api/patients/:patientId/episodes/:episodeId/evaluation
 const router = Router({ mergeParams: true });
 
 const evaluationSelect = {
   id: true,
   patientId: true,
+  episodeId: true,
   globalPosture: true,
   breathingPattern: true,
   medicalHistory: true,
@@ -52,55 +53,54 @@ const EvaluationSchema = z.object({
   evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 
-// Verificar que el paciente pertenece al tenant antes de operar.
-async function getPatient(patientId: string) {
-  return prisma.patient.findFirst({
-    where: { id: patientId, tenantId: DEV_CONTEXT.tenantId },
+async function getEpisode(patientId: string, episodeId: string) {
+  return prisma.clinicalEpisode.findFirst({
+    where: { id: episodeId, patientId, tenantId: DEV_CONTEXT.tenantId },
     select: { id: true },
   });
 }
 
-// GET /api/patients/:patientId/evaluation
+// GET /api/patients/:patientId/episodes/:episodeId/evaluation
 router.get<Params>('/', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
-  if (!patient) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
+  const episode = await getEpisode(req.params.patientId, req.params.episodeId);
+  if (!episode) {
+    res.status(404).json({ error: 'Episodio no encontrado' });
     return;
   }
 
   const evaluation = await prisma.initialEvaluation.findUnique({
-    where: { patientId: req.params.patientId },
+    where: { episodeId: req.params.episodeId },
     select: evaluationSelect,
   });
 
-  // 200 con data: null si aún no existe — el frontend decide qué mostrar.
   res.json({ data: evaluation ?? null });
 });
 
-// PUT /api/patients/:patientId/evaluation
+// PUT /api/patients/:patientId/episodes/:episodeId/evaluation
 // Upsert: crea si no existe, actualiza si ya existe.
 router.put<Params>('/', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
-  if (!patient) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
+  const episode = await getEpisode(req.params.patientId, req.params.episodeId);
+  if (!episode) {
+    res.status(404).json({ error: 'Episodio no encontrado' });
     return;
   }
 
   const body = EvaluationSchema.parse(req.body);
 
   const evalExists = await prisma.initialEvaluation.findUnique({
-    where: { patientId: req.params.patientId },
+    where: { episodeId: req.params.episodeId },
     select: { id: true },
   });
 
   const evaluation = await prisma.initialEvaluation.upsert({
-    where: { patientId: req.params.patientId },
+    where: { episodeId: req.params.episodeId },
     create: {
       ...body,
       retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
       familyPainAppearance: body.familyPainAppearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
       familyPainDisappearance: body.familyPainDisappearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
       patientId: req.params.patientId,
+      episodeId: req.params.episodeId,
       tenantId: DEV_CONTEXT.tenantId,
     },
     update: {

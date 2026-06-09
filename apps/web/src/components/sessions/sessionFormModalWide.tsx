@@ -37,6 +37,7 @@ import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPick
 import type { TechniqueEntry } from '@/components/sessions/SessionTechniquesPicker'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi, sessionKeys } from '@/services/sessions'
+import { episodeKeys } from '@/services/episodes'
 import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
 import type { Session } from '@/types/session'
@@ -62,6 +63,7 @@ interface SessionFormModalWideProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   patientId: string
+  episodeId?: string
   session?: Session
 }
 
@@ -76,6 +78,7 @@ export default function SessionFormModalWide({
   open,
   onOpenChange,
   patientId,
+  episodeId,
   session,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
@@ -211,7 +214,7 @@ export default function SessionFormModalWide({
         return updated
       }
 
-      const newSession = await sessionApi.create(patientId, sessionData)
+      const newSession = await sessionApi.create(patientId, { ...sessionData, episodeId: episodeId ?? null })
       await paymentApi.create({
         patientId,
         sessionId: newSession.id,
@@ -235,8 +238,11 @@ export default function SessionFormModalWide({
       return newSession
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId) })
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId, episodeId) })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      if (episodeId) {
+        queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
+      }
       toast.success(isEditing ? 'Sesión actualizada' : 'Sesión registrada')
       onOpenChange(false)
       form.reset()

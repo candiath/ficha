@@ -13,6 +13,7 @@ const router = Router({ mergeParams: true });
 const sessionSelect = {
   id: true,
   patientId: true,
+  episodeId: true,
   sessionType: true,
   sessionDate: true,
   preSesionState: true,
@@ -28,6 +29,7 @@ const sessionSelect = {
 const SessionCreateSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
   sessionDate: z.string().datetime(),
+  episodeId: z.string().uuid().optional().nullable(),
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
   patientResponse: z.string().optional().nullable(),
@@ -55,6 +57,7 @@ async function getDevUserId(): Promise<string> {
 }
 
 // GET /api/patients/:patientId/sessions
+// Acepta ?episodeId= para filtrar por episodio.
 router.get<ParentParams>('/', async (req, res) => {
   const patient = await getPatient(req.params.patientId);
   if (!patient) {
@@ -62,8 +65,14 @@ router.get<ParentParams>('/', async (req, res) => {
     return;
   }
 
+  const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : undefined;
+
   const sessions = await prisma.session.findMany({
-    where: { patientId: req.params.patientId, tenantId: DEV_CONTEXT.tenantId },
+    where: {
+      patientId: req.params.patientId,
+      tenantId: DEV_CONTEXT.tenantId,
+      ...(episodeId ? { episodeId } : {}),
+    },
     orderBy: { sessionDate: 'desc' },
     select: sessionSelect,
   });
@@ -112,11 +121,22 @@ router.post<ParentParams>('/', async (req, res) => {
       ...body,
       sessionDate: new Date(body.sessionDate),
       patientId: req.params.patientId,
+      episodeId: body.episodeId ?? null,
       tenantId: DEV_CONTEXT.tenantId,
       userId,
     },
     select: sessionSelect,
   });
+
+  // Cierre automático del episodio al registrar alta
+  if (body.sessionType === 'DISCHARGE' && body.episodeId) {
+    prisma.clinicalEpisode
+      .update({
+        where: { id: body.episodeId },
+        data: { status: 'DISCHARGED', closedAt: new Date() },
+      })
+      .catch((err) => console.error('[episode-close]', err));
+  }
 
   const sessionTypeDesc: Record<string, string> = {
     SESSION: 'Sesión RPG registrada',
