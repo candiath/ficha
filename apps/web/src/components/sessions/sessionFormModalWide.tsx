@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useBeforeUnload } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
@@ -8,6 +9,7 @@ import { Calendar, CreditCard, FileText, ListChecks, Stethoscope } from 'lucide-
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -91,6 +93,10 @@ export default function SessionFormModalWide({
   const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([])
   // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
   const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
+  // Cambios en estado que no pertenece al form (técnicas + episodios). Se usa, junto con
+  // form.formState.isDirty, para avisar antes de cerrar con cambios sin guardar.
+  const [extraDirty, setExtraDirty] = useState(false)
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
 
   const { data: episodes = [] } = useQuery({
     queryKey: episodeKeys.list(patientId),
@@ -156,6 +162,7 @@ export default function SessionFormModalWide({
 
   useEffect(() => {
     if (!open) return
+    setExtraDirty(false)
     setSelectedEpisodeIds(isEditing ? session?.episodeIds ?? [] : episodeId ? [episodeId] : [])
     if (isEditing) {
       form.reset({
@@ -184,14 +191,25 @@ export default function SessionFormModalWide({
         reEvaluationNotes: '',
         patientResponse: '',
         observations: '',
-        baseAmount: lastPriceData?.amount != null ? String(lastPriceData.amount) : '',
+        baseAmount: '',
         discount: '',
         packageId: '',
         paymentNotes: '',
       })
       setTechniqueEntries([])
     }
-  }, [open, session, lastPriceData, episodeId])
+  }, [open, session, episodeId])
+
+  // El último precio llega de una query async y puede resolver DESPUÉS de abrir el
+  // modal. Lo aplicamos cuando llega, pero solo si el usuario todavía no tocó el
+  // campo, para no pisar lo que haya escrito. (Antes esto vivía en el reset de
+  // arriba, lo que descartaba toda edición previa al cargar el precio.)
+  useEffect(() => {
+    if (!open || isEditing) return
+    if (lastPriceData?.amount == null) return
+    if (form.getFieldState('baseAmount').isDirty) return
+    form.setValue('baseAmount', String(lastPriceData.amount))
+  }, [open, isEditing, lastPriceData, form])
 
   const selectedPackageId = form.watch('packageId')
   useEffect(() => {
@@ -282,8 +300,29 @@ export default function SessionFormModalWide({
   const painBefore = form.watch('painScaleBefore')
   const painAfter = form.watch('painScaleAfter')
 
+  const hasUnsavedChanges = form.formState.isDirty || extraDirty
+
+  // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
+  // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
+  useBeforeUnload(
+    useCallback((e) => {
+      if (open && hasUnsavedChanges) e.preventDefault()
+    }, [open, hasUnsavedChanges]),
+  )
+
+  // Interceptamos el cierre del modal (Escape, click fuera, botón X o "Cancelar"):
+  // si hay cambios sin guardar, pedimos confirmación antes de descartar.
+  function handleOpenChange(next: boolean) {
+    if (!next && hasUnsavedChanges) {
+      setShowDiscardConfirm(true)
+      return
+    }
+    onOpenChange(next)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl max-h-[90vh] overflow-y-auto p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b bg-muted/30">
           <DialogTitle className="text-xl">
@@ -442,11 +481,12 @@ export default function SessionFormModalWide({
                               type="button"
                               key={ep.id}
                               aria-pressed={checked}
-                              onClick={() =>
+                              onClick={() => {
+                                setExtraDirty(true)
                                 setSelectedEpisodeIds((prev) =>
                                   checked ? prev.filter((id) => id !== ep.id) : [...prev, ep.id],
                                 )
-                              }
+                              }}
                               className={`flex w-full items-center gap-3 rounded-md border p-2.5 text-left transition-colors ${
                                 checked ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
                               }`}
@@ -492,7 +532,10 @@ export default function SessionFormModalWide({
                   <CardContent>
                     <SessionTechniquesPicker
                       value={techniqueEntries}
-                      onChange={setTechniqueEntries}
+                      onChange={(v) => {
+                        setExtraDirty(true)
+                        setTechniqueEntries(v)
+                      }}
                     />
                   </CardContent>
                 </Card>
@@ -705,7 +748,7 @@ export default function SessionFormModalWide({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
                 className="w-full sm:w-auto"
               >
                 Cancelar
@@ -718,5 +761,32 @@ export default function SessionFormModalWide({
         </Form>
       </DialogContent>
     </Dialog>
+
+    {/* Confirmación al cerrar con cambios sin guardar */}
+    <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Descartar cambios?</DialogTitle>
+          <DialogDescription>
+            Tenés cambios sin guardar en la sesión. Si cerrás ahora, se perderán.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowDiscardConfirm(false)}>
+            Seguir editando
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              setShowDiscardConfirm(false)
+              onOpenChange(false)
+            }}
+          >
+            Descartar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
