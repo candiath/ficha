@@ -106,8 +106,8 @@ async function main() {
       id: 'dev-session-001',
       tenantId: tenant.id,
       patientId: patient.id,
-      episodeId: episode1.id,
       userId: user.id,
+      episodes: { create: { episode: { connect: { id: episode1.id } } } },
       sessionType: 'SESSION',
       sessionDate: new Date('2026-02-10T10:00:00.000Z'),
       painScaleBefore: 7,
@@ -126,8 +126,8 @@ async function main() {
       id: 'dev-session-002',
       tenantId: tenant.id,
       patientId: patient.id,
-      episodeId: episode1.id,
       userId: user.id,
+      episodes: { create: { episode: { connect: { id: episode1.id } } } },
       sessionType: 'SESSION',
       sessionDate: new Date('2026-02-24T10:00:00.000Z'),
       painScaleBefore: 5,
@@ -247,7 +247,7 @@ async function main() {
   // ════════════════════════════════════════════════════════════════════════
   // PACIENTE DEMO 2 — Javier Rodríguez
   // Historia clínica completa: cervicalgia crónica + hernia C5-C6
-  // Abarca: evaluación extendida, 8 sesiones, 2 ciclos, 3 escalas NDI,
+  // Abarca: evaluación extendida, 8 sesiones, 3 escalas NDI,
   //         consentimiento, paquete + cobros, alertas y auditoría.
   // ════════════════════════════════════════════════════════════════════════
 
@@ -349,48 +349,6 @@ async function main() {
       patientId: p2.id,
       signed: true,
       signedAt: new Date('2025-12-05T09:00:00.000Z'),
-    },
-  });
-
-  // ── Ciclos de tratamiento ────────────────────────────────────────────────
-  const cycle1 = await prisma.treatmentCycle.upsert({
-    where: { id: 'dev-cycle-p2-001' },
-    update: {},
-    create: {
-      id: 'dev-cycle-p2-001',
-      tenantId: tenant.id,
-      patientId: p2.id,
-      episodeId: episodeP2.id,
-      name: 'Ciclo 1 — Fase inicial: debloqueo postural',
-      mainChainId: 'mc-respiratoria',
-      objective:
-        'Reducir contractura muscular cervico-dorsal, restaurar respiración diafragmática y corregir posición de la cabeza. Meta: EVA ≤ 4 y NDI < 30%.',
-      targetSessions: 5,
-      reevalEvery: 3,
-      dischargeCriteria: 'NDI < 30% y ausencia de cefaleas tensionales semanales',
-      status: 'COMPLETED',
-      startedAt: new Date('2025-12-05T00:00:00.000Z'),
-      completedAt: new Date('2026-01-30T00:00:00.000Z'),
-    },
-  });
-
-  await prisma.treatmentCycle.upsert({
-    where: { id: 'dev-cycle-p2-002' },
-    update: {},
-    create: {
-      id: 'dev-cycle-p2-002',
-      tenantId: tenant.id,
-      patientId: p2.id,
-      episodeId: episodeP2.id,
-      name: 'Ciclo 2 — Mantenimiento y prevención de recaídas',
-      mainChainId: 'mc-maestra-anterior',
-      objective:
-        'Consolidar corrección postural, fortalecer patrones respiratorios fisiológicos y educar en higiene postural para el trabajo remoto. Meta: NDI < 15%.',
-      targetSessions: 6,
-      reevalEvery: 3,
-      dischargeCriteria: 'NDI < 15% sostenido 2 evaluaciones consecutivas y autonomía en autoposturas',
-      status: 'ACTIVE',
-      startedAt: new Date('2026-02-06T00:00:00.000Z'),
     },
   });
 
@@ -523,8 +481,8 @@ async function main() {
         id: s.id,
         tenantId: tenant.id,
         patientId: p2.id,
-        episodeId: episodeP2.id,
         userId: user.id,
+        episodes: { create: { episode: { connect: { id: episodeP2.id } } } },
         sessionType: s.type,
         sessionDate: new Date(s.date),
         painScaleBefore: s.painBefore,

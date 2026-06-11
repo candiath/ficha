@@ -17,7 +17,6 @@ import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
 import sessionTechniquesRouter from './routes/sessionTechniques';
 import techniquesRouter from './routes/techniques';
-import treatmentCyclesRouter from './routes/treatmentCycles';
 import functionalScalesRouter from './routes/functionalScales';
 
 const app = express();
@@ -47,7 +46,6 @@ app.use('/api/patients/:patientId/sessions', sessionsRouter);
 app.use('/api/patients/:patientId/sessions/:sessionId/techniques', sessionTechniquesRouter);
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', consentRouter);
-app.use('/api/patients/:patientId/episodes/:episodeId/cycles', treatmentCyclesRouter);
 app.use('/api/patients/:patientId/scales', functionalScalesRouter);
 app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/techniques', techniquesRouter);

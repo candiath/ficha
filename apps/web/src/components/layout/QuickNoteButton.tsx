@@ -61,7 +61,7 @@ export default function QuickNoteButton() {
       sessionApi.create(selectedPatient!.id, {
         sessionType: 'NOTE',
         sessionDate: new Date().toISOString(),
-        episodeId: selectedEpisode?.id ?? null,
+        episodeIds: selectedEpisode ? [selectedEpisode.id] : [],
         painScaleBefore: null,
         painScaleAfter: null,
         preSesionState: null,
