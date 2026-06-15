@@ -5,4 +5,3 @@ export { prismaSessionTechniqueRepository as sessionTechniqueRepo } from './pris
 export { prismaAuditLogRepository as auditLogRepo } from './prisma/prismaAuditLogRepository';
 export { prismaConsentRepository as consentRepo } from './prisma/prismaConsentRepository';
 export { prismaClinicalAlertRepository as clinicalAlertRepo } from './prisma/prismaClinicalAlertRepository';
-export { prismaTreatmentCycleRepository as treatmentCycleRepo } from './prisma/prismaTreatmentCycleRepository';

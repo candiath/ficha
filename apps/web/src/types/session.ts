@@ -3,7 +3,8 @@ export type SessionType = 'SESSION' | 'NOTE' | 'DISCHARGE';
 export interface Session {
   id: string;
   patientId: string;
-  episodeId: string | null;
+  // Una sesión puede abordar varios episodios (motivos) a la vez.
+  episodeIds: string[];
   sessionType: SessionType;
   sessionDate: string;
   preSesionState: string | null;

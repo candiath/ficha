@@ -197,7 +197,6 @@ export default function SessionDetailSheet({ session, patientId, onClose }: Prop
         open={editOpen}
         onOpenChange={setEditOpen}
         patientId={patientId}
-        episodeId={session.episodeId ?? undefined}
         session={session}
       />
     </>

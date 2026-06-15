@@ -28,7 +28,6 @@ import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
-import TreatmentCycleTab from '@/components/patients/TreatmentCycleTab';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
@@ -1021,7 +1020,6 @@ const TAB_COMPONENT: Record<string, string> = {
   resumen: 'PatientDetailPage',
   evaluacion: 'EvaluationTab',
   sesiones: 'SessionsTab',
-  plan: 'TreatmentCycleTab',
   consentimiento: 'ConsentTab',
   actividad: 'ActivityTimeline',
 };
@@ -1220,7 +1218,6 @@ export default function PatientDetailPage() {
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
           <TabsTrigger value="sesiones">Sesiones</TabsTrigger>
-          <TabsTrigger value="plan">Plan</TabsTrigger>
           <TabsTrigger value="consentimiento">Consentimiento</TabsTrigger>
           <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
@@ -1295,17 +1292,6 @@ export default function PatientDetailPage() {
           ) : (
             <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
               Seleccioná un episodio para ver las sesiones.
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ── Plan ── */}
-        <TabsContent value="plan" className="mt-6">
-          {effectiveEpisodeId ? (
-            <TreatmentCycleTab patientId={id!} episodeId={effectiveEpisodeId} />
-          ) : (
-            <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
-              Seleccioná un episodio para ver el plan de tratamiento.
             </div>
           )}
         </TabsContent>

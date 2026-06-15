@@ -42,7 +42,7 @@ async function checkInactiveEpisode(
   mainComplaint: string | null,
 ) {
   const lastSession = await prisma.session.findFirst({
-    where: { episodeId, patientId },
+    where: { patientId, episodes: { some: { episodeId } } },
     orderBy: { sessionDate: 'desc' },
     select: { sessionDate: true },
   });

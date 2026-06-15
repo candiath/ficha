@@ -30,7 +30,6 @@ model Tenant {
   informedConsents    InformedConsent[]
   auditLogs           AuditLog[]
   clinicalAlerts      ClinicalAlert[]
-  treatmentCycles     TreatmentCycle[]
   functionalScales    FunctionalScale[]
   clinicalEpisodes    ClinicalEpisode[]
 
@@ -82,7 +81,6 @@ model Patient {
   informedConsent    InformedConsent?
   auditLogs          AuditLog[]
   clinicalAlerts     ClinicalAlert[]
-  treatmentCycles    TreatmentCycle[]
   functionalScales   FunctionalScale[]
   clinicalEpisodes   ClinicalEpisode[]
 
@@ -110,8 +108,7 @@ model ClinicalEpisode {
   tenant            Tenant              @relation(fields: [tenantId], references: [id])
   patient           Patient             @relation(fields: [patientId], references: [id])
   initialEvaluation InitialEvaluation?
-  treatmentCycles   TreatmentCycle[]
-  sessions          Session[]
+  sessions          SessionEpisode[]
   functionalScales  FunctionalScale[]
 
   @@index([tenantId])
@@ -176,7 +173,6 @@ model Session {
   id               String      @id @default(uuid())
   tenantId         String      @map("tenant_id")
   patientId        String      @map("patient_id")
-  episodeId        String?     @map("episode_id")
   userId           String      @map("user_id")
   sessionType      SessionType @default(SESSION) @map("session_type")
   sessionDate      DateTime    @map("session_date")
@@ -191,16 +187,32 @@ model Session {
 
   tenant     Tenant            @relation(fields: [tenantId], references: [id])
   patient    Patient           @relation(fields: [patientId], references: [id])
-  episode    ClinicalEpisode?  @relation(fields: [episodeId], references: [id])
   user       User              @relation(fields: [userId], references: [id])
+  episodes   SessionEpisode[]
   photos     SessionPhoto[]
   techniques SessionTechnique[]
   payment    Payment?
 
   @@index([tenantId])
   @@index([patientId])
-  @@index([episodeId])
   @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pivote sesión ↔ episodio (M:N): una misma sesión puede abordar varios motivos
+// de consulta a la vez (p. ej. cervicalgia y lumbalgia en la misma visita), y un
+// episodio agrupa todas las sesiones que trabajaron ese motivo.
+// ─────────────────────────────────────────────────────────────────────────────
+model SessionEpisode {
+  sessionId String @map("session_id")
+  episodeId String @map("episode_id")
+
+  session Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  episode ClinicalEpisode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, episodeId])
+  @@index([episodeId])
+  @@map("session_episodes")
 }
 
 model SessionPhoto {
@@ -253,8 +265,7 @@ model MuscularChain {
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
 
-  sessions        SessionTechnique[]
-  treatmentCycles TreatmentCycle[]
+  sessions SessionTechnique[]
 
   @@map("muscular_chains")
 }
@@ -426,45 +437,6 @@ model ClinicalAlert {
   @@index([patientId])
   @@index([isRead])
   @@map("clinical_alerts")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Plan de tratamiento por ciclos (Método Souchard).
-// Un paciente puede tener varios ciclos en el tiempo.
-// ─────────────────────────────────────────────────────────────────────────────
-
-enum CycleStatus {
-  ACTIVE
-  COMPLETED
-  PAUSED
-}
-
-model TreatmentCycle {
-  id                String      @id @default(uuid())
-  tenantId          String      @map("tenant_id")
-  patientId         String      @map("patient_id")
-  episodeId         String?     @map("episode_id")
-  name              String
-  mainChainId       String?     @map("main_chain_id")
-  objective         String?
-  targetSessions    Int?        @map("target_sessions")
-  reevalEvery       Int?        @map("reeval_every")
-  dischargeCriteria String?     @map("discharge_criteria")
-  status            CycleStatus @default(ACTIVE)
-  startedAt         DateTime    @default(now()) @map("started_at")
-  completedAt       DateTime?   @map("completed_at")
-  createdAt         DateTime    @default(now()) @map("created_at")
-  updatedAt         DateTime    @updatedAt @map("updated_at")
-
-  tenant      Tenant           @relation(fields: [tenantId], references: [id])
-  patient     Patient          @relation(fields: [patientId], references: [id])
-  episode     ClinicalEpisode? @relation(fields: [episodeId], references: [id])
-  mainChain   MuscularChain?   @relation(fields: [mainChainId], references: [id])
-
-  @@index([tenantId])
-  @@index([patientId])
-  @@index([episodeId])
-  @@map("treatment_cycles")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

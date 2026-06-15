@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useBeforeUnload } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, CreditCard, FileText, Stethoscope } from 'lucide-react'
+import { Calendar, CreditCard, FileText, ListChecks, Stethoscope } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -36,8 +38,9 @@ import {
 import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPicker'
 import type { TechniqueEntry } from '@/components/sessions/SessionTechniquesPicker'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
-import { sessionApi, sessionKeys } from '@/services/sessions'
-import { episodeKeys } from '@/services/episodes'
+import { sessionApi } from '@/services/sessions'
+import { episodeApi, episodeKeys } from '@/services/episodes'
+import { globalSessionKeys } from '@/services/globalSessions'
 import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
 import type { Session } from '@/types/session'
@@ -88,6 +91,17 @@ export default function SessionFormModalWide({
   const queryClient = useQueryClient()
   const isEditing = !!session
   const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([])
+  // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
+  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
+  // Cambios en estado que no pertenece al form (técnicas + episodios). Se usa, junto con
+  // form.formState.isDirty, para avisar antes de cerrar con cambios sin guardar.
+  const [extraDirty, setExtraDirty] = useState(false)
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
+
+  const { data: episodes = [] } = useQuery({
+    queryKey: episodeKeys.list(patientId),
+    queryFn: () => episodeApi.list(patientId),
+  })
 
   const { data: existingTechniques } = useQuery({
     queryKey: sessionTechniqueKeys.list(patientId, session?.id ?? ''),
@@ -148,6 +162,8 @@ export default function SessionFormModalWide({
 
   useEffect(() => {
     if (!open) return
+    setExtraDirty(false)
+    setSelectedEpisodeIds(isEditing ? session?.episodeIds ?? [] : episodeId ? [episodeId] : [])
     if (isEditing) {
       form.reset({
         sessionType: session.sessionType ?? 'SESSION',
@@ -175,14 +191,25 @@ export default function SessionFormModalWide({
         reEvaluationNotes: '',
         patientResponse: '',
         observations: '',
-        baseAmount: lastPriceData?.amount != null ? String(lastPriceData.amount) : '',
+        baseAmount: '',
         discount: '',
         packageId: '',
         paymentNotes: '',
       })
       setTechniqueEntries([])
     }
-  }, [open, session, lastPriceData])
+  }, [open, session, episodeId])
+
+  // El último precio llega de una query async y puede resolver DESPUÉS de abrir el
+  // modal. Lo aplicamos cuando llega, pero solo si el usuario todavía no tocó el
+  // campo, para no pisar lo que haya escrito. (Antes esto vivía en el reset de
+  // arriba, lo que descartaba toda edición previa al cargar el precio.)
+  useEffect(() => {
+    if (!open || isEditing) return
+    if (lastPriceData?.amount == null) return
+    if (form.getFieldState('baseAmount').isDirty) return
+    form.setValue('baseAmount', String(lastPriceData.amount))
+  }, [open, isEditing, lastPriceData, form])
 
   const selectedPackageId = form.watch('packageId')
   useEffect(() => {
@@ -205,7 +232,10 @@ export default function SessionFormModalWide({
       }
 
       if (isEditing) {
-        const updated = await sessionApi.update(patientId, session.id, sessionData)
+        const updated = await sessionApi.update(patientId, session.id, {
+          ...sessionData,
+          episodeIds: selectedEpisodeIds,
+        })
         if (techniqueEntries.length > 0 || existingTechniques?.length) {
           await sessionTechniqueApi.bulkReplace(
             patientId,
@@ -221,7 +251,7 @@ export default function SessionFormModalWide({
         return updated
       }
 
-      const newSession = await sessionApi.create(patientId, { ...sessionData, episodeId: episodeId ?? null })
+      const newSession = await sessionApi.create(patientId, { ...sessionData, episodeIds: selectedEpisodeIds })
       await paymentApi.create({
         patientId,
         sessionId: newSession.id,
@@ -245,11 +275,18 @@ export default function SessionFormModalWide({
       return newSession
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId, episodeId) })
+      // La sesión puede estar vinculada a varios episodios: invalidamos toda lista
+      // de sesiones del paciente (con o sin episodio en la key), no solo una.
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'patients' &&
+          q.queryKey[1] === patientId &&
+          q.queryKey.includes('sessions'),
+      })
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
+      queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
-      if (episodeId) {
-        queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
-      }
       toast.success(isEditing ? 'Sesión actualizada' : 'Sesión registrada')
       onOpenChange(false)
       form.reset()
@@ -263,8 +300,29 @@ export default function SessionFormModalWide({
   const painBefore = form.watch('painScaleBefore')
   const painAfter = form.watch('painScaleAfter')
 
+  const hasUnsavedChanges = form.formState.isDirty || extraDirty
+
+  // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
+  // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
+  useBeforeUnload(
+    useCallback((e) => {
+      if (open && hasUnsavedChanges) e.preventDefault()
+    }, [open, hasUnsavedChanges]),
+  )
+
+  // Interceptamos el cierre del modal (Escape, click fuera, botón X o "Cancelar"):
+  // si hay cambios sin guardar, pedimos confirmación antes de descartar.
+  function handleOpenChange(next: boolean) {
+    if (!next && hasUnsavedChanges) {
+      setShowDiscardConfirm(true)
+      return
+    }
+    onOpenChange(next)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl max-h-[90vh] overflow-y-auto p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b bg-muted/30">
           <DialogTitle className="text-xl">
@@ -400,6 +458,69 @@ export default function SessionFormModalWide({
                   </CardContent>
                 </Card>
 
+                {/* Motivos atendidos (episodios) */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <ListChecks className="h-4 w-4 text-muted-foreground" />
+                      Motivos atendidos
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {episodes.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Este paciente no tiene episodios. Creá uno desde la ficha para asociar la
+                        sesión a un motivo.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {episodes.map((ep) => {
+                          const checked = selectedEpisodeIds.includes(ep.id)
+                          return (
+                            <button
+                              type="button"
+                              key={ep.id}
+                              aria-pressed={checked}
+                              onClick={() => {
+                                setExtraDirty(true)
+                                setSelectedEpisodeIds((prev) =>
+                                  checked ? prev.filter((id) => id !== ep.id) : [...prev, ep.id],
+                                )
+                              }}
+                              className={`flex w-full items-center gap-3 rounded-md border p-2.5 text-left transition-colors ${
+                                checked ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
+                              }`}
+                            >
+                              <span
+                                className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                                  checked
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : 'border-input'
+                                }`}
+                              >
+                                {checked && (
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1 text-sm truncate">
+                                {ep.mainComplaint || 'Sin motivo'}
+                              </span>
+                              {ep.status !== 'ACTIVE' && (
+                                <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                  {ep.status === 'DISCHARGED' ? 'Alta' : 'Abandonado'}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Una sesión puede abordar varios motivos a la vez.
+                    </p>
+                  </CardContent>
+                </Card>
+
                 {/* Técnicas */}
                 <Card>
                   <CardHeader className="pb-3">
@@ -411,7 +532,10 @@ export default function SessionFormModalWide({
                   <CardContent>
                     <SessionTechniquesPicker
                       value={techniqueEntries}
-                      onChange={setTechniqueEntries}
+                      onChange={(v) => {
+                        setExtraDirty(true)
+                        setTechniqueEntries(v)
+                      }}
                     />
                   </CardContent>
                 </Card>
@@ -624,7 +748,7 @@ export default function SessionFormModalWide({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
                 className="w-full sm:w-auto"
               >
                 Cancelar
@@ -637,5 +761,32 @@ export default function SessionFormModalWide({
         </Form>
       </DialogContent>
     </Dialog>
+
+    {/* Confirmación al cerrar con cambios sin guardar */}
+    <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Descartar cambios?</DialogTitle>
+          <DialogDescription>
+            Tenés cambios sin guardar en la sesión. Si cerrás ahora, se perderán.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowDiscardConfirm(false)}>
+            Seguir editando
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              setShowDiscardConfirm(false)
+              onOpenChange(false)
+            }}
+          >
+            Descartar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

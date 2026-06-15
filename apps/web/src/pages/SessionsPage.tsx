@@ -94,7 +94,11 @@ export default function SessionsPage() {
                       </Link>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
-                      {s.episode?.mainComplaint ?? <span className="italic">Sin episodio</span>}
+                      {s.episodes.length > 0 ? (
+                        s.episodes.map((e) => e.mainComplaint || 'Sin motivo').join(' · ')
+                      ) : (
+                        <span className="italic">Sin episodio</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={SESSION_TYPE_CLASS[s.sessionType]}>

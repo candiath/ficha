@@ -10,10 +10,11 @@ type SessionParams = { patientId: string; sessionId: string };
 // Montado en /api/patients/:patientId/sessions
 const router = Router({ mergeParams: true });
 
+// Una sesión puede abordar varios episodios (motivos) a la vez: se devuelven
+// como episodeIds para que el cliente trabaje con un arreglo plano.
 const sessionSelect = {
   id: true,
   patientId: true,
-  episodeId: true,
   sessionType: true,
   sessionDate: true,
   preSesionState: true,
@@ -24,12 +25,23 @@ const sessionSelect = {
   observations: true,
   createdAt: true,
   updatedAt: true,
+  episodes: { select: { episodeId: true } },
 } as const;
+
+type SessionRow = {
+  episodes: { episodeId: string }[];
+  [key: string]: unknown;
+};
+
+// Aplana el pivote a un arreglo de ids de episodio.
+function toSessionDTO({ episodes, ...rest }: SessionRow) {
+  return { ...rest, episodeIds: episodes.map((e) => e.episodeId) };
+}
 
 const SessionCreateSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
   sessionDate: z.string().datetime(),
-  episodeId: z.string().uuid().optional().nullable(),
+  episodeIds: z.array(z.string().uuid()).optional().default([]),
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
   patientResponse: z.string().optional().nullable(),
@@ -57,7 +69,7 @@ async function getDevUserId(): Promise<string> {
 }
 
 // GET /api/patients/:patientId/sessions
-// Acepta ?episodeId= para filtrar por episodio.
+// Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
   const patient = await getPatient(req.params.patientId);
   if (!patient) {
@@ -71,13 +83,13 @@ router.get<ParentParams>('/', async (req, res) => {
     where: {
       patientId: req.params.patientId,
       tenantId: DEV_CONTEXT.tenantId,
-      ...(episodeId ? { episodeId } : {}),
+      ...(episodeId ? { episodes: { some: { episodeId } } } : {}),
     },
     orderBy: { sessionDate: 'desc' },
     select: sessionSelect,
   });
 
-  res.json({ data: sessions });
+  res.json({ data: sessions.map(toSessionDTO) });
 });
 
 // GET /api/patients/:patientId/sessions/:sessionId
@@ -102,7 +114,7 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
     return;
   }
 
-  res.json({ data: session });
+  res.json({ data: toSessionDTO(session) });
 });
 
 // POST /api/patients/:patientId/sessions
@@ -114,25 +126,25 @@ router.post<ParentParams>('/', async (req, res) => {
   }
 
   const userId = await getDevUserId();
-  const body = SessionCreateSchema.parse(req.body);
+  const { episodeIds, ...rest } = SessionCreateSchema.parse(req.body);
 
   const session = await prisma.session.create({
     data: {
-      ...body,
-      sessionDate: new Date(body.sessionDate),
+      ...rest,
+      sessionDate: new Date(rest.sessionDate),
       patientId: req.params.patientId,
-      episodeId: body.episodeId ?? null,
       tenantId: DEV_CONTEXT.tenantId,
       userId,
+      episodes: { create: episodeIds.map((episodeId) => ({ episode: { connect: { id: episodeId } } })) },
     },
     select: sessionSelect,
   });
 
-  // Cierre automático del episodio al registrar alta
-  if (body.sessionType === 'DISCHARGE' && body.episodeId) {
+  // Cierre automático del/los episodio(s) al registrar alta
+  if (rest.sessionType === 'DISCHARGE' && episodeIds.length > 0) {
     prisma.clinicalEpisode
-      .update({
-        where: { id: body.episodeId },
+      .updateMany({
+        where: { id: { in: episodeIds }, tenantId: DEV_CONTEXT.tenantId },
         data: { status: 'DISCHARGED', closedAt: new Date() },
       })
       .catch((err) => console.error('[episode-close]', err));
@@ -144,8 +156,8 @@ router.post<ParentParams>('/', async (req, res) => {
     DISCHARGE: 'Alta registrada',
   };
   const painSuffix =
-    body.painScaleBefore != null && body.painScaleAfter != null
-      ? ` — Dolor ${body.painScaleBefore} → ${body.painScaleAfter}`
+    rest.painScaleBefore != null && rest.painScaleAfter != null
+      ? ` — Dolor ${rest.painScaleBefore} → ${rest.painScaleAfter}`
       : '';
   auditLogRepo
     .create(DEV_CONTEXT, {
@@ -154,11 +166,11 @@ router.post<ParentParams>('/', async (req, res) => {
       entity: 'SESSION',
       entityId: session.id,
       action: 'CREATED',
-      description: `${sessionTypeDesc[body.sessionType ?? 'SESSION'] ?? 'Sesión registrada'}${painSuffix}`,
+      description: `${sessionTypeDesc[rest.sessionType ?? 'SESSION'] ?? 'Sesión registrada'}${painSuffix}`,
     })
     .catch((err) => console.error('[audit]', err));
 
-  res.status(201).json({ data: session });
+  res.status(201).json({ data: toSessionDTO(session) });
 });
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
@@ -183,15 +195,22 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     return;
   }
 
-  const body = SessionUpdateSchema.parse(req.body);
-  const updateData = {
-    ...body,
-    ...(body.sessionDate ? { sessionDate: new Date(body.sessionDate) } : {}),
-  };
-
+  const { episodeIds, ...rest } = SessionUpdateSchema.parse(req.body);
   const session = await prisma.session.update({
     where: { id: req.params.sessionId },
-    data: updateData,
+    data: {
+      ...rest,
+      ...(rest.sessionDate ? { sessionDate: new Date(rest.sessionDate) } : {}),
+      // Reemplaza el conjunto de episodios vinculados solo si se envía episodeIds.
+      ...(episodeIds
+        ? {
+            episodes: {
+              deleteMany: {},
+              create: episodeIds.map((episodeId) => ({ episode: { connect: { id: episodeId } } })),
+            },
+          }
+        : {}),
+    },
     select: sessionSelect,
   });
 
@@ -205,7 +224,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     })
     .catch((err) => console.error('[audit]', err));
 
-  res.json({ data: session });
+  res.json({ data: toSessionDTO(session) });
 });
 
 export default router;
