@@ -27,6 +27,7 @@ import { PulseDot } from '@/components/ui/pulse-dot';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
+import { PostureFamiliesTables } from '@/components/patients/PostureFamiliesTables';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
@@ -539,6 +540,9 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                 </div>
               </CardContent>
             </Card>
+
+            {/* Demo — Familias de posturas (dos tablas de doble entrada) */}
+            <PostureFamiliesTables />
 
             <FormField
               control={form.control}
