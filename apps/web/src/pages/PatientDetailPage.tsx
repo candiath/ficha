@@ -58,6 +58,7 @@ const evalSchema = z.object({
   painFrequency: z.string().optional().or(z.literal('')),
   familyPainAppearance: z.array(z.string()).optional(),
   familyPainDisappearance: z.array(z.string()).optional(),
+  postureFamilies: z.record(z.string(), z.string()).optional(),
   evaScale: z.string().optional().or(z.literal('')),
 });
 
@@ -257,6 +258,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
       painFrequency: '',
       familyPainAppearance: [],
       familyPainDisappearance: [],
+      postureFamilies: {},
       evaScale: '',
     },
   });
@@ -297,6 +299,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         painFrequency: evaluation.painFrequency ?? '',
         familyPainAppearance: (evaluation.familyPainAppearance as string[] | null) ?? [],
         familyPainDisappearance: (evaluation.familyPainDisappearance as string[] | null) ?? [],
+        postureFamilies: evaluation.postureFamilies ?? {},
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -323,6 +326,11 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         painFrequency: values.painFrequency || null,
         familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
         familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
+        // Mapa sparse: sin celdas marcadas se guarda NULL, igual que familyPain
+        postureFamilies:
+          values.postureFamilies && Object.keys(values.postureFamilies).length
+            ? values.postureFamilies
+            : null,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
       });
       const newOccupation = values.occupation || null;
@@ -541,8 +549,14 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
               </CardContent>
             </Card>
 
-            {/* Demo — Familias de posturas (dos tablas de doble entrada) */}
-            <PostureFamiliesTables />
+            {/* Familias de posturas (dos tablas de doble entrada) */}
+            <FormField
+              control={form.control}
+              name="postureFamilies"
+              render={({ field }) => (
+                <PostureFamiliesTables value={field.value ?? {}} onChange={field.onChange} />
+              )}
+            />
 
             <FormField
               control={form.control}

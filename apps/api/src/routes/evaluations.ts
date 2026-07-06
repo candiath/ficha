@@ -29,6 +29,7 @@ const evaluationSelect = {
   painFrequency: true,
   familyPainAppearance: true,
   familyPainDisappearance: true,
+  postureFamilies: true,
   evaScale: true,
   evaluatedAt: true,
   updatedAt: true,
@@ -50,6 +51,7 @@ const EvaluationSchema = z.object({
   painFrequency: z.string().optional().nullable(),
   familyPainAppearance: z.unknown().optional().nullable(),
   familyPainDisappearance: z.unknown().optional().nullable(),
+  postureFamilies: z.record(z.string(), z.string()).optional().nullable(),
   evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 
@@ -99,6 +101,7 @@ router.put<Params>('/', async (req, res) => {
       retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
       familyPainAppearance: body.familyPainAppearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
       familyPainDisappearance: body.familyPainDisappearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
+      postureFamilies: body.postureFamilies ?? Prisma.JsonNull,
       patientId: req.params.patientId,
       episodeId: req.params.episodeId,
       tenantId: DEV_CONTEXT.tenantId,
@@ -108,6 +111,7 @@ router.put<Params>('/', async (req, res) => {
       retractionMap: body.retractionMap as Prisma.InputJsonValue ?? Prisma.JsonNull,
       familyPainAppearance: body.familyPainAppearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
       familyPainDisappearance: body.familyPainDisappearance as Prisma.InputJsonValue ?? Prisma.JsonNull,
+      postureFamilies: body.postureFamilies ?? Prisma.JsonNull,
     },
     select: evaluationSelect,
   });

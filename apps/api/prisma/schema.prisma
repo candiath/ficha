@@ -136,6 +136,7 @@ model InitialEvaluation {
   painFrequency           String?  @map("pain_frequency")
   familyPainAppearance    Json?    @map("family_pain_appearance")
   familyPainDisappearance Json?    @map("family_pain_disappearance")
+  postureFamilies         Json?    @map("posture_families")
   evaScale                Int?     @map("eva_scale")
   evaluatedAt             DateTime @default(now()) @map("evaluated_at")
   updatedAt               DateTime @updatedAt @map("updated_at")

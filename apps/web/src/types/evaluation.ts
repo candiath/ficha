@@ -16,6 +16,7 @@ export interface InitialEvaluation {
   painFrequency: string | null;
   familyPainAppearance: string[] | null;
   familyPainDisappearance: string[] | null;
+  postureFamilies: Record<string, string> | null;
   evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
