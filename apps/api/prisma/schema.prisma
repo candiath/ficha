@@ -72,6 +72,9 @@ model Patient {
   insurancePlan    String?   @map("insurance_plan")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
+  // Borrado lógico: null = activo. Nunca se hace hard delete de pacientes
+  // para preservar historia clínica, pagos y registro de auditoría.
+  deletedAt        DateTime? @map("deleted_at")
 
   tenant             Tenant              @relation(fields: [tenantId], references: [id])
   sessions           Session[]

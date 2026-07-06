@@ -54,7 +54,7 @@ const SessionUpdateSchema = SessionCreateSchema.partial();
 
 async function getPatient(patientId: string) {
   return prisma.patient.findFirst({
-    where: { id: patientId, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: patientId, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
     select: { id: true },
   });
 }

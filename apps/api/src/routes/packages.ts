@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
 
   // Verificar que el paciente pertenece al tenant
   const patient = await prisma.patient.findFirst({
-    where: { id: body.patientId, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: body.patientId, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
     select: { id: true },
   });
   if (!patient) {

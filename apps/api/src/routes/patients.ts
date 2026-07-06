@@ -41,7 +41,7 @@ const PatientUpdateSchema = PatientCreateSchema.partial();
 // GET /api/patients
 router.get('/', async (_req, res) => {
   const patients = await prisma.patient.findMany({
-    where: { tenantId: DEV_CONTEXT.tenantId },
+    where: { tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
     select: patientSelect,
     orderBy: { createdAt: 'desc' },
   });
@@ -51,7 +51,7 @@ router.get('/', async (_req, res) => {
 // GET /api/patients/:id
 router.get('/:id', async (req, res) => {
   const patient = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
     select: patientSelect,
   });
 
@@ -92,7 +92,7 @@ router.patch('/:id', async (req, res) => {
   // Verificar existencia + pertenencia al tenant antes de actualizar.
   // Nunca usar findUnique solo por id: un tenant podría adivinar IDs ajenos.
   const existing = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
     select: { id: true },
   });
 
@@ -121,9 +121,11 @@ router.patch('/:id', async (req, res) => {
 });
 
 // DELETE /api/patients/:id
+// Borrado lógico: se marca deletedAt en vez de eliminar la fila, para no
+// perder historia clínica ni romper las FKs de sesiones, pagos y auditoría.
 router.delete('/:id', async (req, res) => {
   const existing = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
     select: { id: true },
   });
 
@@ -132,7 +134,21 @@ router.delete('/:id', async (req, res) => {
     return;
   }
 
-  await prisma.patient.delete({ where: { id: req.params.id } });
+  await prisma.patient.update({
+    where: { id: req.params.id },
+    data: { deletedAt: new Date() },
+  });
+
+  auditLogRepo
+    .create(DEV_CONTEXT, {
+      patientId: req.params.id,
+      entity: 'PATIENT',
+      entityId: req.params.id,
+      action: 'DELETED',
+      description: 'Paciente eliminado (borrado lógico)',
+    })
+    .catch((err) => console.error('[audit]', err));
+
   res.status(204).send();
 });
 
