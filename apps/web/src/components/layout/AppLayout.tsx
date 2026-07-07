@@ -1,5 +1,6 @@
-import { Bell, Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, MessageSquare, Stethoscope, User, Users } from 'lucide-react';
+import { Bell, Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, LogOut, MessageSquare, Stethoscope, User, Users } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Sidebar,
   SidebarContent,
@@ -74,10 +75,11 @@ function NavItems({
   );
 }
 
-// Usuario hardcodeado hasta que se implemente JWT.
-const DEV_USER = { name: 'Admin Demo', email: 'admin@ficha.dev' };
-
 export default function AppLayout() {
+  // RequireAuth garantiza que hay sesión cuando este layout se renderiza.
+  const { user, logout } = useAuth();
+  const displayName = user?.name ?? user?.email ?? '';
+
   const { data: stats } = useQuery({
     queryKey: alertKeys.stats,
     queryFn: alertApi.stats,
@@ -117,17 +119,23 @@ export default function AppLayout() {
             <SidebarMenuItem>
               <NavLink to="/account">
                 {({ isActive }) => (
-                  <SidebarMenuButton isActive={isActive} tooltip={DEV_USER.email} className="h-auto py-2">
+                  <SidebarMenuButton isActive={isActive} tooltip={user?.email} className="h-auto py-2">
                     <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-semibold shrink-0">
-                      {DEV_USER.name.charAt(0)}
+                      {displayName.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-sm font-medium truncate">{DEV_USER.name}</span>
-                      <span className="text-xs text-muted-foreground truncate">{DEV_USER.email}</span>
+                      <span className="text-sm font-medium truncate">{displayName}</span>
+                      <span className="text-xs text-muted-foreground truncate">{user?.email}</span>
                     </div>
                   </SidebarMenuButton>
                 )}
               </NavLink>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Cerrar sesión" onClick={logout}>
+                <LogOut />
+                <span>Cerrar sesión</span>
+              </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
