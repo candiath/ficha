@@ -31,6 +31,17 @@ async function main() {
     prisma.technique.upsert({ where: { id: 'tech-parado' }, update: {}, create: { id: 'tech-parado', tenantId: null, name: 'Parado en la pared', isGlobal: true } }),
   ]);
 
+  // ── Guardia de producción ────────────────────────────────────────────────
+  // En producción solo se siembran los catálogos globales de arriba.
+  // El tenant demo, el usuario admin@ficha.dev/password123 y los pacientes
+  // de ejemplo son EXCLUSIVAMENTE de desarrollo: sembrar una credencial
+  // conocida en producción sería una puerta trasera.
+  if (process.env.NODE_ENV === 'production') {
+    console.log('✓ Seed completado (solo catálogos globales)');
+    console.log('  NODE_ENV=production: no se crean tenant, usuario ni datos demo.');
+    return;
+  }
+
   // ── Tenant de desarrollo ─────────────────────────────────────────────────
   const tenant = await prisma.tenant.upsert({
     where: { id: 'dev-tenant-001' },
@@ -46,12 +57,15 @@ async function main() {
   const hashedPassword = await bcrypt.hash('password123', 10);
   const user = await prisma.user.upsert({
     where: { email: 'admin@ficha.dev' },
-    update: {},
+    // update también setea el rol para promover usuarios creados antes
+    // de que existiera la columna role.
+    update: { role: 'ADMIN' },
     create: {
       tenantId: tenant.id,
       email: 'admin@ficha.dev',
       passwordHash: hashedPassword,
       name: 'Admin Demo',
+      role: 'ADMIN',
     },
   });
 
