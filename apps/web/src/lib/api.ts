@@ -1,13 +1,44 @@
-// Cliente HTTP centralizado. Cuando se implemente auth, se agrega el header
-// Authorization: Bearer <token> aquí, en un solo lugar.
+// Cliente HTTP centralizado: adjunta el token JWT en cada request y
+// maneja el 401 en un solo lugar (en vez de página por página).
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+const TOKEN_KEY = 'ficha_token';
+
+// Evento global que dispara el cliente cuando la API responde 401.
+// AuthProvider lo escucha para limpiar la sesión; así este módulo no
+// necesita conocer el router ni ningún contexto de React.
+export const UNAUTHORIZED_EVENT = 'ficha:unauthorized';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
   });
+
+  // Token vencido/inválido o usuario desactivado: la sesión ya no sirve.
+  // El 401 del propio login queda excluido: ahí significa "credenciales
+  // incorrectas" y se muestra como error en el formulario.
+  if (res.status === 401 && !path.startsWith('/api/auth/login')) {
+    setToken(null);
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
