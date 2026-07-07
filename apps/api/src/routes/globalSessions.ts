@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
@@ -7,9 +6,9 @@ const router = Router();
 // GET /api/sessions — todas las sesiones del tenant, con nombre del paciente.
 // Una sesión puede abordar varios episodios (motivos), por eso se devuelven como
 // arreglo `episodes` y se aplana también a `episodeIds`.
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   const sessions = await prisma.session.findMany({
-    where: { tenantId: DEV_CONTEXT.tenantId },
+    where: { tenantId: req.context.tenantId },
     orderBy: { sessionDate: 'desc' },
     select: {
       id: true,

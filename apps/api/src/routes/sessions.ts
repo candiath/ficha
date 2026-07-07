@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
+import type { TenantContext } from '../repositories/types';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -52,26 +52,17 @@ const SessionCreateSchema = z.object({
 
 const SessionUpdateSchema = SessionCreateSchema.partial();
 
-async function getPatient(patientId: string) {
+async function getPatient(ctx: TenantContext, patientId: string) {
   return prisma.patient.findFirst({
-    where: { id: patientId, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { id: patientId, tenantId: ctx.tenantId, deletedAt: null },
     select: { id: true },
   });
-}
-
-// Sin auth: obtenemos el primer usuario del tenant como userId.
-async function getDevUserId(): Promise<string> {
-  const user = await prisma.user.findFirstOrThrow({
-    where: { tenantId: DEV_CONTEXT.tenantId },
-    select: { id: true },
-  });
-  return user.id;
 }
 
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -82,7 +73,7 @@ router.get<ParentParams>('/', async (req, res) => {
   const sessions = await prisma.session.findMany({
     where: {
       patientId: req.params.patientId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       ...(episodeId ? { episodes: { some: { episodeId } } } : {}),
     },
     orderBy: { sessionDate: 'desc' },
@@ -94,7 +85,7 @@ router.get<ParentParams>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/sessions/:sessionId
 router.get<SessionParams>('/:sessionId', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -104,7 +95,7 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
     where: {
       id: req.params.sessionId,
       patientId: req.params.patientId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
     },
     select: sessionSelect,
   });
@@ -119,13 +110,14 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
 
 // POST /api/patients/:patientId/sessions
 router.post<ParentParams>('/', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
-  const userId = await getDevUserId();
+  // La sesión queda atribuida al usuario autenticado que la registra.
+  const { userId } = req.context;
   const { episodeIds, ...rest } = SessionCreateSchema.parse(req.body);
 
   const session = await prisma.session.create({
@@ -133,7 +125,7 @@ router.post<ParentParams>('/', async (req, res) => {
       ...rest,
       sessionDate: new Date(rest.sessionDate),
       patientId: req.params.patientId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       userId,
       episodes: { create: episodeIds.map((episodeId) => ({ episode: { connect: { id: episodeId } } })) },
     },
@@ -144,7 +136,7 @@ router.post<ParentParams>('/', async (req, res) => {
   if (rest.sessionType === 'DISCHARGE' && episodeIds.length > 0) {
     prisma.clinicalEpisode
       .updateMany({
-        where: { id: { in: episodeIds }, tenantId: DEV_CONTEXT.tenantId },
+        where: { id: { in: episodeIds }, tenantId: req.context.tenantId },
         data: { status: 'DISCHARGED', closedAt: new Date() },
       })
       .catch((err) => console.error('[episode-close]', err));
@@ -160,7 +152,7 @@ router.post<ParentParams>('/', async (req, res) => {
       ? ` — Dolor ${rest.painScaleBefore} → ${rest.painScaleAfter}`
       : '';
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: req.params.patientId,
       userId,
       entity: 'SESSION',
@@ -175,7 +167,7 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
 router.patch<SessionParams>('/:sessionId', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -185,7 +177,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     where: {
       id: req.params.sessionId,
       patientId: req.params.patientId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
     },
     select: { id: true },
   });
@@ -215,7 +207,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
   });
 
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: req.params.patientId,
       entity: 'SESSION',
       entityId: session.id,

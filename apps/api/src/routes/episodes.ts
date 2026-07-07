@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
+import type { TenantContext } from '../repositories/types';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -81,23 +81,23 @@ async function checkInactiveEpisode(
   });
 }
 
-async function getPatient(patientId: string) {
+async function getPatient(ctx: TenantContext, patientId: string) {
   return prisma.patient.findFirst({
-    where: { id: patientId, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { id: patientId, tenantId: ctx.tenantId, deletedAt: null },
     select: { id: true },
   });
 }
 
 // GET /api/patients/:patientId/episodes
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
   const episodes = await prisma.clinicalEpisode.findMany({
-    where: { patientId: req.params.patientId, tenantId: DEV_CONTEXT.tenantId },
+    where: { patientId: req.params.patientId, tenantId: req.context.tenantId },
     orderBy: { openedAt: 'desc' },
     select: episodeSelect,
   });
@@ -108,7 +108,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const activeEpisodes = episodes.filter((ep) => ep.status === 'ACTIVE');
   for (const ep of activeEpisodes) {
     checkInactiveEpisode(
-      DEV_CONTEXT.tenantId,
+      req.context.tenantId,
       req.params.patientId,
       ep.id,
       ep.mainComplaint,
@@ -118,7 +118,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // POST /api/patients/:patientId/episodes
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -129,7 +129,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const episode = await prisma.clinicalEpisode.create({
     data: {
       patientId: req.params.patientId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       mainComplaint: body.mainComplaint,
       ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
     },
@@ -141,7 +141,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/episodes/:episodeId
 router.patch<Params>('/:episodeId', async (req, res) => {
-  const patient = await getPatient(req.params.patientId);
+  const patient = await getPatient(req.context, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -151,7 +151,7 @@ router.patch<Params>('/:episodeId', async (req, res) => {
     where: {
       id: req.params.episodeId,
       patientId: req.params.patientId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
     },
     select: { id: true },
   });

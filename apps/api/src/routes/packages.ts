@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
@@ -19,7 +18,7 @@ router.get('/', async (req, res) => {
 
   const packages = await prisma.sessionPackage.findMany({
     where: {
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       ...(patientId ? { patientId } : {}),
     },
     include: {
@@ -51,7 +50,7 @@ router.post('/', async (req, res) => {
 
   // Verificar que el paciente pertenece al tenant
   const patient = await prisma.patient.findFirst({
-    where: { id: body.patientId, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { id: body.patientId, tenantId: req.context.tenantId, deletedAt: null },
     select: { id: true },
   });
   if (!patient) {
@@ -61,7 +60,7 @@ router.post('/', async (req, res) => {
 
   const pkg = await prisma.sessionPackage.create({
     data: {
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       patientId: body.patientId,
       name: body.name,
       totalSessions: body.totalSessions,
@@ -86,7 +85,7 @@ router.post('/', async (req, res) => {
 // DELETE /api/packages/:id — solo si no tiene sesiones usadas
 router.delete('/:id', async (req, res) => {
   const pkg = await prisma.sessionPackage.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: req.params.id, tenantId: req.context.tenantId },
     include: { _count: { select: { payments: true } } },
   });
 

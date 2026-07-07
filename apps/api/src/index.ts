@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
 import { getJwtSecret } from './lib/jwt';
 import { prisma } from './lib/prisma';
@@ -52,6 +53,10 @@ app.get('/health', async (_req, res) => {
 
 // Rutas públicas: login (y el propio /health más arriba).
 app.use('/api/auth', authRouter);
+
+// Todo lo que se monta debajo de esta línea requiere un token válido.
+// El middleware adjunta req.context = { tenantId, userId }.
+app.use('/api', authenticate);
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', episodesRouter);

@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 
 // Montado en /api/patients/:patientId/scales
@@ -58,7 +57,7 @@ type Params = { patientId: string; scaleId: string };
 
 // GET /api/patients/:patientId/scales
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const { tenantId } = DEV_CONTEXT;
+  const { tenantId } = req.context;
   const { patientId } = req.params;
 
   const scales = await prisma.functionalScale.findMany({
@@ -79,7 +78,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/scales/:scaleId
 router.get<Params>('/:scaleId', async (req, res) => {
-  const { tenantId } = DEV_CONTEXT;
+  const { tenantId } = req.context;
   const { patientId, scaleId } = req.params;
 
   const scale = await prisma.functionalScale.findFirst({
@@ -96,7 +95,7 @@ router.get<Params>('/:scaleId', async (req, res) => {
 
 // POST /api/patients/:patientId/scales
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const { tenantId } = DEV_CONTEXT;
+  const { tenantId } = req.context;
   const { patientId } = req.params;
   const body = ScaleCreateSchema.parse(req.body);
 
@@ -123,6 +122,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
     data: {
       tenantId,
       patientId,
+      userId: req.context.userId,
       entity: 'EVALUATION',
       entityId: scale.id,
       action: 'CREATED',
@@ -135,7 +135,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // DELETE /api/patients/:patientId/scales/:scaleId
 router.delete<Params>('/:scaleId', async (req, res) => {
-  const { tenantId } = DEV_CONTEXT;
+  const { tenantId } = req.context;
   const { patientId, scaleId } = req.params;
 
   const existing = await prisma.functionalScale.findFirst({

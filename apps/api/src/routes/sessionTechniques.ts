@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { sessionTechniqueRepo } from '../repositories';
 
 type Params = { patientId: string; sessionId: string };
@@ -22,7 +21,7 @@ const BulkReplaceSchema = z.object({
 // GET — list techniques for a session
 router.get<Params>('/', async (req, res) => {
   const data = await sessionTechniqueRepo.listBySession(
-    DEV_CONTEXT,
+    req.context,
     req.params.patientId,
     req.params.sessionId,
   );
@@ -33,7 +32,7 @@ router.get<Params>('/', async (req, res) => {
 router.put<Params>('/', async (req, res) => {
   const { entries } = BulkReplaceSchema.parse(req.body);
   const data = await sessionTechniqueRepo.bulkReplace(
-    DEV_CONTEXT,
+    req.context,
     req.params.patientId,
     req.params.sessionId,
     entries,

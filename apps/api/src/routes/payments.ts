@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
 
@@ -64,7 +63,7 @@ router.get('/', async (req, res) => {
 
   const payments = await prisma.payment.findMany({
     where: {
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       ...(patientId ? { patientId } : {}),
       ...(status ? { status: status as any } : {}),
     },
@@ -78,10 +77,10 @@ router.get('/', async (req, res) => {
 // GET /api/payments/last-base-price
 // Devuelve el último baseAmount de un pago sin descuento ni paquete.
 // Si tiene más de HARDCODED_LAST_BASE_PRICE_STALENESS_DAYS días, amount = null.
-router.get('/last-base-price', async (_req, res) => {
+router.get('/last-base-price', async (req, res) => {
   const payment = await prisma.payment.findFirst({
     where: {
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       discount: 0,
       packageId: null,
     },
@@ -112,7 +111,7 @@ router.post('/', async (req, res) => {
 
   // Verificar que la sesión existe y pertenece al tenant
   const session = await prisma.session.findFirst({
-    where: { id: body.sessionId, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: body.sessionId, tenantId: req.context.tenantId },
     select: { id: true },
   });
   if (!session) {
@@ -135,7 +134,7 @@ router.post('/', async (req, res) => {
 
   const payment = await prisma.payment.create({
     data: {
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
       patientId: body.patientId,
       sessionId: body.sessionId,
       packageId: body.packageId ?? null,
@@ -150,7 +149,7 @@ router.post('/', async (req, res) => {
   res.status(201).json({ data: serializePayment(payment) });
 
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: body.patientId,
       entity: 'PAYMENT',
       entityId: payment.id,
@@ -165,7 +164,7 @@ router.patch('/:id', async (req, res) => {
   const body = PaymentUpdateSchema.parse(req.body);
 
   const existing = await prisma.payment.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: req.params.id, tenantId: req.context.tenantId },
     select: { baseAmount: true, discount: true },
   });
   if (!existing) {
@@ -206,7 +205,7 @@ router.patch('/:id', async (req, res) => {
 
   const statusDesc = body.status ? ` — Estado: ${body.status}` : '';
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: payment.patientId,
       entity: 'PAYMENT',
       entityId: payment.id,

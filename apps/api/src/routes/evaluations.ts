@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
+import type { TenantContext } from '../repositories/types';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -55,16 +55,16 @@ const EvaluationSchema = z.object({
   evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 
-async function getEpisode(patientId: string, episodeId: string) {
+async function getEpisode(ctx: TenantContext, patientId: string, episodeId: string) {
   return prisma.clinicalEpisode.findFirst({
-    where: { id: episodeId, patientId, tenantId: DEV_CONTEXT.tenantId },
+    where: { id: episodeId, patientId, tenantId: ctx.tenantId },
     select: { id: true },
   });
 }
 
 // GET /api/patients/:patientId/episodes/:episodeId/evaluation
 router.get<Params>('/', async (req, res) => {
-  const episode = await getEpisode(req.params.patientId, req.params.episodeId);
+  const episode = await getEpisode(req.context, req.params.patientId, req.params.episodeId);
   if (!episode) {
     res.status(404).json({ error: 'Episodio no encontrado' });
     return;
@@ -81,7 +81,7 @@ router.get<Params>('/', async (req, res) => {
 // PUT /api/patients/:patientId/episodes/:episodeId/evaluation
 // Upsert: crea si no existe, actualiza si ya existe.
 router.put<Params>('/', async (req, res) => {
-  const episode = await getEpisode(req.params.patientId, req.params.episodeId);
+  const episode = await getEpisode(req.context, req.params.patientId, req.params.episodeId);
   if (!episode) {
     res.status(404).json({ error: 'Episodio no encontrado' });
     return;
@@ -104,7 +104,7 @@ router.put<Params>('/', async (req, res) => {
       postureFamilies: body.postureFamilies ?? Prisma.JsonNull,
       patientId: req.params.patientId,
       episodeId: req.params.episodeId,
-      tenantId: DEV_CONTEXT.tenantId,
+      tenantId: req.context.tenantId,
     },
     update: {
       ...body,
@@ -117,7 +117,7 @@ router.put<Params>('/', async (req, res) => {
   });
 
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: req.params.patientId,
       entity: 'EVALUATION',
       entityId: evaluation.id,

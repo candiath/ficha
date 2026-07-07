@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { DEV_CONTEXT } from '../context/dev';
 import { auditLogRepo } from '../repositories';
 
 type Params = { patientId: string };
@@ -9,7 +8,7 @@ const router = Router({ mergeParams: true });
 
 // GET — list audit entries for a patient
 router.get<Params>('/', async (req, res) => {
-  const data = await auditLogRepo.listByPatient(DEV_CONTEXT, req.params.patientId);
+  const data = await auditLogRepo.listByPatient(req.context, req.params.patientId);
   res.json({ data });
 });
 
