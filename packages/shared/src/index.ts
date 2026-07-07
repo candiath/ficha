@@ -10,3 +10,22 @@ export interface ApiResponse<T> {
   data: T;
   error?: string;
 }
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+export type UserRole = 'ADMIN' | 'THERAPIST';
+
+// Usuario tal como lo expone la API (sin passwordHash ni tenantId:
+// el tenant es un detalle interno que el cliente nunca necesita).
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+}
+
+// Respuesta de POST /api/auth/login.
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+}
