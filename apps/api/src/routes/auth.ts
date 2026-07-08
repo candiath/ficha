@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { signAccessToken } from '../lib/jwt';
+import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
 
 const router = Router();
@@ -20,10 +21,7 @@ const loginLimiter = rateLimit({
 });
 
 const LoginSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((e) => e.trim().toLowerCase()),
+  email: EmailSchema,
   password: z.string().min(1),
 });
 
@@ -37,12 +35,15 @@ const changePasswordLimiter = rateLimit({
   message: { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' },
 });
 
-const ChangePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
-  // TODO: currentPassword y newPassword podrían ser iguales, pero mas importante
-  // es que debería definirse una única vez el schema de Password
-  newPassword: z.string().min(8, 'La contraseña nueva debe tener al menos 8 caracteres'),
-});
+const ChangePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    newPassword: PasswordSchema,
+  })
+  .refine((d) => d.currentPassword !== d.newPassword, {
+    message: 'La contraseña nueva debe ser distinta de la actual',
+    path: ['newPassword'],
+  });
 
 // Lo que se expone del usuario en las respuestas. passwordHash y tenantId
 // nunca salen de la API.

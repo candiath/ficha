@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
+import { EmailSchema, PasswordSchema } from '../lib/validation';
 
 // Gestión de usuarios de la clínica. Se monta detrás de authenticate +
 // requireRole('ADMIN'): un THERAPIST nunca llega a estos handlers.
@@ -20,12 +21,9 @@ const tenantUserSelect = {
 } as const;
 
 const CreateUserSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((e) => e.trim().toLowerCase()),
+  email: EmailSchema,
   name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
+  password: PasswordSchema,
   role: z.enum(['ADMIN', 'THERAPIST']).default('THERAPIST'),
 });
 
