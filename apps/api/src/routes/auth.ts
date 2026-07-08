@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -31,6 +31,30 @@ const LoginSchema = z.object({
 // nunca salen de la API.
 const publicUserSelect = { id: true, email: true, name: true, role: true } as const;
 
+// Telemetría de seguridad: registra cada intento de login (exitoso o no)
+// con IP y user-agent. Fire-and-forget: un fallo al registrar no debe
+// demorar ni frustrar el login. req.ip es la IP real gracias a trust proxy.
+// user es null cuando el email no corresponde a ninguna cuenta.
+function recordLoginEvent(
+  req: Request,
+  email: string,
+  user: { id: string; tenantId: string } | null,
+  success: boolean,
+) {
+  prisma.loginEvent
+    .create({
+      data: {
+        email,
+        tenantId: user?.tenantId ?? null,
+        userId: user?.id ?? null,
+        success,
+        ip: req.ip ?? null,
+        userAgent: req.get('user-agent') ?? null,
+      },
+    })
+    .catch((err) => console.error('[auth] loginEvent', err));
+}
+
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = LoginSchema.parse(req.body);
@@ -45,9 +69,12 @@ router.post('/login', loginLimiter, async (req, res) => {
   // tienen cuenta.
   const valid = user && user.isActive && (await bcrypt.compare(password, user.passwordHash));
   if (!valid) {
+    recordLoginEvent(req, email, user ?? null, false);
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
   }
+
+  recordLoginEvent(req, email, user, true);
 
   // Fire-and-forget: registrar el acceso no debe demorar ni frustrar el login.
   prisma.user
