@@ -1,9 +1,12 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
+import { getJwtSecret } from './lib/jwt';
 import { prisma } from './lib/prisma';
 import alertsRouter from './routes/alerts';
+import authRouter from './routes/auth';
 import auditLogRouter from './routes/auditLog';
 import bodyRegionsRouter from './routes/bodyRegions';
 import consentRouter from './routes/consent';
@@ -22,6 +25,15 @@ import functionalScalesRouter from './routes/functionalScales';
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
+// Validar la configuración al arrancar: mejor explotar acá que descubrir
+// en el primer login que JWT_SECRET no estaba definido.
+getJwtSecret();
+
+// Detrás de un proxy (Render), la IP real del cliente viene en
+// X-Forwarded-For; sin esto el rate limiter vería la IP del proxy
+// y limitaría a todos los usuarios juntos.
+app.set('trust proxy', 1);
+
 // Permite localhost, IPs locales y el despliegue en Netlify
 const ALLOWED_ORIGIN = [
   /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/,
@@ -38,6 +50,13 @@ app.get('/health', async (_req, res) => {
     res.status(503).json({ status: 'error', error: 'Base de datos no disponible' });
   }
 });
+
+// Rutas públicas: login (y el propio /health más arriba).
+app.use('/api/auth', authRouter);
+
+// Todo lo que se monta debajo de esta línea requiere un token válido.
+// El middleware adjunta req.context = { tenantId, userId }.
+app.use('/api', authenticate);
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', episodesRouter);

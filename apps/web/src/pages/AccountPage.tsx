@@ -4,17 +4,39 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { useAuth } from '@/contexts/AuthContext';
+import type { UserRole } from '@ficha/shared';
 
-// Placeholder — se conectará al usuario autenticado cuando se implemente JWT.
-const DEV_USER = {
-  name: 'Admin Demo',
-  email: 'admin@ficha.dev',
-  role: 'Fisioterapeuta',
-  initials: 'AD',
+const ROLE_LABELS: Record<UserRole, string> = {
+  ADMIN: 'Administrador',
+  THERAPIST: 'Fisioterapeuta',
 };
 
+// "María García" → "MG"; sin nombre, la inicial del email.
+function getInitials(name: string | null, email: string): string {
+  if (!name) return email.charAt(0).toUpperCase();
+  return name
+    .split(/\s+/)
+    .map((w) => w.charAt(0))
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
 export default function AccountPage() {
+  const { user } = useAuth();
   useEffect(() => { document.title = 'Mi cuenta'; }, []);
+
+  // RequireAuth garantiza sesión, pero TypeScript no lo sabe.
+  if (!user) return null;
+
+  const profile = {
+    name: user.name ?? user.email,
+    email: user.email,
+    role: ROLE_LABELS[user.role],
+    initials: getInitials(user.name, user.email),
+  };
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-6">
@@ -33,12 +55,12 @@ export default function AccountPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
               <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary text-primary-foreground text-lg font-semibold shrink-0">
-                {DEV_USER.initials}
+                {profile.initials}
               </div>
               <div>
-                <p className="font-medium">{DEV_USER.name}</p>
-                <p className="text-sm text-muted-foreground">{DEV_USER.email}</p>
-                <Badge variant="outline" className="mt-1 text-xs">{DEV_USER.role}</Badge>
+                <p className="font-medium">{profile.name}</p>
+                <p className="text-sm text-muted-foreground">{profile.email}</p>
+                <Badge variant="outline" className="mt-1 text-xs">{profile.role}</Badge>
               </div>
             </div>
 
@@ -49,21 +71,21 @@ export default function AccountPage() {
                 <User className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Nombre completo</p>
-                  <p className="text-sm font-medium">{DEV_USER.name}</p>
+                  <p className="text-sm font-medium">{profile.name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Email</p>
-                  <p className="text-sm font-medium">{DEV_USER.email}</p>
+                  <p className="text-sm font-medium">{profile.email}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <UserCog className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Rol</p>
-                  <p className="text-sm font-medium">{DEV_USER.role}</p>
+                  <p className="text-sm font-medium">{profile.role}</p>
                 </div>
               </div>
             </div>
@@ -94,7 +116,7 @@ export default function AccountPage() {
                 <ShieldCheck className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-sm font-medium">Autenticación en dos pasos</p>
-                  <p className="text-xs text-muted-foreground">Disponible con autenticación JWT</p>
+                  <p className="text-xs text-muted-foreground">Capa extra de seguridad para tu cuenta</p>
                 </div>
               </div>
               <Badge variant="secondary" className="text-xs">Próximamente</Badge>
@@ -103,7 +125,7 @@ export default function AccountPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground">
-          La edición de perfil estará disponible junto con el módulo de autenticación.
+          La edición de perfil y el cambio de contraseña estarán disponibles próximamente.
         </p>
       </div>
     </div>

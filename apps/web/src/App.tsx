@@ -1,15 +1,17 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
 const LabPage = import.meta.env.DEV ? lazy(() => import('@/pages/LabPage')) : null;
 import { AlertTriangle } from 'lucide-react'
 import AppLayout from '@/components/layout/AppLayout'
+import { useAuth } from '@/contexts/AuthContext'
 import AccountPage from '@/pages/AccountPage'
 import AgendaPage from '@/pages/AgendaPage'
 import ClinicPage from '@/pages/ClinicPage'
 import DashboardPage from '@/pages/DashboardPage'
 import EjerciciosPage from '@/pages/EjerciciosPage'
 import LandingPage from '@/pages/LandingPage'
+import LoginPage from '@/pages/LoginPage'
 import MensajesPage from '@/pages/MensajesPage'
 import PatientDetailPage from '@/pages/PatientDetailPage'
 import PatientsPage from '@/pages/PatientsPage'
@@ -54,15 +56,31 @@ function ApiStatusBanner() {
   );
 }
 
+// Protege todo lo que se renderice dentro. Mientras se valida el token
+// guardado no se decide nada (evita el flash de login al recargar); sin
+// sesión, redirige a /login recordando a dónde quería ir el usuario.
+function RequireAuth() {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) return null;
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  return <Outlet />;
+}
+
 export default function App() {
   return (
     <>
       <ApiStatusBanner />
       <Routes>
       <Route index element={<LandingPage />} />
+      <Route path="login" element={<LoginPage />} />
       {import.meta.env.DEV && LabPage && (
         <Route path="lab" element={<Suspense fallback={null}><LabPage /></Suspense>} />
       )}
+      <Route element={<RequireAuth />}>
       <Route element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="agenda" element={<AgendaPage />} />
@@ -77,6 +95,7 @@ export default function App() {
         <Route path="messages" element={<MensajesPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="clinic" element={<ClinicPage />} />
+      </Route>
       </Route>
       </Routes>
     </>

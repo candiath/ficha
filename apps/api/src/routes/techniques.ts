@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
@@ -18,10 +17,10 @@ const TechniqueSchema = z.object({
 });
 
 // GET /api/techniques — globales + las del tenant
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   const techniques = await prisma.technique.findMany({
     where: {
-      OR: [{ isGlobal: true }, { tenantId: DEV_CONTEXT.tenantId }],
+      OR: [{ isGlobal: true }, { tenantId: req.context.tenantId }],
     },
     orderBy: [{ isGlobal: 'desc' }, { name: 'asc' }],
     select: techniqueSelect,
@@ -35,7 +34,7 @@ router.post('/', async (req, res) => {
   const { name } = TechniqueSchema.parse(req.body);
 
   const technique = await prisma.technique.create({
-    data: { name, tenantId: DEV_CONTEXT.tenantId, isGlobal: false },
+    data: { name, tenantId: req.context.tenantId, isGlobal: false },
     select: techniqueSelect,
   });
 
@@ -45,7 +44,7 @@ router.post('/', async (req, res) => {
 // PATCH /api/techniques/:id — solo técnicas del tenant (no globales)
 router.patch('/:id', async (req, res) => {
   const existing = await prisma.technique.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, isGlobal: false },
+    where: { id: req.params.id, tenantId: req.context.tenantId, isGlobal: false },
     select: { id: true },
   });
 
@@ -67,7 +66,7 @@ router.patch('/:id', async (req, res) => {
 // DELETE /api/techniques/:id — solo técnicas del tenant (no globales)
 router.delete('/:id', async (req, res) => {
   const existing = await prisma.technique.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, isGlobal: false },
+    where: { id: req.params.id, tenantId: req.context.tenantId, isGlobal: false },
     select: { id: true },
   });
 

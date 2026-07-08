@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DEV_CONTEXT } from '../context/dev';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
 
@@ -39,9 +38,9 @@ const PatientCreateSchema = z.object({
 const PatientUpdateSchema = PatientCreateSchema.partial();
 
 // GET /api/patients
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   const patients = await prisma.patient.findMany({
-    where: { tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { tenantId: req.context.tenantId, deletedAt: null },
     select: patientSelect,
     orderBy: { createdAt: 'desc' },
   });
@@ -51,7 +50,7 @@ router.get('/', async (_req, res) => {
 // GET /api/patients/:id
 router.get('/:id', async (req, res) => {
   const patient = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { id: req.params.id, tenantId: req.context.tenantId, deletedAt: null },
     select: patientSelect,
   });
 
@@ -68,12 +67,12 @@ router.post('/', async (req, res) => {
   const body = PatientCreateSchema.parse(req.body);
 
   const patient = await prisma.patient.create({
-    data: { ...body, tenantId: DEV_CONTEXT.tenantId },
+    data: { ...body, tenantId: req.context.tenantId },
     select: patientSelect,
   });
 
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: patient.id,
       entity: 'PATIENT',
       entityId: patient.id,
@@ -92,7 +91,7 @@ router.patch('/:id', async (req, res) => {
   // Verificar existencia + pertenencia al tenant antes de actualizar.
   // Nunca usar findUnique solo por id: un tenant podría adivinar IDs ajenos.
   const existing = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { id: req.params.id, tenantId: req.context.tenantId, deletedAt: null },
     select: { id: true },
   });
 
@@ -108,7 +107,7 @@ router.patch('/:id', async (req, res) => {
   });
 
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: patient.id,
       entity: 'PATIENT',
       entityId: patient.id,
@@ -125,7 +124,7 @@ router.patch('/:id', async (req, res) => {
 // perder historia clínica ni romper las FKs de sesiones, pagos y auditoría.
 router.delete('/:id', async (req, res) => {
   const existing = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: DEV_CONTEXT.tenantId, deletedAt: null },
+    where: { id: req.params.id, tenantId: req.context.tenantId, deletedAt: null },
     select: { id: true },
   });
 
@@ -140,7 +139,7 @@ router.delete('/:id', async (req, res) => {
   });
 
   auditLogRepo
-    .create(DEV_CONTEXT, {
+    .create(req.context, {
       patientId: req.params.id,
       entity: 'PATIENT',
       entityId: req.params.id,

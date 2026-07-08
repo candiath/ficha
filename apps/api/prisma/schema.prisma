@@ -36,17 +36,28 @@ model Tenant {
   @@map("tenants")
 }
 
-model User {
-  id           String   @id @default(uuid())
-  tenantId     String   @map("tenant_id")
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  name         String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+enum UserRole {
+  ADMIN
+  THERAPIST
+}
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id])
-  sessions Session[]
+model User {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String?
+  role         UserRole  @default(THERAPIST)
+  // Desactivar un usuario revoca su acceso sin borrar la fila: las sesiones
+  // y registros de auditoría que creó deben seguir apuntando a él.
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  sessions  Session[]
+  auditLogs AuditLog[]
 
   @@index([tenantId])
   @@map("users")
@@ -407,6 +418,9 @@ model AuditLog {
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   patient Patient @relation(fields: [patientId], references: [id])
+  // SetNull: si se borra el usuario, el registro de auditoría se conserva
+  // (la historia clínica no puede perder entradas) pero queda sin actor.
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([patientId])
