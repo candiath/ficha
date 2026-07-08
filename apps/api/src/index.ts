@@ -4,6 +4,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
+import { requireRole } from './middlewares/requireRole';
 import { getJwtSecret } from './lib/jwt';
 import { prisma } from './lib/prisma';
 import alertsRouter from './routes/alerts';
@@ -22,6 +23,7 @@ import sessionsRouter from './routes/sessions';
 import sessionTechniquesRouter from './routes/sessionTechniques';
 import techniquesRouter from './routes/techniques';
 import functionalScalesRouter from './routes/functionalScales';
+import usersRouter from './routes/users';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -78,6 +80,8 @@ app.use('/api/muscular-chains', muscularChainsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);
+// Gestión de usuarios: única zona ADMIN-only de la API por ahora.
+app.use('/api/users', requireRole('ADMIN'), usersRouter);
 
 // El error handler siempre va al final, después de todas las rutas.
 app.use(errorHandler);
