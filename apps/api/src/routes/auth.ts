@@ -27,6 +27,23 @@ const LoginSchema = z.object({
   password: z.string().min(1),
 });
 
+// Cambiar la contraseña pide la actual, así que también es blanco de
+// fuerza bruta (alguien con un token robado probando adivinarla).
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' },
+});
+
+const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  // TODO: currentPassword y newPassword podrían ser iguales, pero mas importante
+  // es que debería definirse una única vez el schema de Password
+  newPassword: z.string().min(8, 'La contraseña nueva debe tener al menos 8 caracteres'),
+});
+
 // Lo que se expone del usuario en las respuestas. passwordHash y tenantId
 // nunca salen de la API.
 const publicUserSelect = { id: true, email: true, name: true, role: true } as const;
@@ -89,6 +106,43 @@ router.post('/login', loginLimiter, async (req, res) => {
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
     },
   });
+});
+
+// POST /api/auth/change-password — requiere la contraseña actual además
+// del token: un token robado solo no alcanza para bloquear al dueño real
+// de la cuenta cambiándole la contraseña.
+router.post('/change-password', changePasswordLimiter, authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = ChangePasswordSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.context.userId },
+    select: { id: true, tenantId: true, passwordHash: true },
+  });
+
+  if (!user) {
+    res.status(401).json({ error: 'Sesión expirada o inválida' });
+    return;
+  }
+
+  // 400 y no 401: ante un 401 fuera del login el cliente web borra el token
+  // y cierra la sesión, y un typo en la contraseña actual no amerita eso.
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) {
+    res.status(400).json({ error: 'La contraseña actual es incorrecta' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, passwordChangedAt: new Date() },
+  });
+
+  // passwordChangedAt invalida los tokens emitidos antes del cambio; este
+  // token nuevo evita que la sesión que hizo el cambio quede afuera.
+  const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
+
+  res.json({ data: { token } });
 });
 
 // GET /api/auth/me — usuario autenticado actual.

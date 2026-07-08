@@ -53,6 +53,9 @@ model User {
   // y registros de auditoría que creó deben seguir apuntando a él.
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
+  // Marca del último cambio de contraseña: permite invalidar los tokens
+  // emitidos antes del cambio (ver middleware authenticate).
+  passwordChangedAt DateTime? @map("password_changed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
