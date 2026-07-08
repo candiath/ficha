@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
 import { getJwtSecret } from './lib/jwt';
@@ -33,6 +34,10 @@ getJwtSecret();
 // X-Forwarded-For; sin esto el rate limiter vería la IP del proxy
 // y limitaría a todos los usuarios juntos.
 app.set('trust proxy', 1);
+
+// Headers de seguridad estándar (y oculta X-Powered-By: no hace falta
+// anunciar qué framework corre detrás).
+app.use(helmet());
 
 // Permite localhost, IPs locales y el despliegue en Netlify
 const ALLOWED_ORIGIN = [
