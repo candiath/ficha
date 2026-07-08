@@ -30,14 +30,22 @@ export function signAccessToken(payload: TokenPayload): string {
   });
 }
 
-export function verifyAccessToken(token: string): TokenPayload {
+// Lo que devuelve la verificación: el payload más iat (momento de emisión,
+// en segundos Unix; lo agrega jwt.sign automáticamente). El middleware lo
+// compara contra passwordChangedAt para invalidar tokens viejos.
+export interface VerifiedToken extends TokenPayload {
+  iat: number;
+}
+
+export function verifyAccessToken(token: string): VerifiedToken {
   const decoded = jwt.verify(token, getJwtSecret());
   if (
     typeof decoded === 'string' ||
     typeof decoded.sub !== 'string' ||
-    typeof decoded.tenantId !== 'string'
+    typeof decoded.tenantId !== 'string' ||
+    typeof decoded.iat !== 'number'
   ) {
     throw new Error('Token con formato inválido');
   }
-  return { sub: decoded.sub, tenantId: decoded.tenantId };
+  return { sub: decoded.sub, tenantId: decoded.tenantId, iat: decoded.iat };
 }
