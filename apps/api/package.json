@@ -10,7 +10,8 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "create:admin": "ts-node --transpile-only scripts/create-admin.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
