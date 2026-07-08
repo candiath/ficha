@@ -30,7 +30,7 @@ export async function authenticate(
 
   const user = await prisma.user.findFirst({
     where: { id: userId, isActive: true },
-    select: { id: true, tenantId: true },
+    select: { id: true, tenantId: true, role: true },
   });
 
   // Mismo mensaje que un token inválido: no revelamos si el usuario
@@ -40,6 +40,6 @@ export async function authenticate(
     return;
   }
 
-  req.context = { tenantId: user.tenantId, userId: user.id };
+  req.context = { tenantId: user.tenantId, userId: user.id, role: user.role };
   next();
 }
