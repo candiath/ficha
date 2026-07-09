@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyRound, Mail, ShieldCheck, User, UserCog } from 'lucide-react';
+import ChangePasswordDialog from '@/components/account/ChangePasswordDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +26,7 @@ function getInitials(name: string | null, email: string): string {
 
 export default function AccountPage() {
   const { user } = useAuth();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   useEffect(() => { document.title = 'Mi cuenta'; }, []);
 
   // RequireAuth garantiza sesión, pero TypeScript no lo sabe.
@@ -103,10 +105,12 @@ export default function AccountPage() {
                 <KeyRound className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-sm font-medium">Contraseña</p>
-                  <p className="text-xs text-muted-foreground">Último cambio: nunca</p>
+                  <p className="text-xs text-muted-foreground">
+                    Cambiarla cierra tus sesiones en otros dispositivos
+                  </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm" disabled>
+              <Button variant="outline" size="sm" onClick={() => setChangePasswordOpen(true)}>
                 Cambiar
               </Button>
             </div>
@@ -125,9 +129,14 @@ export default function AccountPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground">
-          La edición de perfil y el cambio de contraseña estarán disponibles próximamente.
+          La edición de perfil estará disponible próximamente.
         </p>
       </div>
+
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+      />
     </div>
   );
 }
