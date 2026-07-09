@@ -32,6 +32,7 @@ model Tenant {
   clinicalAlerts      ClinicalAlert[]
   functionalScales    FunctionalScale[]
   clinicalEpisodes    ClinicalEpisode[]
+  loginEvents         LoginEvent[]
 
   @@map("tenants")
 }
@@ -52,15 +53,52 @@ model User {
   // y registros de auditoría que creó deben seguir apuntando a él.
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
+  // Marca del último cambio de contraseña: permite invalidar los tokens
+  // emitidos antes del cambio (ver middleware authenticate).
+  passwordChangedAt DateTime? @map("password_changed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id])
-  sessions  Session[]
-  auditLogs AuditLog[]
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  sessions    Session[]
+  auditLogs   AuditLog[]
+  loginEvents LoginEvent[]
 
   @@index([tenantId])
   @@map("users")
+}
+
+// Telemetría de seguridad: cada intento de login, exitoso o fallido.
+// Separado de AuditLog a propósito: aquél es la auditoría clínica por
+// paciente (patientId obligatorio); esto sirve para detectar fuerza bruta
+// y rastrear accesos.
+model LoginEvent {
+  id        String   @id @default(uuid())
+  // Email tal como se intentó (normalizado): en un fallo puede no
+  // corresponder a ningún usuario.
+  email     String
+  // tenantId y userId son nullable a diferencia del resto de las tablas de
+  // dominio: un intento fallido contra un email desconocido no pertenece a
+  // ninguna clínica ni usuario. Cuando el email sí existe se guardan ambos,
+  // y eso permite filtrar los accesos por clínica y seguir el historial de
+  // un usuario aunque después cambie su email.
+  tenantId  String?  @map("tenant_id")
+  userId    String?  @map("user_id")
+  success   Boolean
+  ip        String?
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // SetNull: si se borra el usuario, el evento se conserva sin actor.
+  // No se pierde a quién apuntaba el intento: la columna email de arriba es
+  // un dato propio de esta tabla (no viene de la relación) y queda intacta.
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([email])
+  @@map("login_events")
 }
 
 enum Sex {

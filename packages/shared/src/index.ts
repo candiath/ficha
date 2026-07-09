@@ -29,3 +29,33 @@ export interface LoginResponse {
   token: string;
   user: AuthUser;
 }
+
+// Payload de POST /api/auth/change-password.
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+}
+
+// Respuesta de POST /api/auth/change-password. Devuelve un token nuevo
+// porque el cambio de contraseña invalida todos los tokens anteriores:
+// sin éste, la propia sesión que hizo el cambio quedaría afuera.
+export interface ChangePasswordResponse {
+  token: string;
+}
+
+// ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
+
+// Usuario del tenant como lo expone GET /api/users: AuthUser más los campos
+// administrativos que un ADMIN necesita ver.
+export interface TenantUser extends AuthUser {
+  isActive: boolean;
+  lastLoginAt: string | null;
+}
+
+// Payload de POST /api/users.
+export interface CreateUserInput {
+  email: string;
+  name: string;
+  password: string;
+  role?: UserRole;
+}
