@@ -11,6 +11,7 @@
     "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/web",
     "build:web": "npm run build -w packages/shared && npm run build -w apps/web",
     "build:api": "npm run build -w packages/shared && npm run build -w apps/api",
+    "test": "npm run test -w apps/api",
     "start:api": "npm run start -w apps/api",
     "migrate:prod": "npm run db:migrate:prod -w apps/api",
     "dev:api": "npm run dev -w apps/api",
