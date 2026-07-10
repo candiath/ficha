@@ -1,0 +1,11 @@
+{
+  // Mismo criterio que en apps/api: los tests tienen su propio tsconfig
+  // (noEmit, solo typecheck) y el build de producción no los compila.
+  "extends": "../tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.tests.tsbuildinfo",
+    "types": ["vite/client"],
+    "noEmit": true
+  },
+  "include": ["../src", "."]
+}
