@@ -13,6 +13,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Job aparte del de la API: no necesita DB ni secrets, y en paralelo
+  # no alarga el tiempo total del CI.
+  test-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Tests del frontend
+        run: npm test -w apps/web
+
   test:
     runs-on: ubuntu-latest
     steps:

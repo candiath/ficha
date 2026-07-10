@@ -73,18 +73,20 @@ function FormLabel({ className, ...props }: React.ComponentProps<typeof Label>) 
   );
 }
 
-function FormControl({ ...props }: React.ComponentProps<'div'>) {
+function FormControl({ children }: { children: React.ReactElement }) {
   const { error, formItemId, formDescriptionId, formMessageId } = useFormField();
-  return (
-    <div
-      id={formItemId}
-      aria-describedby={
-        !error ? formDescriptionId : `${formDescriptionId} ${formMessageId}`
-      }
-      aria-invalid={!!error}
-      {...props}
-    />
-  );
+  // Las props van sobre el propio input (clonándolo), no sobre un <div>
+  // envolvente: el htmlFor del FormLabel apunta a formItemId, y un label
+  // solo puede asociarse a un control de formulario — con el div en el
+  // medio, el click en el label no enfocaba el campo y los lectores de
+  // pantalla no anunciaban a qué input pertenece.
+  return React.cloneElement(children, {
+    id: formItemId,
+    'aria-describedby': !error
+      ? formDescriptionId
+      : `${formDescriptionId} ${formMessageId}`,
+    'aria-invalid': !!error,
+  } as React.HTMLAttributes<HTMLElement>);
 }
 
 function FormMessage({ className, ...props }: React.ComponentProps<'p'>) {
