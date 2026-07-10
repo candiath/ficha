@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+# Si llegan pushes seguidos al mismo PR, cancela la corrida vieja: los tests
+# van contra una DB compartida (branch de CI en Neon) y no tiene sentido
+# pagar dos corridas cuando solo importa la última.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar el cliente de Prisma
+        run: npx prisma generate
+        working-directory: apps/api
+
+      # Idempotente: aplica solo las migraciones pendientes, así la branch
+      # de CI acompaña a los PRs que traen migraciones nuevas.
+      - name: Aplicar migraciones
+        run: npx prisma migrate deploy
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+
+      - name: Tests de integración de la API
+        run: npm test
+        env:
+          # Branch de Neon dedicada a CI — nunca la DB de dev.
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.CI_JWT_SECRET }}
