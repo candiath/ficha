@@ -43,11 +43,24 @@ import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
 import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
+import {
+  useSessionDateTolerances,
+  type SessionDateTolerances,
+} from '@/lib/sessionDateTolerances'
 import type { Session } from '@/types/session'
 
 const schema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
-  sessionDate: z.string().min(1, 'La fecha es requerida'),
+  sessionDate: z
+    .string()
+    .min(1, 'La fecha es requerida')
+    .superRefine((value, ctx) => {
+      // Sólo error DURO: la fecha debe ser parseable. Lo demás (futuro,
+      // pasado lejano) son advertencias blandas -> ver getSessionDateWarnings.
+      if (Number.isNaN(new Date(value).getTime())) {
+        ctx.addIssue({ code: 'custom', message: 'La fecha no es válida' })
+      }
+    }),
   painScaleBefore: z.number().min(0).max(10).nullable(),
   painScaleAfter: z.number().min(0).max(10).nullable(),
   preSesionState: z.string().optional().or(z.literal('')),
@@ -61,6 +74,28 @@ const schema = z.object({
 })
 
 type FormValues = z.infer<typeof schema>
+
+/**
+ * Advertencias BLANDAS sobre la fecha de sesión: informan pero no bloquean.
+ * Función pura: recibe las tolerancias ya resueltas (hoy una constante, mañana
+ * la preferencia del usuario) y devuelve mensajes (vacío = todo ok).
+ */
+function getSessionDateWarnings(
+  value: string,
+  tolerances: SessionDateTolerances,
+): string[] {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return []
+  const diffMs = date.getTime() - Date.now() // >0 futuro, <0 pasado
+  const warnings: string[] = []
+  if (diffMs > tolerances.futureToleranceMs) {
+    warnings.push('La fecha está en el futuro. ¿Es correcta?')
+  }
+  if (-diffMs > tolerances.pastWarnThresholdMs) {
+    warnings.push('La fecha es de hace un tiempo. Verificá que sea la correcta.')
+  }
+  return warnings
+}
 
 interface SessionFormModalWideProps {
   open: boolean
@@ -90,6 +125,7 @@ export default function SessionFormModalWide({
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
   const isEditing = !!session
+  const dateTolerances = useSessionDateTolerances()
   const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([])
   // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
   const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
@@ -357,15 +393,26 @@ export default function SessionFormModalWide({
                       <FormField
                         control={form.control}
                         name="sessionDate"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Fecha y hora</FormLabel>
-                            <FormControl>
-                              <Input type="datetime-local" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
+                        render={({ field }) => {
+                          const dateWarnings = getSessionDateWarnings(
+                            field.value,
+                            dateTolerances,
+                          )
+                          return (
+                            <FormItem>
+                              <FormLabel>Fecha y hora</FormLabel>
+                              <FormControl>
+                                <Input type="datetime-local" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                              {dateWarnings.map((warning) => (
+                                <p key={warning} className="text-sm text-amber-600 dark:text-amber-500">
+                                  {warning}
+                                </p>
+                              ))}
+                            </FormItem>
+                          )
+                        }}
                       />
                       <FormField
                         control={form.control}
