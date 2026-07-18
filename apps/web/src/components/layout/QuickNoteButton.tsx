@@ -30,6 +30,37 @@ const EPISODE_STATUS_LABELS: Record<string, string> = {
   ABANDONED: 'Abandonado',
 };
 
+// Header del paciente seleccionado (reutilizado en steps episode y note)
+function PatientHeader({
+  fullName,
+  episode,
+  onBack,
+}: {
+  fullName: string;
+  episode: ClinicalEpisode | null;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold shrink-0">
+          {fullName.split(' ').map((n) => n[0]).slice(0, 2).join('')}
+        </div>
+        <div>
+          <p className="text-sm font-medium">{fullName}</p>
+          <p className="text-xs text-muted-foreground">
+            {episode ? episode.mainComplaint || 'Sin motivo' : 'Seleccionar episodio'}
+          </p>
+        </div>
+      </div>
+      <Button variant="ghost" size="sm" className="text-xs" onClick={onBack}>
+        <ChevronLeft className="h-3 w-3 mr-1" />
+        Cambiar
+      </Button>
+    </div>
+  );
+}
+
 export default function QuickNoteButton() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>('patient');
@@ -100,31 +131,6 @@ export default function QuickNoteButton() {
   function selectEpisode(ep: ClinicalEpisode) {
     setSelectedEpisode(ep);
     setStep('note');
-  }
-
-  // Header del paciente seleccionado (reutilizado en steps episode y note)
-  function PatientHeader({ onBack }: { onBack: () => void }) {
-    return (
-      <div className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2.5">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold shrink-0">
-            {selectedPatient!.fullName.split(' ').map((n) => n[0]).slice(0, 2).join('')}
-          </div>
-          <div>
-            <p className="text-sm font-medium">{selectedPatient!.fullName}</p>
-            <p className="text-xs text-muted-foreground">
-              {selectedEpisode
-                ? selectedEpisode.mainComplaint || 'Sin motivo'
-                : 'Seleccionar episodio'}
-            </p>
-          </div>
-        </div>
-        <Button variant="ghost" size="sm" className="text-xs" onClick={onBack}>
-          <ChevronLeft className="h-3 w-3 mr-1" />
-          Cambiar
-        </Button>
-      </div>
-    );
   }
 
   return (
@@ -204,7 +210,11 @@ export default function QuickNoteButton() {
           {/* ── Paso 2: Selección de episodio ── */}
           {step === 'episode' && selectedPatient && (
             <div className="space-y-3">
-              <PatientHeader onBack={() => { setSelectedPatient(null); setStep('patient'); }} />
+              <PatientHeader
+                fullName={selectedPatient.fullName}
+                episode={selectedEpisode}
+                onBack={() => { setSelectedPatient(null); setStep('patient'); }}
+              />
 
               {episodesLoading ? (
                 <p className="text-sm text-muted-foreground text-center py-4">Cargando episodios...</p>
@@ -258,7 +268,11 @@ export default function QuickNoteButton() {
           {/* ── Paso 3: Nota ── */}
           {step === 'note' && selectedPatient && (
             <div className="space-y-4">
-              <PatientHeader onBack={() => { setSelectedEpisode(null); setStep('episode'); }} />
+              <PatientHeader
+                fullName={selectedPatient.fullName}
+                episode={selectedEpisode}
+                onBack={() => { setSelectedEpisode(null); setStep('episode'); }}
+              />
 
               <Textarea
                 placeholder="Escribí la nota clínica...&#10;&#10;Ej: Paciente refiere mejoría durante la semana."
