@@ -1,0 +1,16 @@
+#!/bin/sh
+# Hook de pre-push: corre `npm run check` antes de cada push y lo aborta
+# si falla, para atrapar errores de lint/tipos antes de que lleguen al CI.
+# Git encuentra este directorio vía core.hooksPath, que configura el
+# script "prepare" del package.json raíz en cada npm install.
+#
+# Para saltearlo puntualmente (rama experimental, WIP): git push --no-verify
+
+npm run check || {
+  echo ""
+  echo "npm run check fallo - push abortado."
+  echo "Corregi los errores o forza el push con: git push --no-verify"
+  exit 1
+}
+
+exit 0

@@ -1,0 +1,2 @@
+# Los hooks corren con /bin/sh (Git Bash en Windows): CRLF los rompe.
+.githooks/* text eol=lf

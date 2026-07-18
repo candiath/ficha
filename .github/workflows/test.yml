@@ -28,6 +28,16 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      # Solo lee schema.prisma (no toca la DB): el typecheck de la api
+      # importa el cliente generado.
+      - name: Generar el cliente de Prisma
+        run: npx prisma generate
+        working-directory: apps/api
+
+      # El mismo comando que se corre localmente antes de pushear.
+      - name: Lint y typecheck
+        run: npm run check
+
       - name: Tests del frontend
         run: npm test -w apps/web
 
