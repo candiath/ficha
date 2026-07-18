@@ -17,9 +17,11 @@ export interface SessionDateTolerances {
 const MINUTE_MS = 60 * 1000
 const DAY_MS = 24 * 60 * MINUTE_MS
 
-// TODO(human): issue #22 — valores por defecto hasta que haya config por usuario.
-// Ajustá estos números a la política que quieras. Están expresados con las
-// constantes MINUTE_MS / DAY_MS para que se lean en unidades humanas.
+// Valores por defecto hasta que exista config por usuario. La política:
+// - 15 min de margen a futuro: cubre el caso de registrar una sesión "16:00"
+//   estando 15:55, sin advertir por un adelanto normal.
+// - 1 día para avisar de registro tardío: el médico puede cargar sesiones
+//   horas después de atender sin molestias; recién pasado un día se avisa.
 export const DEFAULT_SESSION_DATE_TOLERANCES: SessionDateTolerances = {
   futureToleranceMs: 15 * MINUTE_MS,
   pastWarnThresholdMs: 1 * DAY_MS,
