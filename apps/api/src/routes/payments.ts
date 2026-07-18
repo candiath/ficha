@@ -28,8 +28,10 @@ const paymentSelect = {
   package: { select: { id: true, name: true } },
 } as const;
 
+// Sin patientId: el paciente se deriva de la sesión. Aceptarlo del body
+// permitía crear pagos apuntando a pacientes de otro tenant (y el GET,
+// que incluye patient.fullName, exponía el nombre ajeno).
 const PaymentCreateSchema = z.object({
-  patientId: z.string().min(1),
   sessionId: z.string().min(1),
   packageId: z.string().optional().nullable(),
   baseAmount: z.number().nonnegative(),
@@ -112,11 +114,28 @@ router.post('/', async (req, res) => {
   // Verificar que la sesión existe y pertenece al tenant
   const session = await prisma.session.findFirst({
     where: { id: body.sessionId, tenantId: req.context.tenantId },
-    select: { id: true },
+    select: { id: true, patientId: true },
   });
   if (!session) {
     res.status(404).json({ error: 'Sesión no encontrada' });
     return;
+  }
+
+  // El paquete a debitar debe ser del mismo tenant y del mismo paciente:
+  // sin este chequeo se podía descontar sesiones del paquete de otro.
+  if (body.packageId) {
+    const pkg = await prisma.sessionPackage.findFirst({
+      where: {
+        id: body.packageId,
+        tenantId: req.context.tenantId,
+        patientId: session.patientId,
+      },
+      select: { id: true },
+    });
+    if (!pkg) {
+      res.status(404).json({ error: 'Paquete no encontrado' });
+      return;
+    }
   }
 
   // Verificar que no exista ya un pago para esta sesión
@@ -135,7 +154,7 @@ router.post('/', async (req, res) => {
   const payment = await prisma.payment.create({
     data: {
       tenantId: req.context.tenantId,
-      patientId: body.patientId,
+      patientId: session.patientId,
       sessionId: body.sessionId,
       packageId: body.packageId ?? null,
       baseAmount: body.baseAmount,
@@ -150,7 +169,7 @@ router.post('/', async (req, res) => {
 
   auditLogRepo
     .create(req.context, {
-      patientId: body.patientId,
+      patientId: session.patientId,
       entity: 'PAYMENT',
       entityId: payment.id,
       action: 'CREATED',
@@ -165,11 +184,28 @@ router.patch('/:id', async (req, res) => {
 
   const existing = await prisma.payment.findFirst({
     where: { id: req.params.id, tenantId: req.context.tenantId },
-    select: { baseAmount: true, discount: true },
+    select: { baseAmount: true, discount: true, patientId: true },
   });
   if (!existing) {
     res.status(404).json({ error: 'Pago no encontrado' });
     return;
+  }
+
+  // Mismo chequeo que en el POST: el paquete debe ser del tenant y del
+  // paciente del pago.
+  if (body.packageId) {
+    const pkg = await prisma.sessionPackage.findFirst({
+      where: {
+        id: body.packageId,
+        tenantId: req.context.tenantId,
+        patientId: existing.patientId,
+      },
+      select: { id: true },
+    });
+    if (!pkg) {
+      res.status(404).json({ error: 'Paquete no encontrado' });
+      return;
+    }
   }
 
   const newBase = body.baseAmount ?? Number(existing.baseAmount);
