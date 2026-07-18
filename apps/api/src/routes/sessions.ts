@@ -59,6 +59,26 @@ async function getPatient(ctx: TenantContext, patientId: string) {
   });
 }
 
+// Los episodeIds vienen del body: sin esta verificación, un connect a ciegas
+// permitiría vincular la sesión a episodios de otro paciente o de otro tenant
+// (y GET /api/sessions expondría el mainComplaint ajeno).
+async function episodesBelongToPatient(
+  ctx: TenantContext,
+  patientId: string,
+  episodeIds: string[],
+): Promise<boolean> {
+  if (episodeIds.length === 0) return true;
+  // Deduplicar antes de contar: con ids repetidos count devolvería menos que
+  // length y un request válido se rechazaría por error.
+  const uniqueIds = [...new Set(episodeIds)];
+  // patientId ya garantiza el tenant (el paciente se validó antes), pero el
+  // filtro por tenantId queda como defensa en profundidad.
+  const found = await prisma.clinicalEpisode.count({
+    where: { id: { in: uniqueIds }, patientId, tenantId: ctx.tenantId },
+  });
+  return found === uniqueIds.length;
+}
+
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
@@ -119,6 +139,11 @@ router.post<ParentParams>('/', async (req, res) => {
   // La sesión queda atribuida al usuario autenticado que la registra.
   const { userId } = req.context;
   const { episodeIds, ...rest } = SessionCreateSchema.parse(req.body);
+
+  if (!(await episodesBelongToPatient(req.context, req.params.patientId, episodeIds))) {
+    res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
+    return;
+  }
 
   const session = await prisma.session.create({
     data: {
@@ -188,6 +213,12 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
   }
 
   const { episodeIds, ...rest } = SessionUpdateSchema.parse(req.body);
+
+  if (episodeIds && !(await episodesBelongToPatient(req.context, req.params.patientId, episodeIds))) {
+    res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
+    return;
+  }
+
   const session = await prisma.session.update({
     where: { id: req.params.sessionId },
     data: {
