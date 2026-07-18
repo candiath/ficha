@@ -44,8 +44,8 @@ import { globalSessionKeys } from '@/services/globalSessions'
 import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
 import {
+  getSessionDateWarnings,
   useSessionDateTolerances,
-  type SessionDateTolerances,
 } from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session } from '@/types/session'
@@ -75,28 +75,6 @@ const schema = z.object({
 })
 
 type FormValues = z.infer<typeof schema>
-
-/**
- * Advertencias BLANDAS sobre la fecha de sesión: informan pero no bloquean.
- * Función pura: recibe las tolerancias ya resueltas (hoy una constante, mañana
- * la preferencia del usuario) y devuelve mensajes (vacío = todo ok).
- */
-function getSessionDateWarnings(
-  value: string,
-  tolerances: SessionDateTolerances,
-): string[] {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return []
-  const diffMs = date.getTime() - Date.now() // >0 futuro, <0 pasado
-  const warnings: string[] = []
-  if (diffMs > tolerances.futureToleranceMs) {
-    warnings.push('La fecha está en el futuro. ¿Es correcta?')
-  }
-  if (-diffMs > tolerances.pastWarnThresholdMs) {
-    warnings.push('La fecha es de hace un tiempo. Verificá que sea la correcta.')
-  }
-  return warnings
-}
 
 interface SessionFormModalWideProps {
   open: boolean
