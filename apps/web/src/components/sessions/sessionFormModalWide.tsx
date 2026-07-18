@@ -47,6 +47,7 @@ import {
   useSessionDateTolerances,
   type SessionDateTolerances,
 } from '@/lib/sessionDateTolerances'
+import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session } from '@/types/session'
 
 const schema = z.object({
@@ -182,7 +183,7 @@ export default function SessionFormModalWide({
     resolver: zodResolver(schema),
     defaultValues: {
       sessionType: 'SESSION',
-      sessionDate: new Date().toISOString().slice(0, 16),
+      sessionDate: toLocalDateTimeInput(new Date()),
       painScaleBefore: null,
       painScaleAfter: null,
       preSesionState: '',
@@ -204,8 +205,8 @@ export default function SessionFormModalWide({
       form.reset({
         sessionType: session.sessionType ?? 'SESSION',
         sessionDate: session.sessionDate
-          ? new Date(session.sessionDate).toISOString().slice(0, 16)
-          : new Date().toISOString().slice(0, 16),
+          ? toLocalDateTimeInput(new Date(session.sessionDate))
+          : toLocalDateTimeInput(new Date()),
         painScaleBefore: session.painScaleBefore ?? null,
         painScaleAfter: session.painScaleAfter ?? null,
         preSesionState: session.preSesionState ?? '',
@@ -220,7 +221,7 @@ export default function SessionFormModalWide({
     } else {
       form.reset({
         sessionType: 'SESSION',
-        sessionDate: new Date().toISOString().slice(0, 16),
+        sessionDate: toLocalDateTimeInput(new Date()),
         painScaleBefore: null,
         painScaleAfter: null,
         preSesionState: '',
