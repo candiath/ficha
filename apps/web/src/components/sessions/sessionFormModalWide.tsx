@@ -43,12 +43,25 @@ import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
 import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
+import {
+  getSessionDateWarnings,
+  useSessionDateTolerances,
+} from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session } from '@/types/session'
 
 const schema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
-  sessionDate: z.string().min(1, 'La fecha es requerida'),
+  sessionDate: z
+    .string()
+    .min(1, 'La fecha es requerida')
+    .superRefine((value, ctx) => {
+      // Sólo error DURO: la fecha debe ser parseable. Lo demás (futuro,
+      // pasado lejano) son advertencias blandas -> ver getSessionDateWarnings.
+      if (Number.isNaN(new Date(value).getTime())) {
+        ctx.addIssue({ code: 'custom', message: 'La fecha no es válida' })
+      }
+    }),
   painScaleBefore: z.number().min(0).max(10).nullable(),
   painScaleAfter: z.number().min(0).max(10).nullable(),
   preSesionState: z.string().optional().or(z.literal('')),
@@ -91,6 +104,7 @@ export default function SessionFormModalWide({
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
   const isEditing = !!session
+  const dateTolerances = useSessionDateTolerances()
   const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([])
   // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
   const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
@@ -358,15 +372,26 @@ export default function SessionFormModalWide({
                       <FormField
                         control={form.control}
                         name="sessionDate"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Fecha y hora</FormLabel>
-                            <FormControl>
-                              <Input type="datetime-local" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
+                        render={({ field }) => {
+                          const dateWarnings = getSessionDateWarnings(
+                            field.value,
+                            dateTolerances,
+                          )
+                          return (
+                            <FormItem>
+                              <FormLabel>Fecha y hora</FormLabel>
+                              <FormControl>
+                                <Input type="datetime-local" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                              {dateWarnings.map((warning) => (
+                                <p key={warning} className="text-sm text-amber-600 dark:text-amber-500">
+                                  {warning}
+                                </p>
+                              ))}
+                            </FormItem>
+                          )
+                        }}
                       />
                       <FormField
                         control={form.control}
