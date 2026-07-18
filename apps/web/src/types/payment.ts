@@ -39,15 +39,6 @@ export interface SessionPackage {
   createdAt: string;
 }
 
-export interface PaymentFormData {
-  patientId: string;
-  sessionId: string;
-  packageId?: string | null;
-  baseAmount: number;
-  discount?: number;
-  notes?: string | null;
-}
-
 export interface PaymentUpdateData {
   baseAmount?: number;
   discount?: number;

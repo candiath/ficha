@@ -2,7 +2,6 @@ import { api } from '@/lib/api';
 import type {
   LastBasePrice,
   Payment,
-  PaymentFormData,
   PaymentUpdateData,
   SessionPackage,
   SessionPackageFormData,
@@ -31,7 +30,8 @@ export const paymentApi = {
 
   lastBasePrice: () => api.get<LastBasePrice | null>('/api/payments/last-base-price'),
 
-  create: (data: PaymentFormData) => api.post<Payment>('/api/payments', data),
+  // El alta de pagos no tiene método propio: el cobro se crea junto con la
+  // sesión en POST /sessions (transaccional, ver SessionCreateData.payment).
 
   update: (id: string, data: PaymentUpdateData) =>
     api.patch<Payment>(`/api/payments/${id}`, data),

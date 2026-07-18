@@ -266,28 +266,25 @@ export default function SessionFormModalWide({
         return updated
       }
 
-      const newSession = await sessionApi.create(patientId, { ...sessionData, episodeIds: selectedEpisodeIds })
-      await paymentApi.create({
-        patientId,
-        sessionId: newSession.id,
-        packageId: values.packageId || null,
-        baseAmount: parseFloat(values.baseAmount ?? '0'),
-        discount: values.discount ? parseFloat(values.discount) : 0,
-        notes: values.paymentNotes || null,
+      // Un solo request: la API crea sesión + pago + técnicas en una
+      // transacción, así un fallo de red o validación no deja una sesión
+      // sin pago (invisible en Cobros) ni duplicados al reintentar.
+      return sessionApi.create(patientId, {
+        ...sessionData,
+        episodeIds: selectedEpisodeIds,
+        payment: {
+          packageId: values.packageId || null,
+          baseAmount: parseFloat(values.baseAmount ?? '0'),
+          discount: values.discount ? parseFloat(values.discount) : 0,
+          notes: values.paymentNotes || null,
+        },
+        techniques: techniqueEntries.map((e) => ({
+          techniqueId: e.techniqueId,
+          bodyRegionId: e.bodyRegionId || null,
+          muscularChainId: e.muscularChainId || null,
+          variantNotes: e.variantNotes || null,
+        })),
       })
-      if (techniqueEntries.length > 0) {
-        await sessionTechniqueApi.bulkReplace(
-          patientId,
-          newSession.id,
-          techniqueEntries.map((e) => ({
-            techniqueId: e.techniqueId,
-            bodyRegionId: e.bodyRegionId || null,
-            muscularChainId: e.muscularChainId || null,
-            variantNotes: e.variantNotes || null,
-          })),
-        )
-      }
-      return newSession
     },
     onSuccess: () => {
       // La sesión puede estar vinculada a varios episodios: invalidamos toda lista
