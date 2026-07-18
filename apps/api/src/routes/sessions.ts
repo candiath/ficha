@@ -38,7 +38,7 @@ function toSessionDTO({ episodes, ...rest }: SessionRow) {
   return { ...rest, episodeIds: episodes.map((e) => e.episodeId) };
 }
 
-const SessionCreateSchema = z.object({
+const SessionFieldsSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
   sessionDate: z.string().datetime(),
   episodeIds: z.array(z.string().uuid()).optional().default([]),
@@ -50,7 +50,34 @@ const SessionCreateSchema = z.object({
   observations: z.string().optional().nullable(),
 });
 
-const SessionUpdateSchema = SessionCreateSchema.partial();
+// El POST acepta además el cobro y las técnicas de la sesión para crear todo
+// en una sola transacción. Antes el frontend encadenaba 3 requests y un fallo
+// intermedio dejaba sesiones sin pago (invisibles en Cobros) o sin técnicas.
+const SessionCreateSchema = SessionFieldsSchema.extend({
+  payment: z
+    .object({
+      packageId: z.string().uuid().optional().nullable(),
+      baseAmount: z.number().nonnegative(),
+      discount: z.number().nonnegative().default(0),
+      notes: z.string().optional().nullable(),
+    })
+    .optional(),
+  techniques: z
+    .array(
+      z.object({
+        techniqueId: z.string().uuid(),
+        bodyRegionId: z.string().uuid().optional().nullable(),
+        muscularChainId: z.string().uuid().optional().nullable(),
+        variantNotes: z.string().optional().nullable(),
+      }),
+    )
+    .optional()
+    .default([]),
+});
+
+// payment/techniques quedan afuera a propósito: el pago se edita por
+// /api/payments y las técnicas por el bulkReplace de /techniques.
+const SessionUpdateSchema = SessionFieldsSchema.partial();
 
 async function getPatient(ctx: TenantContext, patientId: string) {
   return prisma.patient.findFirst({
@@ -138,34 +165,101 @@ router.post<ParentParams>('/', async (req, res) => {
 
   // La sesión queda atribuida al usuario autenticado que la registra.
   const { userId } = req.context;
-  const { episodeIds, ...rest } = SessionCreateSchema.parse(req.body);
+  const { episodeIds, payment, techniques, ...rest } = SessionCreateSchema.parse(req.body);
 
   if (!(await episodesBelongToPatient(req.context, req.params.patientId, episodeIds))) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
 
-  const session = await prisma.session.create({
-    data: {
-      ...rest,
-      sessionDate: new Date(rest.sessionDate),
-      patientId: req.params.patientId,
-      tenantId: req.context.tenantId,
-      userId,
-      episodes: { create: episodeIds.map((episodeId) => ({ episode: { connect: { id: episodeId } } })) },
-    },
-    select: sessionSelect,
-  });
+  // El paquete a debitar debe ser del mismo tenant y del mismo paciente
+  // (mismo criterio que POST /api/payments).
+  if (payment?.packageId) {
+    const pkg = await prisma.sessionPackage.findFirst({
+      where: {
+        id: payment.packageId,
+        tenantId: req.context.tenantId,
+        patientId: req.params.patientId,
+      },
+      select: { id: true },
+    });
+    if (!pkg) {
+      res.status(404).json({ error: 'Paquete no encontrado' });
+      return;
+    }
+  }
 
-  // Cierre automático del/los episodio(s) al registrar alta
-  if (rest.sessionType === 'DISCHARGE' && episodeIds.length > 0) {
-    prisma.clinicalEpisode
-      .updateMany({
+  // Las técnicas deben ser del tenant o globales: sin este chequeo se podría
+  // vincular (y mostrar el nombre de) una técnica de otra clínica.
+  if (techniques.length > 0) {
+    const uniqueTechniqueIds = [...new Set(techniques.map((t) => t.techniqueId))];
+    const found = await prisma.technique.count({
+      where: {
+        id: { in: uniqueTechniqueIds },
+        OR: [{ tenantId: req.context.tenantId }, { tenantId: null }],
+      },
+    });
+    if (found !== uniqueTechniqueIds.length) {
+      res.status(400).json({ error: 'Técnica inexistente' });
+      return;
+    }
+  }
+
+  // Todo lo que dispara el registro de una sesión es atómico: si el pago,
+  // las técnicas o el cierre de episodios fallan, no queda una sesión a
+  // medias (sin pago no aparece en Cobros, y el reintento la duplicaba).
+  const session = await prisma.$transaction(async (tx) => {
+    const created = await tx.session.create({
+      data: {
+        ...rest,
+        sessionDate: new Date(rest.sessionDate),
+        patientId: req.params.patientId,
+        tenantId: req.context.tenantId,
+        userId,
+        episodes: { create: episodeIds.map((episodeId) => ({ episode: { connect: { id: episodeId } } })) },
+      },
+      select: sessionSelect,
+    });
+
+    if (payment) {
+      await tx.payment.create({
+        data: {
+          tenantId: req.context.tenantId,
+          patientId: req.params.patientId,
+          sessionId: created.id,
+          packageId: payment.packageId ?? null,
+          baseAmount: payment.baseAmount,
+          discount: payment.discount,
+          finalAmount: payment.baseAmount - payment.discount,
+          notes: payment.notes ?? null,
+        },
+      });
+    }
+
+    if (techniques.length > 0) {
+      await tx.sessionTechnique.createMany({
+        data: techniques.map((t) => ({
+          sessionId: created.id,
+          techniqueId: t.techniqueId,
+          bodyRegionId: t.bodyRegionId ?? null,
+          muscularChainId: t.muscularChainId ?? null,
+          variantNotes: t.variantNotes ?? null,
+        })),
+      });
+    }
+
+    // Cierre automático del/los episodio(s) al registrar alta. Dentro de la
+    // transacción: antes era fire-and-forget y un fallo dejaba el alta
+    // registrada con el episodio todavía abierto.
+    if (rest.sessionType === 'DISCHARGE' && episodeIds.length > 0) {
+      await tx.clinicalEpisode.updateMany({
         where: { id: { in: episodeIds }, tenantId: req.context.tenantId },
         data: { status: 'DISCHARGED', closedAt: new Date() },
-      })
-      .catch((err) => console.error('[episode-close]', err));
-  }
+      });
+    }
+
+    return created;
+  });
 
   const sessionTypeDesc: Record<string, string> = {
     SESSION: 'Sesión RPG registrada',
