@@ -55,7 +55,7 @@ export default function ChangePasswordDialog({ open, onClose }: Props) {
   // escritas de un intento anterior.
   useEffect(() => {
     if (open) form.reset();
-  }, [open]);
+  }, [open, form]);
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>

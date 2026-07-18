@@ -213,7 +213,7 @@ export default function SessionFormModalWide({
       })
       setTechniqueEntries([])
     }
-  }, [open, session, episodeId])
+  }, [open, session, episodeId, isEditing, form])
 
   // El último precio llega de una query async y puede resolver DESPUÉS de abrir el
   // modal. Lo aplicamos cuando llega, pero solo si el usuario todavía no tocó el

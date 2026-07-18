@@ -86,7 +86,7 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
         insurancePlan: patient?.insurancePlan ?? '',
       });
     }
-  }, [open, patient]);
+  }, [open, patient, form]);
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) => {
