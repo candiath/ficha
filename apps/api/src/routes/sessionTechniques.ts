@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { techniquesBelongToTenant } from '../lib/techniques';
 import { sessionTechniqueRepo } from '../repositories';
 
 type Params = { patientId: string; sessionId: string };
@@ -31,6 +32,14 @@ router.get<Params>('/', async (req, res) => {
 // PUT — replace all techniques for a session
 router.put<Params>('/', async (req, res) => {
   const { entries } = BulkReplaceSchema.parse(req.body);
+
+  // Mismo criterio que el POST de sesiones: las técnicas deben ser del
+  // tenant o globales; Zod solo valida el formato del uuid.
+  if (!(await techniquesBelongToTenant(req.context, entries.map((e) => e.techniqueId)))) {
+    res.status(400).json({ error: 'Técnica inexistente' });
+    return;
+  }
+
   const data = await sessionTechniqueRepo.bulkReplace(
     req.context,
     req.params.patientId,

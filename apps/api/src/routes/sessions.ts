@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
+import { techniquesBelongToTenant } from '../lib/techniques';
 import { auditLogRepo } from '../repositories';
 import type { TenantContext } from '../repositories/types';
 
@@ -189,20 +190,9 @@ router.post<ParentParams>('/', async (req, res) => {
     }
   }
 
-  // Las técnicas deben ser del tenant o globales: sin este chequeo se podría
-  // vincular (y mostrar el nombre de) una técnica de otra clínica.
-  if (techniques.length > 0) {
-    const uniqueTechniqueIds = [...new Set(techniques.map((t) => t.techniqueId))];
-    const found = await prisma.technique.count({
-      where: {
-        id: { in: uniqueTechniqueIds },
-        OR: [{ tenantId: req.context.tenantId }, { tenantId: null }],
-      },
-    });
-    if (found !== uniqueTechniqueIds.length) {
-      res.status(400).json({ error: 'Técnica inexistente' });
-      return;
-    }
+  if (!(await techniquesBelongToTenant(req.context, techniques.map((t) => t.techniqueId)))) {
+    res.status(400).json({ error: 'Técnica inexistente' });
+    return;
   }
 
   // Todo lo que dispara el registro de una sesión es atómico: si el pago,

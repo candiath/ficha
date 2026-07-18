@@ -146,6 +146,22 @@ describe('creación atómica de sesión con pago y técnicas', () => {
     expect(await prisma.session.count({ where: { patientId: patientA.id } })).toBe(before);
   });
 
+  it('el bulkReplace de técnicas también rechaza técnicas de otro tenant', async () => {
+    const session = await postSession();
+    expect(session.status).toBe(201);
+
+    const res = await request(app)
+      .put(`${url()}/${session.body.data.id}/techniques`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ entries: [{ techniqueId: techniqueB.id }] });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Técnica inexistente' });
+    expect(
+      await prisma.sessionTechnique.count({ where: { sessionId: session.body.data.id } }),
+    ).toBe(0);
+  });
+
   it('un alta cierra el episodio en el mismo request', async () => {
     const res = await postSession({
       sessionType: 'DISCHARGE',
