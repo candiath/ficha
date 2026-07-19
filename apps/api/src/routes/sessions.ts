@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { techniquesBelongToTenant } from '../lib/techniques';
+import { sessionDateField } from '../lib/sessionDate';
 import { auditLogRepo } from '../repositories';
 import type { TenantContext } from '../repositories/types';
 
@@ -41,7 +42,7 @@ function toSessionDTO({ episodes, ...rest }: SessionRow) {
 
 const SessionFieldsSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
-  sessionDate: z.string().datetime(),
+  sessionDate: sessionDateField,
   episodeIds: z.array(z.string().uuid()).optional().default([]),
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
