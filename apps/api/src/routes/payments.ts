@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma, PaymentStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
 
@@ -49,7 +50,7 @@ const PaymentUpdateSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
-function serializePayment(p: any) {
+function serializePayment(p: Prisma.PaymentGetPayload<{select: typeof paymentSelect}>) {
   return {
     ...p,
     baseAmount: Number(p.baseAmount),
@@ -67,7 +68,7 @@ router.get('/', async (req, res) => {
     where: {
       tenantId: req.context.tenantId,
       ...(patientId ? { patientId } : {}),
-      ...(status ? { status: status as any } : {}),
+      ...(status ? { status: status as PaymentStatus } : {}),
     },
     select: paymentSelect,
     orderBy: { createdAt: 'desc' },
