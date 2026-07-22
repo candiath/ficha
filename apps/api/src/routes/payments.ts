@@ -152,19 +152,32 @@ router.post('/', async (req, res) => {
   const discount = body.discount ?? 0;
   const finalAmount = body.baseAmount - discount;
 
-  const payment = await prisma.payment.create({
-    data: {
-      tenantId: req.context.tenantId,
-      patientId: session.patientId,
-      sessionId: body.sessionId,
-      packageId: body.packageId ?? null,
-      baseAmount: body.baseAmount,
-      discount,
-      finalAmount,
-      notes: body.notes ?? null,
-    },
-    select: paymentSelect,
-  });
+  let payment;
+  try {
+    payment = await prisma.payment.create({
+      data: {
+        tenantId: req.context.tenantId,
+        patientId: session.patientId,
+        sessionId: body.sessionId,
+        packageId: body.packageId ?? null,
+        baseAmount: body.baseAmount,
+        discount,
+        finalAmount,
+        notes: body.notes ?? null,
+      },
+      select: paymentSelect,
+    });
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2002"
+    ) {
+      return res
+        .status(409)
+        .json({ error: "La sesión ya tiene un pago registrado" });
+    }
+    throw e;
+  }
 
   res.status(201).json({ data: serializePayment(payment) });
 
