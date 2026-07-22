@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
-import type { TenantContext } from '../repositories/types';
+import type { TenantScopedClient } from '../lib/tenantScope';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -55,22 +54,22 @@ const EvaluationSchema = z.object({
   evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 
-async function getEpisode(ctx: TenantContext, patientId: string, episodeId: string) {
-  return prisma.clinicalEpisode.findFirst({
-    where: { id: episodeId, patientId, tenantId: ctx.tenantId },
+async function getEpisode(db: TenantScopedClient, patientId: string, episodeId: string) {
+  return db.clinicalEpisode.findFirst({
+    where: { id: episodeId, patientId },
     select: { id: true },
   });
 }
 
 // GET /api/patients/:patientId/episodes/:episodeId/evaluation
 router.get<Params>('/', async (req, res) => {
-  const episode = await getEpisode(req.context, req.params.patientId, req.params.episodeId);
+  const episode = await getEpisode(req.db, req.params.patientId, req.params.episodeId);
   if (!episode) {
     res.status(404).json({ error: 'Episodio no encontrado' });
     return;
   }
 
-  const evaluation = await prisma.initialEvaluation.findUnique({
+  const evaluation = await req.db.initialEvaluation.findUnique({
     where: { episodeId: req.params.episodeId },
     select: evaluationSelect,
   });
@@ -81,7 +80,7 @@ router.get<Params>('/', async (req, res) => {
 // PUT /api/patients/:patientId/episodes/:episodeId/evaluation
 // Upsert: crea si no existe, actualiza si ya existe.
 router.put<Params>('/', async (req, res) => {
-  const episode = await getEpisode(req.context, req.params.patientId, req.params.episodeId);
+  const episode = await getEpisode(req.db, req.params.patientId, req.params.episodeId);
   if (!episode) {
     res.status(404).json({ error: 'Episodio no encontrado' });
     return;
@@ -89,12 +88,12 @@ router.put<Params>('/', async (req, res) => {
 
   const body = EvaluationSchema.parse(req.body);
 
-  const evalExists = await prisma.initialEvaluation.findUnique({
+  const evalExists = await req.db.initialEvaluation.findUnique({
     where: { episodeId: req.params.episodeId },
     select: { id: true },
   });
 
-  const evaluation = await prisma.initialEvaluation.upsert({
+  const evaluation = await req.db.initialEvaluation.upsert({
     where: { episodeId: req.params.episodeId },
     create: {
       ...body,
@@ -104,6 +103,10 @@ router.put<Params>('/', async (req, res) => {
       postureFamilies: body.postureFamilies ?? Prisma.JsonNull,
       patientId: req.params.patientId,
       episodeId: req.params.episodeId,
+      // TenantScopedClient solo reescribe create/createMany*, NO upsert, así que
+      // el tipo sigue exigiendo tenantId acá. El guard igual lo inyecta en
+      // runtime (en el create y el where del upsert); lo pasamos solo por el
+      // tipo. Gap anotado en el issue #55.
       tenantId: req.context.tenantId,
     },
     update: {
