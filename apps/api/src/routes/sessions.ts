@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
 import { techniquesBelongToTenant } from '../lib/techniques';
 import { sessionDateField } from '../lib/sessionDate';
 import { auditLogRepo } from '../repositories';
-import type { TenantContext } from '../repositories/types';
+import type { TenantScopedClient } from '../lib/tenantScope';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -81,9 +80,9 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 // /api/payments y las técnicas por el bulkReplace de /techniques.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
-async function getPatient(ctx: TenantContext, patientId: string) {
-  return prisma.patient.findFirst({
-    where: { id: patientId, tenantId: ctx.tenantId, deletedAt: null },
+async function getPatient(db: TenantScopedClient, patientId: string) {
+  return db.patient.findFirst({
+    where: { id: patientId, deletedAt: null },
     select: { id: true },
   });
 }
@@ -92,7 +91,7 @@ async function getPatient(ctx: TenantContext, patientId: string) {
 // permitiría vincular la sesión a episodios de otro paciente o de otro tenant
 // (y GET /api/sessions expondría el mainComplaint ajeno).
 async function episodesBelongToPatient(
-  ctx: TenantContext,
+  db: TenantScopedClient,
   patientId: string,
   episodeIds: string[],
 ): Promise<boolean> {
@@ -100,10 +99,10 @@ async function episodesBelongToPatient(
   // Deduplicar antes de contar: con ids repetidos count devolvería menos que
   // length y un request válido se rechazaría por error.
   const uniqueIds = [...new Set(episodeIds)];
-  // patientId ya garantiza el tenant (el paciente se validó antes), pero el
-  // filtro por tenantId queda como defensa en profundidad.
-  const found = await prisma.clinicalEpisode.count({
-    where: { id: { in: uniqueIds }, patientId, tenantId: ctx.tenantId },
+  // patientId ya garantiza el tenant (el paciente se validó antes); la
+  // extension de req.db agrega el filtro por tenantId como defensa en profundidad.
+  const found = await db.clinicalEpisode.count({
+    where: { id: { in: uniqueIds }, patientId },
   });
   return found === uniqueIds.length;
 }
@@ -111,7 +110,7 @@ async function episodesBelongToPatient(
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -119,10 +118,9 @@ router.get<ParentParams>('/', async (req, res) => {
 
   const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : undefined;
 
-  const sessions = await prisma.session.findMany({
+  const sessions = await req.db.session.findMany({
     where: {
       patientId: req.params.patientId,
-      tenantId: req.context.tenantId,
       ...(episodeId ? { episodes: { some: { episodeId } } } : {}),
     },
     orderBy: { sessionDate: 'desc' },
@@ -134,17 +132,16 @@ router.get<ParentParams>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/sessions/:sessionId
 router.get<SessionParams>('/:sessionId', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
-  const session = await prisma.session.findFirst({
+  const session = await req.db.session.findFirst({
     where: {
       id: req.params.sessionId,
       patientId: req.params.patientId,
-      tenantId: req.context.tenantId,
     },
     select: sessionSelect,
   });
@@ -159,7 +156,7 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
 
 // POST /api/patients/:patientId/sessions
 router.post<ParentParams>('/', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -169,7 +166,7 @@ router.post<ParentParams>('/', async (req, res) => {
   const { userId } = req.context;
   const { episodeIds, payment, techniques, ...rest } = SessionCreateSchema.parse(req.body);
 
-  if (!(await episodesBelongToPatient(req.context, req.params.patientId, episodeIds))) {
+  if (!(await episodesBelongToPatient(req.db, req.params.patientId, episodeIds))) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
@@ -177,10 +174,9 @@ router.post<ParentParams>('/', async (req, res) => {
   // El paquete a debitar debe ser del mismo tenant y del mismo paciente
   // (mismo criterio que POST /api/payments).
   if (payment?.packageId) {
-    const pkg = await prisma.sessionPackage.findFirst({
+    const pkg = await req.db.sessionPackage.findFirst({
       where: {
         id: payment.packageId,
-        tenantId: req.context.tenantId,
         patientId: req.params.patientId,
       },
       select: { id: true },
@@ -199,7 +195,14 @@ router.post<ParentParams>('/', async (req, res) => {
   // Todo lo que dispara el registro de una sesión es atómico: si el pago,
   // las técnicas o el cierre de episodios fallan, no queda una sesión a
   // medias (sin pago no aparece en Cobros, y el reintento la duplicaba).
-  const session = await prisma.$transaction(async (tx) => {
+  //
+  // Nota multi-tenant: el `tx` de una transacción interactiva NO está reescrito
+  // por el tipo TenantScopedClient (igual que upsert; ver #55), así que sus
+  // create/updateMany siguen exigiendo/aceptando tenantId a nivel de tipo. Lo
+  // dejamos explícito: es lo que el tipo pide y, en el updateMany de episodios,
+  // el filtro de seguridad real. En runtime el tx además arrastra la extension
+  // (el objeto es el cliente extendido), como defensa en profundidad.
+  const session = await req.db.$transaction(async (tx) => {
     const created = await tx.session.create({
       data: {
         ...rest,
@@ -277,17 +280,16 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
 router.patch<SessionParams>('/:sessionId', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
-  const existing = await prisma.session.findFirst({
+  const existing = await req.db.session.findFirst({
     where: {
       id: req.params.sessionId,
       patientId: req.params.patientId,
-      tenantId: req.context.tenantId,
     },
     select: { id: true },
   });
@@ -299,12 +301,12 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
 
   const { episodeIds, ...rest } = SessionUpdateSchema.parse(req.body);
 
-  if (episodeIds && !(await episodesBelongToPatient(req.context, req.params.patientId, episodeIds))) {
+  if (episodeIds && !(await episodesBelongToPatient(req.db, req.params.patientId, episodeIds))) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
 
-  const session = await prisma.session.update({
+  const session = await req.db.session.update({
     where: { id: req.params.sessionId },
     data: {
       ...rest,

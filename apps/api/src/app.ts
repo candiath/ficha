@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import { attachTenantDb } from './middlewares/attachTenantDb';
 import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
 import { requireRole } from './middlewares/requireRole';
@@ -86,8 +87,9 @@ app.get('/health', async (_req, res) => {
 app.use('/api/auth', authRouter);
 
 // Todo lo que se monta debajo de esta línea requiere un token válido.
-// El middleware adjunta req.context = { tenantId, userId }.
-app.use('/api', authenticate);
+// authenticate adjunta req.context = { tenantId, userId }; attachTenantDb
+// lo consume para adjuntar req.db (cliente Prisma scopeado al tenant, B1).
+app.use('/api', authenticate, attachTenantDb);
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', episodesRouter);

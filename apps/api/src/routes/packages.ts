@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
 
 const router = Router();
 
@@ -16,9 +15,8 @@ const PackageCreateSchema = z.object({
 router.get('/', async (req, res) => {
   const patientId = req.query.patientId as string | undefined;
 
-  const packages = await prisma.sessionPackage.findMany({
+  const packages = await req.db.sessionPackage.findMany({
     where: {
-      tenantId: req.context.tenantId,
       ...(patientId ? { patientId } : {}),
     },
     include: {
@@ -49,8 +47,8 @@ router.post('/', async (req, res) => {
   const body = PackageCreateSchema.parse(req.body);
 
   // Verificar que el paciente pertenece al tenant
-  const patient = await prisma.patient.findFirst({
-    where: { id: body.patientId, tenantId: req.context.tenantId, deletedAt: null },
+  const patient = await req.db.patient.findFirst({
+    where: { id: body.patientId, deletedAt: null },
     select: { id: true },
   });
   if (!patient) {
@@ -58,9 +56,8 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const pkg = await prisma.sessionPackage.create({
+  const pkg = await req.db.sessionPackage.create({
     data: {
-      tenantId: req.context.tenantId,
       patientId: body.patientId,
       name: body.name,
       totalSessions: body.totalSessions,
@@ -84,8 +81,8 @@ router.post('/', async (req, res) => {
 
 // DELETE /api/packages/:id — solo si no tiene sesiones usadas
 router.delete('/:id', async (req, res) => {
-  const pkg = await prisma.sessionPackage.findFirst({
-    where: { id: req.params.id, tenantId: req.context.tenantId },
+  const pkg = await req.db.sessionPackage.findFirst({
+    where: { id: req.params.id },
     include: { _count: { select: { payments: true } } },
   });
 
@@ -99,7 +96,7 @@ router.delete('/:id', async (req, res) => {
     return;
   }
 
-  await prisma.sessionPackage.delete({ where: { id: req.params.id } });
+  await req.db.sessionPackage.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });
 

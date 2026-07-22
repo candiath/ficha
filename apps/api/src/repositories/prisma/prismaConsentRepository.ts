@@ -1,4 +1,4 @@
-import { prisma } from '../../lib/prisma';
+import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type { ConsentRepository, InformedConsentDTO } from '../consentRepository';
 
@@ -34,17 +34,22 @@ const consentSelect = {
 
 export const prismaConsentRepository: ConsentRepository = {
   async getByPatient(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO | null> {
-    const row = await prisma.informedConsent.findFirst({
-      where: { patientId, tenantId: ctx.tenantId },
+    const db = forTenant(ctx);
+    const row = await db.informedConsent.findFirst({
+      where: { patientId },
       select: consentSelect,
     });
     return row ? toDTO(row) : null;
   },
 
   async sign(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO> {
-    const row = await prisma.informedConsent.upsert({
+    const db = forTenant(ctx);
+    const row = await db.informedConsent.upsert({
       where: { patientId },
       create: {
+        // upsert no está reescrito por TenantScopedClient (solo create*), así
+        // que el tipo sigue exigiendo tenantId acá; el guard igual lo inyecta
+        // en runtime (create y where del upsert). Ver #55.
         tenantId: ctx.tenantId,
         patientId,
         signed: true,
@@ -61,7 +66,8 @@ export const prismaConsentRepository: ConsentRepository = {
   },
 
   async revoke(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO> {
-    const row = await prisma.informedConsent.update({
+    const db = forTenant(ctx);
+    const row = await db.informedConsent.update({
       where: { patientId },
       data: {
         signed: false,

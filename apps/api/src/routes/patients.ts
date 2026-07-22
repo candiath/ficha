@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
 
 const router = Router();
@@ -39,8 +38,8 @@ const PatientUpdateSchema = PatientCreateSchema.partial();
 
 // GET /api/patients
 router.get('/', async (req, res) => {
-  const patients = await prisma.patient.findMany({
-    where: { tenantId: req.context.tenantId, deletedAt: null },
+  const patients = await req.db.patient.findMany({
+    where: { deletedAt: null },
     select: patientSelect,
     orderBy: { createdAt: 'desc' },
   });
@@ -49,8 +48,8 @@ router.get('/', async (req, res) => {
 
 // GET /api/patients/:id
 router.get('/:id', async (req, res) => {
-  const patient = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: req.context.tenantId, deletedAt: null },
+  const patient = await req.db.patient.findFirst({
+    where: { id: req.params.id, deletedAt: null },
     select: patientSelect,
   });
 
@@ -66,8 +65,8 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = PatientCreateSchema.parse(req.body);
 
-  const patient = await prisma.patient.create({
-    data: { ...body, tenantId: req.context.tenantId },
+  const patient = await req.db.patient.create({
+    data: body,
     select: patientSelect,
   });
 
@@ -90,8 +89,8 @@ router.patch('/:id', async (req, res) => {
 
   // Verificar existencia + pertenencia al tenant antes de actualizar.
   // Nunca usar findUnique solo por id: un tenant podría adivinar IDs ajenos.
-  const existing = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: req.context.tenantId, deletedAt: null },
+  const existing = await req.db.patient.findFirst({
+    where: { id: req.params.id, deletedAt: null },
     select: { id: true },
   });
 
@@ -100,7 +99,7 @@ router.patch('/:id', async (req, res) => {
     return;
   }
 
-  const patient = await prisma.patient.update({
+  const patient = await req.db.patient.update({
     where: { id: req.params.id },
     data: body,
     select: patientSelect,
@@ -123,8 +122,8 @@ router.patch('/:id', async (req, res) => {
 // Borrado lógico: se marca deletedAt en vez de eliminar la fila, para no
 // perder historia clínica ni romper las FKs de sesiones, pagos y auditoría.
 router.delete('/:id', async (req, res) => {
-  const existing = await prisma.patient.findFirst({
-    where: { id: req.params.id, tenantId: req.context.tenantId, deletedAt: null },
+  const existing = await req.db.patient.findFirst({
+    where: { id: req.params.id, deletedAt: null },
     select: { id: true },
   });
 
@@ -133,7 +132,7 @@ router.delete('/:id', async (req, res) => {
     return;
   }
 
-  await prisma.patient.update({
+  await req.db.patient.update({
     where: { id: req.params.id },
     data: { deletedAt: new Date() },
   });

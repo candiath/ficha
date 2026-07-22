@@ -2,7 +2,6 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 
 // Gestión de usuarios de la clínica. Se monta detrás de authenticate +
@@ -33,8 +32,7 @@ const UpdateUserSchema = z.object({
 
 // GET /api/users — usuarios de la clínica, activos e inactivos.
 router.get('/', async (req, res) => {
-  const users = await prisma.user.findMany({
-    where: { tenantId: req.context.tenantId },
+  const users = await req.db.user.findMany({
     orderBy: { createdAt: 'asc' },
     select: tenantUserSelect,
   });
@@ -49,8 +47,8 @@ router.post('/', async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
 
   try {
-    const user = await prisma.user.create({
-      data: { email, name, passwordHash, role, tenantId: req.context.tenantId },
+    const user = await req.db.user.create({
+      data: { email, name, passwordHash, role },
       select: tenantUserSelect,
     });
     res.status(201).json({ data: user });
@@ -77,9 +75,10 @@ router.patch('/:id', async (req, res) => {
     return;
   }
 
-  // Scoped por tenant: un ADMIN no puede tocar usuarios de otra clínica.
-  const existing = await prisma.user.findFirst({
-    where: { id: req.params.id, tenantId: req.context.tenantId },
+  // Scoped por tenant vía req.db: la extension agrega el tenantId al where, así
+  // que un ADMIN no puede tocar usuarios de otra clínica.
+  const existing = await req.db.user.findFirst({
+    where: { id: req.params.id },
     select: { id: true },
   });
 
@@ -88,7 +87,7 @@ router.patch('/:id', async (req, res) => {
     return;
   }
 
-  const user = await prisma.user.update({
+  const user = await req.db.user.update({
     where: { id: req.params.id },
     data: { isActive },
     select: tenantUserSelect,

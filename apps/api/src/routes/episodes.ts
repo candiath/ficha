@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
-import type { TenantContext } from '../repositories/types';
+import type { TenantScopedClient } from '../lib/tenantScope';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -36,12 +35,12 @@ const INACTIVE_DAYS = 21;
 const ALERT_COOLDOWN_DAYS = 7;
 
 async function checkInactiveEpisode(
-  tenantId: string,
+  db: TenantScopedClient,
   patientId: string,
   episodeId: string,
   mainComplaint: string | null,
 ) {
-  const lastSession = await prisma.session.findFirst({
+  const lastSession = await db.session.findFirst({
     where: { patientId, episodes: { some: { episodeId } } },
     orderBy: { sessionDate: 'desc' },
     select: { sessionDate: true },
@@ -56,9 +55,8 @@ async function checkInactiveEpisode(
   // No crear alerta si ya existe una no leída reciente
   const alertCutoff = new Date();
   alertCutoff.setDate(alertCutoff.getDate() - ALERT_COOLDOWN_DAYS);
-  const existing = await prisma.clinicalAlert.findFirst({
+  const existing = await db.clinicalAlert.findFirst({
     where: {
-      tenantId,
       patientId,
       type: 'NO_SHOW',
       isRead: false,
@@ -76,28 +74,26 @@ async function checkInactiveEpisode(
     ? `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`
     : `El paciente no tiene sesiones registradas en ${episodeLabel}. Considerá hacer un seguimiento.`;
 
-  await prisma.clinicalAlert.create({
-    data: { tenantId, patientId, type: 'NO_SHOW', message },
-  });
+  await db.clinicalAlert.create({ data: { patientId, type: 'NO_SHOW', message } });
 }
 
-async function getPatient(ctx: TenantContext, patientId: string) {
-  return prisma.patient.findFirst({
-    where: { id: patientId, tenantId: ctx.tenantId, deletedAt: null },
+async function getPatient(db: TenantScopedClient, patientId: string) {
+  return db.patient.findFirst({
+    where: { id: patientId, deletedAt: null },
     select: { id: true },
   });
 }
 
 // GET /api/patients/:patientId/episodes
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
-  const episodes = await prisma.clinicalEpisode.findMany({
-    where: { patientId: req.params.patientId, tenantId: req.context.tenantId },
+  const episodes = await req.db.clinicalEpisode.findMany({
+    where: { patientId: req.params.patientId },
     orderBy: { openedAt: 'desc' },
     select: episodeSelect,
   });
@@ -108,7 +104,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const activeEpisodes = episodes.filter((ep) => ep.status === 'ACTIVE');
   for (const ep of activeEpisodes) {
     checkInactiveEpisode(
-      req.context.tenantId,
+      req.db,
       req.params.patientId,
       ep.id,
       ep.mainComplaint,
@@ -118,7 +114,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // POST /api/patients/:patientId/episodes
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
@@ -126,10 +122,9 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
   const body = EpisodeCreateSchema.parse(req.body);
 
-  const episode = await prisma.clinicalEpisode.create({
+  const episode = await req.db.clinicalEpisode.create({
     data: {
       patientId: req.params.patientId,
-      tenantId: req.context.tenantId,
       mainComplaint: body.mainComplaint,
       ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
     },
@@ -141,17 +136,16 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/episodes/:episodeId
 router.patch<Params>('/:episodeId', async (req, res) => {
-  const patient = await getPatient(req.context, req.params.patientId);
+  const patient = await getPatient(req.db, req.params.patientId);
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
-  const existing = await prisma.clinicalEpisode.findFirst({
+  const existing = await req.db.clinicalEpisode.findFirst({
     where: {
       id: req.params.episodeId,
       patientId: req.params.patientId,
-      tenantId: req.context.tenantId,
     },
     select: { id: true },
   });
@@ -162,7 +156,7 @@ router.patch<Params>('/:episodeId', async (req, res) => {
   }
 
   const body = EpisodeUpdateSchema.parse(req.body);
-  const episode = await prisma.clinicalEpisode.update({
+  const episode = await req.db.clinicalEpisode.update({
     where: { id: req.params.episodeId },
     data: {
       ...body,
