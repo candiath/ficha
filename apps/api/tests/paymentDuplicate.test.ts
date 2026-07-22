@@ -78,6 +78,11 @@ describe('pago duplicado por sesión', () => {
   it('bajo dos requests concurrentes solo uno crea el pago', async () => {
     const session = await createSession();
 
+    // Nota: cuando la carrera se resuelve por el catch de P2002 (y no por el
+    // pre-chequeo), Prisma loguea "prisma:error ... Unique constraint failed
+    // on session_id". Ese log es ESPERADO: es la evidencia de que el INSERT
+    // duplicado se rechazó y el catch lo tradujo a 409. No es un fallo.
+
     const [r1, r2] = await Promise.all([
       postPayment(session.id),
       postPayment(session.id),
