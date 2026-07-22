@@ -18,6 +18,11 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+      parserOptions: {
+        // Monorepo: fija la raíz a esta carpeta para que el ESLint del IDE
+        // (que corre desde el root) no dude entre apps/api y apps/web.
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
   },
 ])
