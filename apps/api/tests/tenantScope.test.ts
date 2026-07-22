@@ -71,7 +71,7 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
 
   it('create inyecta el tenantId del contexto (no hace falta pasarlo)', async () => {
     const created = await dbA.patient.create({
-      data: { fullName: 'Creado sin tenantId' } as { fullName: string },
+      data: { fullName: 'Creado sin tenantId' },
       select: { id: true, tenantId: true },
     });
     expect(created.tenantId).toBe(clinicA.tenantId);

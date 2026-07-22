@@ -150,7 +150,7 @@ export function forTenant(ctx: TenantContext): TenantScopedClient {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           if (model && TENANT_SCOPED_MODELS.has(model)) {
-            return query(scopeArgs(operation, args as Record<string, unknown>, tenantId));
+            return query(scopeArgs(operation, args, tenantId));
           }
           return query(args);
         },

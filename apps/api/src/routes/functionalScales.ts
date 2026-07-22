@@ -99,7 +99,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const { patientId } = req.params;
   const body = ScaleCreateSchema.parse(req.body);
 
-  const responses = body.responses as Record<string, number>;
+  const responses = body.responses;
   const { score, interpretation } =
     body.scaleType === 'OSWESTRY'
       ? scoreOswestry(responses)
