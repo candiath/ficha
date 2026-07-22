@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma, PaymentStatus } from '@prisma/client';
-import { prisma } from '../lib/prisma';
 import { auditLogRepo } from '../repositories';
 
 const router = Router();
@@ -64,9 +63,8 @@ router.get('/', async (req, res) => {
   const patientId = req.query.patientId as string | undefined;
   const status = req.query.status as string | undefined;
 
-  const payments = await prisma.payment.findMany({
+  const payments = await req.db.payment.findMany({
     where: {
-      tenantId: req.context.tenantId,
       ...(patientId ? { patientId } : {}),
       ...(status ? { status: status as PaymentStatus } : {}),
     },
@@ -81,9 +79,8 @@ router.get('/', async (req, res) => {
 // Devuelve el último baseAmount de un pago sin descuento ni paquete.
 // Si tiene más de HARDCODED_LAST_BASE_PRICE_STALENESS_DAYS días, amount = null.
 router.get('/last-base-price', async (req, res) => {
-  const payment = await prisma.payment.findFirst({
+  const payment = await req.db.payment.findFirst({
     where: {
-      tenantId: req.context.tenantId,
       discount: 0,
       packageId: null,
     },
@@ -113,8 +110,8 @@ router.post('/', async (req, res) => {
   const body = PaymentCreateSchema.parse(req.body);
 
   // Verificar que la sesión existe y pertenece al tenant
-  const session = await prisma.session.findFirst({
-    where: { id: body.sessionId, tenantId: req.context.tenantId },
+  const session = await req.db.session.findFirst({
+    where: { id: body.sessionId },
     select: { id: true, patientId: true },
   });
   if (!session) {
@@ -125,10 +122,9 @@ router.post('/', async (req, res) => {
   // El paquete a debitar debe ser del mismo tenant y del mismo paciente:
   // sin este chequeo se podía descontar sesiones del paquete de otro.
   if (body.packageId) {
-    const pkg = await prisma.sessionPackage.findFirst({
+    const pkg = await req.db.sessionPackage.findFirst({
       where: {
         id: body.packageId,
-        tenantId: req.context.tenantId,
         patientId: session.patientId,
       },
       select: { id: true },
@@ -140,7 +136,7 @@ router.post('/', async (req, res) => {
   }
 
   // Verificar que no exista ya un pago para esta sesión
-  const existing = await prisma.payment.findUnique({
+  const existing = await req.db.payment.findUnique({
     where: { sessionId: body.sessionId },
     select: { id: true },
   });
@@ -154,9 +150,8 @@ router.post('/', async (req, res) => {
 
   let payment;
   try {
-    payment = await prisma.payment.create({
+    payment = await req.db.payment.create({
       data: {
-        tenantId: req.context.tenantId,
         patientId: session.patientId,
         sessionId: body.sessionId,
         packageId: body.packageId ?? null,
@@ -196,8 +191,8 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const body = PaymentUpdateSchema.parse(req.body);
 
-  const existing = await prisma.payment.findFirst({
-    where: { id: req.params.id, tenantId: req.context.tenantId },
+  const existing = await req.db.payment.findFirst({
+    where: { id: req.params.id },
     select: { baseAmount: true, discount: true, patientId: true },
   });
   if (!existing) {
@@ -208,10 +203,9 @@ router.patch('/:id', async (req, res) => {
   // Mismo chequeo que en el POST: el paquete debe ser del tenant y del
   // paciente del pago.
   if (body.packageId) {
-    const pkg = await prisma.sessionPackage.findFirst({
+    const pkg = await req.db.sessionPackage.findFirst({
       where: {
         id: body.packageId,
-        tenantId: req.context.tenantId,
         patientId: existing.patientId,
       },
       select: { id: true },
@@ -236,7 +230,7 @@ router.patch('/:id', async (req, res) => {
         ? new Date()
         : undefined;
 
-  const payment = await prisma.payment.update({
+  const payment = await req.db.payment.update({
     where: { id: req.params.id },
     data: {
       ...(body.baseAmount !== undefined && { baseAmount: body.baseAmount }),
