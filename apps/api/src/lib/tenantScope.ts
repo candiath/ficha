@@ -1,3 +1,4 @@
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from './prisma';
 import type { TenantContext } from '../repositories/types';
 
@@ -75,9 +76,75 @@ function scopeArgs(
   return next;
 }
 
-export function forTenant(ctx: TenantContext) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Tipos: el cliente scopeado que ven los handlers en req.db.
+//
+// En runtime la extension inyecta el tenantId, pero $extends NO cambia los
+// tipos de entrada: el `create` de un modelo scopeado seguiría exigiendo
+// tenantId (es un campo requerido). Reconstruimos el tipo a mano para que los
+// modelos scopeados acepten `create`/`createMany` SIN tenantId y, además, lo
+// PROHÍBAN (tenantId lo pone el guard; pasarlo a mano no tiene sentido).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Nombres de delegate (camelCase) de los modelos scopeados. Deben coincidir
+// con TENANT_SCOPED_MODELS de arriba (que usa PascalCase).
+//
+// REVISIT(#55): esta lista y TENANT_SCOPED_MODELS son dos fuentes de verdad que
+// se mantienen a mano; si divergen no hay error de compilación. Post-dev,
+// derivar una de la otra con Uncapitalize<>. Análisis en
+// .notes/tenantscope-tipos-y-doble-lista.md
+type ScopedModelName =
+  | 'user'
+  | 'patient'
+  | 'clinicalEpisode'
+  | 'initialEvaluation'
+  | 'session'
+  | 'sessionPackage'
+  | 'payment'
+  | 'informedConsent'
+  | 'auditLog'
+  | 'clinicalAlert'
+  | 'functionalScale';
+
+// Quita tenantId (y la relation tenant) de un input de create y además los
+// PROHÍBE con `?: never`: quitar la prop no alcanza porque el método es
+// genérico y la inferencia deja pasar propiedades de más; el `never` hace que
+// pasar tenantId sea un error de tipo. Distribuye sobre la unión
+// XOR<CreateInput, UncheckedCreateInput> que Prisma usa para `data`.
+type WithoutTenant<T> = T extends unknown
+  ? Omit<T, 'tenantId' | 'tenant'> & { tenantId?: never; tenant?: never }
+  : never;
+
+// Args de create con el `data` sin tenantId (soporta el data-array de createMany).
+type ScopedArgs<A> = A extends { data: infer D }
+  ? Omit<A, 'data'> & {
+      data: D extends readonly unknown[] ? WithoutTenant<D[number]>[] : WithoutTenant<D>;
+    }
+  : A;
+
+// Un delegate de modelo con create/createMany/createManyAndReturn reescritos
+// para omitir tenantId; el resto de las operaciones queda igual.
+type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'> & {
+  create<A extends ScopedArgs<Prisma.Args<D, 'create'>>>(
+    args: A,
+  ): Prisma.PrismaPromise<Prisma.Result<D, A, 'create'>>;
+  createMany<A extends ScopedArgs<Prisma.Args<D, 'createMany'>>>(
+    args: A,
+  ): Prisma.PrismaPromise<Prisma.Result<D, A, 'createMany'>>;
+  createManyAndReturn<A extends ScopedArgs<Prisma.Args<D, 'createManyAndReturn'>>>(
+    args: A,
+  ): Prisma.PrismaPromise<Prisma.Result<D, A, 'createManyAndReturn'>>;
+};
+
+// Cliente scopeado: los modelos de dominio con create sin tenantId; el resto
+// del cliente ($transaction, $queryRaw, modelos globales) intacto.
+export type TenantScopedClient = Omit<PrismaClient, ScopedModelName> & {
+  [K in ScopedModelName]: ScopedDelegate<PrismaClient[K]>;
+};
+
+export function forTenant(ctx: TenantContext): TenantScopedClient {
   const { tenantId } = ctx;
-  return prisma.$extends({
+  const scoped = prisma.$extends({
     name: 'tenant-scope',
     query: {
       $allModels: {
@@ -90,7 +157,7 @@ export function forTenant(ctx: TenantContext) {
       },
     },
   });
+  // El cliente extendido es equivalente en runtime; solo reetiquetamos los
+  // tipos de entrada de create (ver bloque de tipos arriba).
+  return scoped as unknown as TenantScopedClient;
 }
-
-// Cliente scopeado: el tipo que verán los handlers en req.db.
-export type TenantScopedClient = ReturnType<typeof forTenant>;
