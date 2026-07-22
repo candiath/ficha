@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
 
 // Montado en /api/patients/:patientId/scales
 const router = Router({ mergeParams: true });
@@ -57,11 +56,10 @@ type Params = { patientId: string; scaleId: string };
 
 // GET /api/patients/:patientId/scales
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const { tenantId } = req.context;
   const { patientId } = req.params;
 
-  const scales = await prisma.functionalScale.findMany({
-    where: { tenantId, patientId },
+  const scales = await req.db.functionalScale.findMany({
+    where: { patientId },
     orderBy: { appliedAt: 'desc' },
     select: {
       id: true,
@@ -78,11 +76,10 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/scales/:scaleId
 router.get<Params>('/:scaleId', async (req, res) => {
-  const { tenantId } = req.context;
   const { patientId, scaleId } = req.params;
 
-  const scale = await prisma.functionalScale.findFirst({
-    where: { id: scaleId, tenantId, patientId },
+  const scale = await req.db.functionalScale.findFirst({
+    where: { id: scaleId, patientId },
   });
 
   if (!scale) {
@@ -95,7 +92,6 @@ router.get<Params>('/:scaleId', async (req, res) => {
 
 // POST /api/patients/:patientId/scales
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const { tenantId } = req.context;
   const { patientId } = req.params;
   const body = ScaleCreateSchema.parse(req.body);
 
@@ -105,9 +101,8 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
       ? scoreOswestry(responses)
       : scoreNDI(responses);
 
-  const scale = await prisma.functionalScale.create({
+  const scale = await req.db.functionalScale.create({
     data: {
-      tenantId,
       patientId,
       scaleType: body.scaleType,
       responses,
@@ -118,9 +113,8 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
   });
 
   // Audit log
-  await prisma.auditLog.create({
+  await req.db.auditLog.create({
     data: {
-      tenantId,
       patientId,
       userId: req.context.userId,
       entity: 'EVALUATION',
@@ -135,11 +129,10 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // DELETE /api/patients/:patientId/scales/:scaleId
 router.delete<Params>('/:scaleId', async (req, res) => {
-  const { tenantId } = req.context;
   const { patientId, scaleId } = req.params;
 
-  const existing = await prisma.functionalScale.findFirst({
-    where: { id: scaleId, tenantId, patientId },
+  const existing = await req.db.functionalScale.findFirst({
+    where: { id: scaleId, patientId },
     select: { id: true },
   });
 
@@ -148,7 +141,7 @@ router.delete<Params>('/:scaleId', async (req, res) => {
     return;
   }
 
-  await prisma.functionalScale.delete({
+  await req.db.functionalScale.delete({
     where: { id: scaleId },
   });
 
