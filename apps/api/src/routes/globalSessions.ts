@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { prisma } from '../lib/prisma';
 
 const router = Router();
 
@@ -7,8 +6,7 @@ const router = Router();
 // Una sesión puede abordar varios episodios (motivos), por eso se devuelven como
 // arreglo `episodes` y se aplana también a `episodeIds`.
 router.get('/', async (req, res) => {
-  const sessions = await prisma.session.findMany({
-    where: { tenantId: req.context.tenantId },
+  const sessions = await req.db.session.findMany({
     orderBy: { sessionDate: 'desc' },
     select: {
       id: true,
