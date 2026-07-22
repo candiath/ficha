@@ -1,4 +1,4 @@
-import { prisma } from '../../lib/prisma';
+import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
   AlertCreateDTO,
@@ -42,11 +42,12 @@ function toDTO(row: {
 
 export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
   async list(ctx: TenantContext, filters?: AlertFilters): Promise<ClinicalAlertDTO[]> {
-    const where: Record<string, unknown> = { tenantId: ctx.tenantId };
+    const db = forTenant(ctx);
+    const where: Record<string, unknown> = {};
     if (filters?.type) where.type = filters.type;
     if (filters?.isRead !== undefined) where.isRead = filters.isRead;
 
-    const rows = await prisma.clinicalAlert.findMany({
+    const rows = await db.clinicalAlert.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       select: alertSelect,
@@ -55,19 +56,20 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
   },
 
   async stats(ctx: TenantContext) {
+    const db = forTenant(ctx);
     const [unread, followUp, payment, noShow] = await Promise.all([
-      prisma.clinicalAlert.count({ where: { tenantId: ctx.tenantId, isRead: false } }),
-      prisma.clinicalAlert.count({ where: { tenantId: ctx.tenantId, type: 'FOLLOW_UP', isRead: false } }),
-      prisma.clinicalAlert.count({ where: { tenantId: ctx.tenantId, type: 'PAYMENT', isRead: false } }),
-      prisma.clinicalAlert.count({ where: { tenantId: ctx.tenantId, type: 'NO_SHOW', isRead: false } }),
+      db.clinicalAlert.count({ where: { isRead: false } }),
+      db.clinicalAlert.count({ where: { type: 'FOLLOW_UP', isRead: false } }),
+      db.clinicalAlert.count({ where: { type: 'PAYMENT', isRead: false } }),
+      db.clinicalAlert.count({ where: { type: 'NO_SHOW', isRead: false } }),
     ]);
     return { unread, followUp, payment, noShow };
   },
 
   async create(ctx: TenantContext, data: AlertCreateDTO): Promise<ClinicalAlertDTO> {
-    const row = await prisma.clinicalAlert.create({
+    const db = forTenant(ctx);
+    const row = await db.clinicalAlert.create({
       data: {
-        tenantId: ctx.tenantId,
         patientId: data.patientId,
         type: data.type,
         message: data.message,
@@ -78,25 +80,30 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
   },
 
   async markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO> {
-    const row = await prisma.clinicalAlert.update({
+    const db = forTenant(ctx);
+    // Validar pertenencia ANTES de escribir. Antes el update corría con
+    // where { id } (sin tenantId) y recién después chequeaba el tenant, así que
+    // marcaba como leída la alerta de otro tenant y luego tiraba error —el
+    // write ya había quedado hecho—. Con db scopeado el where lleva tenantId, y
+    // el findFirst previo da el error limpio si la alerta no es del tenant.
+    const existing = await db.clinicalAlert.findFirst({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new Error('Alerta no encontrada');
+
+    const row = await db.clinicalAlert.update({
       where: { id },
       data: { isRead: true, readAt: new Date() },
       select: alertSelect,
     });
-    // Verify tenant ownership
-    if (row.patientId) {
-      const patient = await prisma.patient.findFirst({
-        where: { id: row.patientId, tenantId: ctx.tenantId },
-        select: { id: true },
-      });
-      if (!patient) throw new Error('Alerta no encontrada');
-    }
     return toDTO(row);
   },
 
   async markAllAsRead(ctx: TenantContext): Promise<number> {
-    const result = await prisma.clinicalAlert.updateMany({
-      where: { tenantId: ctx.tenantId, isRead: false },
+    const db = forTenant(ctx);
+    const result = await db.clinicalAlert.updateMany({
+      where: { isRead: false },
       data: { isRead: true, readAt: new Date() },
     });
     return result.count;
