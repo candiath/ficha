@@ -1,4 +1,4 @@
-import { prisma } from '../../lib/prisma';
+import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
   AuditLogCreateDTO,
@@ -32,8 +32,9 @@ function toDTO(row: {
 
 export const prismaAuditLogRepository: AuditLogRepository = {
   async listByPatient(ctx: TenantContext, patientId: string): Promise<AuditLogDTO[]> {
-    const rows = await prisma.auditLog.findMany({
-      where: { patientId, tenantId: ctx.tenantId },
+    const db = forTenant(ctx);
+    const rows = await db.auditLog.findMany({
+      where: { patientId },
       orderBy: { createdAt: 'desc' },
       select: auditSelect,
     });
@@ -41,9 +42,9 @@ export const prismaAuditLogRepository: AuditLogRepository = {
   },
 
   async create(ctx: TenantContext, data: AuditLogCreateDTO): Promise<AuditLogDTO> {
-    const row = await prisma.auditLog.create({
+    const db = forTenant(ctx);
+    const row = await db.auditLog.create({
       data: {
-        tenantId: ctx.tenantId,
         patientId: data.patientId,
         userId: data.userId ?? ctx.userId ?? null,
         entity: data.entity,
