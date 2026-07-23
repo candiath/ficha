@@ -7,9 +7,10 @@ import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpe
 
 // Aislamiento entre clínicas en las rutas de dominio: los ids que viajan en
 // el body (episodeIds, packageId, patientId) no deben poder apuntar a datos
-// de otro tenant ni de otro paciente. Estos tests cubren los dos agujeros
-// corregidos: episodios en sesiones y paciente/paquete en pagos.
-describe('aislamiento de tenant en sesiones y pagos', () => {
+// de otro tenant ni de otro paciente. Estos tests cubren los agujeros
+// corregidos: episodios en sesiones, paciente/paquete en pagos y paciente
+// en alertas.
+describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
   let clinicA: TestClinic;
   let clinicB: TestClinic;
   let userA: User;
@@ -95,6 +96,7 @@ describe('aislamiento de tenant en sesiones y pagos', () => {
     await sleep(300);
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
     await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.clinicalAlert.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     // Borrar sesiones arrastra session_episodes por el onDelete: Cascade.
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -165,6 +167,34 @@ describe('aislamiento de tenant en sesiones y pagos', () => {
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Paquete no encontrado' });
+  });
+
+  it('rechaza un patientId de otro tenant al crear una alerta', async () => {
+    // Antes del fix la alerta se creaba con el FK ajeno y el GET /api/alerts
+    // devolvía el fullName del paciente de la otra clínica vía el join.
+    const res = await request(app)
+      .post('/api/alerts')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ patientId: patientB.id, type: 'CUSTOM', message: 'Cruce de tenant' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Paciente no encontrado' });
+
+    const leaked = await prisma.clinicalAlert.findFirst({
+      where: { patientId: patientB.id },
+      select: { id: true },
+    });
+    expect(leaked).toBeNull();
+  });
+
+  it('crea la alerta para un paciente del propio tenant', async () => {
+    const res = await request(app)
+      .post('/api/alerts')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ patientId: patientA.id, type: 'CUSTOM', message: 'Control pendiente' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.patientName).toBe('Paciente A');
   });
 
   it('rechaza en el PATCH un packageId de otro paciente del mismo tenant', async () => {
