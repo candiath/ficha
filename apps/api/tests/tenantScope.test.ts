@@ -36,6 +36,14 @@ describe('scopeArgs: inyección y fail-closed', () => {
   });
 });
 
+describe('forTenant: validación del contexto', () => {
+  it('rechaza un contexto con tenantId vacío', () => {
+    expect(() => forTenant({ tenantId: '', userId: 'u1', role: 'ADMIN' })).toThrow(
+      /tenantId/,
+    );
+  });
+});
+
 describe('forTenant: guardia estructural de multi-tenancy', () => {
   let clinicA: TestClinic;
   let clinicB: TestClinic;

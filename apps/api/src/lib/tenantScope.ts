@@ -161,6 +161,12 @@ export type TenantScopedClient = Omit<PrismaClient, ScopedModelName> & {
 
 export function forTenant(ctx: TenantContext): TenantScopedClient {
   const { tenantId } = ctx;
+  // Cinturón contra un contexto malformado: con tenantId vacío el guard
+  // inyectaría `tenantId: ''` en cada where — lecturas que no devuelven nada
+  // y creates que violan la FK, todo sin pista del porqué. Mejor fallar acá.
+  if (!tenantId) {
+    throw new Error('tenant-scope: el contexto no tiene tenantId');
+  }
   const scoped = prisma.$extends({
     name: 'tenant-scope',
     query: {
