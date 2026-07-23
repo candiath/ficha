@@ -29,6 +29,19 @@ router.get('/stats', async (req, res) => {
 // POST /api/alerts — create new alert
 router.post('/', async (req, res) => {
   const body = AlertCreateSchema.parse(req.body);
+
+  // El patientId viaja en el body: sin este chequeo la alerta podía apuntar a
+  // un paciente de otra clínica y el join de alertSelect exponía su fullName
+  // (misma clase de fuga que tuvo POST /api/payments).
+  const patient = await req.db.patient.findFirst({
+    where: { id: body.patientId },
+    select: { id: true },
+  });
+  if (!patient) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
   const data = await clinicalAlertRepo.create(req.context, body);
   res.status(201).json({ data });
 });
