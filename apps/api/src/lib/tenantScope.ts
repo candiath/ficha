@@ -118,9 +118,15 @@ type ScopedArgs<A> = A extends { data: infer D }
     }
   : A;
 
-// Un delegate de modelo con create/createMany/createManyAndReturn reescritos
-// para omitir tenantId; el resto de las operaciones queda igual.
-type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'> & {
+// Args de upsert con el `create` sin tenantId; `where` y `update` quedan igual
+// (el guard inyecta el tenantId en el create y el where del upsert en runtime).
+type ScopedUpsertArgs<A> = A extends { create: infer C }
+  ? Omit<A, 'create'> & { create: WithoutTenant<C> }
+  : A;
+
+// Un delegate de modelo con create/createMany/createManyAndReturn/upsert
+// reescritos para omitir tenantId; el resto de las operaciones queda igual.
+type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn' | 'upsert'> & {
   create<A extends ScopedArgs<Prisma.Args<D, 'create'>>>(
     args: A,
   ): Prisma.PrismaPromise<Prisma.Result<D, A, 'create'>>;
@@ -130,6 +136,9 @@ type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'
   createManyAndReturn<A extends ScopedArgs<Prisma.Args<D, 'createManyAndReturn'>>>(
     args: A,
   ): Prisma.PrismaPromise<Prisma.Result<D, A, 'createManyAndReturn'>>;
+  upsert<A extends ScopedUpsertArgs<Prisma.Args<D, 'upsert'>>>(
+    args: A,
+  ): Prisma.PrismaPromise<Prisma.Result<D, A, 'upsert'>>;
 };
 
 // Cliente scopeado: los modelos de dominio con create sin tenantId; el resto
