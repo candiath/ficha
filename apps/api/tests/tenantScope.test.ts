@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma';
-import { forTenant } from '../src/lib/tenantScope';
+import { forTenant, scopeArgs } from '../src/lib/tenantScope';
 import type { TenantContext } from '../src/repositories/types';
 import { createTestClinic, type TestClinic } from './helpers';
 
@@ -9,6 +9,33 @@ import { createTestClinic, type TestClinic } from './helpers';
 // el cliente scopeado directo (sin pasar por HTTP): dos clínicas, y el cliente
 // de A no puede leer, contar, actualizar ni borrar filas de B; y al crear,
 // el tenantId se inyecta solo.
+// Unit tests de scopeArgs, sin DB: verifican la mecánica de inyección y que
+// el guard sea fail-closed ante operaciones que no reconoce.
+describe('scopeArgs: inyección y fail-closed', () => {
+  it('inyecta el tenantId en el where de una operación conocida', () => {
+    expect(scopeArgs('findMany', { where: { fullName: 'x' } }, 't1')).toEqual({
+      where: { fullName: 'x', tenantId: 't1' },
+    });
+  });
+
+  it('pisa un tenantId espurio que venga en los args', () => {
+    expect(scopeArgs('updateMany', { where: { tenantId: 'otro' } }, 't1')).toEqual({
+      where: { tenantId: 't1' },
+    });
+  });
+
+  // updateManyAndReturn no existe en Prisma 5.22 pero sí desde 6.2: si un
+  // upgrade trae una operación que el guard no reconoce, debe rechazarla,
+  // no dejarla pasar sin tenant. Este test es el canario de ese upgrade.
+  it('lanza error ante una operación que el guard no reconoce', () => {
+    // El mensaje debe nombrar la operación rechazada: es el único dato que
+    // tiene quien debuggea el upgrade de Prisma que la introdujo.
+    expect(() => scopeArgs('updateManyAndReturn', { where: {} }, 't1')).toThrow(
+      /updateManyAndReturn/,
+    );
+  });
+});
+
 describe('forTenant: guardia estructural de multi-tenancy', () => {
   let clinicA: TestClinic;
   let clinicB: TestClinic;
