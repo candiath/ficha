@@ -56,7 +56,8 @@ const WHERE_OPERATIONS = new Set([
 // Inyecta el tenantId en los args según la operación. Se sobrescribe cualquier
 // tenantId que ya venga en el where/data: el del contexto es la fuente de
 // verdad, y así un id espurio en el body no puede apuntar a otro tenant.
-function scopeArgs(
+// Exportada solo para los tests unitarios del guard.
+export function scopeArgs(
   operation: string,
   args: Record<string, unknown> | undefined,
   tenantId: string,
@@ -75,6 +76,17 @@ function scopeArgs(
   } else if (operation === 'upsert') {
     next.where = { ...(next.where as object), tenantId };
     next.create = { ...(next.create as object), tenantId };
+  } else {
+    // Fail-closed: si la operación no está en ninguna rama de arriba, este
+    // guard no sabe dónde inyectar el tenantId y dejarla pasar sería un
+    // bypass silencioso. Hoy no existe tal operación (las 16 de Prisma 5.22
+    // están cubiertas), pero Prisma agrega operaciones con las versiones
+    // (p. ej. updateManyAndReturn en 6.2) y un upgrade no debe abrir un
+    // agujero: debe fallar acá, ruidosamente.
+    throw new Error(
+      `tenant-scope: operación "${operation}" no reconocida por el guard; ` +
+        'clasificarla en scopeArgs antes de usarla sobre un modelo scopeado',
+    );
   }
 
   return next;
