@@ -154,8 +154,14 @@ type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'
 };
 
 // Cliente scopeado: los modelos de dominio con create sin tenantId; el resto
-// del cliente ($transaction, $queryRaw, modelos globales) intacto.
-export type TenantScopedClient = Omit<PrismaClient, ScopedModelName> & {
+// del cliente ($transaction, modelos globales) intacto. Raw SQL queda FUERA
+// del tipo: escapa por completo a la extension (ninguna inyección de tenantId
+// aplica), así que quien lo necesite debe usar el prisma base a conciencia,
+// nunca creyendo que req.db lo protege.
+export type TenantScopedClient = Omit<
+  PrismaClient,
+  ScopedModelName | '$queryRaw' | '$queryRawUnsafe' | '$executeRaw' | '$executeRawUnsafe'
+> & {
   [K in ScopedModelName]: ScopedDelegate<PrismaClient[K]>;
 };
 
