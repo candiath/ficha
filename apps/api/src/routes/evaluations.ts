@@ -103,11 +103,6 @@ router.put<Params>('/', async (req, res) => {
       postureFamilies: body.postureFamilies ?? Prisma.JsonNull,
       patientId: req.params.patientId,
       episodeId: req.params.episodeId,
-      // TenantScopedClient solo reescribe create/createMany*, NO upsert, así que
-      // el tipo sigue exigiendo tenantId acá. El guard igual lo inyecta en
-      // runtime (en el create y el where del upsert); lo pasamos solo por el
-      // tipo. Gap anotado en el issue #55.
-      tenantId: req.context.tenantId,
     },
     update: {
       ...body,

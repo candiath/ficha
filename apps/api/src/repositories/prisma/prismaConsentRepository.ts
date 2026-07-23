@@ -47,10 +47,6 @@ export const prismaConsentRepository: ConsentRepository = {
     const row = await db.informedConsent.upsert({
       where: { patientId },
       create: {
-        // upsert no está reescrito por TenantScopedClient (solo create*), así
-        // que el tipo sigue exigiendo tenantId acá; el guard igual lo inyecta
-        // en runtime (create y where del upsert). Ver #55.
-        tenantId: ctx.tenantId,
         patientId,
         signed: true,
         signedAt: new Date(),

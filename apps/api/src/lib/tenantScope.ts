@@ -14,10 +14,11 @@ import type { TenantContext } from '../repositories/types';
 // de un findMany de payments) NO se filtran acá; esos casos se resuelven por
 // ruta. Por eso B8 (pacientes borrados en reads anidados) es un paso aparte.
 
-// Los nombres son los del modelo Prisma en PascalCase (los que llegan como
-// `model` en la extension), no los de la tabla SQL.
-//
-const TENANT_SCOPED_MODELS = new Set<string>([
+// Única fuente de verdad de los modelos scopeados, en PascalCase (los nombres
+// que llegan como `model` en la extension), no los de la tabla SQL. De esta
+// tupla se derivan tanto el Set de runtime como el tipo ScopedModelName (abajo):
+// agregar un modelo es una sola línea acá.
+const TENANT_SCOPED_MODELS = [
   'User',
   'Patient',
   'ClinicalEpisode',
@@ -28,8 +29,11 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   'InformedConsent',
   'AuditLog',
   'ClinicalAlert',
-  'FunctionalScale'
-]);
+  'FunctionalScale',
+] as const;
+
+// Set para el chequeo de runtime en la extension (.has(model)).
+const TENANT_SCOPED_MODEL_SET = new Set<string>(TENANT_SCOPED_MODELS);
 
 // Operaciones cuyo `where` acota las filas afectadas: se les inyecta tenantId.
 // En Prisma 5 el WhereUniqueInput acepta campos no-únicos, así que esto vale
@@ -86,25 +90,17 @@ function scopeArgs(
 // PROHÍBAN (tenantId lo pone el guard; pasarlo a mano no tiene sentido).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Nombres de delegate (camelCase) de los modelos scopeados. Deben coincidir
-// con TENANT_SCOPED_MODELS de arriba (que usa PascalCase).
+// Nombres de delegate (camelCase) de los modelos scopeados, DERIVADOS de la
+// tupla TENANT_SCOPED_MODELS (PascalCase) — una sola fuente de verdad.
 //
-// REVISIT(#55): esta lista y TENANT_SCOPED_MODELS son dos fuentes de verdad que
-// se mantienen a mano; si divergen no hay error de compilación. Post-dev,
-// derivar una de la otra con Uncapitalize<>. Análisis en
-// .notes/tenantscope-tipos-y-doble-lista.md
-type ScopedModelName =
-  | 'user'
-  | 'patient'
-  | 'clinicalEpisode'
-  | 'initialEvaluation'
-  | 'session'
-  | 'sessionPackage'
-  | 'payment'
-  | 'informedConsent'
-  | 'auditLog'
-  | 'clinicalAlert'
-  | 'functionalScale';
+// Uncapitalize pasa cada nombre de modelo a su clave de delegate: Prisma nombra
+// los delegate con la primera letra en minúscula (ClinicalEpisode ->
+// clinicalEpisode), que es exactamente lo que hace Uncapitalize.
+//
+// Guarda de typos gratis: el mapeo de TenantScopedClient (abajo) indexa
+// PrismaClient[K] con estos nombres, así que un nombre de la tupla que no sea un
+// modelo real de Prisma hace fallar la compilación ahí (TS2536). Verificado.
+type ScopedModelName = Uncapitalize<(typeof TENANT_SCOPED_MODELS)[number]>;
 
 // Quita tenantId (y la relation tenant) de un input de create y además los
 // PROHÍBE con `?: never`: quitar la prop no alcanza porque el método es
@@ -122,9 +118,15 @@ type ScopedArgs<A> = A extends { data: infer D }
     }
   : A;
 
-// Un delegate de modelo con create/createMany/createManyAndReturn reescritos
-// para omitir tenantId; el resto de las operaciones queda igual.
-type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'> & {
+// Args de upsert con el `create` sin tenantId; `where` y `update` quedan igual
+// (el guard inyecta el tenantId en el create y el where del upsert en runtime).
+type ScopedUpsertArgs<A> = A extends { create: infer C }
+  ? Omit<A, 'create'> & { create: WithoutTenant<C> }
+  : A;
+
+// Un delegate de modelo con create/createMany/createManyAndReturn/upsert
+// reescritos para omitir tenantId; el resto de las operaciones queda igual.
+type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn' | 'upsert'> & {
   create<A extends ScopedArgs<Prisma.Args<D, 'create'>>>(
     args: A,
   ): Prisma.PrismaPromise<Prisma.Result<D, A, 'create'>>;
@@ -134,6 +136,9 @@ type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'
   createManyAndReturn<A extends ScopedArgs<Prisma.Args<D, 'createManyAndReturn'>>>(
     args: A,
   ): Prisma.PrismaPromise<Prisma.Result<D, A, 'createManyAndReturn'>>;
+  upsert<A extends ScopedUpsertArgs<Prisma.Args<D, 'upsert'>>>(
+    args: A,
+  ): Prisma.PrismaPromise<Prisma.Result<D, A, 'upsert'>>;
 };
 
 // Cliente scopeado: los modelos de dominio con create sin tenantId; el resto
@@ -149,7 +154,7 @@ export function forTenant(ctx: TenantContext): TenantScopedClient {
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
-          if (model && TENANT_SCOPED_MODELS.has(model)) {
+          if (model && TENANT_SCOPED_MODEL_SET.has(model)) {
             return query(scopeArgs(operation, args, tenantId));
           }
           return query(args);
