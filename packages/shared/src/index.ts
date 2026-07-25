@@ -59,3 +59,30 @@ export interface CreateUserInput {
   password: string;
   role?: UserRole;
 }
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+
+// Un motivo de consulta (ClinicalEpisode.mainComplaint) con su frecuencia.
+// Es texto libre: se agrupa por string exacto, sin normalizar.
+export interface PathologyCount {
+  name: string;
+  count: number;
+}
+
+// Sesiones de un mes calendario. `month` viene como "YYYY-MM"; el label
+// localizado (p. ej. "feb") lo arma el cliente, la API es agnóstica de locale.
+export interface MonthSessionCount {
+  month: string;
+  count: number;
+}
+
+// Respuesta de GET /api/dashboard/stats. Las notas rápidas (sessionType NOTE)
+// no cuentan como sesiones; "activo" = paciente con algún episodio ACTIVE.
+export interface DashboardStats {
+  activePatients: number;
+  totalSessions: number;
+  sessionsThisMonth: number;
+  pendingPayments: number;
+  pathologies: PathologyCount[];
+  sessionsByMonth: MonthSessionCount[];
+}
