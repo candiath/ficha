@@ -136,15 +136,19 @@ export default function QuickNoteButton() {
   return (
     <>
       <Tooltip>
-        <TooltipTrigger>
-          <Button
-            size="icon"
-            className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full shadow-lg hover:shadow-xl transition-shadow"
-            onClick={() => setOpen(true)}
-          >
-            <StickyNote className="h-6 w-6" />
-          </Button>
-        </TooltipTrigger>
+        {/* render: el Trigger de Base UI renderiza un <button> propio; sin esto
+            el Button quedaría anidado adentro (HTML inválido, error en consola). */}
+        <TooltipTrigger
+          render={
+            <Button
+              size="icon"
+              className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full shadow-lg hover:shadow-xl transition-shadow"
+              onClick={() => setOpen(true)}
+            >
+              <StickyNote className="h-6 w-6" />
+            </Button>
+          }
+        />
         <TooltipContent side="left">
           <p>Nota rápida</p>
         </TooltipContent>

@@ -250,11 +250,15 @@ export default function PatientsPage() {
           className="max-w-sm"
         />
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <Button variant="outline" className="ml-auto">
-              Columnas <ChevronDown className="ml-2 h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
+          {/* render: el Trigger de Base UI renderiza un <button> propio; sin esto
+              el Button quedaría anidado adentro (HTML inválido, error en consola). */}
+          <DropdownMenuTrigger
+            render={
+              <Button variant="outline" className="ml-auto">
+                Columnas <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            }
+          />
           <DropdownMenuContent align="end">
             {table
               .getAllColumns()
