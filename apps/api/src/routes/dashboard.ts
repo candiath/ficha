@@ -94,6 +94,8 @@ router.get('/stats', async (req, res) => {
     // La agregación por mes se hace en JS y no con $queryRaw: el SQL crudo
     // no pasa por el tenant scope. El volumen por tenant (consultorio
     // unipersonal) hace que traer solo las fechas sea barato.
+    // Contexto completo (y qué hacer si algún día el volumen molesta):
+    // https://github.com/candiath/ficha/issues/64
     req.db.session.findMany({
       where: { ...CLINICAL_SESSION_WHERE, sessionDate: { gte: chartWindowStart } },
       select: { sessionDate: true },
