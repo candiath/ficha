@@ -31,6 +31,8 @@ export default defineConfig([
     rules: {
       // Convención del repo: parámetros no usados prefijados con "_" no son error
       // (ej. el "next" que Express exige para reconocer un error handler).
+      // Sigue siendo "error" para que el pre-push lo atrape; en el editor se ve
+      // amarillo vía eslint.rules.customizations (.vscode/settings.json).
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
