@@ -72,8 +72,12 @@ describe('DashboardPage', () => {
     getStats.mockResolvedValue(STATS);
     renderPage();
 
-    expect(await screen.findByText('Lumbalgia (4)')).toBeInTheDocument();
-    expect(screen.getByText('Cervicalgia (2)')).toBeInTheDocument();
+    // Nombre y conteo van en spans separados: el nombre se trunca por CSS y
+    // el conteo no, así que no se puede asertar el texto concatenado.
+    expect(await screen.findByText('Lumbalgia')).toBeInTheDocument();
+    expect(screen.getByText('(4)')).toBeInTheDocument();
+    expect(screen.getByText('Cervicalgia')).toBeInTheDocument();
+    expect(screen.getByText('(2)')).toBeInTheDocument();
   });
 
   it('explica el donut vacío en vez de dibujarlo sin datos', async () => {

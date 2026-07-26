@@ -316,10 +316,6 @@ export default function DashboardPage() {
                         dataKey="count"
                         nameKey="name"
                         paddingAngle={3}
-                        label={({ name, percent }) =>
-                          `${name} ${Math.round(percent * 100)}%`
-                        }
-                        labelLine={false}
                       >
                         {pathologies.map((p, i) => (
                           <Cell
@@ -339,12 +335,15 @@ export default function DashboardPage() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                {/* Legend */}
+                {/* Legend: lleva la identidad de cada porción. El motivo de
+                    consulta es texto libre y puede ser un párrafo entero, así
+                    que se trunca y el nombre completo queda en el title. */}
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                   {pathologies.map((p, i) => (
                     <div
                       key={p.name}
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      title={p.name}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-full"
                     >
                       <span
                         className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
@@ -353,7 +352,8 @@ export default function DashboardPage() {
                             PATHOLOGY_COLORS[i % PATHOLOGY_COLORS.length],
                         }}
                       />
-                      {p.name} ({p.count})
+                      <span className="truncate">{p.name}</span>
+                      <span className="shrink-0">({p.count})</span>
                     </div>
                   ))}
                 </div>
