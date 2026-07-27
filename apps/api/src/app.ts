@@ -12,6 +12,7 @@ import authRouter from './routes/auth';
 import auditLogRouter from './routes/auditLog';
 import bodyRegionsRouter from './routes/bodyRegions';
 import consentRouter from './routes/consent';
+import dashboardRouter from './routes/dashboard';
 import episodesRouter from './routes/episodes';
 import evaluationRouter from './routes/evaluations';
 import globalSessionsRouter from './routes/globalSessions';
@@ -106,6 +107,7 @@ app.use('/api/muscular-chains', muscularChainsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);
+app.use('/api/dashboard', dashboardRouter);
 // Gestión de usuarios: única zona ADMIN-only de la API por ahora.
 app.use('/api/users', requireRole('ADMIN'), usersRouter);
 

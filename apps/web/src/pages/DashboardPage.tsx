@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -8,20 +9,20 @@ import { Users, CalendarDays, TrendingUp, CreditCard, Search, Plus, Clock } from
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  mockPatients,
-  mockAppointments,
-  practiceStats,
-  getMockPatientById,
-} from '@/lib/mock-data'
-import type { MockPatient } from '@/lib/mock-data'
+import { dashboardApi, dashboardKeys } from '@/services/dashboard'
+import { patientApi, patientKeys } from '@/services/patients'
+// Los turnos siguen siendo mock: todavía no hay modelo de agenda en la API.
+import { mockAppointments, getMockPatientById } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 
+// Cinco colores porque la API devuelve el top 5 de motivos de consulta:
+// con menos, dos porciones del donut compartirían color.
 const PATHOLOGY_COLORS = [
   'var(--chart-1)',
   'var(--chart-2)',
   'var(--chart-3)',
   'var(--chart-4)',
+  'var(--chart-5)',
 ]
 
 const STATUS_LABELS: Record<string, string> = {
@@ -59,49 +60,78 @@ function getUpcoming() {
     .slice(0, 5)
 }
 
+// La API devuelve los meses como "YYYY-MM" (agnóstica de locale) y el label
+// corto lo arma el cliente. El día 1 a mediodía UTC evita que el corrimiento
+// de zona muestre el mes anterior.
+function formatMonthLabel(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number)
+  return new Date(Date.UTC(year, monthNumber - 1, 1, 12)).toLocaleDateString('es-AR', {
+    month: 'short',
+    timeZone: 'UTC',
+  })
+}
+
 export default function DashboardPage() {
   useEffect(() => { document.title = 'Dashboard'; }, []);
   const [query, setQuery] = useState('')
   const [showResults, setShowResults] = useState(false)
 
-  const searchResults: MockPatient[] = query.length > 0
-    ? mockPatients.filter(p =>
+  const { data: stats, isLoading, isError } = useQuery({
+    queryKey: dashboardKeys.stats,
+    queryFn: dashboardApi.getStats,
+  })
+
+  // El buscador filtra en el cliente: el listado completo de pacientes ya
+  // está cacheado por la página de Pacientes, así que tipear no pega a la API.
+  const { data: patients = [] } = useQuery({
+    queryKey: patientKeys.all,
+    queryFn: patientApi.list,
+  })
+
+  const searchResults = query.length > 0
+    ? patients.filter(p =>
         p.fullName.toLowerCase().includes(query.toLowerCase())
       )
     : []
 
   const upcoming = getUpcoming()
 
-  const stats = [
+  const statCards = [
     {
       label: 'Pacientes activos',
-      value: practiceStats.activePatients,
+      value: stats?.activePatients,
       icon: Users,
       color: 'text-chart-1',
       bg: 'bg-chart-1/10',
     },
     {
       label: 'Sesiones totales',
-      value: practiceStats.totalSessions,
+      value: stats?.totalSessions,
       icon: CalendarDays,
       color: 'text-chart-2',
       bg: 'bg-chart-2/10',
     },
     {
       label: 'Sesiones este mes',
-      value: practiceStats.sessionsThisMonth,
+      value: stats?.sessionsThisMonth,
       icon: TrendingUp,
       color: 'text-chart-3',
       bg: 'bg-chart-3/10',
     },
     {
       label: 'Cobros pendientes',
-      value: practiceStats.pendingPayments,
+      value: stats?.pendingPayments,
       icon: CreditCard,
       color: 'text-chart-4',
       bg: 'bg-chart-4/10',
     },
   ]
+
+  const sessionsByMonth = (stats?.sessionsByMonth ?? []).map(m => ({
+    ...m,
+    label: formatMonthLabel(m.month),
+  }))
+  const pathologies = stats?.pathologies ?? []
 
   return (
     <div className="p-6 space-y-6">
@@ -156,16 +186,6 @@ export default function DashboardPage() {
                     {p.occupation}
                   </p>
                 </div>
-                <span
-                  className={cn(
-                    "ml-auto text-xs px-2 py-0.5 rounded-full font-medium",
-                    p.status === "active"
-                      ? "bg-green-50 text-green-700"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {p.status === "active" ? "Activo" : "Alta"}
-                </span>
               </Link>
             ))}
           </div>
@@ -177,9 +197,15 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {isError && (
+        <p className="text-destructive text-sm">
+          Error al cargar las estadísticas. ¿Está corriendo la API?
+        </p>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((s) => (
+        {statCards.map((s) => (
           <Card key={s.label}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -192,7 +218,9 @@ export default function DashboardPage() {
                   <s.icon className={cn("h-5 w-5", s.color)} />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold">{s.value}</p>
+                  <p className="text-2xl font-semibold">
+                    {s.value ?? (isLoading ? '—' : 0)}
+                  </p>
                   <p className="text-xs text-muted-foreground leading-tight">
                     {s.label}
                   </p>
@@ -214,7 +242,7 @@ export default function DashboardPage() {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={practiceStats.sessionsByMonth}
+                  data={sessionsByMonth}
                   margin={{ top: 4, right: 4, bottom: 4, left: -20 }}
                 >
                   <CartesianGrid
@@ -222,7 +250,7 @@ export default function DashboardPage() {
                     stroke="var(--border)"
                   />
                   <XAxis
-                    dataKey="month"
+                    dataKey="label"
                     fontSize={12}
                     stroke="var(--muted-foreground)"
                     tickLine={false}
@@ -264,60 +292,73 @@ export default function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-56 flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={practiceStats.pathologies}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={56}
-                    outerRadius={80}
-                    dataKey="count"
-                    nameKey="name"
-                    paddingAngle={3}
-                    label={({ name, percent }) =>
-                      `${name} ${Math.round(percent * 100)}%`
-                    }
-                    labelLine={false}
-                  >
-                    {practiceStats.pathologies.map((_, i) => (
-                      <Cell
-                        key={`cell-${i}`}
-                        fill={PATHOLOGY_COLORS[i % PATHOLOGY_COLORS.length]}
-                        // fill={"var(--primary)"}
+            {pathologies.length === 0 ? (
+              // Sin episodios con motivo de consulta cargado el donut queda
+              // vacío y sin leyenda: mejor decir por qué no hay nada.
+              <div className="h-56 flex items-center justify-center">
+                <p className="text-sm text-muted-foreground text-center">
+                  {isLoading
+                    ? 'Cargando...'
+                    : 'Sin datos suficientes. Cargá el motivo de consulta en los episodios.'}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="h-56 flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pathologies}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={56}
+                        outerRadius={80}
+                        dataKey="count"
+                        nameKey="name"
+                        paddingAngle={3}
+                      >
+                        {pathologies.map((p, i) => (
+                          <Cell
+                            key={p.name}
+                            fill={PATHOLOGY_COLORS[i % PATHOLOGY_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "var(--card)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "8px",
+                          fontSize: "12px",
+                        }}
                       />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "var(--card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            {/* Legend */}
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-              {practiceStats.pathologies.map((p, i) => (
-                <div
-                  key={p.name}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                >
-                  <span
-                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{
-                      backgroundColor:
-                        PATHOLOGY_COLORS[i % PATHOLOGY_COLORS.length],
-                    }}
-                  />
-                  {p.name} ({p.count})
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              ))}
-            </div>
+                {/* Legend: lleva la identidad de cada porción. El motivo de
+                    consulta es texto libre y puede ser un párrafo entero, así
+                    que se trunca y el nombre completo queda en el title. */}
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                  {pathologies.map((p, i) => (
+                    <div
+                      key={p.name}
+                      title={p.name}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-full"
+                    >
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{
+                          backgroundColor:
+                            PATHOLOGY_COLORS[i % PATHOLOGY_COLORS.length],
+                        }}
+                      />
+                      <span className="truncate">{p.name}</span>
+                      <span className="shrink-0">({p.count})</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
