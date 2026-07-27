@@ -221,34 +221,34 @@ describe('GET /api/dashboard/stats', () => {
     expect(res.body).toEqual({ error: 'No autenticado' });
   });
 
-  it('cuenta como activos solo a los pacientes vigentes con episodio ACTIVE', async () => {
+  it('cuenta como activos solo a los pacientes vigentes con episodio ACTIVE', () => {
     // De los 4 pacientes de A, solo uno está vigente y con episodio abierto:
     // quedan fuera el de alta, el que no tiene episodios y el borrado.
     expect(body.activePatients).toBe(1);
   });
 
-  it('excluye las notas rápidas del total de sesiones', async () => {
+  it('excluye las notas rápidas del total de sesiones', () => {
     // 5 filas en sessions, pero una es NOTE.
     expect(body.totalSessions).toBe(4);
   });
 
-  it('cuenta las sesiones del mes calendario actual', async () => {
+  it('cuenta las sesiones del mes calendario actual', () => {
     // SESSION + DISCHARGE de este mes; la NOTE del mismo mes no cuenta.
     expect(body.sessionsThisMonth).toBe(2);
   });
 
-  it('cuenta solo los pagos pendientes', async () => {
+  it('cuenta solo los pagos pendientes', () => {
     expect(body.pendingPayments).toBe(1);
   });
 
-  it('agrupa los motivos de consulta y descarta los vacíos', async () => {
+  it('agrupa los motivos de consulta y descarta los vacíos', () => {
     expect(body.pathologies).toEqual([
       { name: 'Lumbalgia', count: 2 },
       { name: 'Cervicalgia', count: 1 },
     ]);
   });
 
-  it('devuelve los últimos 6 meses en orden cronológico, con ceros', async () => {
+  it('devuelve los últimos 6 meses en orden cronológico, con ceros', () => {
     expect(body.sessionsByMonth).toHaveLength(6);
     expect(body.sessionsByMonth.map((m) => m.month)).toEqual([
       monthKey(5),
