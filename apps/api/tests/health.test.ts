@@ -9,6 +9,11 @@ describe('GET /health', () => {
     const res = await request(app).get('/health');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body.status).toBe('ok');
+
+    // TODO(human): asegurar que /health expone la marca de build.
+    // El body ahora es { status, buildMarker }, asi que el toEqual exacto
+    // que habia aca ya no sirve. Decidi que tan estricto queres ser.
+    expect(res.body.buildMarker).toEqual(expect.any(String));
   });
 });

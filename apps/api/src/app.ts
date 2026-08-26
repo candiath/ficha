@@ -75,12 +75,18 @@ const ALLOWED_ORIGIN: (string | RegExp)[] = IS_PRODUCTION
 app.use(cors({ origin: ALLOWED_ORIGIN }));
 app.use(express.json());
 
+// Marca del build: string fijo que se bumpea a mano. Sirve para saber qué
+// commit está sirviendo realmente un entorno desplegado, que no siempre es
+// el último de la branch: si un deploy falla, Render sigue sirviendo el
+// build anterior sin que nada en la app lo delate.
+const BUILD_MARKER = 'canary-2026-08-15';
+
 app.get('/health', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', buildMarker: BUILD_MARKER });
   } catch {
-    res.status(503).json({ status: 'error', error: 'Base de datos no disponible' });
+    res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, error: 'Base de datos no disponible' });
   }
 });
 
