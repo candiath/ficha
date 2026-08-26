@@ -14,6 +14,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 
+// Marca del build del front. Se contrasta con la que expone GET /health
+// de la API: los dos deploys son independientes (Netlify el front, Render
+// la API), así que pueden quedar parados en commits distintos sin aviso.
+const BUILD_MARKER = 'canary-2026-08-15';
+
 const FEATURES = [
   {
     icon: Users,
@@ -238,6 +243,7 @@ export default function LandingPage() {
       <footer className="border-t">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between text-sm text-muted-foreground">
           <span>Ficha RPG</span>
+          <span className="text-xs opacity-60">build {BUILD_MARKER}</span>
           <span>© {new Date().getFullYear()}</span>
         </div>
       </footer>
