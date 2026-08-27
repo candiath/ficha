@@ -4,11 +4,6 @@ import { forTenant, scopeArgs } from '../src/lib/tenantScope';
 import type { TenantContext } from '../src/repositories/types';
 import { createTestClinic, type TestClinic } from './helpers';
 
-// B1-core: la extension forTenant debe hacer estructuralmente imposible tocar
-// filas de otro tenant, sin que el handler escriba tenantId a mano. Se prueba
-// el cliente scopeado directo (sin pasar por HTTP): dos clínicas, y el cliente
-// de A no puede leer, contar, actualizar ni borrar filas de B; y al crear,
-// el tenantId se inyecta solo.
 // Unit tests de scopeArgs, sin DB: verifican la mecánica de inyección y que
 // el guard sea fail-closed ante operaciones que no reconoce.
 describe('scopeArgs: inyección y fail-closed', () => {
@@ -44,6 +39,11 @@ describe('forTenant: validación del contexto', () => {
   });
 });
 
+// B1-core: la extension forTenant debe hacer estructuralmente imposible tocar
+// filas de otro tenant, sin que el handler escriba tenantId a mano. Se prueba
+// el cliente scopeado directo (sin pasar por HTTP): dos clínicas, y el cliente
+// de A no puede leer, contar, actualizar ni borrar filas de B; y al crear,
+// el tenantId se inyecta solo.
 describe('forTenant: guardia estructural de multi-tenancy', () => {
   let clinicA: TestClinic;
   let clinicB: TestClinic;
