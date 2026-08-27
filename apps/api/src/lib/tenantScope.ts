@@ -56,7 +56,8 @@ const WHERE_OPERATIONS = new Set([
 // Inyecta el tenantId en los args según la operación. Se sobrescribe cualquier
 // tenantId que ya venga en el where/data: el del contexto es la fuente de
 // verdad, y así un id espurio en el body no puede apuntar a otro tenant.
-function scopeArgs(
+// Exportada solo para los tests unitarios del guard.
+export function scopeArgs(
   operation: string,
   args: Record<string, unknown> | undefined,
   tenantId: string,
@@ -75,6 +76,17 @@ function scopeArgs(
   } else if (operation === 'upsert') {
     next.where = { ...(next.where as object), tenantId };
     next.create = { ...(next.create as object), tenantId };
+  } else {
+    // Fail-closed: si la operación no está en ninguna rama de arriba, este
+    // guard no sabe dónde inyectar el tenantId y dejarla pasar sería un
+    // bypass silencioso. Hoy no existe tal operación (las 16 de Prisma 5.22
+    // están cubiertas), pero Prisma agrega operaciones con las versiones
+    // (p. ej. updateManyAndReturn en 6.2) y un upgrade no debe abrir un
+    // agujero: debe fallar acá, ruidosamente.
+    throw new Error(
+      `tenant-scope: operación "${operation}" no reconocida por el guard; ` +
+        'clasificarla en scopeArgs antes de usarla sobre un modelo scopeado',
+    );
   }
 
   return next;
@@ -142,13 +154,25 @@ type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'
 };
 
 // Cliente scopeado: los modelos de dominio con create sin tenantId; el resto
-// del cliente ($transaction, $queryRaw, modelos globales) intacto.
-export type TenantScopedClient = Omit<PrismaClient, ScopedModelName> & {
+// del cliente ($transaction, modelos globales) intacto. Raw SQL queda FUERA
+// del tipo: escapa por completo a la extension (ninguna inyección de tenantId
+// aplica), así que quien lo necesite debe usar el prisma base a conciencia,
+// nunca creyendo que req.db lo protege.
+export type TenantScopedClient = Omit<
+  PrismaClient,
+  ScopedModelName | '$queryRaw' | '$queryRawUnsafe' | '$executeRaw' | '$executeRawUnsafe'
+> & {
   [K in ScopedModelName]: ScopedDelegate<PrismaClient[K]>;
 };
 
 export function forTenant(ctx: TenantContext): TenantScopedClient {
   const { tenantId } = ctx;
+  // Cinturón contra un contexto malformado: con tenantId vacío el guard
+  // inyectaría `tenantId: ''` en cada where — lecturas que no devuelven nada
+  // y creates que violan la FK, todo sin pista del porqué. Mejor fallar acá.
+  if (!tenantId) {
+    throw new Error('tenant-scope: el contexto no tiene tenantId');
+  }
   const scoped = prisma.$extends({
     name: 'tenant-scope',
     query: {
