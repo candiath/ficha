@@ -1,25 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { auditLogRepo } from '../repositories';
+import { auditLogRepo, patientRepo } from '../repositories';
 
+// Las queries viven en patientRepo, que aplica la política de borrado lógico
+// (solo pacientes vigentes) en un único lugar; esta ruta queda en HTTP puro:
+// validar el body, mapear null a 404 y registrar auditoría.
 const router = Router();
-
-// Campos que se exponen en las respuestas. tenantId se excluye
-// intencionalmente: es un detalle de implementación interno.
-const patientSelect = {
-  id: true,
-  fullName: true,
-  birthDate: true,
-  sex: true,
-  phone: true,
-  occupation: true,
-  referringDoctor: true,
-  insuranceName: true,
-  insuranceNumber: true,
-  insurancePlan: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 // z.coerce.date() convierte strings ISO / 'YYYY-MM-DD' a Date automáticamente.
 const PatientCreateSchema = z.object({
@@ -38,20 +24,13 @@ const PatientUpdateSchema = PatientCreateSchema.partial();
 
 // GET /api/patients
 router.get('/', async (req, res) => {
-  const patients = await req.db.patient.findMany({
-    where: { deletedAt: null },
-    select: patientSelect,
-    orderBy: { createdAt: 'desc' },
-  });
+  const patients = await patientRepo.list(req.context);
   res.json({ data: patients });
 });
 
 // GET /api/patients/:id
 router.get('/:id', async (req, res) => {
-  const patient = await req.db.patient.findFirst({
-    where: { id: req.params.id, deletedAt: null },
-    select: patientSelect,
-  });
+  const patient = await patientRepo.getById(req.context, req.params.id);
 
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
@@ -65,10 +44,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = PatientCreateSchema.parse(req.body);
 
-  const patient = await req.db.patient.create({
-    data: body,
-    select: patientSelect,
-  });
+  const patient = await patientRepo.create(req.context, body);
 
   auditLogRepo
     .create(req.context, {
@@ -87,23 +63,14 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const body = PatientUpdateSchema.parse(req.body);
 
-  // Verificar existencia + pertenencia al tenant antes de actualizar.
-  // Nunca usar findUnique solo por id: un tenant podría adivinar IDs ajenos.
-  const existing = await req.db.patient.findFirst({
-    where: { id: req.params.id, deletedAt: null },
-    select: { id: true },
-  });
+  // null = no existe, es de otro tenant o está borrado: mismo 404 en los
+  // tres casos, sin revelar cuál fue.
+  const patient = await patientRepo.update(req.context, req.params.id, body);
 
-  if (!existing) {
+  if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
-
-  const patient = await req.db.patient.update({
-    where: { id: req.params.id },
-    data: body,
-    select: patientSelect,
-  });
 
   auditLogRepo
     .create(req.context, {
@@ -122,20 +89,12 @@ router.patch('/:id', async (req, res) => {
 // Borrado lógico: se marca deletedAt en vez de eliminar la fila, para no
 // perder historia clínica ni romper las FKs de sesiones, pagos y auditoría.
 router.delete('/:id', async (req, res) => {
-  const existing = await req.db.patient.findFirst({
-    where: { id: req.params.id, deletedAt: null },
-    select: { id: true },
-  });
+  const deleted = await patientRepo.softDelete(req.context, req.params.id);
 
-  if (!existing) {
+  if (!deleted) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
-
-  await req.db.patient.update({
-    where: { id: req.params.id },
-    data: { deletedAt: new Date() },
-  });
 
   auditLogRepo
     .create(req.context, {
