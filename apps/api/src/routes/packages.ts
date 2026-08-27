@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { patientRepo } from '../repositories';
 
 const router = Router();
 
@@ -46,12 +47,8 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = PackageCreateSchema.parse(req.body);
 
-  // Verificar que el paciente pertenece al tenant
-  const patient = await req.db.patient.findFirst({
-    where: { id: body.patientId, deletedAt: null },
-    select: { id: true },
-  });
-  if (!patient) {
+  // Paciente del tenant y vigente: la política vive en patientRepo.
+  if (!(await patientRepo.exists(req.context, body.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }

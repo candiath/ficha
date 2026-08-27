@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { patientRepo } from '../repositories';
 import type { TenantScopedClient } from '../lib/tenantScope';
 
 type Params = { patientId: string; episodeId: string };
@@ -77,17 +78,9 @@ async function checkInactiveEpisode(
   await db.clinicalAlert.create({ data: { patientId, type: 'NO_SHOW', message } });
 }
 
-async function getPatient(db: TenantScopedClient, patientId: string) {
-  return db.patient.findFirst({
-    where: { id: patientId, deletedAt: null },
-    select: { id: true },
-  });
-}
-
 // GET /api/patients/:patientId/episodes
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
@@ -114,8 +107,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // POST /api/patients/:patientId/episodes
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
@@ -136,8 +128,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/episodes/:episodeId
 router.patch<Params>('/:episodeId', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
