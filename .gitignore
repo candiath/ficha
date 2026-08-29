@@ -18,3 +18,5 @@ tsconfig.tsbuildinfo
 
 .claude
 .notes
+# Local Netlify folder
+.netlify
