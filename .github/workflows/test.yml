@@ -2,8 +2,12 @@ name: Tests
 
 on:
   pull_request:
+  # Solo `dev`: el PR de release testea el merge de dev en main, y como nadie
+  # más mueve main, ese árbol es idéntico al merge commit que aterriza. Correr
+  # de nuevo al mergear no aporta información y además llega tarde — Render ya
+  # desplegó para cuando termina.
   push:
-    branches: [dev, main]
+    branches: [dev]
 
 # Si llegan pushes seguidos al mismo PR, cancela la corrida vieja: los tests
 # van contra una DB compartida (branch de CI en Neon) y no tiene sentido

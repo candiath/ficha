@@ -46,6 +46,10 @@ local (development) ──PR──> dev ──auto-deploy──> testing
 
 Los PRs de feature van contra `dev`, nunca contra `main`. La promoción a producción es un PR `dev` → `main` con merge commit (no squash: reescribir ahí duplicaría el historial que ya vive en `dev`).
 
+**El ruleset tiene `strict_required_status_checks_policy` en `false` a propósito** — no es un olvido. Con `strict` en `true` ("require branches to be up to date"), cada release deja un merge commit que vive solo en `main`, así que `dev` queda permanentemente "desactualizada" y GitHub exige un *Update branch*; ese botón hace un push directo a `dev`, que el mismo ruleset rechaza por no tener checks corridos todavía. Deadlock en cada release. Y no se pierde nada: como todo llega a `main` a través de `dev`, `dev` nunca puede estar atrasada en código. La contracara es que si alguna vez se hace un hotfix directo sobre `main`, hay que bajarlo a `dev` a mano — GitHub ya no avisa.
+
+Como el árbol que testea el PR de release es idéntico al merge commit que aterriza en `main` (nadie más mueve `main`), el CI **no corre de nuevo al mergear a `main`**: el trigger de `push` cubre solo `dev`. Si en el futuro `main` empezara a recibir cambios por otro canal, esa suposición deja de valer y habría que volver a sumarla.
+
 El entorno de testing solo sirve si se usa: el valor está en la ventana entre mergear a `dev` y promover a `main`. Promover en el mismo minuto convierte a testing en una segunda producción rota en silencio.
 
 ### Política de migraciones
