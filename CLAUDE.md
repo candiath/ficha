@@ -67,12 +67,14 @@ Si una migración falla, el build falla y Render **mantiene vivo el deploy anter
 
 Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. El `.env` local trae la URL de producción comentada solo para inspección con `db:studio`.
 
-### Estado de la migración a tres entornos (2026-08-29)
+### Cómo se llegó acá (2026-08-29)
 
-El split se hizo el 29/08/2026. Falta **un solo paso**, y hasta que se aplique la web de producción sigue sirviendo el código de `dev`:
+El split a tres entornos se hizo el 29/08/2026 y está **completo**: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, Netlify con production branch en `main` más branch deploy de `dev`, y `VITE_API_URL` por contexto.
 
-- ⏳ **Netlify**: production branch → `main`, habilitar branch deploy de `dev`, y `VITE_API_URL` por contexto (production → ficha-i3t6, branch deploys → ficha-staging). Sin esto, el front de testing pega a la API de producción y lo frena el CORS.
-- ✅ Todo lo demás: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, y el `.env` local sobre `development`.
+Dos cosas que se rompieron en el camino y conviene no repetir:
+
+- **No habilitar PR previews sobre el servicio de producción de Render.** Los previews clonan las env vars del padre, así que cada uno arrancaba con el `DATABASE_URL` y el `JWT_SECRET` de producción: migraba contra la base real y firmaba tokens válidos en producción. Si se quieren previews, van sobre `ficha-staging`.
+- **Verificar la config de Netlify leyendo el bundle, no el dashboard.** Vite inlinea `VITE_API_URL` en build time, así que `curl` sobre el JS publicado dice a qué API pega cada contexto de verdad. Cambiar la variable no tiene efecto hasta rebuildear.
 
 Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de arriba son el punto de entrada. Netlify no tiene MCP: se mira en el dashboard.
 
