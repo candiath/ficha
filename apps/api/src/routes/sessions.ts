@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { techniquesBelongToTenant } from '../lib/techniques';
 import { sessionDateField } from '../lib/sessionDate';
-import { auditLogRepo } from '../repositories';
+import { auditLogRepo, patientRepo } from '../repositories';
 import type { TenantScopedClient } from '../lib/tenantScope';
 
 type ParentParams = { patientId: string };
@@ -80,13 +80,6 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 // /api/payments y las técnicas por el bulkReplace de /techniques.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
-async function getPatient(db: TenantScopedClient, patientId: string) {
-  return db.patient.findFirst({
-    where: { id: patientId, deletedAt: null },
-    select: { id: true },
-  });
-}
-
 // Los episodeIds vienen del body: sin esta verificación, un connect a ciegas
 // permitiría vincular la sesión a episodios de otro paciente o de otro tenant
 // (y GET /api/sessions expondría el mainComplaint ajeno).
@@ -110,8 +103,7 @@ async function episodesBelongToPatient(
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
@@ -132,8 +124,7 @@ router.get<ParentParams>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/sessions/:sessionId
 router.get<SessionParams>('/:sessionId', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
@@ -156,8 +147,7 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
 
 // POST /api/patients/:patientId/sessions
 router.post<ParentParams>('/', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
@@ -280,8 +270,7 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
 router.patch<SessionParams>('/:sessionId', async (req, res) => {
-  const patient = await getPatient(req.db, req.params.patientId);
-  if (!patient) {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
