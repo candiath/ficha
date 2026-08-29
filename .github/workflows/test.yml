@@ -60,8 +60,13 @@ jobs:
 
       # Idempotente: aplica solo las migraciones pendientes, así la branch
       # de CI acompaña a los PRs que traen migraciones nuevas.
+      # El datasource declara directUrl para que migrate no pase por el pooler
+      # (el porqué está en schema.prisma). Lo derivamos de la misma secret
+      # sacándole `-pooler`; si la URL no lo tiene, queda igual.
       - name: Aplicar migraciones
-        run: npx prisma migrate deploy
+        run: |
+          export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
+          npx prisma migrate deploy
         working-directory: apps/api
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}

@@ -2,9 +2,15 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// La app va por el pooler de Neon (PgBouncer), que es lo que queremos para
+// conexiones cortas y muchas. Las migraciones NO: `prisma migrate` toma un
+// advisory lock de sesión, y en modo transacción PgBouncer no garantiza la
+// misma conexión física entre statements — el lock se pierde y el migrate
+// muere con P1002. `directUrl` es el mismo host sin `-pooler`.
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
