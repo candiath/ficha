@@ -63,10 +63,10 @@ Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `productio
 
 ### Estado de la migración a tres entornos (2026-08-29)
 
-El split se hizo el 29/08/2026 y **no está terminado**. Verificar antes de asumir:
+El split se hizo el 29/08/2026. Falta **un solo paso**, y hasta que se aplique la web de producción sigue sirviendo el código de `dev`:
 
-- ✅ `main` creada; branches `staging` y `development` en Neon; servicio `ficha-staging` live; `.env` local apuntando a `development`.
-- ⏳ Default branch del repo (sigue en `dev`), rulesets de protección, servicio `Ficha` apuntando a `main`, `migrate:prod` en los Build Commands de Render, y contextos de Netlify (production branch + `VITE_API_URL` por contexto).
+- ⏳ **Netlify**: production branch → `main`, habilitar branch deploy de `dev`, y `VITE_API_URL` por contexto (production → ficha-i3t6, branch deploys → ficha-staging). Sin esto, el front de testing pega a la API de producción y lo frena el CORS.
+- ✅ Todo lo demás: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, y el `.env` local sobre `development`.
 
 Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de arriba son el punto de entrada. Netlify no tiene MCP: se mira en el dashboard.
 
