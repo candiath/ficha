@@ -20,43 +20,59 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 - **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
 - **Neon** — Postgres. Un solo proyecto (`holy-pine-07820384`) con una branch por entorno.
 
-### Los dos entornos
+### Los tres entornos
 
-| | Producción | Staging |
-| --- | --- | --- |
-| Rama | `main` | `dev` |
-| API (Render) | `Ficha` / `srv-d8d00v57vvec73fpvjkg` → ficha-i3t6.onrender.com | `ficha-staging` / `srv-da9eodpsrm7s73c4tsr0` → ficha-staging.onrender.com |
-| Web (Netlify) | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) |
-| DB (Neon branch) | `production` (default) | `staging` / `br-quiet-bread-ac78jda0` |
+| | Producción | Testing | Desarrollo |
+| --- | --- | --- | --- |
+| Rama | `main` | `dev` | working tree local |
+| Quién lo consume | los usuarios | solo Nath | solo Nath |
+| API | `Ficha` / `srv-d8d00v57vvec73fpvjkg` → ficha-i3t6.onrender.com | `ficha-staging` / `srv-da9eodpsrm7s73c4tsr0` → ficha-staging.onrender.com | `localhost:3001` |
+| Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
+| DB (Neon branch) | `production` / `br-mute-star-acmnbdh1` | `staging` / `br-quiet-bread-ac78jda0` | `development` / `br-cool-lake-ac3pow9e` |
 
-Los entornos están aislados de verdad, no solo por URL: cada servicio de Render tiene su propio `JWT_SECRET` (un token de staging no vale en producción) y su propio `DATABASE_URL`. Ambos corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`.
+Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y su propio `JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
-Hay un tercer consumidor de la DB que no es un entorno desplegado: **CI**, con su propia `CI_DATABASE_URL` (secret de GitHub). Y el `.env` local apunta a la branch `production`, o sea que **dev local escribe sobre datos de producción** — deuda conocida, no un accidente.
+Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia `CI_DATABASE_URL` (secret de GitHub).
+
+Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
 
 ### El ciclo de vida de un cambio
 
 ```
-feat/lo-que-sea ──PR──> dev ──auto-deploy──> staging
-                         │
-                         └──PR "release: ..."──> main ──auto-deploy──> producción
+local (development) ──PR──> dev ──auto-deploy──> testing
+                             │
+                             └──PR "release: ..."──> main ──auto-deploy──> producción
 ```
 
 Los PRs de feature van contra `dev`, nunca contra `main`. La promoción a producción es un PR `dev` → `main` con merge commit (no squash: reescribir ahí duplicaría el historial que ya vive en `dev`).
 
-<!-- TODO(human): política de migraciones al promover a producción -->
+El entorno de testing solo sirve si se usa: el valor está en la ventana entre mergear a `dev` y promover a `main`. Promover en el mismo minuto convierte a testing en una segunda producción rota en silencio.
 
-### Estado de la migración a dos entornos (2026-08-29)
+### Política de migraciones
 
-El split se hizo el 29/08/2026; **la mitad todavía está sin aplicar**. Verificar antes de asumir:
+Cada entorno migra su propia base, y el schema viaja por el mismo canal que el código:
 
-- ✅ `main` creada, branch `staging` en Neon, servicio `ficha-staging` live.
-- ⏳ Default branch del repo (sigue en `dev`), rulesets de protección, servicio `Ficha` apuntando a `main`, y contextos de Netlify (production branch + `VITE_API_URL` por contexto).
+1. **Local**: `npm run db:migrate` (`prisma migrate dev`) genera el archivo de migración contra la branch `development`. El archivo se commitea junto al cambio de código que lo necesita.
+2. **Testing y producción**: `npm run migrate:prod` (`prisma migrate deploy`) corre en el Build Command de cada servicio de Render, con el `DATABASE_URL` de ese servicio. Es idempotente: aplica solo lo pendiente.
+
+Si una migración falla, el build falla y Render **mantiene vivo el deploy anterior** — el entorno sigue sirviendo la versión vieja en vez de arrancar con un schema a medias. Prisma envuelve cada migración en una transacción, así que no quedan aplicadas por la mitad.
+
+**Migraciones destructivas en dos pasos.** Un `DROP COLUMN` que llega junto al código que deja de usar la columna rompe producción en el intervalo entre que la migración corre y el proceso nuevo toma el tráfico. Se hace en dos releases: primero se agrega lo nuevo y se deja de leer lo viejo; el `DROP` va en un release posterior, cuando ya nada lo referencia.
+
+Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. El `.env` local trae la URL de producción comentada solo para inspección con `db:studio`.
+
+### Estado de la migración a tres entornos (2026-08-29)
+
+El split se hizo el 29/08/2026 y **no está terminado**. Verificar antes de asumir:
+
+- ✅ `main` creada; branches `staging` y `development` en Neon; servicio `ficha-staging` live; `.env` local apuntando a `development`.
+- ⏳ Default branch del repo (sigue en `dev`), rulesets de protección, servicio `Ficha` apuntando a `main`, `migrate:prod` en los Build Commands de Render, y contextos de Netlify (production branch + `VITE_API_URL` por contexto).
 
 Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de arriba son el punto de entrada. Netlify no tiene MCP: se mira en el dashboard.
 
 ## Base de datos
 
-Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env`. **No usar Docker**: `docker-compose.yml` y los scripts `db:up`/`db:down`/`db:reset` son vestigiales. `prisma migrate dev` corre directo contra Neon.
+Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). **No usar Docker**: `docker-compose.yml` y los scripts `db:up`/`db:down`/`db:reset` son vestigiales. `prisma migrate dev` corre directo contra Neon.
 
 ## Convenciones
 
