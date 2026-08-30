@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { patientRepo } from '../repositories';
+import { clinicalAlertRepo, patientRepo } from '../repositories';
+import type { TenantContext } from '../repositories/types';
 import type { TenantScopedClient } from '../lib/tenantScope';
 
 type Params = { patientId: string; episodeId: string };
@@ -35,7 +36,10 @@ const INACTIVE_DAYS = 21;
 // Días de cooldown para no duplicar alertas del mismo tipo
 const ALERT_COOLDOWN_DAYS = 7;
 
+// Recibe ctx además de db: la creación de la alerta va por clinicalAlertRepo
+// (que scopea con el ctx); los dos reads siguen en db hasta tener repo propio.
 async function checkInactiveEpisode(
+  ctx: TenantContext,
   db: TenantScopedClient,
   patientId: string,
   episodeId: string,
@@ -75,7 +79,7 @@ async function checkInactiveEpisode(
     ? `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`
     : `El paciente no tiene sesiones registradas en ${episodeLabel}. Considerá hacer un seguimiento.`;
 
-  await db.clinicalAlert.create({ data: { patientId, type: 'NO_SHOW', message } });
+  await clinicalAlertRepo.create(ctx, { patientId, type: 'NO_SHOW', message });
 }
 
 // GET /api/patients/:patientId/episodes
@@ -97,6 +101,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const activeEpisodes = episodes.filter((ep) => ep.status === 'ACTIVE');
   for (const ep of activeEpisodes) {
     checkInactiveEpisode(
+      req.context,
       req.db,
       req.params.patientId,
       ep.id,
