@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { clinicalAlertRepo } from '../repositories';
+import { clinicalAlertRepo, patientRepo } from '../repositories';
 
 const router = Router();
 
@@ -32,12 +32,10 @@ router.post('/', async (req, res) => {
 
   // El patientId viaja en el body: sin este chequeo la alerta podía apuntar a
   // un paciente de otra clínica y el join de alertSelect exponía su fullName
-  // (misma clase de fuga que tuvo POST /api/payments).
-  const patient = await req.db.patient.findFirst({
-    where: { id: body.patientId },
-    select: { id: true },
-  });
-  if (!patient) {
+  // (misma clase de fuga que tuvo POST /api/payments). La política completa
+  // (del tenant Y vigente) vive en patientRepo: el findFirst propio que había
+  // acá no filtraba borrados y dejaba crear alertas sobre pacientes eliminados.
+  if (!(await patientRepo.exists(req.context, body.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
