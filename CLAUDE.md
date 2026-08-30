@@ -46,6 +46,10 @@ local (development) ──PR──> dev ──auto-deploy──> testing
 
 Los PRs de feature van contra `dev`, nunca contra `main`. La promoción a producción es un PR `dev` → `main` con merge commit (no squash: reescribir ahí duplicaría el historial que ya vive en `dev`).
 
+**El ruleset tiene `strict_required_status_checks_policy` en `false` a propósito** — no es un olvido. Con `strict` en `true` ("require branches to be up to date"), cada release deja un merge commit que vive solo en `main`, así que `dev` queda permanentemente "desactualizada" y GitHub exige un *Update branch*; ese botón hace un push directo a `dev`, que el mismo ruleset rechaza por no tener checks corridos todavía. Deadlock en cada release. Y no se pierde nada: como todo llega a `main` a través de `dev`, `dev` nunca puede estar atrasada en código. La contracara es que si alguna vez se hace un hotfix directo sobre `main`, hay que bajarlo a `dev` a mano — GitHub ya no avisa.
+
+Como el árbol que testea el PR de release es idéntico al merge commit que aterriza en `main` (nadie más mueve `main`), el CI **no corre de nuevo al mergear a `main`**: el trigger de `push` cubre solo `dev`. Si en el futuro `main` empezara a recibir cambios por otro canal, esa suposición deja de valer y habría que volver a sumarla.
+
 El entorno de testing solo sirve si se usa: el valor está en la ventana entre mergear a `dev` y promover a `main`. Promover en el mismo minuto convierte a testing en una segunda producción rota en silencio.
 
 ### Política de migraciones
@@ -63,12 +67,14 @@ Si una migración falla, el build falla y Render **mantiene vivo el deploy anter
 
 Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. El `.env` local trae la URL de producción comentada solo para inspección con `db:studio`.
 
-### Estado de la migración a tres entornos (2026-08-29)
+### Cómo se llegó acá (2026-08-29)
 
-El split se hizo el 29/08/2026. Falta **un solo paso**, y hasta que se aplique la web de producción sigue sirviendo el código de `dev`:
+El split a tres entornos se hizo el 29/08/2026 y está **completo**: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, Netlify con production branch en `main` más branch deploy de `dev`, y `VITE_API_URL` por contexto.
 
-- ⏳ **Netlify**: production branch → `main`, habilitar branch deploy de `dev`, y `VITE_API_URL` por contexto (production → ficha-i3t6, branch deploys → ficha-staging). Sin esto, el front de testing pega a la API de producción y lo frena el CORS.
-- ✅ Todo lo demás: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, y el `.env` local sobre `development`.
+Dos cosas que se rompieron en el camino y conviene no repetir:
+
+- **No habilitar PR previews sobre el servicio de producción de Render.** Los previews clonan las env vars del padre, así que cada uno arrancaba con el `DATABASE_URL` y el `JWT_SECRET` de producción: migraba contra la base real y firmaba tokens válidos en producción. Si se quieren previews, van sobre `ficha-staging`.
+- **Verificar la config de Netlify leyendo el bundle, no el dashboard.** Vite inlinea `VITE_API_URL` en build time, así que `curl` sobre el JS publicado dice a qué API pega cada contexto de verdad. Cambiar la variable no tiene efecto hasta rebuildear.
 
 Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de arriba son el punto de entrada. Netlify no tiene MCP: se mira en el dashboard.
 
