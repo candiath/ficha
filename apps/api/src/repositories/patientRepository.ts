@@ -52,6 +52,11 @@ export type PatientUpdateInput = Partial<PatientCreateInput>;
 // los joins `patient: { select: { fullName } }` de cobros, sesiones y
 // paquetes NO filtran deletedAt a propósito. Borrar un paciente oculta al
 // paciente, no reescribe el pasado.
+//
+// La línea que separa las dos mitades es historial vs. trabajo pendiente. Por
+// eso las ALERTAS sí filtran pacientes borrados (clinicalAlertRepository):
+// no son un registro de lo que pasó sino un pedido de acción, y sobre un
+// paciente eliminado esa acción es imposible.
 export interface PatientRepository {
   list(ctx: TenantContext): Promise<PatientDTO[]>;
   getById(ctx: TenantContext, id: string): Promise<PatientDTO | null>;

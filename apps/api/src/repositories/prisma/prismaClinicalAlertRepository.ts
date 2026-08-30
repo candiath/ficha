@@ -7,6 +7,19 @@ import type {
   ClinicalAlertRepository,
 } from '../clinicalAlertRepository';
 
+// Las alertas de pacientes borrados no se muestran ni se cuentan.
+//
+// Es la excepción a la política general de borrado lógico (ver
+// patientRepository): cobros, sesiones y paquetes son registros de lo que
+// pasó y conservan el nombre, pero una alerta es TRABAJO PENDIENTE — pide
+// contactar a alguien cuya ficha ya da 404, y engorda el badge de no leídas
+// con ítems sobre los que no se puede actuar.
+//
+// Se filtra en la lectura y no se borran las filas al eliminar el paciente:
+// el borrado es lógico y reversible, así que las alertas deben poder volver
+// con él. Además cubre las que ya existían, sin migración de datos.
+const visiblePatient = { patient: { deletedAt: null } };
+
 const alertSelect = {
   id: true,
   patientId: true,
@@ -43,7 +56,7 @@ function toDTO(row: {
 export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
   async list(ctx: TenantContext, filters?: AlertFilters): Promise<ClinicalAlertDTO[]> {
     const db = forTenant(ctx);
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { ...visiblePatient };
     if (filters?.type) where.type = filters.type;
     if (filters?.isRead !== undefined) where.isRead = filters.isRead;
 
@@ -71,11 +84,18 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
 
   async stats(ctx: TenantContext) {
     const db = forTenant(ctx);
+    // Mismo filtro que list(): el badge cuenta lo que la lista muestra.
     const [unread, followUp, payment, noShow] = await Promise.all([
-      db.clinicalAlert.count({ where: { isRead: false } }),
-      db.clinicalAlert.count({ where: { type: 'FOLLOW_UP', isRead: false } }),
-      db.clinicalAlert.count({ where: { type: 'PAYMENT', isRead: false } }),
-      db.clinicalAlert.count({ where: { type: 'NO_SHOW', isRead: false } }),
+      db.clinicalAlert.count({ where: { ...visiblePatient, isRead: false } }),
+      db.clinicalAlert.count({
+        where: { ...visiblePatient, type: 'FOLLOW_UP', isRead: false },
+      }),
+      db.clinicalAlert.count({
+        where: { ...visiblePatient, type: 'PAYMENT', isRead: false },
+      }),
+      db.clinicalAlert.count({
+        where: { ...visiblePatient, type: 'NO_SHOW', isRead: false },
+      }),
     ]);
     return { unread, followUp, payment, noShow };
   },
