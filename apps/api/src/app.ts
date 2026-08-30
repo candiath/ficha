@@ -6,7 +6,7 @@ import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
 import { requireRole } from './middlewares/requireRole';
 import { getJwtSecret } from './lib/jwt';
-import { prisma } from './lib/prisma';
+import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
 import authRouter from './routes/auth';
 import auditLogRouter from './routes/auditLog';
@@ -83,7 +83,7 @@ const BUILD_MARKER = 'canary-2026-08-15';
 
 app.get('/health', async (_req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await pingDatabase();
     res.json({ status: 'ok', buildMarker: BUILD_MARKER });
   } catch {
     res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, error: 'Base de datos no disponible' });
