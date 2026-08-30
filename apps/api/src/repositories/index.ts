@@ -9,3 +9,5 @@ export { prismaClinicalAlertRepository as clinicalAlertRepo } from './prisma/pri
 export { prismaTechniqueRepository as techniqueRepo } from './prisma/prismaTechniqueRepository';
 export { prismaUserRepository as userRepo } from './prisma/prismaUserRepository';
 export { prismaAuthRepository as authRepo } from './prisma/prismaAuthRepository';
+export { prismaEpisodeRepository as episodeRepo } from './prisma/prismaEpisodeRepository';
+export { prismaEvaluationRepository as evaluationRepo } from './prisma/prismaEvaluationRepository';
