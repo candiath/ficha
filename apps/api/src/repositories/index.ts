@@ -7,3 +7,5 @@ export { prismaAuditLogRepository as auditLogRepo } from './prisma/prismaAuditLo
 export { prismaConsentRepository as consentRepo } from './prisma/prismaConsentRepository';
 export { prismaClinicalAlertRepository as clinicalAlertRepo } from './prisma/prismaClinicalAlertRepository';
 export { prismaTechniqueRepository as techniqueRepo } from './prisma/prismaTechniqueRepository';
+export { prismaUserRepository as userRepo } from './prisma/prismaUserRepository';
+export { prismaAuthRepository as authRepo } from './prisma/prismaAuthRepository';

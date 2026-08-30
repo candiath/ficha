@@ -14,3 +14,9 @@ export const prisma =
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
+
+// Ping para el health check: la única query de la app que vive fuera de los
+// repositorios, porque es infra pura (¿responde la DB?), no dominio.
+export async function pingDatabase(): Promise<void> {
+  await prisma.$queryRaw`SELECT 1`;
+}
