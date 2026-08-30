@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { auditLogRepo } from '../repositories';
 
 // Montado en /api/patients/:patientId/scales
 const router = Router({ mergeParams: true });
@@ -112,19 +113,20 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
     },
   });
 
-  // Audit log
-  await req.db.auditLog.create({
-    data: {
+  res.status(201).json({ data: scale });
+
+  // Fire-and-forget como en el resto de las rutas: un fallo al auditar no
+  // debe demorar ni frustrar la respuesta (antes esta era la única ruta que
+  // awaiteaba el audit, y encima con req.db en vez del repo).
+  auditLogRepo
+    .create(req.context, {
       patientId,
-      userId: req.context.userId,
       entity: 'EVALUATION',
       entityId: scale.id,
       action: 'CREATED',
       description: `Escala ${body.scaleType} aplicada — score ${score}%`,
-    },
-  });
-
-  res.status(201).json({ data: scale });
+    })
+    .catch((err) => console.error('[audit]', err));
 });
 
 // DELETE /api/patients/:patientId/scales/:scaleId
