@@ -22,14 +22,23 @@ const sessionSelect = {
   observations: true,
   createdAt: true,
   updatedAt: true,
-  episodes: { select: { episodeId: true } },
+  // orderBy explícito: sin él, una sesión con varios episodios devuelve los
+  // episodeIds en orden indefinido (Postgres no garantiza ninguno sin ORDER
+  // BY) y el mismo GET puede responder distinto entre llamadas. El pivote no
+  // tiene timestamp, así que se ordena por episodeId: arbitrario, pero
+  // estable y cubierto por la PK compuesta.
+  episodes: { select: { episodeId: true }, orderBy: { episodeId: 'asc' } },
 } as const;
 
 // El listado global suma el paciente y el motivo de cada episodio.
 const sessionWithPatientSelect = {
   ...sessionSelect,
   patient: { select: { id: true, fullName: true } },
-  episodes: { select: { episode: { select: { id: true, mainComplaint: true } } } },
+  // Mismo criterio que sessionSelect: orden estable entre requests.
+  episodes: {
+    select: { episode: { select: { id: true, mainComplaint: true } } },
+    orderBy: { episodeId: 'asc' },
+  },
 } as const;
 
 type SessionRow = {

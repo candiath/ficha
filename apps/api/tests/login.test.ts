@@ -85,8 +85,16 @@ describe('POST /api/auth/login', () => {
   // por eso se esperan con waitFor en vez de asumir que ya aterrizaron.
 
   it('registra el login exitoso en login_events con IP y user-agent', async () => {
+    // orderBy explícito: esta suite hace DOS logins exitosos con el mismo
+    // email (el primer test, que manda User-Agent, y el de normalización a
+    // minúsculas, que no). Sin ORDER BY, Postgres puede devolver cualquiera
+    // de las dos filas y el assert del user-agent falla de forma
+    // intermitente. El evento que interesa es el del primer login.
     const event = await waitFor(() =>
-      prisma.loginEvent.findFirst({ where: { email: user.email, success: true } }),
+      prisma.loginEvent.findFirst({
+        where: { email: user.email, success: true },
+        orderBy: { createdAt: 'asc' },
+      }),
     );
 
     expect(event.userId).toBe(user.id);
