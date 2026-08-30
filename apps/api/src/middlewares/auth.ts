@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { prisma } from '../lib/prisma';
+import { authRepo } from '../repositories';
 import { verifyAccessToken } from '../lib/jwt';
 
 // Valida el JWT del header Authorization y adjunta
@@ -31,10 +31,9 @@ export async function authenticate(
     return;
   }
 
-  const user = await prisma.user.findFirst({
-    where: { id: userId, isActive: true },
-    select: { id: true, tenantId: true, role: true, passwordChangedAt: true },
-  });
+  // findForAuth filtra isActive: desactivar un usuario revoca el acceso
+  // en el request siguiente, sin esperar a que el token expire.
+  const user = await authRepo.findForAuth(userId);
 
   // Mismo mensaje que un token inválido: no revelamos si el usuario
   // existe pero está desactivado.

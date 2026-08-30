@@ -1,23 +1,14 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
+import { userRepo } from '../repositories';
 
 // Gestión de usuarios de la clínica. Se monta detrás de authenticate +
 // requireRole('ADMIN'): un THERAPIST nunca llega a estos handlers.
+// Las queries viven en userRepo; acá queda el HTTP: validar el body,
+// hashear la contraseña y mapear null a 409/404.
 const router = Router();
-
-// Lo que un ADMIN ve de los usuarios de su clínica. passwordHash y tenantId
-// nunca salen de la API (mismo criterio que publicUserSelect en auth).
-const tenantUserSelect = {
-  id: true,
-  email: true,
-  name: true,
-  role: true,
-  isActive: true,
-  lastLoginAt: true,
-} as const;
 
 const CreateUserSchema = z.object({
   email: EmailSchema,
@@ -32,11 +23,7 @@ const UpdateUserSchema = z.object({
 
 // GET /api/users — usuarios de la clínica, activos e inactivos.
 router.get('/', async (req, res) => {
-  const users = await req.db.user.findMany({
-    orderBy: { createdAt: 'asc' },
-    select: tenantUserSelect,
-  });
-
+  const users = await userRepo.list(req.context);
   res.json({ data: users });
 });
 
@@ -45,22 +32,15 @@ router.post('/', async (req, res) => {
   const { email, name, password, role } = CreateUserSchema.parse(req.body);
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const user = await userRepo.create(req.context, { email, name, passwordHash, role });
 
-  try {
-    const user = await req.db.user.create({
-      data: { email, name, passwordHash, role },
-      select: tenantUserSelect,
-    });
-    res.status(201).json({ data: user });
-  } catch (err) {
-    // P2002 = violación del unique de email. El errorHandler global lo
-    // convertiría en un 500 opaco; acá sabemos qué significa.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      res.status(409).json({ error: 'Ya existe un usuario con ese email' });
-      return;
-    }
-    throw err;
+  // null = ya existe un usuario con ese email (unique global).
+  if (!user) {
+    res.status(409).json({ error: 'Ya existe un usuario con ese email' });
+    return;
   }
+
+  res.status(201).json({ data: user });
 });
 
 // PATCH /api/users/:id — activar o desactivar un usuario. Desactivar revoca
@@ -75,23 +55,12 @@ router.patch('/:id', async (req, res) => {
     return;
   }
 
-  // Scoped por tenant vía req.db: la extension agrega el tenantId al where, así
-  // que un ADMIN no puede tocar usuarios de otra clínica.
-  const existing = await req.db.user.findFirst({
-    where: { id: req.params.id },
-    select: { id: true },
-  });
-
-  if (!existing) {
+  // null = usuario inexistente o de otra clínica: mismo 404, sin revelar cuál.
+  const user = await userRepo.setActive(req.context, req.params.id, isActive);
+  if (!user) {
     res.status(404).json({ error: 'Usuario no encontrado' });
     return;
   }
-
-  const user = await req.db.user.update({
-    where: { id: req.params.id },
-    data: { isActive },
-    select: tenantUserSelect,
-  });
 
   res.json({ data: user });
 });

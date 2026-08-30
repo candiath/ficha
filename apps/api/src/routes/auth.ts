@@ -2,7 +2,7 @@ import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma';
+import { authRepo } from '../repositories';
 import { signAccessToken } from '../lib/jwt';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
@@ -45,10 +45,6 @@ const ChangePasswordSchema = z
     path: ['newPassword'],
   });
 
-// Lo que se expone del usuario en las respuestas. passwordHash y tenantId
-// nunca salen de la API.
-const publicUserSelect = { id: true, email: true, name: true, role: true } as const;
-
 // Telemetría de seguridad: registra cada intento de login (exitoso o no)
 // con IP y user-agent. Fire-and-forget: un fallo al registrar no debe
 // demorar ni frustrar el login. req.ip es la IP real gracias a trust proxy.
@@ -59,16 +55,14 @@ function recordLoginEvent(
   user: { id: string; tenantId: string } | null,
   success: boolean,
 ) {
-  prisma.loginEvent
-    .create({
-      data: {
-        email,
-        tenantId: user?.tenantId ?? null,
-        userId: user?.id ?? null,
-        success,
-        ip: req.ip ?? null,
-        userAgent: req.get('user-agent') ?? null,
-      },
+  authRepo
+    .recordLoginEvent({
+      email,
+      tenantId: user?.tenantId ?? null,
+      userId: user?.id ?? null,
+      success,
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
     })
     .catch((err) => console.error('[auth] loginEvent', err));
 }
@@ -77,10 +71,7 @@ function recordLoginEvent(
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = LoginSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { ...publicUserSelect, tenantId: true, passwordHash: true, isActive: true },
-  });
+  const user = await authRepo.findByEmailForLogin(email);
 
   // Mensaje idéntico para email inexistente, usuario desactivado o
   // contraseña incorrecta: distinguirlos permitiría enumerar qué emails
@@ -95,8 +86,8 @@ router.post('/login', loginLimiter, async (req, res) => {
   recordLoginEvent(req, email, user, true);
 
   // Fire-and-forget: registrar el acceso no debe demorar ni frustrar el login.
-  prisma.user
-    .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+  authRepo
+    .touchLastLogin(user.id)
     .catch((err) => console.error('[auth] lastLoginAt', err));
 
   const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
@@ -115,10 +106,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 router.post('/change-password', changePasswordLimiter, authenticate, async (req, res) => {
   const { currentPassword, newPassword } = ChangePasswordSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.context.userId },
-    select: { id: true, tenantId: true, passwordHash: true },
-  });
+  const user = await authRepo.getCredentials(req.context.userId);
 
   if (!user) {
     res.status(401).json({ error: 'Sesión expirada o inválida' });
@@ -133,11 +121,10 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
     return;
   }
 
+  // updatePassword estampa passwordChangedAt, que invalida los tokens
+  // emitidos antes del cambio.
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { passwordHash, passwordChangedAt: new Date() },
-  });
+  await authRepo.updatePassword(user.id, passwordHash);
 
   // passwordChangedAt invalida los tokens emitidos antes del cambio; este
   // token nuevo evita que la sesión que hizo el cambio quede afuera.
@@ -155,10 +142,7 @@ router.get('/me', authenticate, async (req, res) => {
     return;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: publicUserSelect,
-  });
+  const user = await authRepo.getPublicProfile(userId);
 
   if (!user) {
     res.status(401).json({ error: 'Sesión expirada o inválida' });
