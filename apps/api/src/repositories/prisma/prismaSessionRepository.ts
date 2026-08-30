@@ -227,7 +227,9 @@ export const prismaSessionRepository: SessionRepository = {
         data: {
           ...sessionData(input),
           // Reemplaza el conjunto de episodios vinculados solo si se envía.
-          ...(episodeIds
+          // !== undefined y no truthy: [] significa "desvincular todos" y es
+          // distinto de "el campo no vino" (issue #97).
+          ...(episodeIds !== undefined
             ? { episodes: { deleteMany: {}, create: episodeLinks(episodeIds) } }
             : {}),
         },
