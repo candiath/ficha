@@ -19,10 +19,17 @@ type SessionParams = { patientId: string; sessionId: string };
 // técnicas sean del tenant, y registrar auditoría.
 const router = Router({ mergeParams: true });
 
+// Base SIN defaults: es el que se deriva para el PATCH.
+//
+// Un .default() acá sobrevive al .partial() de abajo (Zod no lo anula), y en un
+// update deja de significar "valor inicial si no lo mandás" para significar
+// "pisá lo que había": un PATCH sin sessionType convertía un alta en sesión
+// común, y uno sin episodeIds los desvinculaba todos (issue #97). Los defaults
+// son del alta, así que viven solo en SessionCreateSchema.
 const SessionFieldsSchema = z.object({
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
+  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
-  episodeIds: z.array(z.string().uuid()).optional().default([]),
+  episodeIds: z.array(z.string().uuid()),
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
   patientResponse: z.string().optional().nullable(),
@@ -35,6 +42,10 @@ const SessionFieldsSchema = z.object({
 // en una sola transacción. Antes el frontend encadenaba 3 requests y un fallo
 // intermedio dejaba sesiones sin pago (invisibles en Cobros) o sin técnicas.
 const SessionCreateSchema = SessionFieldsSchema.extend({
+  // Los defaults del alta: una sesión sin tipo es SESSION y puede no abordar
+  // ningún episodio.
+  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
+  episodeIds: z.array(z.string().uuid()).optional().default([]),
   payment: z
     .object({
       packageId: z.string().uuid().optional().nullable(),
@@ -171,8 +182,10 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
 
   const { episodeIds, sessionDate, ...rest } = SessionUpdateSchema.parse(req.body);
 
+  // !== undefined y no truthy: [] es un valor válido (desvincular todos los
+  // episodios) y hay que distinguirlo de "el campo no vino".
   if (
-    episodeIds &&
+    episodeIds !== undefined &&
     !(await episodeRepo.allBelongToPatient(req.context, req.params.patientId, episodeIds))
   ) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
