@@ -15,3 +15,4 @@ export { prismaFunctionalScaleRepository as functionalScaleRepo } from './prisma
 export { prismaPackageRepository as packageRepo } from './prisma/prismaPackageRepository';
 export { prismaPaymentRepository as paymentRepo } from './prisma/prismaPaymentRepository';
 export { prismaSessionRepository as sessionRepo } from './prisma/prismaSessionRepository';
+export { prismaDashboardRepository as dashboardRepo } from './prisma/prismaDashboardRepository';
