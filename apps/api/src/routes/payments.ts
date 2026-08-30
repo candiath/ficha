@@ -1,32 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Prisma, PaymentStatus } from '@prisma/client';
-import { auditLogRepo, packageRepo } from '../repositories';
+import type { PaymentStatus } from '@prisma/client';
+import { auditLogRepo, paymentRepo } from '../repositories';
 
+// Las queries, la derivación del paciente desde la sesión, el cálculo de
+// finalAmount y la unicidad pago-por-sesión viven en paymentRepo; acá queda
+// el HTTP: validar el body, resolver paidAt y mapear reasons a status codes.
 const router = Router();
-
-// Días máximos de antigüedad para considerar válido el último precio base.
-// HARDCODED_LAST_BASE_PRICE_STALENESS_DAYS: cambiar aquí cuando se quiera hacer configurable.
-const HARDCODED_LAST_BASE_PRICE_STALENESS_DAYS = 90;
-
-const paymentSelect = {
-  id: true,
-  patientId: true,
-  sessionId: true,
-  packageId: true,
-  baseAmount: true,
-  discount: true,
-  finalAmount: true,
-  status: true,
-  method: true,
-  paidAt: true,
-  notes: true,
-  createdAt: true,
-  updatedAt: true,
-  patient: { select: { id: true, fullName: true } },
-  session: { select: { id: true, sessionDate: true, sessionType: true } },
-  package: { select: { id: true, name: true } },
-} as const;
 
 // Sin patientId: el paciente se deriva de la sesión. Aceptarlo del body
 // permitía crear pagos apuntando a pacientes de otro tenant (y el GET,
@@ -49,134 +29,52 @@ const PaymentUpdateSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
-function serializePayment(p: Prisma.PaymentGetPayload<{select: typeof paymentSelect}>) {
-  return {
-    ...p,
-    baseAmount: Number(p.baseAmount),
-    discount: Number(p.discount),
-    finalAmount: Number(p.finalAmount),
-  };
-}
-
 // GET /api/payments?patientId=xxx&status=PENDING
 router.get('/', async (req, res) => {
   const patientId = req.query.patientId as string | undefined;
-  const status = req.query.status as string | undefined;
+  const status = req.query.status as PaymentStatus | undefined;
 
-  const payments = await req.db.payment.findMany({
-    where: {
-      ...(patientId ? { patientId } : {}),
-      ...(status ? { status: status as PaymentStatus } : {}),
-    },
-    select: paymentSelect,
-    orderBy: { createdAt: 'desc' },
-  });
-
-  res.json({ data: payments.map(serializePayment) });
+  const payments = await paymentRepo.list(req.context, { patientId, status });
+  res.json({ data: payments });
 });
 
 // GET /api/payments/last-base-price
-// Devuelve el último baseAmount de un pago sin descuento ni paquete.
-// Si tiene más de HARDCODED_LAST_BASE_PRICE_STALENESS_DAYS días, amount = null.
+// Último baseAmount de un pago sin descuento ni paquete; amount null si es
+// más viejo que el umbral de vigencia (la política vive en el repo).
 router.get('/last-base-price', async (req, res) => {
-  const payment = await req.db.payment.findFirst({
-    where: {
-      discount: 0,
-      packageId: null,
-    },
-    select: { baseAmount: true, createdAt: true },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  if (!payment) {
-    res.json({ data: null });
-    return;
-  }
-
-  const ageInDays = (Date.now() - payment.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-  const isStale = ageInDays > HARDCODED_LAST_BASE_PRICE_STALENESS_DAYS;
-
-  res.json({
-    data: {
-      amount: isStale ? null : Number(payment.baseAmount),
-      date: payment.createdAt,
-      isStale,
-    },
-  });
+  const data = await paymentRepo.lastBasePrice(req.context);
+  res.json({ data });
 });
 
 // POST /api/payments
 router.post('/', async (req, res) => {
   const body = PaymentCreateSchema.parse(req.body);
 
-  // Verificar que la sesión existe y pertenece al tenant
-  const session = await req.db.session.findFirst({
-    where: { id: body.sessionId },
-    select: { id: true, patientId: true },
-  });
-  if (!session) {
-    res.status(404).json({ error: 'Sesión no encontrada' });
-    return;
-  }
+  const result = await paymentRepo.create(req.context, body);
 
-  // El paquete a debitar debe ser del mismo tenant y del mismo paciente:
-  // sin este chequeo se podía descontar sesiones del paquete de otro.
-  if (
-    body.packageId &&
-    !(await packageRepo.belongsToPatient(req.context, body.packageId, session.patientId))
-  ) {
-    res.status(404).json({ error: 'Paquete no encontrado' });
-    return;
-  }
-
-  // Verificar que no exista ya un pago para esta sesión
-  const existing = await req.db.payment.findUnique({
-    where: { sessionId: body.sessionId },
-    select: { id: true },
-  });
-  if (existing) {
-    res.status(409).json({ error: 'Ya existe un pago para esta sesión' });
-    return;
-  }
-
-  const discount = body.discount ?? 0;
-  const finalAmount = body.baseAmount - discount;
-
-  let payment;
-  try {
-    payment = await req.db.payment.create({
-      data: {
-        patientId: session.patientId,
-        sessionId: body.sessionId,
-        packageId: body.packageId ?? null,
-        baseAmount: body.baseAmount,
-        discount,
-        finalAmount,
-        notes: body.notes ?? null,
-      },
-      select: paymentSelect,
-    });
-  } catch (e) {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2002"
-    ) {
-      return res
-        .status(409)
-        .json({ error: "La sesión ya tiene un pago registrado" });
+  if (!result.ok) {
+    switch (result.reason) {
+      case 'session_not_found':
+        res.status(404).json({ error: 'Sesión no encontrada' });
+        return;
+      case 'package_not_found':
+        res.status(404).json({ error: 'Paquete no encontrado' });
+        return;
+      case 'duplicate':
+        res.status(409).json({ error: 'Ya existe un pago para esta sesión' });
+        return;
     }
-    throw e;
   }
 
-  res.status(201).json({ data: serializePayment(payment) });
+  res.status(201).json({ data: result.payment });
 
   auditLogRepo
     .create(req.context, {
-      patientId: session.patientId,
+      patientId: result.payment.patientId,
       entity: 'PAYMENT',
-      entityId: payment.id,
+      entityId: result.payment.id,
       action: 'CREATED',
-      description: `Cobro registrado — $${finalAmount}`,
+      description: `Cobro registrado — $${result.payment.finalAmount}`,
     })
     .catch((err) => console.error('[audit]', err));
 });
@@ -185,30 +83,8 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const body = PaymentUpdateSchema.parse(req.body);
 
-  const existing = await req.db.payment.findFirst({
-    where: { id: req.params.id },
-    select: { baseAmount: true, discount: true, patientId: true },
-  });
-  if (!existing) {
-    res.status(404).json({ error: 'Pago no encontrado' });
-    return;
-  }
-
-  // Mismo chequeo que en el POST: el paquete debe ser del tenant y del
-  // paciente del pago.
-  if (
-    body.packageId &&
-    !(await packageRepo.belongsToPatient(req.context, body.packageId, existing.patientId))
-  ) {
-    res.status(404).json({ error: 'Paquete no encontrado' });
-    return;
-  }
-
-  const newBase = body.baseAmount ?? Number(existing.baseAmount);
-  const newDiscount = body.discount ?? Number(existing.discount);
-  const newFinal = newBase - newDiscount;
-
-  // Si se marca como PAID y no hay paidAt, se registra ahora
+  // Si se marca como PAID y no hay paidAt, se registra ahora. Se resuelve acá
+  // porque depende de distinguir "ausente" de null en el body (HTTP puro).
   const paidAt =
     body.paidAt !== undefined
       ? body.paidAt
@@ -218,29 +94,33 @@ router.patch('/:id', async (req, res) => {
         ? new Date()
         : undefined;
 
-  const payment = await req.db.payment.update({
-    where: { id: req.params.id },
-    data: {
-      ...(body.baseAmount !== undefined && { baseAmount: body.baseAmount }),
-      ...(body.discount !== undefined && { discount: body.discount }),
-      finalAmount: newFinal,
-      ...(body.status !== undefined && { status: body.status }),
-      ...(body.method !== undefined && { method: body.method }),
-      ...(paidAt !== undefined && { paidAt }),
-      ...(body.packageId !== undefined && { packageId: body.packageId }),
-      ...(body.notes !== undefined && { notes: body.notes }),
-    },
-    select: paymentSelect,
+  const result = await paymentRepo.update(req.context, req.params.id, {
+    baseAmount: body.baseAmount,
+    discount: body.discount,
+    status: body.status,
+    method: body.method,
+    paidAt,
+    packageId: body.packageId,
+    notes: body.notes,
   });
 
-  res.json({ data: serializePayment(payment) });
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Pago no encontrado' });
+      return;
+    }
+    res.status(404).json({ error: 'Paquete no encontrado' });
+    return;
+  }
+
+  res.json({ data: result.payment });
 
   const statusDesc = body.status ? ` — Estado: ${body.status}` : '';
   auditLogRepo
     .create(req.context, {
-      patientId: payment.patientId,
+      patientId: result.payment.patientId,
       entity: 'PAYMENT',
-      entityId: payment.id,
+      entityId: result.payment.id,
       action: 'UPDATED',
       description: `Cobro actualizado${statusDesc}`,
     })

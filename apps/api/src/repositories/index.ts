@@ -13,3 +13,4 @@ export { prismaEpisodeRepository as episodeRepo } from './prisma/prismaEpisodeRe
 export { prismaEvaluationRepository as evaluationRepo } from './prisma/prismaEvaluationRepository';
 export { prismaFunctionalScaleRepository as functionalScaleRepo } from './prisma/prismaFunctionalScaleRepository';
 export { prismaPackageRepository as packageRepo } from './prisma/prismaPackageRepository';
+export { prismaPaymentRepository as paymentRepo } from './prisma/prismaPaymentRepository';
