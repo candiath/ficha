@@ -7,12 +7,17 @@ import type { TenantContext } from '../repositories/types';
 // `forTenant(ctx)` devuelve un cliente Prisma "scopeado": una client extension
 // intercepta TODA operación sobre los modelos de dominio e inyecta sola el
 // tenantId (en `where` para lecturas/updates/deletes, en `data` para creates).
-// Así los handlers nunca escriben `tenantId` a mano y no pueden olvidárselo.
+// Así los repositorios nunca escriben `tenantId` a mano y no pueden olvidárselo.
+//
+// Lo usan SOLO los repositorios de src/repositories (lo hace cumplir la regla
+// no-restricted-imports de eslint.config.mjs): es un detalle de la capa de
+// persistencia, no algo que una ruta deba conocer.
 //
 // Límite conocido: la extension solo ve el nivel top de cada query. Los
 // creates/reads ANIDADOS sobre relaciones (p. ej. `patient: { select }` dentro
-// de un findMany de payments) NO se filtran acá; esos casos se resuelven por
-// ruta. Por eso B8 (pacientes borrados en reads anidados) es un paso aparte.
+// de un findMany de payments) NO se filtran acá; esos casos se resuelven en el
+// repositorio que arma la query. Por eso B8 (pacientes borrados en reads
+// anidados) es un paso aparte.
 
 // Única fuente de verdad de los modelos scopeados, en PascalCase (los nombres
 // que llegan como `model` en la extension), no los de la tabla SQL. De esta
@@ -93,7 +98,7 @@ export function scopeArgs(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tipos: el cliente scopeado que ven los handlers en req.db.
+// Tipos: el cliente scopeado que reciben los repositorios de forTenant().
 //
 // En runtime la extension inyecta el tenantId, pero $extends NO cambia los
 // tipos de entrada: el `create` de un modelo scopeado seguiría exigiendo
@@ -157,7 +162,7 @@ type ScopedDelegate<D> = Omit<D, 'create' | 'createMany' | 'createManyAndReturn'
 // del cliente ($transaction, modelos globales) intacto. Raw SQL queda FUERA
 // del tipo: escapa por completo a la extension (ninguna inyección de tenantId
 // aplica), así que quien lo necesite debe usar el prisma base a conciencia,
-// nunca creyendo que req.db lo protege.
+// nunca creyendo que el cliente scopeado lo protege.
 export type TenantScopedClient = Omit<
   PrismaClient,
   ScopedModelName | '$queryRaw' | '$queryRawUnsafe' | '$executeRaw' | '$executeRawUnsafe'

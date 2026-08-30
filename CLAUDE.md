@@ -82,6 +82,20 @@ Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de 
 
 Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). **No usar Docker**: `docker-compose.yml` y los scripts `db:up`/`db:down`/`db:reset` son vestigiales. `prisma migrate dev` corre directo contra Neon.
 
+### Acceso a datos: patrón repositorio
+
+**La base de datos se toca solo desde `apps/api/src/repositories`.** Una regla `no-restricted-imports` en `eslint.config.mjs` lo hace cumplir: importar `lib/prisma` o `lib/tenantScope` desde una ruta o middleware es error de lint (y el CI corre `npm run check`). `tests/`, `prisma/seed.ts` y `scripts/` quedan exentos.
+
+Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y una **implementación** (`prisma/prisma<Entidad>Repository.ts`), exportada con alias desde el barrel `repositories/index.ts`. Convenciones:
+
+- Primer argumento `ctx: TenantContext` (lo arma `authenticate` y viaja en `req.context`); adentro, `forTenant(ctx)` devuelve el cliente scopeado que inyecta el `tenantId` solo.
+- **No encontrado devuelve `null`/`false`, nunca throw** — la ruta lo mapea a 404. Con más de dos salidas, unión de literales (`'deleted' | 'not_found' | 'in_use'`) o resultado discriminado (`{ ok: false, reason }`).
+- **Las escrituras condicionadas llevan la condición en el `where` del write** (`updateMany`/`deleteMany` + count, o `update` con campos no únicos en el where y `P2025` → `null`): existencia, pertenencia y vigencia se deciden en la misma query que escribe, sin ventana entre chequeo y escritura.
+- Los DTOs no exponen `tenantId`; fechas como ISO string y `Decimal` como `number`.
+- Zod y la semántica HTTP se quedan en la ruta; la política de datos (borrado lógico, "global o del tenant", "no borrar un paquete usado") vive en el repositorio.
+
+Dos excepciones documentadas: `authRepository` **no** recibe `ctx` (sus lecturas son las que lo construyen: login y `authenticate`), y `techniqueRepository` filtra el tenant a mano porque `Technique` tiene `tenantId` nullable y queda fuera del guard.
+
 ## Convenciones
 
 - Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, mensajes en español con prefijo convencional (`fix(web): ...`, `test(web): ...`).
