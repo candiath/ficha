@@ -11,3 +11,4 @@ export { prismaUserRepository as userRepo } from './prisma/prismaUserRepository'
 export { prismaAuthRepository as authRepo } from './prisma/prismaAuthRepository';
 export { prismaEpisodeRepository as episodeRepo } from './prisma/prismaEpisodeRepository';
 export { prismaEvaluationRepository as evaluationRepo } from './prisma/prismaEvaluationRepository';
+export { prismaFunctionalScaleRepository as functionalScaleRepo } from './prisma/prismaFunctionalScaleRepository';

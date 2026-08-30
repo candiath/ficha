@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { auditLogRepo } from '../repositories';
+import { auditLogRepo, functionalScaleRepo, patientRepo } from '../repositories';
 
 // Montado en /api/patients/:patientId/scales
+// El scoring ODI/NDI vive acá (dominio puro); las queries en
+// functionalScaleRepo. Cada handler exige paciente vigente vía
+// patientRepo.exists — antes esta ruta no validaba el paciente en absoluto,
+// a diferencia de episodios/sesiones/paquetes.
 const router = Router({ mergeParams: true });
 
 // ── Scoring ──────────────────────────────────────────────────────────────────
@@ -57,31 +61,27 @@ type Params = { patientId: string; scaleId: string };
 
 // GET /api/patients/:patientId/scales
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const { patientId } = req.params;
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
 
-  const scales = await req.db.functionalScale.findMany({
-    where: { patientId },
-    orderBy: { appliedAt: 'desc' },
-    select: {
-      id: true,
-      scaleType: true,
-      score: true,
-      interpretation: true,
-      appliedAt: true,
-      createdAt: true,
-    },
-  });
-
+  const scales = await functionalScaleRepo.listByPatient(req.context, req.params.patientId);
   res.json({ data: scales });
 });
 
 // GET /api/patients/:patientId/scales/:scaleId
 router.get<Params>('/:scaleId', async (req, res) => {
-  const { patientId, scaleId } = req.params;
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
 
-  const scale = await req.db.functionalScale.findFirst({
-    where: { id: scaleId, patientId },
-  });
+  const scale = await functionalScaleRepo.getById(
+    req.context,
+    req.params.patientId,
+    req.params.scaleId,
+  );
 
   if (!scale) {
     res.status(404).json({ error: 'Escala no encontrada' });
@@ -93,7 +93,11 @@ router.get<Params>('/:scaleId', async (req, res) => {
 
 // POST /api/patients/:patientId/scales
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  const { patientId } = req.params;
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
   const body = ScaleCreateSchema.parse(req.body);
 
   const responses = body.responses;
@@ -102,25 +106,21 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
       ? scoreOswestry(responses)
       : scoreNDI(responses);
 
-  const scale = await req.db.functionalScale.create({
-    data: {
-      patientId,
-      scaleType: body.scaleType,
-      responses,
-      score,
-      interpretation,
-      ...(body.appliedAt && { appliedAt: new Date(body.appliedAt) }),
-    },
+  const scale = await functionalScaleRepo.create(req.context, req.params.patientId, {
+    scaleType: body.scaleType,
+    responses,
+    score,
+    interpretation,
+    ...(body.appliedAt ? { appliedAt: new Date(body.appliedAt) } : {}),
   });
 
   res.status(201).json({ data: scale });
 
   // Fire-and-forget como en el resto de las rutas: un fallo al auditar no
-  // debe demorar ni frustrar la respuesta (antes esta era la única ruta que
-  // awaiteaba el audit, y encima con req.db en vez del repo).
+  // debe demorar ni frustrar la respuesta.
   auditLogRepo
     .create(req.context, {
-      patientId,
+      patientId: req.params.patientId,
       entity: 'EVALUATION',
       entityId: scale.id,
       action: 'CREATED',
@@ -131,21 +131,21 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // DELETE /api/patients/:patientId/scales/:scaleId
 router.delete<Params>('/:scaleId', async (req, res) => {
-  const { patientId, scaleId } = req.params;
-
-  const existing = await req.db.functionalScale.findFirst({
-    where: { id: scaleId, patientId },
-    select: { id: true },
-  });
-
-  if (!existing) {
-    res.status(404).json({ error: 'Escala no encontrada' });
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
 
-  await req.db.functionalScale.delete({
-    where: { id: scaleId },
-  });
+  const deleted = await functionalScaleRepo.delete(
+    req.context,
+    req.params.patientId,
+    req.params.scaleId,
+  );
+
+  if (!deleted) {
+    res.status(404).json({ error: 'Escala no encontrada' });
+    return;
+  }
 
   res.status(204).send();
 });
