@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
   BodyRegionDTO,
@@ -50,6 +51,9 @@ function toDTO(
 }
 
 export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
+  // Los catálogos son globales (sin tenantId en el schema): van por el cliente
+  // base a propósito — pedir un ctx acá mentiría una dependencia de tenant
+  // que no existe.
   async listBodyRegions(): Promise<BodyRegionDTO[]> {
     const rows = await prisma.bodyRegion.findMany({
       orderBy: [{ zone: 'asc' }, { name: 'asc' }],
@@ -71,14 +75,16 @@ export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
     patientId: string,
     sessionId: string,
   ): Promise<SessionTechniqueDTO[]> {
-    // Validate session belongs to tenant + patient
-    const session = await prisma.session.findFirst({
-      where: { id: sessionId, patientId, tenantId: ctx.tenantId },
+    const db = forTenant(ctx);
+    // La sesión debe ser del tenant y del paciente: el tenantId lo inyecta
+    // el guard, acá solo va el patientId.
+    const session = await db.session.findFirst({
+      where: { id: sessionId, patientId },
       select: { id: true },
     });
     if (!session) return [];
 
-    const rows = await prisma.sessionTechnique.findMany({
+    const rows = await db.sessionTechnique.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
       select: techniqueEntrySelect,
@@ -92,19 +98,23 @@ export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
     patientId: string,
     sessionId: string,
     entries: SessionTechniqueCreateDTO[],
-  ): Promise<SessionTechniqueDTO[]> {
-    // Validate session belongs to tenant + patient
-    const session = await prisma.session.findFirst({
-      where: { id: sessionId, patientId, tenantId: ctx.tenantId },
+  ): Promise<SessionTechniqueDTO[] | null> {
+    const db = forTenant(ctx);
+    // La sesión debe ser del tenant y del paciente (tenantId vía guard).
+    // null y no throw: la convención del repo es que "no encontrado" es un
+    // valor, no una excepción — la ruta lo mapea a 404 (antes el throw
+    // genérico terminaba en un 500 del errorHandler).
+    const session = await db.session.findFirst({
+      where: { id: sessionId, patientId },
       select: { id: true },
     });
-    if (!session) throw new Error('Sesión no encontrada');
+    if (!session) return null;
 
     // Delete existing + create new in a transaction
-    await prisma.$transaction([
-      prisma.sessionTechnique.deleteMany({ where: { sessionId } }),
+    await db.$transaction([
+      db.sessionTechnique.deleteMany({ where: { sessionId } }),
       ...entries.map((e) =>
-        prisma.sessionTechnique.create({
+        db.sessionTechnique.create({
           data: {
             sessionId,
             techniqueId: e.techniqueId,
@@ -117,7 +127,7 @@ export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
     ]);
 
     // Re-fetch with joins
-    const rows = await prisma.sessionTechnique.findMany({
+    const rows = await db.sessionTechnique.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
       select: techniqueEntrySelect,

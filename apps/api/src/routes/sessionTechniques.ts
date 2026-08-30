@@ -46,6 +46,14 @@ router.put<Params>('/', async (req, res) => {
     req.params.sessionId,
     entries,
   );
+
+  // null = sesión inexistente, de otro tenant o de otro paciente: mismo 404
+  // en los tres casos, sin revelar cuál.
+  if (!data) {
+    res.status(404).json({ error: 'Sesión no encontrada' });
+    return;
+  }
+
   res.json({ data });
 });
 

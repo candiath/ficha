@@ -46,10 +46,11 @@ export interface SessionTechniqueRepository {
     sessionId: string,
   ): Promise<SessionTechniqueDTO[]>;
 
+  /** null si la sesión no existe, es de otro tenant o de otro paciente. */
   bulkReplace(
     ctx: TenantContext,
     patientId: string,
     sessionId: string,
     entries: SessionTechniqueCreateDTO[],
-  ): Promise<SessionTechniqueDTO[]>;
+  ): Promise<SessionTechniqueDTO[] | null>;
 }

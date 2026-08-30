@@ -35,6 +35,7 @@ export interface ClinicalAlertRepository {
     noShow: number;
   }>;
   create(ctx: TenantContext, data: AlertCreateDTO): Promise<ClinicalAlertDTO>;
-  markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO>;
+  /** null si la alerta no existe o es de otro tenant. */
+  markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO | null>;
   markAllAsRead(ctx: TenantContext): Promise<number>;
 }

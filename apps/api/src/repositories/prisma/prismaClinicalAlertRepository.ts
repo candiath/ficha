@@ -79,25 +79,24 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
     return toDTO(row);
   },
 
-  async markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO> {
+  async markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO | null> {
     const db = forTenant(ctx);
-    // Validar pertenencia ANTES de escribir. Antes el update corría con
-    // where { id } (sin tenantId) y recién después chequeaba el tenant, así que
-    // marcaba como leída la alerta de otro tenant y luego tiraba error —el
-    // write ya había quedado hecho—. Con db scopeado el where lleva tenantId, y
-    // el findFirst previo da el error limpio si la alerta no es del tenant.
-    const existing = await db.clinicalAlert.findFirst({
-      where: { id },
-      select: { id: true },
-    });
-    if (!existing) throw new Error('Alerta no encontrada');
-
-    const row = await db.clinicalAlert.update({
+    // updateMany y no update: existencia y pertenencia al tenant se deciden
+    // en la misma query que escribe (count 0 = no hay alerta del tenant con
+    // ese id), sin ventana entre chequeo y update — patrón de
+    // patientRepo.update. null → la ruta responde 404 (antes el throw
+    // genérico terminaba en un 500 del errorHandler).
+    const { count } = await db.clinicalAlert.updateMany({
       where: { id },
       data: { isRead: true, readAt: new Date() },
+    });
+    if (count === 0) return null;
+
+    const row = await db.clinicalAlert.findFirst({
+      where: { id },
       select: alertSelect,
     });
-    return toDTO(row);
+    return row ? toDTO(row) : null;
   },
 
   async markAllAsRead(ctx: TenantContext): Promise<number> {
