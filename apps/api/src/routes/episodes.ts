@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { clinicalAlertRepo, patientRepo } from '../repositories';
+import { clinicalAlertRepo, episodeRepo, patientRepo } from '../repositories';
 import type { TenantContext } from '../repositories/types';
 import type { TenantScopedClient } from '../lib/tenantScope';
 
@@ -8,17 +8,6 @@ type Params = { patientId: string; episodeId: string };
 
 // Montado en /api/patients/:patientId/episodes
 const router = Router({ mergeParams: true });
-
-const episodeSelect = {
-  id: true,
-  patientId: true,
-  status: true,
-  mainComplaint: true,
-  openedAt: true,
-  closedAt: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 const EpisodeCreateSchema = z.object({
   mainComplaint: z.string().optional().nullable(),
@@ -89,11 +78,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
     return;
   }
 
-  const episodes = await req.db.clinicalEpisode.findMany({
-    where: { patientId: req.params.patientId },
-    orderBy: { openedAt: 'desc' },
-    select: episodeSelect,
-  });
+  const episodes = await episodeRepo.listByPatient(req.context, req.params.patientId);
 
   res.json({ data: episodes });
 
@@ -119,13 +104,9 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
   const body = EpisodeCreateSchema.parse(req.body);
 
-  const episode = await req.db.clinicalEpisode.create({
-    data: {
-      patientId: req.params.patientId,
-      mainComplaint: body.mainComplaint,
-      ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
-    },
-    select: episodeSelect,
+  const episode = await episodeRepo.create(req.context, req.params.patientId, {
+    mainComplaint: body.mainComplaint,
+    ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
   });
 
   res.status(201).json({ data: episode });
@@ -138,30 +119,29 @@ router.patch<Params>('/:episodeId', async (req, res) => {
     return;
   }
 
-  const existing = await req.db.clinicalEpisode.findFirst({
-    where: {
-      id: req.params.episodeId,
-      patientId: req.params.patientId,
-    },
-    select: { id: true },
-  });
+  const body = EpisodeUpdateSchema.parse(req.body);
 
-  if (!existing) {
+  // null = episodio inexistente o de otro paciente: mismo 404, sin revelar cuál.
+  const episode = await episodeRepo.update(
+    req.context,
+    req.params.patientId,
+    req.params.episodeId,
+    {
+      status: body.status,
+      mainComplaint: body.mainComplaint,
+      closedAt:
+        body.closedAt !== undefined
+          ? body.closedAt
+            ? new Date(body.closedAt)
+            : null
+          : undefined,
+    },
+  );
+
+  if (!episode) {
     res.status(404).json({ error: 'Episodio no encontrado' });
     return;
   }
-
-  const body = EpisodeUpdateSchema.parse(req.body);
-  const episode = await req.db.clinicalEpisode.update({
-    where: { id: req.params.episodeId },
-    data: {
-      ...body,
-      ...(body.closedAt !== undefined
-        ? { closedAt: body.closedAt ? new Date(body.closedAt) : null }
-        : {}),
-    },
-    select: episodeSelect,
-  });
 
   res.json({ data: episode });
 });
