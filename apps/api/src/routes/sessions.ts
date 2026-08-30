@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { sessionDateField } from '../lib/sessionDate';
-import { auditLogRepo, episodeRepo, patientRepo, techniqueRepo } from '../repositories';
+import {
+  auditLogRepo,
+  episodeRepo,
+  packageRepo,
+  patientRepo,
+  techniqueRepo,
+} from '../repositories';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -144,18 +150,12 @@ router.post<ParentParams>('/', async (req, res) => {
 
   // El paquete a debitar debe ser del mismo tenant y del mismo paciente
   // (mismo criterio que POST /api/payments).
-  if (payment?.packageId) {
-    const pkg = await req.db.sessionPackage.findFirst({
-      where: {
-        id: payment.packageId,
-        patientId: req.params.patientId,
-      },
-      select: { id: true },
-    });
-    if (!pkg) {
-      res.status(404).json({ error: 'Paquete no encontrado' });
-      return;
-    }
+  if (
+    payment?.packageId &&
+    !(await packageRepo.belongsToPatient(req.context, payment.packageId, req.params.patientId))
+  ) {
+    res.status(404).json({ error: 'Paquete no encontrado' });
+    return;
   }
 
   if (!(await techniqueRepo.allUsableByTenant(req.context, techniques.map((t) => t.techniqueId)))) {
