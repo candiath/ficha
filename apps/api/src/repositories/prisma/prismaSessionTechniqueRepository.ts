@@ -98,14 +98,17 @@ export const prismaSessionTechniqueRepository: SessionTechniqueRepository = {
     patientId: string,
     sessionId: string,
     entries: SessionTechniqueCreateDTO[],
-  ): Promise<SessionTechniqueDTO[]> {
+  ): Promise<SessionTechniqueDTO[] | null> {
     const db = forTenant(ctx);
     // La sesión debe ser del tenant y del paciente (tenantId vía guard).
+    // null y no throw: la convención del repo es que "no encontrado" es un
+    // valor, no una excepción — la ruta lo mapea a 404 (antes el throw
+    // genérico terminaba en un 500 del errorHandler).
     const session = await db.session.findFirst({
       where: { id: sessionId, patientId },
       select: { id: true },
     });
-    if (!session) throw new Error('Sesión no encontrada');
+    if (!session) return null;
 
     // Delete existing + create new in a transaction
     await db.$transaction([
