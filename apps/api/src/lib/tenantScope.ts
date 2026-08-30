@@ -16,8 +16,11 @@ import type { TenantContext } from '../repositories/types';
 // Límite conocido: la extension solo ve el nivel top de cada query. Los
 // creates/reads ANIDADOS sobre relaciones (p. ej. `patient: { select }` dentro
 // de un findMany de payments) NO se filtran acá; esos casos se resuelven en el
-// repositorio que arma la query. Por eso B8 (pacientes borrados en reads
-// anidados) es un paso aparte.
+// repositorio que arma la query.
+//
+// Ojo con el corolario para `deletedAt`: que esos joins NO filtren pacientes
+// borrados es deliberado (issue #72, cerrado by design) — el historial de
+// cobros y sesiones conserva el nombre. Ver la política en patientRepository.
 
 // Única fuente de verdad de los modelos scopeados, en PascalCase (los nombres
 // que llegan como `model` en la extension), no los de la tabla SQL. De esta

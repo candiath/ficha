@@ -96,6 +96,10 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 
 Dos excepciones documentadas: `authRepository` **no** recibe `ctx` (sus lecturas son las que lo construyen: login y `authenticate`), y `techniqueRepository` filtra el tenant a mano porque `Technique` tiene `tenantId` nullable y queda fuera del guard.
 
+### Borrado de pacientes
+
+Es **lógico** (`deletedAt`) y se toma en cuenta **solo para el listado**: el paciente desaparece de `GET /api/patients`, su ficha da 404 y no puede recibir datos clínicos nuevos (las rutas que crean episodios, sesiones, escalas, alertas y paquetes pasan por `patientRepo.exists()`). Pero **el historial ya registrado lo sigue nombrando**: los joins `patient: { select: { fullName } }` de Cobros, Sesiones y Paquetes no filtran `deletedAt` a propósito — un cobro sin nombre sería un registro inútil. Borrar un paciente lo oculta; no reescribe el pasado. (Issue #72, cerrado *by design*.)
+
 ## Convenciones
 
 - Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, mensajes en español con prefijo convencional (`fix(web): ...`, `test(web): ...`).
