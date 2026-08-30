@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma, PaymentStatus } from '@prisma/client';
-import { auditLogRepo } from '../repositories';
+import { auditLogRepo, packageRepo } from '../repositories';
 
 const router = Router();
 
@@ -121,18 +121,12 @@ router.post('/', async (req, res) => {
 
   // El paquete a debitar debe ser del mismo tenant y del mismo paciente:
   // sin este chequeo se podía descontar sesiones del paquete de otro.
-  if (body.packageId) {
-    const pkg = await req.db.sessionPackage.findFirst({
-      where: {
-        id: body.packageId,
-        patientId: session.patientId,
-      },
-      select: { id: true },
-    });
-    if (!pkg) {
-      res.status(404).json({ error: 'Paquete no encontrado' });
-      return;
-    }
+  if (
+    body.packageId &&
+    !(await packageRepo.belongsToPatient(req.context, body.packageId, session.patientId))
+  ) {
+    res.status(404).json({ error: 'Paquete no encontrado' });
+    return;
   }
 
   // Verificar que no exista ya un pago para esta sesión
@@ -202,18 +196,12 @@ router.patch('/:id', async (req, res) => {
 
   // Mismo chequeo que en el POST: el paquete debe ser del tenant y del
   // paciente del pago.
-  if (body.packageId) {
-    const pkg = await req.db.sessionPackage.findFirst({
-      where: {
-        id: body.packageId,
-        patientId: existing.patientId,
-      },
-      select: { id: true },
-    });
-    if (!pkg) {
-      res.status(404).json({ error: 'Paquete no encontrado' });
-      return;
-    }
+  if (
+    body.packageId &&
+    !(await packageRepo.belongsToPatient(req.context, body.packageId, existing.patientId))
+  ) {
+    res.status(404).json({ error: 'Paquete no encontrado' });
+    return;
   }
 
   const newBase = body.baseAmount ?? Number(existing.baseAmount);

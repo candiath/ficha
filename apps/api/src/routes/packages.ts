@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { patientRepo } from '../repositories';
+import { packageRepo, patientRepo } from '../repositories';
 
+// Las queries viven en packageRepo (incluida la regla "no borrar un paquete
+// con sesiones ya usadas"); la ruta queda en HTTP puro: validar el body y
+// mapear el resultado a status codes.
 const router = Router();
 
 const PackageCreateSchema = z.object({
@@ -15,31 +18,7 @@ const PackageCreateSchema = z.object({
 // GET /api/packages?patientId=xxx  — lista paquetes de un paciente con sesiones usadas
 router.get('/', async (req, res) => {
   const patientId = req.query.patientId as string | undefined;
-
-  const packages = await req.db.sessionPackage.findMany({
-    where: {
-      ...(patientId ? { patientId } : {}),
-    },
-    include: {
-      patient: { select: { id: true, fullName: true } },
-      _count: { select: { payments: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  const data = packages.map((pkg) => ({
-    id: pkg.id,
-    patientId: pkg.patientId,
-    patientName: pkg.patient.fullName,
-    name: pkg.name,
-    totalSessions: pkg.totalSessions,
-    pricePerSession: Number(pkg.pricePerSession),
-    usedSessions: pkg._count.payments,
-    remainingSessions: pkg.totalSessions - pkg._count.payments,
-    notes: pkg.notes,
-    createdAt: pkg.createdAt,
-  }));
-
+  const data = await packageRepo.list(req.context, { patientId });
   res.json({ data });
 });
 
@@ -53,47 +32,24 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const pkg = await req.db.sessionPackage.create({
-    data: {
-      patientId: body.patientId,
-      name: body.name,
-      totalSessions: body.totalSessions,
-      pricePerSession: body.pricePerSession,
-      notes: body.notes ?? null,
-    },
-    include: {
-      _count: { select: { payments: true } },
-    },
-  });
-
-  res.status(201).json({
-    data: {
-      ...pkg,
-      pricePerSession: Number(pkg.pricePerSession),
-      usedSessions: 0,
-      remainingSessions: pkg.totalSessions,
-    },
-  });
+  const pkg = await packageRepo.create(req.context, body);
+  res.status(201).json({ data: pkg });
 });
 
 // DELETE /api/packages/:id — solo si no tiene sesiones usadas
 router.delete('/:id', async (req, res) => {
-  const pkg = await req.db.sessionPackage.findFirst({
-    where: { id: req.params.id },
-    include: { _count: { select: { payments: true } } },
-  });
+  const result = await packageRepo.deleteIfUnused(req.context, req.params.id);
 
-  if (!pkg) {
+  if (result === 'not_found') {
     res.status(404).json({ error: 'Paquete no encontrado' });
     return;
   }
 
-  if (pkg._count.payments > 0) {
+  if (result === 'in_use') {
     res.status(409).json({ error: 'No se puede eliminar un paquete con sesiones ya usadas' });
     return;
   }
 
-  await req.db.sessionPackage.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });
 
