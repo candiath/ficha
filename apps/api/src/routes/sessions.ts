@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { sessionDateField } from '../lib/sessionDate';
-import { auditLogRepo, patientRepo, techniqueRepo } from '../repositories';
-import type { TenantScopedClient } from '../lib/tenantScope';
+import { auditLogRepo, episodeRepo, patientRepo, techniqueRepo } from '../repositories';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -79,26 +78,6 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 // /api/payments y las técnicas por el bulkReplace de /techniques.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
-// Los episodeIds vienen del body: sin esta verificación, un connect a ciegas
-// permitiría vincular la sesión a episodios de otro paciente o de otro tenant
-// (y GET /api/sessions expondría el mainComplaint ajeno).
-async function episodesBelongToPatient(
-  db: TenantScopedClient,
-  patientId: string,
-  episodeIds: string[],
-): Promise<boolean> {
-  if (episodeIds.length === 0) return true;
-  // Deduplicar antes de contar: con ids repetidos count devolvería menos que
-  // length y un request válido se rechazaría por error.
-  const uniqueIds = [...new Set(episodeIds)];
-  // patientId ya garantiza el tenant (el paciente se validó antes); la
-  // extension de req.db agrega el filtro por tenantId como defensa en profundidad.
-  const found = await db.clinicalEpisode.count({
-    where: { id: { in: uniqueIds }, patientId },
-  });
-  return found === uniqueIds.length;
-}
-
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
@@ -155,7 +134,10 @@ router.post<ParentParams>('/', async (req, res) => {
   const { userId } = req.context;
   const { episodeIds, payment, techniques, ...rest } = SessionCreateSchema.parse(req.body);
 
-  if (!(await episodesBelongToPatient(req.db, req.params.patientId, episodeIds))) {
+  // Los episodeIds vienen del body: sin esta verificación, un connect a
+  // ciegas permitiría vincular la sesión a episodios de otro paciente o de
+  // otro tenant (y GET /api/sessions expondría el mainComplaint ajeno).
+  if (!(await episodeRepo.allBelongToPatient(req.context, req.params.patientId, episodeIds))) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
@@ -289,7 +271,10 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
 
   const { episodeIds, ...rest } = SessionUpdateSchema.parse(req.body);
 
-  if (episodeIds && !(await episodesBelongToPatient(req.db, req.params.patientId, episodeIds))) {
+  if (
+    episodeIds &&
+    !(await episodeRepo.allBelongToPatient(req.context, req.params.patientId, episodeIds))
+  ) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
