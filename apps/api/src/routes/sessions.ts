@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { techniquesBelongToTenant } from '../lib/techniques';
 import { sessionDateField } from '../lib/sessionDate';
-import { auditLogRepo, patientRepo } from '../repositories';
+import { auditLogRepo, patientRepo, techniqueRepo } from '../repositories';
 import type { TenantScopedClient } from '../lib/tenantScope';
 
 type ParentParams = { patientId: string };
@@ -177,7 +176,7 @@ router.post<ParentParams>('/', async (req, res) => {
     }
   }
 
-  if (!(await techniquesBelongToTenant(req.context, techniques.map((t) => t.techniqueId)))) {
+  if (!(await techniqueRepo.allUsableByTenant(req.context, techniques.map((t) => t.techniqueId)))) {
     res.status(400).json({ error: 'Técnica inexistente' });
     return;
   }

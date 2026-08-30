@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { techniquesBelongToTenant } from '../lib/techniques';
-import { sessionTechniqueRepo } from '../repositories';
+import { sessionTechniqueRepo, techniqueRepo } from '../repositories';
 
 type Params = { patientId: string; sessionId: string };
 
@@ -35,7 +34,7 @@ router.put<Params>('/', async (req, res) => {
 
   // Mismo criterio que el POST de sesiones: las técnicas deben ser del
   // tenant o globales; Zod solo valida el formato del uuid.
-  if (!(await techniquesBelongToTenant(req.context, entries.map((e) => e.techniqueId)))) {
+  if (!(await techniqueRepo.allUsableByTenant(req.context, entries.map((e) => e.techniqueId)))) {
     res.status(400).json({ error: 'Técnica inexistente' });
     return;
   }
