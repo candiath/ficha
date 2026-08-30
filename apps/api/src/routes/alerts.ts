@@ -47,6 +47,13 @@ router.post('/', async (req, res) => {
 // PATCH /api/alerts/:id/read — mark single alert as read
 router.patch('/:id/read', async (req, res) => {
   const data = await clinicalAlertRepo.markAsRead(req.context, req.params.id);
+
+  // null = alerta inexistente o de otro tenant: mismo 404, sin revelar cuál.
+  if (!data) {
+    res.status(404).json({ error: 'Alerta no encontrada' });
+    return;
+  }
+
   res.json({ data });
 });
 

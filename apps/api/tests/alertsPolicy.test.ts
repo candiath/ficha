@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import app from '../src/app';
@@ -46,5 +47,31 @@ describe('alertas: vigencia del paciente', () => {
       where: { patientId: patient.id },
     });
     expect(leaked).toBeNull();
+  });
+
+  it('responde 404 al marcar como leída una alerta inexistente', async () => {
+    // Antes markAsRead tiraba un Error genérico y esto era un 500.
+    const res = await request(app)
+      .patch(`/api/alerts/${randomUUID()}/read`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Alerta no encontrada' });
+  });
+
+  it('marca como leída una alerta del tenant', async () => {
+    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Con Alerta' });
+    const created = await postAlert(patient.id);
+    expect(created.status).toBe(201);
+
+    const res = await request(app)
+      .patch(`/api/alerts/${created.body.data.id}/read`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.isRead).toBe(true);
+    expect(res.body.data.readAt).not.toBeNull();
   });
 });
