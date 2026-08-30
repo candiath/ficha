@@ -55,6 +55,20 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
     return rows.map(toDTO);
   },
 
+  async hasRecentUnread(
+    ctx: TenantContext,
+    patientId: string,
+    type: AlertCreateDTO['type'],
+    since: Date,
+  ): Promise<boolean> {
+    const db = forTenant(ctx);
+    const row = await db.clinicalAlert.findFirst({
+      where: { patientId, type, isRead: false, createdAt: { gte: since } },
+      select: { id: true },
+    });
+    return row !== null;
+  },
+
   async stats(ctx: TenantContext) {
     const db = forTenant(ctx);
     const [unread, followUp, payment, noShow] = await Promise.all([

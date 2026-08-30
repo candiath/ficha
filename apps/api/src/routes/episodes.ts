@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { clinicalAlertRepo, episodeRepo, patientRepo } from '../repositories';
 import type { TenantContext } from '../repositories/types';
-import type { TenantScopedClient } from '../lib/tenantScope';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -25,43 +24,31 @@ const INACTIVE_DAYS = 21;
 // Días de cooldown para no duplicar alertas del mismo tipo
 const ALERT_COOLDOWN_DAYS = 7;
 
-// Recibe ctx además de db: la creación de la alerta va por clinicalAlertRepo
-// (que scopea con el ctx); los dos reads siguen en db hasta tener repo propio.
+// La política (umbral de inactividad, cooldown, redacción del mensaje) vive
+// acá — es dominio; el acceso a datos va por los repos.
 async function checkInactiveEpisode(
   ctx: TenantContext,
-  db: TenantScopedClient,
   patientId: string,
   episodeId: string,
   mainComplaint: string | null,
 ) {
-  const lastSession = await db.session.findFirst({
-    where: { patientId, episodes: { some: { episodeId } } },
-    orderBy: { sessionDate: 'desc' },
-    select: { sessionDate: true },
-  });
+  const lastActivity = await episodeRepo.lastActivityAt(ctx, patientId, episodeId);
 
   const inactiveCutoff = new Date();
   inactiveCutoff.setDate(inactiveCutoff.getDate() - INACTIVE_DAYS);
 
-  const isInactive = !lastSession || lastSession.sessionDate < inactiveCutoff;
+  const isInactive = !lastActivity || lastActivity < inactiveCutoff;
   if (!isInactive) return;
 
   // No crear alerta si ya existe una no leída reciente
   const alertCutoff = new Date();
   alertCutoff.setDate(alertCutoff.getDate() - ALERT_COOLDOWN_DAYS);
-  const existing = await db.clinicalAlert.findFirst({
-    where: {
-      patientId,
-      type: 'NO_SHOW',
-      isRead: false,
-      createdAt: { gte: alertCutoff },
-    },
-    select: { id: true },
-  });
-  if (existing) return;
+  if (await clinicalAlertRepo.hasRecentUnread(ctx, patientId, 'NO_SHOW', alertCutoff)) {
+    return;
+  }
 
-  const daysSince = lastSession
-    ? Math.floor((Date.now() - lastSession.sessionDate.getTime()) / 86_400_000)
+  const daysSince = lastActivity
+    ? Math.floor((Date.now() - lastActivity.getTime()) / 86_400_000)
     : null;
   const episodeLabel = mainComplaint ? `"${mainComplaint}"` : 'el episodio activo';
   const message = daysSince
@@ -87,7 +74,6 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
   for (const ep of activeEpisodes) {
     checkInactiveEpisode(
       req.context,
-      req.db,
       req.params.patientId,
       ep.id,
       ep.mainComplaint,
