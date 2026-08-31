@@ -11,6 +11,13 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+// ── Evaluación inicial ───────────────────────────────────────────────────────
+
+// A diferencia del resto del paquete, esto no son solo tipos: exporta la
+// definición de la grilla de posturas y sus schemas de Zod, que la web usa para
+// dibujar y la API para validar. Es el único módulo con valores de runtime.
+export * from './postureFamilies';
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 export type UserRole = 'ADMIN' | 'THERAPIST';
