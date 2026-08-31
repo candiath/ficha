@@ -34,8 +34,14 @@ const TABLE_B: PostureTable = {
   rows: ['1', '2', '3', '4'],
 };
 
-// Estados por los que cicla el botón de la Tabla 1: vacío → x → X → vacío.
+// Estados por los que ciclan los botones de ambas tablas: vacío → x → X → vacío.
 const CYCLE_STATES = ['', 'x', 'X'] as const;
+
+// Compat: F6/I/ELR eran checkboxes y guardaban 'on'. Una tilde vieja se lee como
+// marca fuerte; desde el primer click el botón cicla normal. No migramos la base:
+// el valor se normaliza al guardar el siguiente cambio de la evaluación.
+const toCycleValue = (raw: string) =>
+  CYCLE_STATES.includes(raw as (typeof CYCLE_STATES)[number]) ? raw : 'X';
 
 // Opciones del dropdown de la columna 'Reeq' (Tabla 2).
 const REEQ_OPTIONS = ['', '000', 'XXX', 'XX', 'X'] as const;
@@ -44,7 +50,7 @@ const REEQ_OPTIONS = ['', '000', 'XXX', 'XX', 'X'] as const;
 const cellKey = (tableId: string, row: string, col: string) =>
   `${tableId}:${row}:${col}`;
 
-// ── Celda de la Tabla 1: botón que cicla x / X / vacío ─────────────────────────
+// ── Celda que cicla x / X / vacío (Tabla 1 completa; Tabla 2 salvo 'R') ────────
 function CycleCell({
   value,
   onChange,
@@ -78,7 +84,7 @@ function CycleCell({
   );
 }
 
-// ── Celda de la Tabla 2 (columnas comunes): checkbox ──────────────────────────
+// ── Celda de la columna 'R' de la Tabla 2: checkbox ───────────────────────────
 // Usamos un <button> con SVG en vez del Checkbox de Base UI a propósito: ese
 // componente renderiza un <input> oculto con position:fixed que, dentro de un
 // modal con scroll, hace saltar el scroll al tope. `type="button"` evita además
@@ -295,7 +301,8 @@ export function PostureFamiliesTables({
     />
   );
 
-  // Tabla 2: 'Reeq' es un dropdown, 'Pistas' un textarea; el resto, checkboxes.
+  // Tabla 2: 'Reeq' es un dropdown, 'Pistas' un textarea y 'R' un checkbox
+  // (es binaria); el resto cicla x / X / vacío, igual que la Tabla 1.
   const renderCellB = (tableId: string, row: string, col: string) => {
     const label = `Fila ${row}, columna ${col}`;
     if (col === 'Reeq') {
@@ -316,11 +323,20 @@ export function PostureFamiliesTables({
         />
       );
     }
-    const checked = getValue(tableId, row, col) === 'on';
+    if (col === 'R') {
+      const checked = getValue(tableId, row, col) === 'on';
+      return (
+        <CheckboxCell
+          checked={checked}
+          onToggle={() => setValue(tableId, row, col, checked ? '' : 'on')}
+          label={label}
+        />
+      );
+    }
     return (
-      <CheckboxCell
-        checked={checked}
-        onToggle={() => setValue(tableId, row, col, checked ? '' : 'on')}
+      <CycleCell
+        value={toCycleValue(getValue(tableId, row, col))}
+        onChange={(next) => setValue(tableId, row, col, next)}
         label={label}
       />
     );
