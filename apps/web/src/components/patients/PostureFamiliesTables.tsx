@@ -160,7 +160,10 @@ function ReeqCell({
       <DropdownMenuContent align="center" className="min-w-20">
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
           {REEQ_OPTIONS.map((opt) => (
-            <DropdownMenuRadioItem key={opt} value={opt}>
+            // `closeOnClick` en RadioItem viene en false (Base UI asume menús de
+            // selección múltiple). Acá la celda toma un valor único, así que
+            // elegir una opción cierra la lista.
+            <DropdownMenuRadioItem key={opt} value={opt} closeOnClick>
               {opt}
             </DropdownMenuRadioItem>
           ))}
