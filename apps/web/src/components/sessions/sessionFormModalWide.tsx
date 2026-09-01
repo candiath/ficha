@@ -423,6 +423,7 @@ export default function SessionFormModalWide({
                       <Label className="text-muted-foreground text-xs uppercase tracking-wide">
                         Evaluación del dolor
                       </Label>
+                      {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
                         <FormField
                           control={form.control}
@@ -699,7 +700,7 @@ export default function SessionFormModalWide({
                       name="preSesionState"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Estado pre-sesión</FormLabel>
+                          <FormLabel>Evaluación (estado pre-sesión)</FormLabel>
                           <FormControl>
                             <Textarea
                               placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
@@ -711,6 +712,26 @@ export default function SessionFormModalWide({
                         </FormItem>
                       )}
                     />
+
+                    {/* Observaciones / técnicas */}
+                    <FormField
+                      control={form.control}
+                      name="observations"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tratamiento</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
+                              rows={3}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     <FormField
                       control={form.control}
                       name="reEvaluationNotes"
@@ -719,7 +740,7 @@ export default function SessionFormModalWide({
                           <FormLabel>Re-evaluación</FormLabel>
                           <FormControl>
                             <Textarea
-                              placeholder="Cambios posturales, rangos articulares, hallazgos..."
+                              placeholder="Evaluación del dolor"
                               rows={3}
                               {...field}
                             />
@@ -745,23 +766,7 @@ export default function SessionFormModalWide({
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="observations"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Observaciones / técnicas</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    
                   </CardContent>
                 </Card>
               </div>
