@@ -1064,6 +1064,10 @@ export default function PatientDetailPage() {
   const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
   const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
   const [confirmAbandon, setConfirmAbandon] = useState(false);
+  // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
+  // cierra el episodio en la misma transacción. Por eso se abre el mismo modal
+  // de sesión, no un formulario aparte.
+  const [dischargeOpen, setDischargeOpen] = useState(false);
 
   const {
     data: patient,
@@ -1412,7 +1416,26 @@ export default function PatientDetailPage() {
               <DialogFooter className="flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
                 <div className="flex gap-2">
                   {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
-                    
+                    <>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            className="text-xs"
+                            onClick={() => {
+                              setEditEpisodeOpen(false);
+                              setDischargeOpen(true);
+                            }}
+                          >
+                            Registrar alta
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <p>Registra la sesión de cierre y da de alta el episodio en un solo paso.</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -1425,6 +1448,7 @@ export default function PatientDetailPage() {
                         <p>Elegí esta opción si el paciente deja de asistir sin alta formal. Podés reactivarlo si regresa.</p>
                       </TooltipContent>
                     </Tooltip>
+                    </>
                   ) : (
                     <Button
                       variant="ghost"
@@ -1452,6 +1476,16 @@ export default function PatientDetailPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {effectiveEpisodeId && (
+        <SessionFormDialog
+          open={dischargeOpen}
+          onOpenChange={setDischargeOpen}
+          patientId={id!}
+          episodeId={effectiveEpisodeId}
+          sessionType="DISCHARGE"
+        />
+      )}
 
       <PatientFormDialog
         open={editOpen}
