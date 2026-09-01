@@ -40,13 +40,6 @@ export interface SessionFields {
   observations?: string | null;
 }
 
-export interface SessionTechniqueInput {
-  techniqueId: string;
-  bodyRegionId?: string | null;
-  muscularChainId?: string | null;
-  variantNotes?: string | null;
-}
-
 export interface SessionPaymentInput {
   packageId?: string | null;
   baseAmount: number;
@@ -54,25 +47,23 @@ export interface SessionPaymentInput {
   notes?: string | null;
 }
 
-// El POST crea la sesión con su cobro y sus técnicas de una sola vez: antes
-// el frontend encadenaba 3 requests y un fallo intermedio dejaba sesiones sin
-// pago (invisibles en Cobros) o sin técnicas.
+// El POST crea la sesión con su cobro de una sola vez: antes el frontend
+// encadenaba varios requests y un fallo intermedio dejaba sesiones sin pago
+// (invisibles en Cobros).
 export interface SessionCreateInput extends SessionFields {
   episodeIds: string[];
   payment?: SessionPaymentInput;
-  techniques: SessionTechniqueInput[];
 }
 
-// payment/techniques quedan afuera a propósito: el pago se edita por
-// /api/payments y las técnicas por el bulkReplace de /techniques.
+// payment queda afuera a propósito: el pago se edita por /api/payments.
 export type SessionUpdateInput = Partial<SessionFields> & { episodeIds?: string[] };
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 // Como episodios y escalas: los métodos anidados piden patientId, y una
 // sesión de otro paciente cuenta como inexistente. La vigencia del paciente
-// la exige la ruta con patientRepo.exists; la pertenencia de episodios,
-// paquete y técnicas se valida antes con sus repos.
+// la exige la ruta con patientRepo.exists; la pertenencia de episodios y
+// paquete se valida antes con sus repos.
 export interface SessionRepository {
   listByPatient(
     ctx: TenantContext,
@@ -84,9 +75,9 @@ export interface SessionRepository {
   /** Todas las sesiones del tenant con nombre de paciente (vista de agenda). */
   listAllForTenant(ctx: TenantContext): Promise<SessionWithPatientDTO[]>;
   /**
-   * Crea sesión + cobro + técnicas + cierre de episodios en una transacción:
-   * si algo falla no queda una sesión a medias. La sesión se atribuye al
-   * usuario del contexto.
+   * Crea sesión + cobro + cierre de episodios en una transacción: si algo
+   * falla no queda una sesión a medias. La sesión se atribuye al usuario del
+   * contexto.
    */
   create(
     ctx: TenantContext,

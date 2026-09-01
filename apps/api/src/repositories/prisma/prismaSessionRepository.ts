@@ -145,11 +145,11 @@ export const prismaSessionRepository: SessionRepository = {
     input: SessionCreateInput,
   ): Promise<SessionDTO> {
     const db = forTenant(ctx);
-    const { episodeIds, payment, techniques } = input;
+    const { episodeIds, payment } = input;
 
-    // Todo lo que dispara el registro de una sesión es atómico: si el pago,
-    // las técnicas o el cierre de episodios fallan, no queda una sesión a
-    // medias (sin pago no aparece en Cobros, y el reintento la duplicaba).
+    // Todo lo que dispara el registro de una sesión es atómico: si el pago o
+    // el cierre de episodios fallan, no queda una sesión a medias (sin pago
+    // no aparece en Cobros, y el reintento la duplicaba).
     //
     // Nota multi-tenant: el `tx` de una transacción interactiva NO está
     // reescrito por el tipo TenantScopedClient (igual que upsert; ver #55),
@@ -185,18 +185,6 @@ export const prismaSessionRepository: SessionRepository = {
             finalAmount: payment.baseAmount - payment.discount,
             notes: payment.notes ?? null,
           },
-        });
-      }
-
-      if (techniques.length > 0) {
-        await tx.sessionTechnique.createMany({
-          data: techniques.map((t) => ({
-            sessionId: created.id,
-            techniqueId: t.techniqueId,
-            bodyRegionId: t.bodyRegionId ?? null,
-            muscularChainId: t.muscularChainId ?? null,
-            variantNotes: t.variantNotes ?? null,
-          })),
         });
       }
 

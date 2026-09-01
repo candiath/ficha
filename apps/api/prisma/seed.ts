@@ -4,40 +4,14 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  // ── Catálogo global de cadenas musculares (Método Souchard / RPG) ────────
-  await Promise.all([
-    prisma.muscularChain.upsert({ where: { id: 'mc-respiratoria' }, update: {}, create: { id: 'mc-respiratoria', name: 'Cadena Respiratoria Estática', description: 'Músculos inspiratorios de la caja torácica que fijan la respiración en inspiración' } }),
-    prisma.muscularChain.upsert({ where: { id: 'mc-inspiratoria' }, update: {}, create: { id: 'mc-inspiratoria', name: 'Cadena Inspiratoria', description: 'Escalenos, intercostales y serrato; mantiene expansión torácica' } }),
-    prisma.muscularChain.upsert({ where: { id: 'mc-anterior-brazo' }, update: {}, create: { id: 'mc-anterior-brazo', name: 'Cadena Anterior del Brazo', description: 'Cadena flexora anterior del miembro superior' } }),
-    prisma.muscularChain.upsert({ where: { id: 'mc-posterior-brazo' }, update: {}, create: { id: 'mc-posterior-brazo', name: 'Cadena Posterior del Brazo', description: 'Cadena extensora posterior del miembro superior' } }),
-    prisma.muscularChain.upsert({ where: { id: 'mc-maestra-anterior' }, update: {}, create: { id: 'mc-maestra-anterior', name: 'Cadena Maestra Anterior', description: 'Gran cadena flexora anterior del tronco y miembros inferiores' } }),
-    prisma.muscularChain.upsert({ where: { id: 'mc-maestra-posterior' }, update: {}, create: { id: 'mc-maestra-posterior', name: 'Cadena Maestra Posterior', description: 'Gran cadena extensora posterior; paravertebrales, glúteos e isquiotibiales' } }),
-  ]);
-
-  // ── Catálogo global de regiones corporales ──────────────────────────────
-  const bodyRegions = await Promise.all([
-    prisma.bodyRegion.upsert({ where: { id: 'br-cervical' }, update: {}, create: { id: 'br-cervical', name: 'Cervical', zone: 'superior' } }),
-    prisma.bodyRegion.upsert({ where: { id: 'br-dorsal' }, update: {}, create: { id: 'br-dorsal', name: 'Dorsal', zone: 'superior' } }),
-    prisma.bodyRegion.upsert({ where: { id: 'br-lumbar' }, update: {}, create: { id: 'br-lumbar', name: 'Lumbar', zone: 'inferior' } }),
-    prisma.bodyRegion.upsert({ where: { id: 'br-cadera' }, update: {}, create: { id: 'br-cadera', name: 'Cadera', zone: 'inferior' } }),
-    prisma.bodyRegion.upsert({ where: { id: 'br-rodilla' }, update: {}, create: { id: 'br-rodilla', name: 'Rodilla', zone: 'inferior' } }),
-  ]);
-
-  // ── Técnicas globales RPG (tenant_id null = disponible para todos) ───────
-  await Promise.all([
-    prisma.technique.upsert({ where: { id: 'tech-rana-suelo' }, update: {}, create: { id: 'tech-rana-suelo', tenantId: null, name: 'Rana en el suelo', isGlobal: true } }),
-    prisma.technique.upsert({ where: { id: 'tech-rana-aire' }, update: {}, create: { id: 'tech-rana-aire', tenantId: null, name: 'Rana en el aire', isGlobal: true } }),
-    prisma.technique.upsert({ where: { id: 'tech-sentado' }, update: {}, create: { id: 'tech-sentado', tenantId: null, name: 'Sentado en silla', isGlobal: true } }),
-    prisma.technique.upsert({ where: { id: 'tech-parado' }, update: {}, create: { id: 'tech-parado', tenantId: null, name: 'Parado en la pared', isGlobal: true } }),
-  ]);
-
   // ── Guardia de producción ────────────────────────────────────────────────
-  // En producción solo se siembran los catálogos globales de arriba.
-  // El tenant demo, el usuario admin@ficha.dev/password123 y los pacientes
-  // de ejemplo son EXCLUSIVAMENTE de desarrollo: sembrar una credencial
-  // conocida en producción sería una puerta trasera.
+  // Desde que se eliminaron los catálogos de técnicas, el seed no tiene nada
+  // que sembrar en producción. El tenant demo, el usuario
+  // admin@ficha.dev/password123 y los pacientes de ejemplo son
+  // EXCLUSIVAMENTE de desarrollo: sembrar una credencial conocida en
+  // producción sería una puerta trasera.
   if (process.env.NODE_ENV === 'production') {
-    console.log('✓ Seed completado (solo catálogos globales)');
+    console.log('✓ Seed completado (nada que sembrar)');
     console.log('  NODE_ENV=production: no se crean tenant, usuario ni datos demo.');
     return;
   }
@@ -113,7 +87,7 @@ async function main() {
   });
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
-  const session1 = await prisma.session.upsert({
+  await prisma.session.upsert({
     where: { id: 'dev-session-001' },
     update: {},
     create: {
@@ -150,19 +124,6 @@ async function main() {
       reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable. Cabeza sigue adelantada.',
       patientResponse: 'Excelente respuesta. Se incorporó postura parado en la pared sin dificultad.',
       observations: 'Sesión combinada: rana en el suelo + parado en la pared. Trabajo específico sobre sector cervical.',
-    },
-  });
-
-  // ── Técnicas aplicadas en sesión 1 ────────────────────────────────────
-  await prisma.sessionTechnique.upsert({
-    where: { id: 'dev-st-001' },
-    update: {},
-    create: {
-      id: 'dev-st-001',
-      sessionId: session1.id,
-      techniqueId: 'tech-rana-suelo',
-      bodyRegionId: 'br-lumbar',
-      variantNotes: '20 min, respiración diafragmática guiada',
     },
   });
 
@@ -510,45 +471,6 @@ async function main() {
     createdSessionsP2.push({ id: session.id, sessionDate: session.sessionDate });
   }
 
-  // ── Técnicas aplicadas ──────────────────────────────────────────────────
-  const techniquesP2 = [
-    // Sesión 1
-    { id: 'dev-st-p2-001', sessionId: 'dev-session-p2-001', techniqueId: 'tech-sentado',      bodyRegionId: 'br-cervical', chainId: 'mc-respiratoria',   notes: '45 min, debloqueo diafragma, conciencia cervical' },
-    // Sesión 2
-    { id: 'dev-st-p2-002', sessionId: 'dev-session-p2-002', techniqueId: 'tech-sentado',      bodyRegionId: 'br-cervical', chainId: 'mc-respiratoria',   notes: '30 min, foco escapular' },
-    { id: 'dev-st-p2-003', sessionId: 'dev-session-p2-002', techniqueId: 'tech-rana-suelo',   bodyRegionId: 'br-lumbar',   chainId: 'mc-maestra-posterior', notes: '15 min, introducción' },
-    // Sesión 3
-    { id: 'dev-st-p2-004', sessionId: 'dev-session-p2-003', techniqueId: 'tech-rana-suelo',   bodyRegionId: 'br-lumbar',   chainId: 'mc-maestra-posterior', notes: '25 min, mayor soltura' },
-    { id: 'dev-st-p2-005', sessionId: 'dev-session-p2-003', techniqueId: 'tech-sentado',      bodyRegionId: 'br-cervical', chainId: 'mc-respiratoria',   notes: '20 min' },
-    // Sesión 4
-    { id: 'dev-st-p2-006', sessionId: 'dev-session-p2-004', techniqueId: 'tech-parado',       bodyRegionId: 'br-dorsal',   chainId: 'mc-maestra-anterior', notes: '30 min, corrección hipercifosis' },
-    { id: 'dev-st-p2-007', sessionId: 'dev-session-p2-004', techniqueId: 'tech-rana-suelo',   bodyRegionId: 'br-cadera',   chainId: 'mc-maestra-posterior', notes: '15 min' },
-    // Sesión 6 (sesión 5 es NOTE — sin técnicas)
-    { id: 'dev-st-p2-008', sessionId: 'dev-session-p2-006', techniqueId: 'tech-parado',       bodyRegionId: 'br-cervical', chainId: 'mc-maestra-anterior', notes: '30 min, cierre ciclo 1' },
-    { id: 'dev-st-p2-009', sessionId: 'dev-session-p2-006', techniqueId: 'tech-sentado',      bodyRegionId: 'br-cervical', chainId: 'mc-respiratoria',   notes: '20 min, reevaluación postural' },
-    // Sesión 7
-    { id: 'dev-st-p2-010', sessionId: 'dev-session-p2-007', techniqueId: 'tech-rana-aire',    bodyRegionId: 'br-cadera',   chainId: 'mc-maestra-anterior', notes: '30 min, cadena anterior' },
-    { id: 'dev-st-p2-011', sessionId: 'dev-session-p2-007', techniqueId: 'tech-parado',       bodyRegionId: 'br-dorsal',   chainId: 'mc-maestra-anterior', notes: '15 min, estabilización' },
-    // Sesión 8
-    { id: 'dev-st-p2-012', sessionId: 'dev-session-p2-008', techniqueId: 'tech-rana-aire',    bodyRegionId: 'br-cadera',   chainId: 'mc-maestra-anterior', notes: '25 min' },
-    { id: 'dev-st-p2-013', sessionId: 'dev-session-p2-008', techniqueId: 'tech-sentado',      bodyRegionId: 'br-cervical', chainId: 'mc-inspiratoria',   notes: '20 min, trabajo respiratorio final' },
-  ];
-
-  for (const t of techniquesP2) {
-    await prisma.sessionTechnique.upsert({
-      where: { id: t.id },
-      update: {},
-      create: {
-        id: t.id,
-        sessionId: t.sessionId,
-        techniqueId: t.techniqueId,
-        bodyRegionId: t.bodyRegionId,
-        muscularChainId: t.chainId,
-        variantNotes: t.notes,
-      },
-    });
-  }
-
   // ── Pagos por sesión (7 pagados, 1 pendiente) ────────────────────────────
   const paymentsP2 = [
     { id: 'dev-pay-p2-001', sessionId: 'dev-session-p2-001', status: 'PAID',    paidAt: '2025-12-05T11:00:00.000Z', method: 'TRANSFER' },
@@ -670,7 +592,6 @@ async function main() {
   console.log(`  Usuario:   ${user.email} / password123`);
   console.log(`  Paciente 1: ${patient.fullName} — episodio ${episode1.id}`);
   console.log(`  Paciente 2: ${p2.fullName} — episodio ${episodeP2.id} (historia clínica completa)`);
-  console.log(`  Regiones corporales: ${bodyRegions.length}`);
 }
 
 main()
