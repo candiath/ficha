@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { familyPainSchema, postureFamiliesSchema } from '@ficha/shared';
 import { z } from 'zod';
 import { auditLogRepo, episodeRepo, evaluationRepo } from '../repositories';
 
@@ -23,9 +24,11 @@ const EvaluationSchema = z.object({
   physicalActivity: z.string().optional().nullable(),
   painAppearanceMoment: z.string().optional().nullable(),
   painFrequency: z.string().optional().nullable(),
-  familyPainAppearance: z.unknown().optional().nullable(),
-  familyPainDisappearance: z.unknown().optional().nullable(),
-  postureFamilies: z.record(z.string(), z.string()).optional().nullable(),
+  // Los tres campos de la sección de familias se validan de verdad: su forma
+  // vive en @ficha/shared, que es también la que dibuja la grilla en la web.
+  familyPainAppearance: familyPainSchema.optional().nullable(),
+  familyPainDisappearance: familyPainSchema.optional().nullable(),
+  postureFamilies: postureFamiliesSchema.optional().nullable(),
   evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 

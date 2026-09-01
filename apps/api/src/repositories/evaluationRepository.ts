@@ -1,10 +1,14 @@
+import type { FamilyPainOption, PostureFamilies } from '@ficha/shared';
+
 import type { TenantContext } from './types';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
-// Los campos Json del schema (mapa de retracciones, dolores familiares,
-// familias de postura) viajan como unknown: el port no expone tipos de
-// Prisma y el shape real lo define el frontend que los dibuja.
+// `retractionMap` viaja como unknown: el port no expone tipos de Prisma y su
+// shape real todavía lo define el frontend que lo dibuja. Los campos de la
+// sección de familias sí tienen forma declarada en @ficha/shared, así que se
+// tipan; la lectura igual llega como unknown porque en la base es JSON y nadie
+// garantiza que lo guardado hoy siga siendo válido mañana.
 export interface EvaluationDTO {
   id: string;
   patientId: string;
@@ -46,9 +50,9 @@ export interface EvaluationUpsertInput {
   physicalActivity?: string | null;
   painAppearanceMoment?: string | null;
   painFrequency?: string | null;
-  familyPainAppearance?: unknown;
-  familyPainDisappearance?: unknown;
-  postureFamilies?: Record<string, string> | null;
+  familyPainAppearance?: FamilyPainOption[] | null;
+  familyPainDisappearance?: FamilyPainOption[] | null;
+  postureFamilies?: PostureFamilies | null;
   evaScale?: number | null;
 }
 

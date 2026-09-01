@@ -102,6 +102,18 @@ Es **lógico** (`deletedAt`): el paciente desaparece de `GET /api/patients`, su 
 
 La línea que separa las dos mitades es **historial vs. trabajo pendiente**. Por eso las **alertas sí filtran** pacientes borrados, en la lista y en el contador de no leídas: una alerta no registra lo que pasó, pide una acción — y sobre un paciente eliminado esa acción es imposible. El filtro va en la lectura (`clinicalAlertRepository`) y no borra filas: el borrado es reversible y las alertas deben poder volver con el paciente.
 
+### Campos JSON: la forma vive en `packages/shared`
+
+La evaluación inicial guarda varias columnas `Json?` (grilla de familias de posturas, dolor en familia, mapa de retracciones). Postgres no valida nada de su contenido, así que **la forma de un campo JSON se declara en `packages/shared` y la ruta la valida con ese schema** — si no, el significado del dato termina viviendo sólo en el componente de React que lo dibuja, y nadie más puede leerlo sin reimplementarlo.
+
+`postureFamilies` es el caso modelo (`packages/shared/src/postureFamilies.ts`): `POSTURE_TABLES` describe las dos tablas columna por columna, cada una con un `kind` (`mark`, `flag`, `choice`, `text`) que dice qué guarda la celda. De ahí sale todo lo demás: la web dibuja el control según el `kind` y `postureFamiliesSchema` se deriva de la misma definición, con `strictObject` en los tres niveles (tabla → fila → columna). Agregar una columna es agregar una entrada en la lista.
+
+Lo guardado es sparse: una celda vacía no se guarda, una fila o tabla que queda sin celdas se borra, y una grilla sin nada se guarda como `NULL`. `setPostureCell` hace esa poda; no armar el objeto a mano.
+
+Éste es el único módulo de `packages/shared` con **valores de runtime** (el resto son `import type`). Por eso `apps/web/vite.config.ts` y `vitest.config.ts` aliasan `@ficha/shared` al código fuente —el paquete compila a CommonJS, que un browser no puede cargar— y el job `test` del CI buildea `packages/shared` antes de correr los tests de la API. Render ya lo hacía vía `build:api`.
+
+Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()`.
+
 ## Convenciones
 
 - Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, mensajes en español con prefijo convencional (`fix(web): ...`, `test(web): ...`).

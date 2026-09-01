@@ -11,6 +11,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Al código fuente, no a packages/shared/dist: tsconfig.app.json ya
+      // resuelve así para los tipos, y el paquete se compila a CommonJS, que
+      // Vite no puede servir tal cual a un browser. Alinear las dos
+      // resoluciones evita además bundlear un `dist` viejo que igual typechequea.
+      '@ficha/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
       '@': path.resolve(__dirname, './src'),
     },
   },

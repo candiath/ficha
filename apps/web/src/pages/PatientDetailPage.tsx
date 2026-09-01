@@ -1,4 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  FAMILY_PAIN_OPTIONS,
+  familyPainSchema,
+  isPostureFamiliesEmpty,
+  postureFamiliesSchema,
+} from '@ficha/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -56,9 +62,11 @@ const evalSchema = z.object({
   physicalActivity: z.string().optional().or(z.literal('')),
   painAppearanceMoment: z.string().optional().or(z.literal('')),
   painFrequency: z.string().optional().or(z.literal('')),
-  familyPainAppearance: z.array(z.string()).optional(),
-  familyPainDisappearance: z.array(z.string()).optional(),
-  postureFamilies: z.record(z.string(), z.string()).optional(),
+  // Los tres usan el mismo schema con el que valida la API: si el formulario
+  // arma algo que el servidor rechazaría, se ve acá y no en un 400.
+  familyPainAppearance: familyPainSchema.optional(),
+  familyPainDisappearance: familyPainSchema.optional(),
+  postureFamilies: postureFamiliesSchema.optional(),
   evaScale: z.string().optional().or(z.literal('')),
 });
 
@@ -297,8 +305,8 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         physicalActivity: evaluation.physicalActivity ?? '',
         painAppearanceMoment: evaluation.painAppearanceMoment ?? '',
         painFrequency: evaluation.painFrequency ?? '',
-        familyPainAppearance: (evaluation.familyPainAppearance as string[] | null) ?? [],
-        familyPainDisappearance: (evaluation.familyPainDisappearance as string[] | null) ?? [],
+        familyPainAppearance: evaluation.familyPainAppearance ?? [],
+        familyPainDisappearance: evaluation.familyPainDisappearance ?? [],
         postureFamilies: evaluation.postureFamilies ?? {},
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
@@ -326,9 +334,9 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         painFrequency: values.painFrequency || null,
         familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
         familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
-        // Mapa sparse: sin celdas marcadas se guarda NULL, igual que familyPain
+        // Grilla sparse: sin celdas marcadas se guarda NULL, igual que familyPain
         postureFamilies:
-          values.postureFamilies && Object.keys(values.postureFamilies).length
+          values.postureFamilies && !isPostureFamiliesEmpty(values.postureFamilies)
             ? values.postureFamilies
             : null,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
@@ -481,7 +489,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                         <FormLabel className="text-xs text-muted-foreground">Aparición</FormLabel>
                         <FormControl>
                           <div className="space-y-2">
-                            {(['1', '2', '3', '4'] as const).map((id) => {
+                            {FAMILY_PAIN_OPTIONS.map((id) => {
                               const active = field.value?.includes(id);
                               return (
                                 <div
@@ -517,7 +525,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                         <FormLabel className="text-xs text-muted-foreground">Desaparición</FormLabel>
                         <FormControl>
                           <div className="space-y-2">
-                            {(['1', '2', '3', '4'] as const).map((id) => {
+                            {FAMILY_PAIN_OPTIONS.map((id) => {
                               const active = field.value?.includes(id);
                               return (
                                 <div

@@ -1,3 +1,5 @@
+import type { FamilyPainOption, PostureFamilies } from '@ficha/shared';
+
 export interface InitialEvaluation {
   id: string;
   patientId: string;
@@ -14,9 +16,9 @@ export interface InitialEvaluation {
   physicalActivity: string | null;
   painAppearanceMoment: string | null;
   painFrequency: string | null;
-  familyPainAppearance: string[] | null;
-  familyPainDisappearance: string[] | null;
-  postureFamilies: Record<string, string> | null;
+  familyPainAppearance: FamilyPainOption[] | null;
+  familyPainDisappearance: FamilyPainOption[] | null;
+  postureFamilies: PostureFamilies | null;
   evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
