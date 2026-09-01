@@ -39,16 +39,14 @@ import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/pay
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
-import { SESSION_TYPE_LABELS } from '@/lib/labels'
 import {
   getSessionDateWarnings,
   useSessionDateTolerances,
 } from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
-import type { Session } from '@/types/session'
+import type { Session, SessionType } from '@/types/session'
 
 const schema = z.object({
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: z
     .string()
     .min(1, 'La fecha es requerida')
@@ -79,6 +77,10 @@ interface SessionFormModalWideProps {
   patientId: string
   episodeId?: string
   session?: Session
+  /** Tipo de la sesión a crear. No se elige en el modal: lo fija quien lo abre
+   *  ('DISCHARGE' desde "Registrar alta"). Al editar se ignora: el PATCH no
+   *  manda sessionType, así una sesión conserva el tipo con el que nació. */
+  sessionType?: SessionType
   /** Se invoca tras guardar con éxito. Útil, p. ej., para resetear la paginación
    *  cuando se crea una sesión nueva (queda en la página 1). */
   onSuccess?: () => void
@@ -97,22 +99,28 @@ export default function SessionFormModalWide({
   patientId,
   episodeId,
   session,
+  sessionType = 'SESSION',
   onSuccess,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
   const isEditing = !!session
   const dateTolerances = useSessionDateTolerances()
-  // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
-  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
-  // Cambios en estado que no pertenece al form (episodios). Se usa, junto con
-  // form.formState.isDirty, para avisar antes de cerrar con cambios sin guardar.
-  const [extraDirty, setExtraDirty] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
 
   const { data: episodes = [] } = useQuery({
     queryKey: episodeKeys.list(patientId),
     queryFn: () => episodeApi.list(patientId),
   })
+
+  // El motivo no se elige: una sesión aborda un único episodio, y cuál es ya
+  // quedó decidido antes de abrir el modal. Al crear viene del episodio en el
+  // que está parado el usuario; al editar, del que la sesión ya tiene.
+  //
+  // El M:N sigue existiendo en la base (hay sesiones viejas con varios
+  // motivos), así que al editar una de ésas nos quedamos con el primero y el
+  // guardado desvincula el resto.
+  const effectiveEpisodeId = (isEditing ? session?.episodeIds[0] : episodeId) ?? ''
+  const effectiveEpisode = episodes.find((ep) => ep.id === effectiveEpisodeId)
 
   const { data: lastPriceData } = useQuery({
     queryKey: paymentKeys.lastBasePrice,
@@ -133,7 +141,6 @@ export default function SessionFormModalWide({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      sessionType: 'SESSION',
       sessionDate: toLocalDateTimeInput(new Date()),
       painScaleBefore: null,
       painScaleAfter: null,
@@ -150,11 +157,8 @@ export default function SessionFormModalWide({
 
   useEffect(() => {
     if (!open) return
-    setExtraDirty(false)
-    setSelectedEpisodeIds(isEditing ? session?.episodeIds ?? [] : episodeId ? [episodeId] : [])
     if (isEditing) {
       form.reset({
-        sessionType: session.sessionType ?? 'SESSION',
         sessionDate: session.sessionDate
           ? toLocalDateTimeInput(new Date(session.sessionDate))
           : toLocalDateTimeInput(new Date()),
@@ -171,8 +175,7 @@ export default function SessionFormModalWide({
       })
     } else {
       form.reset({
-        sessionType: 'SESSION',
-        sessionDate: toLocalDateTimeInput(new Date()),
+          sessionDate: toLocalDateTimeInput(new Date()),
         painScaleBefore: null,
         painScaleAfter: null,
         preSesionState: '',
@@ -208,7 +211,6 @@ export default function SessionFormModalWide({
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
       const sessionData = {
-        sessionType: values.sessionType,
         sessionDate: new Date(values.sessionDate).toISOString(),
         painScaleBefore: values.painScaleBefore,
         painScaleAfter: values.painScaleAfter,
@@ -218,11 +220,16 @@ export default function SessionFormModalWide({
         observations: values.observations || null,
       }
 
+      // El motivo viaja siempre como un arreglo de a lo sumo uno: es lo que
+      // espera la API (el pivote sigue siendo M:N) y, al editar una sesión
+      // vieja con varios, desvincula los que sobran.
+      const episodeIds = effectiveEpisodeId ? [effectiveEpisodeId] : []
+
+      // El PATCH no lleva sessionType: el schema de la API es partial, así que
+      // omitirlo deja intacto el tipo con el que se registró la sesión (una
+      // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
-        return sessionApi.update(patientId, session.id, {
-          ...sessionData,
-          episodeIds: selectedEpisodeIds,
-        })
+        return sessionApi.update(patientId, session.id, { ...sessionData, episodeIds })
       }
 
       // Un solo request: la API crea sesión + pago en una transacción, así un
@@ -230,7 +237,8 @@ export default function SessionFormModalWide({
       // Cobros) ni duplicados al reintentar.
       return sessionApi.create(patientId, {
         ...sessionData,
-        episodeIds: selectedEpisodeIds,
+        sessionType,
+        episodeIds,
         payment: {
           packageId: values.packageId || null,
           baseAmount: parseFloat(values.baseAmount ?? '0'),
@@ -265,7 +273,7 @@ export default function SessionFormModalWide({
   const painBefore = form.watch('painScaleBefore')
   const painAfter = form.watch('painScaleAfter')
 
-  const hasUnsavedChanges = form.formState.isDirty || extraDirty
+  const hasUnsavedChanges = form.formState.isDirty
 
   // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
   // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
@@ -291,8 +299,17 @@ export default function SessionFormModalWide({
       <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl max-h-[90vh] overflow-y-auto p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b bg-muted/30">
           <DialogTitle className="text-xl">
-            {isEditing ? 'Editar sesión' : 'Nueva sesión'}
+            {isEditing
+              ? 'Editar sesión'
+              : sessionType === 'DISCHARGE'
+                ? 'Registrar alta'
+                : 'Nueva sesión'}
           </DialogTitle>
+          {!isEditing && sessionType === 'DISCHARGE' && (
+            <DialogDescription>
+              Al guardar, el motivo queda cerrado con fecha de alta.
+            </DialogDescription>
+          )}
         </DialogHeader>
 
         <Form {...form}>
@@ -343,32 +360,20 @@ export default function SessionFormModalWide({
                           )
                         }}
                       />
-                      <FormField
-                        control={form.control}
-                        name="sessionType"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Tipo de sesión</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue>
-                                    {field.value ? SESSION_TYPE_LABELS[field.value] : 'Seleccionar'}
-                                  </SelectValue>
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {Object.entries(SESSION_TYPE_LABELS).map(([value, label]) => (
-                                  <SelectItem key={value} value={value}>
-                                    {label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {/* El motivo no se elige acá: lo fija el episodio desde el
+                          que se abrió el modal. Se muestra para que quede claro
+                          contra qué motivo se está registrando. */}
+                      <div className="space-y-2">
+                        <Label>Motivo</Label>
+                        <div className="flex h-9 items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3">
+                          <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {effectiveEpisode
+                              ? effectiveEpisode.mainComplaint || 'Sin motivo'
+                              : 'Sin motivo asociado'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Evaluación del dolor */}
@@ -432,69 +437,6 @@ export default function SessionFormModalWide({
                         />
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-
-                {/* Motivos atendidos (episodios) */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <ListChecks className="h-4 w-4 text-muted-foreground" />
-                      Motivos atendidos
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {episodes.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        Este paciente no tiene episodios. Creá uno desde la ficha para asociar la
-                        sesión a un motivo.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {episodes.map((ep) => {
-                          const checked = selectedEpisodeIds.includes(ep.id)
-                          return (
-                            <button
-                              type="button"
-                              key={ep.id}
-                              aria-pressed={checked}
-                              onClick={() => {
-                                setExtraDirty(true)
-                                setSelectedEpisodeIds((prev) =>
-                                  checked ? prev.filter((id) => id !== ep.id) : [...prev, ep.id],
-                                )
-                              }}
-                              className={`flex w-full items-center gap-3 rounded-md border p-2.5 text-left transition-colors ${
-                                checked ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
-                              }`}
-                            >
-                              <span
-                                className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
-                                  checked
-                                    ? 'border-primary bg-primary text-primary-foreground'
-                                    : 'border-input'
-                                }`}
-                              >
-                                {checked && (
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                                )}
-                              </span>
-                              <span className="min-w-0 flex-1 text-sm truncate">
-                                {ep.mainComplaint || 'Sin motivo'}
-                              </span>
-                              {ep.status !== 'ACTIVE' && (
-                                <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                                  {ep.status === 'DISCHARGED' ? 'Alta' : 'Abandonado'}
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Una sesión puede abordar varios motivos a la vez.
-                    </p>
                   </CardContent>
                 </Card>
 
