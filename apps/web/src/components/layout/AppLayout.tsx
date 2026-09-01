@@ -1,4 +1,4 @@
-import { Bell, Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, LogOut, MessageSquare, Stethoscope, User, Users } from 'lucide-react';
+import { Bell, Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, LogOut, MessageSquare, User, Users } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -35,7 +35,6 @@ const clinicItems = [
 ];
 
 const settingsItems = [
-  { to: '/techniques', label: 'Técnicas', icon: Stethoscope },
   { to: '/clinic', label: 'Clínica', icon: Building2 },
   { to: '/account', label: 'Mi cuenta', icon: User },
 ];

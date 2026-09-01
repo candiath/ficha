@@ -1,6 +1,4 @@
 ﻿import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Stethoscope } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +10,6 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
-import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques';
 import type { Session } from '@/types/session';
 
 function PainScale({ value, label }: { value: number | null; label: string }) {
@@ -58,14 +55,6 @@ interface Props {
 
 export default function SessionDetailSheet({ session, patientId, onClose }: Props) {
   const [editOpen, setEditOpen] = useState(false);
-
-  // El hook debe ejecutarse siempre (reglas de hooks): se mantiene deshabilitado
-  // mientras no haya sesión seleccionada para no disparar la request.
-  const { data: techniques = [] } = useQuery({
-    queryKey: sessionTechniqueKeys.list(patientId, session?.id ?? ''),
-    queryFn: () => sessionTechniqueApi.list(patientId, session!.id),
-    enabled: !!session && !!patientId,
-  });
 
   if (!session) return null;
 
@@ -129,46 +118,7 @@ export default function SessionDetailSheet({ session, patientId, onClose }: Prop
               <DetailSection label="Estado pre-sesión" value={session.preSesionState} />
               <DetailSection label="Re-evaluación" value={session.reEvaluationNotes} />
               <DetailSection label="Respuesta del paciente" value={session.patientResponse} />
-              <DetailSection label="Observaciones / técnicas" value={session.observations} />
-            </div>
-
-            {/* Técnicas aplicadas */}
-            <Separator />
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Stethoscope className="h-3.5 w-3.5 text-muted-foreground" />
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Técnicas aplicadas
-                </p>
-              </div>
-              {techniques.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">
-                  No se registraron técnicas para esta sesión.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {techniques.map((t) => (
-                    <li key={t.id} className="text-sm">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-medium">{t.techniqueName}</span>
-                        {t.bodyRegionName && (
-                          <Badge variant="outline" className="font-normal">
-                            {t.bodyRegionName}
-                          </Badge>
-                        )}
-                        {t.muscularChainName && (
-                          <Badge variant="outline" className="font-normal">
-                            {t.muscularChainName}
-                          </Badge>
-                        )}
-                      </div>
-                      {t.variantNotes && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{t.variantNotes}</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <DetailSection label="Tratamiento" value={session.observations} />
             </div>
 
             {!hasPainData &&

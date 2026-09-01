@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, CreditCard, FileText, ListChecks, Stethoscope } from 'lucide-react'
+import { Calendar, CreditCard, FileText, ListChecks } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -35,13 +35,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPicker'
-import type { TechniqueEntry } from '@/components/sessions/SessionTechniquesPicker'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
-import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
 import { SESSION_TYPE_LABELS } from '@/lib/labels'
 import {
   getSessionDateWarnings,
@@ -105,10 +102,9 @@ export default function SessionFormModalWide({
   const queryClient = useQueryClient()
   const isEditing = !!session
   const dateTolerances = useSessionDateTolerances()
-  const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([])
   // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
   const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
-  // Cambios en estado que no pertenece al form (técnicas + episodios). Se usa, junto con
+  // Cambios en estado que no pertenece al form (episodios). Se usa, junto con
   // form.formState.isDirty, para avisar antes de cerrar con cambios sin guardar.
   const [extraDirty, setExtraDirty] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
@@ -117,29 +113,6 @@ export default function SessionFormModalWide({
     queryKey: episodeKeys.list(patientId),
     queryFn: () => episodeApi.list(patientId),
   })
-
-  const { data: existingTechniques } = useQuery({
-    queryKey: sessionTechniqueKeys.list(patientId, session?.id ?? ''),
-    queryFn: () => sessionTechniqueApi.list(patientId, session!.id),
-    enabled: isEditing && !!session?.id,
-  })
-
-  useEffect(() => {
-    if (isEditing && existingTechniques) {
-      setTechniqueEntries(
-        existingTechniques.map((t) => ({
-          id: t.id,
-          techniqueId: t.techniqueId,
-          techniqueName: t.techniqueName,
-          bodyRegionId: t.bodyRegionId ?? '',
-          bodyRegionName: t.bodyRegionName ?? '',
-          muscularChainId: t.muscularChainId ?? '',
-          muscularChainName: t.muscularChainName ?? '',
-          variantNotes: t.variantNotes ?? '',
-        })),
-      )
-    }
-  }, [isEditing, existingTechniques])
 
   const { data: lastPriceData } = useQuery({
     queryKey: paymentKeys.lastBasePrice,
@@ -211,7 +184,6 @@ export default function SessionFormModalWide({
         packageId: '',
         paymentNotes: '',
       })
-      setTechniqueEntries([])
     }
   }, [open, session, episodeId, isEditing, form])
 
@@ -247,28 +219,15 @@ export default function SessionFormModalWide({
       }
 
       if (isEditing) {
-        const updated = await sessionApi.update(patientId, session.id, {
+        return sessionApi.update(patientId, session.id, {
           ...sessionData,
           episodeIds: selectedEpisodeIds,
         })
-        if (techniqueEntries.length > 0 || existingTechniques?.length) {
-          await sessionTechniqueApi.bulkReplace(
-            patientId,
-            session.id,
-            techniqueEntries.map((e) => ({
-              techniqueId: e.techniqueId,
-              bodyRegionId: e.bodyRegionId || null,
-              muscularChainId: e.muscularChainId || null,
-              variantNotes: e.variantNotes || null,
-            })),
-          )
-        }
-        return updated
       }
 
-      // Un solo request: la API crea sesión + pago + técnicas en una
-      // transacción, así un fallo de red o validación no deja una sesión
-      // sin pago (invisible en Cobros) ni duplicados al reintentar.
+      // Un solo request: la API crea sesión + pago en una transacción, así un
+      // fallo de red o validación no deja una sesión sin pago (invisible en
+      // Cobros) ni duplicados al reintentar.
       return sessionApi.create(patientId, {
         ...sessionData,
         episodeIds: selectedEpisodeIds,
@@ -278,12 +237,6 @@ export default function SessionFormModalWide({
           discount: values.discount ? parseFloat(values.discount) : 0,
           notes: values.paymentNotes || null,
         },
-        techniques: techniqueEntries.map((e) => ({
-          techniqueId: e.techniqueId,
-          bodyRegionId: e.bodyRegionId || null,
-          muscularChainId: e.muscularChainId || null,
-          variantNotes: e.variantNotes || null,
-        })),
       })
     },
     onSuccess: () => {
@@ -542,25 +495,6 @@ export default function SessionFormModalWide({
                     <p className="mt-2 text-xs text-muted-foreground">
                       Una sesión puede abordar varios motivos a la vez.
                     </p>
-                  </CardContent>
-                </Card>
-
-                {/* Técnicas */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Stethoscope className="h-4 w-4 text-muted-foreground" />
-                      Técnicas aplicadas
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <SessionTechniquesPicker
-                      value={techniqueEntries}
-                      onChange={(v) => {
-                        setExtraDirty(true)
-                        setTechniqueEntries(v)
-                      }}
-                    />
                   </CardContent>
                 </Card>
 

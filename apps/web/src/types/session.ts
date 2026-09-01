@@ -17,8 +17,8 @@ export interface Session {
   updatedAt: string;
 }
 
-// El POST acepta el cobro y las técnicas junto con la sesión: la API crea
-// todo en una transacción (un fallo no deja la sesión a medias).
+// El POST acepta el cobro junto con la sesión: la API crea todo en una
+// transacción (un fallo no deja la sesión a medias).
 export interface SessionPaymentInput {
   packageId?: string | null;
   baseAmount: number;
@@ -26,18 +26,9 @@ export interface SessionPaymentInput {
   notes?: string | null;
 }
 
-export interface SessionTechniqueInput {
-  techniqueId: string;
-  bodyRegionId?: string | null;
-  muscularChainId?: string | null;
-  variantNotes?: string | null;
-}
-
 export type SessionCreateData = Omit<Session, 'id' | 'patientId' | 'createdAt' | 'updatedAt'> & {
   payment?: SessionPaymentInput;
-  techniques?: SessionTechniqueInput[];
 };
 
-// El PATCH no acepta payment/techniques: el pago se edita por /api/payments
-// y las técnicas por su bulkReplace.
-export type SessionUpdateData = Partial<Omit<SessionCreateData, 'payment' | 'techniques'>>;
+// El PATCH no acepta payment: el pago se edita por /api/payments.
+export type SessionUpdateData = Partial<Omit<SessionCreateData, 'payment'>>;
