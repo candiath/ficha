@@ -1,8 +1,15 @@
 import { useEffect } from 'react';
-import { Building2, Clock, Globe, Mail, MapPin, Phone } from 'lucide-react';
+import { Building2, Clock, DatabaseBackup, ExternalLink, Globe, Mail, MapPin, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+
+// El workflow que hace el pg_dump vive en un repo aparte y privado
+// (candiath/ficha-backups): la credencial de producción no puede estar en el
+// repo público de la app. El porqué completo está en la sección Backups de
+// CLAUDE.md.
+const BACKUP_WORKFLOW_URL =
+  'https://github.com/candiath/ficha-backups/actions/workflows/backup.yml';
 
 // Placeholder — se leerá del tenant autenticado cuando se implemente JWT.
 const DEV_TENANT = {
@@ -115,6 +122,51 @@ export default function ClinicPage() {
                 <p className="text-sm font-mono">{DEV_TENANT.timezone}</p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Backups */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Copia de seguridad</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-start gap-3">
+              <DatabaseBackup className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm">
+                  La base se respalda sola todos los días a las 3:00, y también antes de
+                  cada actualización del sistema.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Si vas a hacer una carga grande o algo que te dé desconfianza, podés
+                  pedir una copia en el momento.
+                </p>
+              </div>
+            </div>
+            <Separator />
+            {/* Enlace y no botón de acción: disparar el workflow desde acá
+                exigiría guardar un token de GitHub con permiso de escritura en
+                el entorno de la API. Un link no necesita ninguna credencial
+                nueva y deja el mismo resultado a un click. */}
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              render={
+                <a
+                  href={BACKUP_WORKFLOW_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                />
+              }
+            >
+              Pedir una copia ahora
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Se abre GitHub en otra pestaña: entrá a <span className="font-medium">Run workflow</span> y
+              confirmá. Tarda un par de minutos.
+            </p>
           </CardContent>
         </Card>
 
