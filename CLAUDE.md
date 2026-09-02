@@ -67,6 +67,18 @@ Si una migración falla, el build falla y Render **mantiene vivo el deploy anter
 
 Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. El `.env` local trae la URL de producción comentada solo para inspección con `db:studio`.
 
+### Backups
+
+El point-in-time recovery de Neon en el plan free cubre **6 horas** hacia atrás (`history_retention_seconds: 21600`). Alcanza para deshacer un error que se nota enseguida; no alcanza para nada que se descubra al día siguiente, ni sirve si se pierde la cuenta.
+
+Por eso hay un repositorio aparte, **[`candiath/ficha-backups`](https://github.com/candiath/ficha-backups) (privado)**, con un `pg_dump` de producción versionado por git. El dump se escribe siempre en los mismos dos archivos —`dump/schema.sql` y `dump/data.sql`— y cada corrida que encuentra diferencias deja un commit: el historial de git *es* el versionado, y `git log dump/data.sql` es la línea de tiempo de la base. Una corrida sin cambios no commitea nada, y la detección es `git diff --cached --quiet`, sin preguntarle nada a la base.
+
+Corre diario a las 06:00 UTC, a mano por `workflow_dispatch`, y por `repository_dispatch` desde este repo al abrir el PR de release (`.github/workflows/backup-antes-del-release.yml`) — al **abrir** y no al mergear, porque para cuando el merge ocurre Render ya arrancó el build y `migrate deploy` puede estar corriendo.
+
+**La credencial de producción vive solo en el repo privado.** Éste es público: aunque las secrets no se filtran a los PRs de forks, cualquiera con permiso de escritura podría sacarlas modificando un workflow. Acá solo está `BACKUP_DISPATCH_TOKEN`, que puede disparar aquel workflow y nada más.
+
+Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
+
 ### Cómo se llegó acá (2026-08-29)
 
 El split a tres entornos se hizo el 29/08/2026 y está **completo**: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, Netlify con production branch en `main` más branch deploy de `dev`, y `VITE_API_URL` por contexto.

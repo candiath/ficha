@@ -1,0 +1,35 @@
+name: Backup antes del release
+
+# Una copia de producción justo antes de tocarla. Se dispara al abrir (o
+# actualizar) el PR de release `dev` → `main`, que es el único momento en que
+# una migración puede correr contra la base real.
+#
+# Al abrir el PR y no al mergear: cuando el merge ocurre, Render ya arrancó el
+# build y `migrate deploy` puede estar corriendo. El backup tiene que existir
+# antes de eso, no en paralelo.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+# El dump en sí vive en candiath/ficha-backups (privado), junto con la
+# credencial de producción. Acá solo mandamos la señal: este repo es público, y
+# aunque las secrets no llegan a los PRs de forks, cualquiera con permiso de
+# escritura podría sacarlas tocando un workflow. Un token que solo puede
+# disparar un workflow ajeno tiene un radio de daño mucho menor que la URL de
+# la base de producción.
+jobs:
+  disparar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir un backup de producción
+        env:
+          GH_TOKEN: ${{ secrets.BACKUP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api repos/candiath/ficha-backups/dispatches \
+            --method POST \
+            --field event_type=backup \
+            --raw-field 'client_payload[motivo]=release PR #${{ github.event.pull_request.number }}'
+          echo "Backup pedido. Verlo en:"
+          echo "https://github.com/candiath/ficha-backups/actions"
