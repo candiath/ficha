@@ -7,7 +7,6 @@ import {
   packageRepo,
   patientRepo,
   sessionRepo,
-  techniqueRepo,
 } from '../repositories';
 
 type ParentParams = { patientId: string };
@@ -15,8 +14,8 @@ type SessionParams = { patientId: string; sessionId: string };
 
 // Montado en /api/patients/:patientId/sessions
 // Las queries (incluida la transacción del POST) viven en sessionRepo; acá
-// queda el HTTP: validar el body, exigir que paciente, episodios, paquete y
-// técnicas sean del tenant, y registrar auditoría.
+// queda el HTTP: validar el body, exigir que paciente, episodios y paquete
+// sean del tenant, y registrar auditoría.
 const router = Router({ mergeParams: true });
 
 // Base SIN defaults: es el que se deriva para el PATCH.
@@ -38,9 +37,9 @@ const SessionFieldsSchema = z.object({
   observations: z.string().optional().nullable(),
 });
 
-// El POST acepta además el cobro y las técnicas de la sesión para crear todo
-// en una sola transacción. Antes el frontend encadenaba 3 requests y un fallo
-// intermedio dejaba sesiones sin pago (invisibles en Cobros) o sin técnicas.
+// El POST acepta además el cobro de la sesión para crear todo en una sola
+// transacción. Antes el frontend encadenaba varios requests y un fallo
+// intermedio dejaba sesiones sin pago (invisibles en Cobros).
 const SessionCreateSchema = SessionFieldsSchema.extend({
   // Los defaults del alta: una sesión sin tipo es SESSION y puede no abordar
   // ningún episodio.
@@ -54,21 +53,9 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
       notes: z.string().optional().nullable(),
     })
     .optional(),
-  techniques: z
-    .array(
-      z.object({
-        techniqueId: z.string().uuid(),
-        bodyRegionId: z.string().uuid().optional().nullable(),
-        muscularChainId: z.string().uuid().optional().nullable(),
-        variantNotes: z.string().optional().nullable(),
-      }),
-    )
-    .optional()
-    .default([]),
 });
 
-// payment/techniques quedan afuera a propósito: el pago se edita por
-// /api/payments y las técnicas por el bulkReplace de /techniques.
+// payment queda afuera a propósito: el pago se edita por /api/payments.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
 // GET /api/patients/:patientId/sessions
@@ -116,7 +103,7 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  const { episodeIds, payment, techniques, ...rest } = SessionCreateSchema.parse(req.body);
+  const { episodeIds, payment, ...rest } = SessionCreateSchema.parse(req.body);
 
   // Los episodeIds vienen del body: sin esta verificación, un connect a
   // ciegas permitiría vincular la sesión a episodios de otro paciente o de
@@ -136,19 +123,13 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  if (!(await techniqueRepo.allUsableByTenant(req.context, techniques.map((t) => t.techniqueId)))) {
-    res.status(400).json({ error: 'Técnica inexistente' });
-    return;
-  }
-
-  // Sesión, cobro, técnicas y cierre de episodios se crean en una sola
-  // transacción dentro del repo: si algo falla no queda una sesión a medias.
+  // Sesión, cobro y cierre de episodios se crean en una sola transacción
+  // dentro del repo: si algo falla no queda una sesión a medias.
   const session = await sessionRepo.create(req.context, req.params.patientId, {
     ...rest,
     sessionDate: new Date(rest.sessionDate),
     episodeIds,
     payment,
-    techniques,
   });
 
   const sessionTypeDesc: Record<string, string> = {

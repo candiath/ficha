@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useBeforeUnload } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, CreditCard, FileText, ListChecks, Stethoscope } from 'lucide-react'
+import { Calendar, CreditCard, FileText, ListChecks } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -35,23 +37,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import SessionTechniquesPicker from '@/components/sessions/SessionTechniquesPicker'
-import type { TechniqueEntry } from '@/components/sessions/SessionTechniquesPicker'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
-import { sessionTechniqueApi, sessionTechniqueKeys } from '@/services/sessionTechniques'
-import { SESSION_TYPE_LABELS } from '@/lib/labels'
+import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels'
 import {
   getSessionDateWarnings,
   useSessionDateTolerances,
 } from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
-import type { Session } from '@/types/session'
+import type { Session, SessionType } from '@/types/session'
 
 const schema = z.object({
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: z
     .string()
     .min(1, 'La fecha es requerida')
@@ -82,6 +80,10 @@ interface SessionFormModalWideProps {
   patientId: string
   episodeId?: string
   session?: Session
+  /** Tipo de la sesión a crear. No se elige en el modal: lo fija quien lo abre
+   *  ('DISCHARGE' desde "Registrar alta"). Al editar se ignora: el PATCH no
+   *  manda sessionType, así una sesión conserva el tipo con el que nació. */
+  sessionType?: SessionType
   /** Se invoca tras guardar con éxito. Útil, p. ej., para resetear la paginación
    *  cuando se crea una sesión nueva (queda en la página 1). */
   onSuccess?: () => void
@@ -94,23 +96,52 @@ function getPainColor(value: number | null) {
   return 'text-red-600'
 }
 
+/**
+ * Campo del formulario con marca de "modificado sin guardar": el chip
+ * DirtyLabel que ya usa la evaluación inicial, más una barra ámbar a la
+ * izquierda del control para poder escanear la columna de un vistazo.
+ *
+ * El borde existe siempre (transparente cuando está limpio) y el margen
+ * negativo mete la barra en el padding de la tarjeta: así aparecer la marca no
+ * corre ni un pixel del contenido.
+ */
+function DirtyFieldItem({
+  dirty,
+  label,
+  children,
+}: {
+  dirty?: boolean
+  /** Sin label, el llamador arma su propia cabecera (los sliders de dolor
+   *  necesitan el valor grande alineado a la derecha). */
+  label?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <FormItem
+      className={`-ml-3 border-l-2 pl-3 ${dirty ? 'border-amber-500' : 'border-transparent'}`}
+    >
+      {label !== undefined && (
+        <FormLabel>
+          <DirtyLabel label={label} dirty={dirty} />
+        </FormLabel>
+      )}
+      {children}
+    </FormItem>
+  )
+}
+
 export default function SessionFormModalWide({
   open,
   onOpenChange,
   patientId,
   episodeId,
   session,
+  sessionType = 'SESSION',
   onSuccess,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
   const isEditing = !!session
   const dateTolerances = useSessionDateTolerances()
-  const [techniqueEntries, setTechniqueEntries] = useState<TechniqueEntry[]>([])
-  // Motivos (episodios) que aborda esta sesión. Una sesión puede tocar varios.
-  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<string[]>([])
-  // Cambios en estado que no pertenece al form (técnicas + episodios). Se usa, junto con
-  // form.formState.isDirty, para avisar antes de cerrar con cambios sin guardar.
-  const [extraDirty, setExtraDirty] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
 
   const { data: episodes = [] } = useQuery({
@@ -118,28 +149,15 @@ export default function SessionFormModalWide({
     queryFn: () => episodeApi.list(patientId),
   })
 
-  const { data: existingTechniques } = useQuery({
-    queryKey: sessionTechniqueKeys.list(patientId, session?.id ?? ''),
-    queryFn: () => sessionTechniqueApi.list(patientId, session!.id),
-    enabled: isEditing && !!session?.id,
-  })
-
-  useEffect(() => {
-    if (isEditing && existingTechniques) {
-      setTechniqueEntries(
-        existingTechniques.map((t) => ({
-          id: t.id,
-          techniqueId: t.techniqueId,
-          techniqueName: t.techniqueName,
-          bodyRegionId: t.bodyRegionId ?? '',
-          bodyRegionName: t.bodyRegionName ?? '',
-          muscularChainId: t.muscularChainId ?? '',
-          muscularChainName: t.muscularChainName ?? '',
-          variantNotes: t.variantNotes ?? '',
-        })),
-      )
-    }
-  }, [isEditing, existingTechniques])
+  // El motivo no se elige: una sesión aborda un único episodio, y cuál es ya
+  // quedó decidido antes de abrir el modal. Al crear viene del episodio en el
+  // que está parado el usuario; al editar, del que la sesión ya tiene.
+  //
+  // El M:N sigue existiendo en la base (hay sesiones viejas con varios
+  // motivos), así que al editar una de ésas nos quedamos con el primero y el
+  // guardado desvincula el resto.
+  const effectiveEpisodeId = (isEditing ? session?.episodeIds[0] : episodeId) ?? ''
+  const effectiveEpisode = episodes.find((ep) => ep.id === effectiveEpisodeId)
 
   const { data: lastPriceData } = useQuery({
     queryKey: paymentKeys.lastBasePrice,
@@ -160,7 +178,6 @@ export default function SessionFormModalWide({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      sessionType: 'SESSION',
       sessionDate: toLocalDateTimeInput(new Date()),
       painScaleBefore: null,
       painScaleAfter: null,
@@ -177,11 +194,8 @@ export default function SessionFormModalWide({
 
   useEffect(() => {
     if (!open) return
-    setExtraDirty(false)
-    setSelectedEpisodeIds(isEditing ? session?.episodeIds ?? [] : episodeId ? [episodeId] : [])
     if (isEditing) {
       form.reset({
-        sessionType: session.sessionType ?? 'SESSION',
         sessionDate: session.sessionDate
           ? toLocalDateTimeInput(new Date(session.sessionDate))
           : toLocalDateTimeInput(new Date()),
@@ -198,8 +212,7 @@ export default function SessionFormModalWide({
       })
     } else {
       form.reset({
-        sessionType: 'SESSION',
-        sessionDate: toLocalDateTimeInput(new Date()),
+          sessionDate: toLocalDateTimeInput(new Date()),
         painScaleBefore: null,
         painScaleAfter: null,
         preSesionState: '',
@@ -211,7 +224,6 @@ export default function SessionFormModalWide({
         packageId: '',
         paymentNotes: '',
       })
-      setTechniqueEntries([])
     }
   }, [open, session, episodeId, isEditing, form])
 
@@ -236,7 +248,6 @@ export default function SessionFormModalWide({
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
       const sessionData = {
-        sessionType: values.sessionType,
         sessionDate: new Date(values.sessionDate).toISOString(),
         painScaleBefore: values.painScaleBefore,
         painScaleAfter: values.painScaleAfter,
@@ -246,44 +257,31 @@ export default function SessionFormModalWide({
         observations: values.observations || null,
       }
 
+      // El motivo viaja siempre como un arreglo de a lo sumo uno: es lo que
+      // espera la API (el pivote sigue siendo M:N) y, al editar una sesión
+      // vieja con varios, desvincula los que sobran.
+      const episodeIds = effectiveEpisodeId ? [effectiveEpisodeId] : []
+
+      // El PATCH no lleva sessionType: el schema de la API es partial, así que
+      // omitirlo deja intacto el tipo con el que se registró la sesión (una
+      // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
-        const updated = await sessionApi.update(patientId, session.id, {
-          ...sessionData,
-          episodeIds: selectedEpisodeIds,
-        })
-        if (techniqueEntries.length > 0 || existingTechniques?.length) {
-          await sessionTechniqueApi.bulkReplace(
-            patientId,
-            session.id,
-            techniqueEntries.map((e) => ({
-              techniqueId: e.techniqueId,
-              bodyRegionId: e.bodyRegionId || null,
-              muscularChainId: e.muscularChainId || null,
-              variantNotes: e.variantNotes || null,
-            })),
-          )
-        }
-        return updated
+        return sessionApi.update(patientId, session.id, { ...sessionData, episodeIds })
       }
 
-      // Un solo request: la API crea sesión + pago + técnicas en una
-      // transacción, así un fallo de red o validación no deja una sesión
-      // sin pago (invisible en Cobros) ni duplicados al reintentar.
+      // Un solo request: la API crea sesión + pago en una transacción, así un
+      // fallo de red o validación no deja una sesión sin pago (invisible en
+      // Cobros) ni duplicados al reintentar.
       return sessionApi.create(patientId, {
         ...sessionData,
-        episodeIds: selectedEpisodeIds,
+        sessionType,
+        episodeIds,
         payment: {
           packageId: values.packageId || null,
           baseAmount: parseFloat(values.baseAmount ?? '0'),
           discount: values.discount ? parseFloat(values.discount) : 0,
           notes: values.paymentNotes || null,
         },
-        techniques: techniqueEntries.map((e) => ({
-          techniqueId: e.techniqueId,
-          bodyRegionId: e.bodyRegionId || null,
-          muscularChainId: e.muscularChainId || null,
-          variantNotes: e.variantNotes || null,
-        })),
       })
     },
     onSuccess: () => {
@@ -312,7 +310,11 @@ export default function SessionFormModalWide({
   const painBefore = form.watch('painScaleBefore')
   const painAfter = form.watch('painScaleAfter')
 
-  const hasUnsavedChanges = form.formState.isDirty || extraDirty
+  const hasUnsavedChanges = form.formState.isDirty
+  // Qué campos cambiaron respecto de los valores con que se abrió el modal:
+  // alimenta la marca ámbar de cada campo. RHF los compara contra el último
+  // reset, así que volver un campo a su valor original lo saca de acá.
+  const { dirtyFields } = form.formState
 
   // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
   // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
@@ -337,9 +339,30 @@ export default function SessionFormModalWide({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl max-h-[90vh] overflow-y-auto p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b bg-muted/30">
-          <DialogTitle className="text-xl">
-            {isEditing ? 'Editar sesión' : 'Nueva sesión'}
-          </DialogTitle>
+          <div className="flex items-start justify-between gap-4">
+            <DialogTitle className="text-xl">
+              {isEditing
+                ? 'Sesión registrada'
+                : sessionType === 'DISCHARGE'
+                  ? 'Registrar alta'
+                  : 'Nueva sesión'}
+            </DialogTitle>
+            {/* El tipo ya no se edita, pero sigue distinguiendo una nota rápida
+                o un alta de una sesión común: se muestra como etiqueta. */}
+            {isEditing && (
+              <Badge
+                variant="outline"
+                className={`shrink-0 ${SESSION_TYPE_CLASS[session.sessionType]}`}
+              >
+                {SESSION_TYPE_LABELS[session.sessionType]}
+              </Badge>
+            )}
+          </div>
+          {!isEditing && sessionType === 'DISCHARGE' && (
+            <DialogDescription>
+              Al guardar, el motivo queda cerrado con fecha de alta.
+            </DialogDescription>
+          )}
         </DialogHeader>
 
         <Form {...form}>
@@ -375,8 +398,7 @@ export default function SessionFormModalWide({
                             dateTolerances,
                           )
                           return (
-                            <FormItem>
-                              <FormLabel>Fecha y hora</FormLabel>
+                            <DirtyFieldItem dirty={dirtyFields.sessionDate} label="Fecha y hora">
                               <FormControl>
                                 <Input type="datetime-local" {...field} />
                               </FormControl>
@@ -386,36 +408,24 @@ export default function SessionFormModalWide({
                                   {warning}
                                 </p>
                               ))}
-                            </FormItem>
+                            </DirtyFieldItem>
                           )
                         }}
                       />
-                      <FormField
-                        control={form.control}
-                        name="sessionType"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Tipo de sesión</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue>
-                                    {field.value ? SESSION_TYPE_LABELS[field.value] : 'Seleccionar'}
-                                  </SelectValue>
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {Object.entries(SESSION_TYPE_LABELS).map(([value, label]) => (
-                                  <SelectItem key={value} value={value}>
-                                    {label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {/* El motivo no se elige acá: lo fija el episodio desde el
+                          que se abrió el modal. Se muestra para que quede claro
+                          contra qué motivo se está registrando. */}
+                      <div className="space-y-2">
+                        <Label>Motivo</Label>
+                        <div className="flex h-9 items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3">
+                          <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {effectiveEpisode
+                              ? effectiveEpisode.mainComplaint || 'Sin motivo'
+                              : 'Sin motivo asociado'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Evaluación del dolor */}
@@ -423,14 +433,15 @@ export default function SessionFormModalWide({
                       <Label className="text-muted-foreground text-xs uppercase tracking-wide">
                         Evaluación del dolor
                       </Label>
+                      {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
                         <FormField
                           control={form.control}
                           name="painScaleBefore"
                           render={({ field }) => (
-                            <FormItem>
+                            <DirtyFieldItem dirty={dirtyFields.painScaleBefore}>
                               <div className="flex items-center justify-between">
-                                <span className="text-sm">Antes</span>
+                                <DirtyLabel label="Antes" dirty={dirtyFields.painScaleBefore} />
                                 <span className={`text-2xl font-bold ${getPainColor(painBefore)}`}>
                                   {painBefore ?? '?'}
                                 </span>
@@ -447,16 +458,16 @@ export default function SessionFormModalWide({
                                 <span>Sin dolor</span>
                                 <span>Máximo</span>
                               </div>
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                         <FormField
                           control={form.control}
                           name="painScaleAfter"
                           render={({ field }) => (
-                            <FormItem>
+                            <DirtyFieldItem dirty={dirtyFields.painScaleAfter}>
                               <div className="flex items-center justify-between">
-                                <span className="text-sm">Después</span>
+                                <DirtyLabel label="Después" dirty={dirtyFields.painScaleAfter} />
                                 <span className={`text-2xl font-bold ${getPainColor(painAfter)}`}>
                                   {painAfter ?? '?'}
                                 </span>
@@ -473,93 +484,11 @@ export default function SessionFormModalWide({
                                 <span>Sin dolor</span>
                                 <span>Máximo</span>
                               </div>
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-
-                {/* Motivos atendidos (episodios) */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <ListChecks className="h-4 w-4 text-muted-foreground" />
-                      Motivos atendidos
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {episodes.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        Este paciente no tiene episodios. Creá uno desde la ficha para asociar la
-                        sesión a un motivo.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {episodes.map((ep) => {
-                          const checked = selectedEpisodeIds.includes(ep.id)
-                          return (
-                            <button
-                              type="button"
-                              key={ep.id}
-                              aria-pressed={checked}
-                              onClick={() => {
-                                setExtraDirty(true)
-                                setSelectedEpisodeIds((prev) =>
-                                  checked ? prev.filter((id) => id !== ep.id) : [...prev, ep.id],
-                                )
-                              }}
-                              className={`flex w-full items-center gap-3 rounded-md border p-2.5 text-left transition-colors ${
-                                checked ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
-                              }`}
-                            >
-                              <span
-                                className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
-                                  checked
-                                    ? 'border-primary bg-primary text-primary-foreground'
-                                    : 'border-input'
-                                }`}
-                              >
-                                {checked && (
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                                )}
-                              </span>
-                              <span className="min-w-0 flex-1 text-sm truncate">
-                                {ep.mainComplaint || 'Sin motivo'}
-                              </span>
-                              {ep.status !== 'ACTIVE' && (
-                                <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                                  {ep.status === 'DISCHARGED' ? 'Alta' : 'Abandonado'}
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Una sesión puede abordar varios motivos a la vez.
-                    </p>
-                  </CardContent>
-                </Card>
-
-                {/* Técnicas */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Stethoscope className="h-4 w-4 text-muted-foreground" />
-                      Técnicas aplicadas
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <SessionTechniquesPicker
-                      value={techniqueEntries}
-                      onChange={(v) => {
-                        setExtraDirty(true)
-                        setTechniqueEntries(v)
-                      }}
-                    />
                   </CardContent>
                 </Card>
 
@@ -578,8 +507,7 @@ export default function SessionFormModalWide({
                           control={form.control}
                           name="packageId"
                           render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Paquete</FormLabel>
+                            <DirtyFieldItem dirty={dirtyFields.packageId} label="Paquete">
                               <Select value={field.value ?? ''} onValueChange={field.onChange}>
                                 <FormControl>
                                   <SelectTrigger>
@@ -598,7 +526,7 @@ export default function SessionFormModalWide({
                                 </SelectContent>
                               </Select>
                               <FormMessage />
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                       )}
@@ -608,15 +536,19 @@ export default function SessionFormModalWide({
                           control={form.control}
                           name="baseAmount"
                           render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                Monto base <span className="text-destructive">*</span>
-                                {lastPriceData?.isStale === false && (
-                                  <span className="text-muted-foreground font-normal ml-1 text-xs">
-                                    (último precio)
-                                  </span>
-                                )}
-                              </FormLabel>
+                            <DirtyFieldItem
+                              dirty={dirtyFields.baseAmount}
+                              label={
+                                <>
+                                  Monto base <span className="text-destructive">*</span>
+                                  {lastPriceData?.isStale === false && (
+                                    <span className="text-muted-foreground font-normal text-xs">
+                                      (último precio)
+                                    </span>
+                                  )}
+                                </>
+                              }
+                            >
                               <FormControl>
                                 <div className="relative">
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -633,15 +565,14 @@ export default function SessionFormModalWide({
                                 </div>
                               </FormControl>
                               <FormMessage />
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                         <FormField
                           control={form.control}
                           name="discount"
                           render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Descuento</FormLabel>
+                            <DirtyFieldItem dirty={dirtyFields.discount} label="Descuento">
                               <FormControl>
                                 <div className="relative">
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -658,7 +589,7 @@ export default function SessionFormModalWide({
                                 </div>
                               </FormControl>
                               <FormMessage />
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                       </div>
@@ -667,8 +598,7 @@ export default function SessionFormModalWide({
                         control={form.control}
                         name="paymentNotes"
                         render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Notas de pago</FormLabel>
+                          <DirtyFieldItem dirty={dirtyFields.paymentNotes} label="Notas de pago">
                             <FormControl>
                               <Input
                                 placeholder="Ej: pagó mitad hoy, resto próxima semana"
@@ -676,7 +606,7 @@ export default function SessionFormModalWide({
                               />
                             </FormControl>
                             <FormMessage />
-                          </FormItem>
+                          </DirtyFieldItem>
                         )}
                       />
                     </CardContent>
@@ -698,8 +628,7 @@ export default function SessionFormModalWide({
                       control={form.control}
                       name="preSesionState"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Estado pre-sesión</FormLabel>
+                        <DirtyFieldItem dirty={dirtyFields.preSesionState} label="Evaluación (estado pre-sesión)">
                           <FormControl>
                             <Textarea
                               placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
@@ -708,49 +637,16 @@ export default function SessionFormModalWide({
                             />
                           </FormControl>
                           <FormMessage />
-                        </FormItem>
+                        </DirtyFieldItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="reEvaluationNotes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Re-evaluación</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Cambios posturales, rangos articulares, hallazgos..."
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="patientResponse"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Respuesta del paciente</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="¿Cómo respondió a las posturas trabajadas?"
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+
+                    {/* Observaciones / técnicas */}
                     <FormField
                       control={form.control}
                       name="observations"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Observaciones / técnicas</FormLabel>
+                        <DirtyFieldItem dirty={dirtyFields.observations} label="Tratamiento">
                           <FormControl>
                             <Textarea
                               placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
@@ -759,9 +655,43 @@ export default function SessionFormModalWide({
                             />
                           </FormControl>
                           <FormMessage />
-                        </FormItem>
+                        </DirtyFieldItem>
                       )}
                     />
+
+                    <FormField
+                      control={form.control}
+                      name="reEvaluationNotes"
+                      render={({ field }) => (
+                        <DirtyFieldItem dirty={dirtyFields.reEvaluationNotes} label="Re-evaluación">
+                          <FormControl>
+                            <Textarea
+                              placeholder="Evaluación del dolor"
+                              rows={3}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </DirtyFieldItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="patientResponse"
+                      render={({ field }) => (
+                        <DirtyFieldItem dirty={dirtyFields.patientResponse} label="Respuesta del paciente">
+                          <FormControl>
+                            <Textarea
+                              placeholder="¿Cómo respondió a las posturas trabajadas?"
+                              rows={3}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </DirtyFieldItem>
+                      )}
+                    />
+                    
                   </CardContent>
                 </Card>
               </div>
@@ -776,7 +706,16 @@ export default function SessionFormModalWide({
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={mutation.isPending} className="w-full sm:w-auto">
+              {/* Al editar, guardar sin cambios sería un PATCH que no cambia
+                  nada (y una entrada de auditoría de más), así que el botón
+                  espera a que haya algo que guardar. Al crear queda siempre
+                  habilitado: una sesión con los valores por defecto es válida,
+                  y el monto base lo exige el handleSubmit de arriba. */}
+              <Button
+                type="submit"
+                disabled={mutation.isPending || (isEditing && !hasUnsavedChanges)}
+                className="w-full sm:w-auto"
+              >
                 {mutation.isPending ? 'Guardando...' : 'Guardar sesión'}
               </Button>
             </DialogFooter>

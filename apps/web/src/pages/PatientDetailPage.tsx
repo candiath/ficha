@@ -30,12 +30,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PulseDot } from '@/components/ui/pulse-dot';
+import { DirtyLabel } from '@/components/ui/dirty-label';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
 import { PostureFamiliesTables } from '@/components/patients/PostureFamiliesTables';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
-import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { toast } from 'sonner';
@@ -90,20 +90,6 @@ function getAge(iso: string | null | undefined): string | undefined {
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
   return `${age} años`;
-}
-
-export function DirtyLabel({ label, dirty }: { label: string; dirty?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      {label}
-      {dirty && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-          Modificado
-        </span>
-      )}
-    </span>
-  );
 }
 
 function DetailField({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -1033,11 +1019,16 @@ function SessionsTab({
         onSuccess={() => setPage(0)}
       />
 
-      <SessionDetailSheet
-        session={selected}
-        patientId={patientId}
-        onClose={() => setSelected(null)}
-      />
+      {/* Ver una sesión registrada y editarla son la misma pantalla: se abre el
+          mismo formulario que la creó, con los datos cargados. */}
+      {selected && (
+        <SessionFormDialog
+          open
+          onOpenChange={(o) => !o && setSelected(null)}
+          patientId={patientId}
+          session={selected}
+        />
+      )}
     </>
   );
 }
@@ -1064,6 +1055,10 @@ export default function PatientDetailPage() {
   const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
   const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
   const [confirmAbandon, setConfirmAbandon] = useState(false);
+  // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
+  // cierra el episodio en la misma transacción. Por eso se abre el mismo modal
+  // de sesión, no un formulario aparte.
+  const [dischargeOpen, setDischargeOpen] = useState(false);
 
   const {
     data: patient,
@@ -1412,7 +1407,26 @@ export default function PatientDetailPage() {
               <DialogFooter className="flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
                 <div className="flex gap-2">
                   {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
-                    
+                    <>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            className="text-xs"
+                            onClick={() => {
+                              setEditEpisodeOpen(false);
+                              setDischargeOpen(true);
+                            }}
+                          >
+                            Registrar alta
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <p>Registra la sesión de cierre y da de alta el episodio en un solo paso.</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -1425,6 +1439,7 @@ export default function PatientDetailPage() {
                         <p>Elegí esta opción si el paciente deja de asistir sin alta formal. Podés reactivarlo si regresa.</p>
                       </TooltipContent>
                     </Tooltip>
+                    </>
                   ) : (
                     <Button
                       variant="ghost"
@@ -1452,6 +1467,16 @@ export default function PatientDetailPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {effectiveEpisodeId && (
+        <SessionFormDialog
+          open={dischargeOpen}
+          onOpenChange={setDischargeOpen}
+          patientId={id!}
+          episodeId={effectiveEpisodeId}
+          sessionType="DISCHARGE"
+        />
+      )}
 
       <PatientFormDialog
         open={editOpen}
