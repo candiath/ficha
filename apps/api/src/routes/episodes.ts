@@ -1,23 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { patientRepo } from '../repositories';
-import type { TenantScopedClient } from '../lib/tenantScope';
+import { clinicalAlertRepo, episodeRepo, patientRepo } from '../repositories';
+import type { TenantContext } from '../repositories/types';
 
 type Params = { patientId: string; episodeId: string };
 
 // Montado en /api/patients/:patientId/episodes
 const router = Router({ mergeParams: true });
-
-const episodeSelect = {
-  id: true,
-  patientId: true,
-  status: true,
-  mainComplaint: true,
-  openedAt: true,
-  closedAt: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 const EpisodeCreateSchema = z.object({
   mainComplaint: z.string().optional().nullable(),
@@ -35,47 +24,38 @@ const INACTIVE_DAYS = 21;
 // Días de cooldown para no duplicar alertas del mismo tipo
 const ALERT_COOLDOWN_DAYS = 7;
 
+// La política (umbral de inactividad, cooldown, redacción del mensaje) vive
+// acá — es dominio; el acceso a datos va por los repos.
 async function checkInactiveEpisode(
-  db: TenantScopedClient,
+  ctx: TenantContext,
   patientId: string,
   episodeId: string,
   mainComplaint: string | null,
 ) {
-  const lastSession = await db.session.findFirst({
-    where: { patientId, episodes: { some: { episodeId } } },
-    orderBy: { sessionDate: 'desc' },
-    select: { sessionDate: true },
-  });
+  const lastActivity = await episodeRepo.lastActivityAt(ctx, patientId, episodeId);
 
   const inactiveCutoff = new Date();
   inactiveCutoff.setDate(inactiveCutoff.getDate() - INACTIVE_DAYS);
 
-  const isInactive = !lastSession || lastSession.sessionDate < inactiveCutoff;
+  const isInactive = !lastActivity || lastActivity < inactiveCutoff;
   if (!isInactive) return;
 
   // No crear alerta si ya existe una no leída reciente
   const alertCutoff = new Date();
   alertCutoff.setDate(alertCutoff.getDate() - ALERT_COOLDOWN_DAYS);
-  const existing = await db.clinicalAlert.findFirst({
-    where: {
-      patientId,
-      type: 'NO_SHOW',
-      isRead: false,
-      createdAt: { gte: alertCutoff },
-    },
-    select: { id: true },
-  });
-  if (existing) return;
+  if (await clinicalAlertRepo.hasRecentUnread(ctx, patientId, 'NO_SHOW', alertCutoff)) {
+    return;
+  }
 
-  const daysSince = lastSession
-    ? Math.floor((Date.now() - lastSession.sessionDate.getTime()) / 86_400_000)
+  const daysSince = lastActivity
+    ? Math.floor((Date.now() - lastActivity.getTime()) / 86_400_000)
     : null;
   const episodeLabel = mainComplaint ? `"${mainComplaint}"` : 'el episodio activo';
   const message = daysSince
     ? `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`
     : `El paciente no tiene sesiones registradas en ${episodeLabel}. Considerá hacer un seguimiento.`;
 
-  await db.clinicalAlert.create({ data: { patientId, type: 'NO_SHOW', message } });
+  await clinicalAlertRepo.create(ctx, { patientId, type: 'NO_SHOW', message });
 }
 
 // GET /api/patients/:patientId/episodes
@@ -85,11 +65,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
     return;
   }
 
-  const episodes = await req.db.clinicalEpisode.findMany({
-    where: { patientId: req.params.patientId },
-    orderBy: { openedAt: 'desc' },
-    select: episodeSelect,
-  });
+  const episodes = await episodeRepo.listByPatient(req.context, req.params.patientId);
 
   res.json({ data: episodes });
 
@@ -97,7 +73,7 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const activeEpisodes = episodes.filter((ep) => ep.status === 'ACTIVE');
   for (const ep of activeEpisodes) {
     checkInactiveEpisode(
-      req.db,
+      req.context,
       req.params.patientId,
       ep.id,
       ep.mainComplaint,
@@ -114,13 +90,9 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
   const body = EpisodeCreateSchema.parse(req.body);
 
-  const episode = await req.db.clinicalEpisode.create({
-    data: {
-      patientId: req.params.patientId,
-      mainComplaint: body.mainComplaint,
-      ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
-    },
-    select: episodeSelect,
+  const episode = await episodeRepo.create(req.context, req.params.patientId, {
+    mainComplaint: body.mainComplaint,
+    ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
   });
 
   res.status(201).json({ data: episode });
@@ -133,30 +105,29 @@ router.patch<Params>('/:episodeId', async (req, res) => {
     return;
   }
 
-  const existing = await req.db.clinicalEpisode.findFirst({
-    where: {
-      id: req.params.episodeId,
-      patientId: req.params.patientId,
-    },
-    select: { id: true },
-  });
+  const body = EpisodeUpdateSchema.parse(req.body);
 
-  if (!existing) {
+  // null = episodio inexistente o de otro paciente: mismo 404, sin revelar cuál.
+  const episode = await episodeRepo.update(
+    req.context,
+    req.params.patientId,
+    req.params.episodeId,
+    {
+      status: body.status,
+      mainComplaint: body.mainComplaint,
+      closedAt:
+        body.closedAt !== undefined
+          ? body.closedAt
+            ? new Date(body.closedAt)
+            : null
+          : undefined,
+    },
+  );
+
+  if (!episode) {
     res.status(404).json({ error: 'Episodio no encontrado' });
     return;
   }
-
-  const body = EpisodeUpdateSchema.parse(req.body);
-  const episode = await req.db.clinicalEpisode.update({
-    where: { id: req.params.episodeId },
-    data: {
-      ...body,
-      ...(body.closedAt !== undefined
-        ? { closedAt: body.closedAt ? new Date(body.closedAt) : null }
-        : {}),
-    },
-    select: episodeSelect,
-  });
 
   res.json({ data: episode });
 });

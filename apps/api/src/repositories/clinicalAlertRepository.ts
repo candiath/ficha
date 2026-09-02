@@ -28,6 +28,13 @@ export interface AlertFilters {
 
 export interface ClinicalAlertRepository {
   list(ctx: TenantContext, filters?: AlertFilters): Promise<ClinicalAlertDTO[]>;
+  /** true si hay una alerta no leída de ese tipo creada desde `since`. */
+  hasRecentUnread(
+    ctx: TenantContext,
+    patientId: string,
+    type: AlertCreateDTO['type'],
+    since: Date,
+  ): Promise<boolean>;
   stats(ctx: TenantContext): Promise<{
     unread: number;
     followUp: number;
@@ -35,6 +42,7 @@ export interface ClinicalAlertRepository {
     noShow: number;
   }>;
   create(ctx: TenantContext, data: AlertCreateDTO): Promise<ClinicalAlertDTO>;
-  markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO>;
+  /** null si la alerta no existe o es de otro tenant. */
+  markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO | null>;
   markAllAsRead(ctx: TenantContext): Promise<number>;
 }

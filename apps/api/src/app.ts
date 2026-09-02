@@ -1,28 +1,23 @@
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import { attachTenantDb } from './middlewares/attachTenantDb';
 import { authenticate } from './middlewares/auth';
 import { errorHandler } from './middlewares/errorHandler';
 import { requireRole } from './middlewares/requireRole';
 import { getJwtSecret } from './lib/jwt';
-import { prisma } from './lib/prisma';
+import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
 import authRouter from './routes/auth';
 import auditLogRouter from './routes/auditLog';
-import bodyRegionsRouter from './routes/bodyRegions';
 import consentRouter from './routes/consent';
 import dashboardRouter from './routes/dashboard';
 import episodesRouter from './routes/episodes';
 import evaluationRouter from './routes/evaluations';
 import globalSessionsRouter from './routes/globalSessions';
-import muscularChainsRouter from './routes/muscularChains';
 import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
-import sessionTechniquesRouter from './routes/sessionTechniques';
-import techniquesRouter from './routes/techniques';
 import functionalScalesRouter from './routes/functionalScales';
 import usersRouter from './routes/users';
 
@@ -83,7 +78,7 @@ const BUILD_MARKER = 'canary-2026-08-15';
 
 app.get('/health', async (_req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await pingDatabase();
     res.json({ status: 'ok', buildMarker: BUILD_MARKER });
   } catch {
     res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, error: 'Base de datos no disponible' });
@@ -94,22 +89,18 @@ app.get('/health', async (_req, res) => {
 app.use('/api/auth', authRouter);
 
 // Todo lo que se monta debajo de esta línea requiere un token válido.
-// authenticate adjunta req.context = { tenantId, userId }; attachTenantDb
-// lo consume para adjuntar req.db (cliente Prisma scopeado al tenant, B1).
-app.use('/api', authenticate, attachTenantDb);
+// authenticate adjunta req.context = { tenantId, userId, role }, que las rutas
+// le pasan a los repositorios: ellos scopean cada query al tenant.
+app.use('/api', authenticate);
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', episodesRouter);
 app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', evaluationRouter);
 app.use('/api/patients/:patientId/sessions', sessionsRouter);
-app.use('/api/patients/:patientId/sessions/:sessionId/techniques', sessionTechniquesRouter);
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', consentRouter);
 app.use('/api/patients/:patientId/scales', functionalScalesRouter);
 app.use('/api/sessions', globalSessionsRouter);
-app.use('/api/techniques', techniquesRouter);
-app.use('/api/body-regions', bodyRegionsRouter);
-app.use('/api/muscular-chains', muscularChainsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);

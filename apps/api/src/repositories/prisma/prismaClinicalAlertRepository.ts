@@ -7,6 +7,19 @@ import type {
   ClinicalAlertRepository,
 } from '../clinicalAlertRepository';
 
+// Las alertas de pacientes borrados no se muestran ni se cuentan.
+//
+// Es la excepción a la política general de borrado lógico (ver
+// patientRepository): cobros, sesiones y paquetes son registros de lo que
+// pasó y conservan el nombre, pero una alerta es TRABAJO PENDIENTE — pide
+// contactar a alguien cuya ficha ya da 404, y engorda el badge de no leídas
+// con ítems sobre los que no se puede actuar.
+//
+// Se filtra en la lectura y no se borran las filas al eliminar el paciente:
+// el borrado es lógico y reversible, así que las alertas deben poder volver
+// con él. Además cubre las que ya existían, sin migración de datos.
+const visiblePatient = { patient: { deletedAt: null } };
+
 const alertSelect = {
   id: true,
   patientId: true,
@@ -43,7 +56,7 @@ function toDTO(row: {
 export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
   async list(ctx: TenantContext, filters?: AlertFilters): Promise<ClinicalAlertDTO[]> {
     const db = forTenant(ctx);
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { ...visiblePatient };
     if (filters?.type) where.type = filters.type;
     if (filters?.isRead !== undefined) where.isRead = filters.isRead;
 
@@ -55,13 +68,34 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
     return rows.map(toDTO);
   },
 
+  async hasRecentUnread(
+    ctx: TenantContext,
+    patientId: string,
+    type: AlertCreateDTO['type'],
+    since: Date,
+  ): Promise<boolean> {
+    const db = forTenant(ctx);
+    const row = await db.clinicalAlert.findFirst({
+      where: { patientId, type, isRead: false, createdAt: { gte: since } },
+      select: { id: true },
+    });
+    return row !== null;
+  },
+
   async stats(ctx: TenantContext) {
     const db = forTenant(ctx);
+    // Mismo filtro que list(): el badge cuenta lo que la lista muestra.
     const [unread, followUp, payment, noShow] = await Promise.all([
-      db.clinicalAlert.count({ where: { isRead: false } }),
-      db.clinicalAlert.count({ where: { type: 'FOLLOW_UP', isRead: false } }),
-      db.clinicalAlert.count({ where: { type: 'PAYMENT', isRead: false } }),
-      db.clinicalAlert.count({ where: { type: 'NO_SHOW', isRead: false } }),
+      db.clinicalAlert.count({ where: { ...visiblePatient, isRead: false } }),
+      db.clinicalAlert.count({
+        where: { ...visiblePatient, type: 'FOLLOW_UP', isRead: false },
+      }),
+      db.clinicalAlert.count({
+        where: { ...visiblePatient, type: 'PAYMENT', isRead: false },
+      }),
+      db.clinicalAlert.count({
+        where: { ...visiblePatient, type: 'NO_SHOW', isRead: false },
+      }),
     ]);
     return { unread, followUp, payment, noShow };
   },
@@ -79,25 +113,24 @@ export const prismaClinicalAlertRepository: ClinicalAlertRepository = {
     return toDTO(row);
   },
 
-  async markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO> {
+  async markAsRead(ctx: TenantContext, id: string): Promise<ClinicalAlertDTO | null> {
     const db = forTenant(ctx);
-    // Validar pertenencia ANTES de escribir. Antes el update corría con
-    // where { id } (sin tenantId) y recién después chequeaba el tenant, así que
-    // marcaba como leída la alerta de otro tenant y luego tiraba error —el
-    // write ya había quedado hecho—. Con db scopeado el where lleva tenantId, y
-    // el findFirst previo da el error limpio si la alerta no es del tenant.
-    const existing = await db.clinicalAlert.findFirst({
-      where: { id },
-      select: { id: true },
-    });
-    if (!existing) throw new Error('Alerta no encontrada');
-
-    const row = await db.clinicalAlert.update({
+    // updateMany y no update: existencia y pertenencia al tenant se deciden
+    // en la misma query que escribe (count 0 = no hay alerta del tenant con
+    // ese id), sin ventana entre chequeo y update — patrón de
+    // patientRepo.update. null → la ruta responde 404 (antes el throw
+    // genérico terminaba en un 500 del errorHandler).
+    const { count } = await db.clinicalAlert.updateMany({
       where: { id },
       data: { isRead: true, readAt: new Date() },
+    });
+    if (count === 0) return null;
+
+    const row = await db.clinicalAlert.findFirst({
+      where: { id },
       select: alertSelect,
     });
-    return toDTO(row);
+    return row ? toDTO(row) : null;
   },
 
   async markAllAsRead(ctx: TenantContext): Promise<number> {

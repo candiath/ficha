@@ -1,4 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  FAMILY_PAIN_OPTIONS,
+  familyPainSchema,
+  isPostureFamiliesEmpty,
+  postureFamiliesSchema,
+} from '@ficha/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,13 +30,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PulseDot } from '@/components/ui/pulse-dot';
+import { DirtyLabel } from '@/components/ui/dirty-label';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
 import { PostureFamiliesTables } from '@/components/patients/PostureFamiliesTables';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
-import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
+import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { toast } from 'sonner';
 import { episodeApi, episodeKeys } from '@/services/episodes';
@@ -38,7 +45,7 @@ import type { ClinicalEpisode, EpisodeUpdateData } from '@/types/episode';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
-import { SEX_CLASS, SEX_LABELS, SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
+import { SEX_CLASS, SEX_LABELS } from '@/lib/labels';
 import type { BodyMarker } from '@/types/evaluation';
 import type { Session } from '@/types/session';
 
@@ -56,9 +63,11 @@ const evalSchema = z.object({
   physicalActivity: z.string().optional().or(z.literal('')),
   painAppearanceMoment: z.string().optional().or(z.literal('')),
   painFrequency: z.string().optional().or(z.literal('')),
-  familyPainAppearance: z.array(z.string()).optional(),
-  familyPainDisappearance: z.array(z.string()).optional(),
-  postureFamilies: z.record(z.string(), z.string()).optional(),
+  // Los tres usan el mismo schema con el que valida la API: si el formulario
+  // arma algo que el servidor rechazaría, se ve acá y no en un 400.
+  familyPainAppearance: familyPainSchema.optional(),
+  familyPainDisappearance: familyPainSchema.optional(),
+  postureFamilies: postureFamiliesSchema.optional(),
   evaScale: z.string().optional().or(z.literal('')),
 });
 
@@ -82,20 +91,6 @@ function getAge(iso: string | null | undefined): string | undefined {
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
   return `${age} años`;
-}
-
-export function DirtyLabel({ label, dirty }: { label: string; dirty?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      {label}
-      {dirty && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-          Modificado
-        </span>
-      )}
-    </span>
-  );
 }
 
 function DetailField({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -297,8 +292,8 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         physicalActivity: evaluation.physicalActivity ?? '',
         painAppearanceMoment: evaluation.painAppearanceMoment ?? '',
         painFrequency: evaluation.painFrequency ?? '',
-        familyPainAppearance: (evaluation.familyPainAppearance as string[] | null) ?? [],
-        familyPainDisappearance: (evaluation.familyPainDisappearance as string[] | null) ?? [],
+        familyPainAppearance: evaluation.familyPainAppearance ?? [],
+        familyPainDisappearance: evaluation.familyPainDisappearance ?? [],
         postureFamilies: evaluation.postureFamilies ?? {},
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
@@ -326,9 +321,9 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         painFrequency: values.painFrequency || null,
         familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
         familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
-        // Mapa sparse: sin celdas marcadas se guarda NULL, igual que familyPain
+        // Grilla sparse: sin celdas marcadas se guarda NULL, igual que familyPain
         postureFamilies:
-          values.postureFamilies && Object.keys(values.postureFamilies).length
+          values.postureFamilies && !isPostureFamiliesEmpty(values.postureFamilies)
             ? values.postureFamilies
             : null,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
@@ -481,7 +476,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                         <FormLabel className="text-xs text-muted-foreground">Aparición</FormLabel>
                         <FormControl>
                           <div className="space-y-2">
-                            {(['1', '2', '3', '4'] as const).map((id) => {
+                            {FAMILY_PAIN_OPTIONS.map((id) => {
                               const active = field.value?.includes(id);
                               return (
                                 <div
@@ -517,7 +512,7 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                         <FormLabel className="text-xs text-muted-foreground">Desaparición</FormLabel>
                         <FormControl>
                           <div className="space-y-2">
-                            {(['1', '2', '3', '4'] as const).map((id) => {
+                            {FAMILY_PAIN_OPTIONS.map((id) => {
                               const active = field.value?.includes(id);
                               return (
                                 <div
@@ -971,9 +966,7 @@ function SessionsTab({
                             {session.painScaleAfter ?? '—'}
                           </span>
                         )}
-                        <Badge variant="outline" className={SESSION_TYPE_CLASS[session.sessionType]}>
-                          {SESSION_TYPE_LABELS[session.sessionType]}
-                        </Badge>
+                        <SessionTypeBadge type={session.sessionType} />
                       </div>
                     </div>
                   </CardContent>
@@ -1025,11 +1018,16 @@ function SessionsTab({
         onSuccess={() => setPage(0)}
       />
 
-      <SessionDetailSheet
-        session={selected}
-        patientId={patientId}
-        onClose={() => setSelected(null)}
-      />
+      {/* Ver una sesión registrada y editarla son la misma pantalla: se abre el
+          mismo formulario que la creó, con los datos cargados. */}
+      {selected && (
+        <SessionFormDialog
+          open
+          onOpenChange={(o) => !o && setSelected(null)}
+          patientId={patientId}
+          session={selected}
+        />
+      )}
     </>
   );
 }
@@ -1056,6 +1054,10 @@ export default function PatientDetailPage() {
   const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
   const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
   const [confirmAbandon, setConfirmAbandon] = useState(false);
+  // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
+  // cierra el episodio en la misma transacción. Por eso se abre el mismo modal
+  // de sesión, no un formulario aparte.
+  const [dischargeOpen, setDischargeOpen] = useState(false);
 
   const {
     data: patient,
@@ -1404,7 +1406,26 @@ export default function PatientDetailPage() {
               <DialogFooter className="flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
                 <div className="flex gap-2">
                   {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
-                    
+                    <>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            className="text-xs"
+                            onClick={() => {
+                              setEditEpisodeOpen(false);
+                              setDischargeOpen(true);
+                            }}
+                          >
+                            Registrar alta
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        <p>Registra la sesión de cierre y da de alta el episodio en un solo paso.</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -1417,6 +1438,7 @@ export default function PatientDetailPage() {
                         <p>Elegí esta opción si el paciente deja de asistir sin alta formal. Podés reactivarlo si regresa.</p>
                       </TooltipContent>
                     </Tooltip>
+                    </>
                   ) : (
                     <Button
                       variant="ghost"
@@ -1444,6 +1466,16 @@ export default function PatientDetailPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {effectiveEpisodeId && (
+        <SessionFormDialog
+          open={dischargeOpen}
+          onOpenChange={setDischargeOpen}
+          patientId={id!}
+          episodeId={effectiveEpisodeId}
+          sessionType="DISCHARGE"
+        />
+      )}
 
       <PatientFormDialog
         open={editOpen}

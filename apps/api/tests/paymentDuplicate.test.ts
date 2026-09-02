@@ -6,10 +6,11 @@ import { prisma } from '../src/lib/prisma';
 import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
 
 // POST /api/payments impone un pago por sesión (unique sobre sessionId).
-// Hay dos capas de defensa: un pre-chequeo (findUnique) que atrapa el caso
-// secuencial, y el catch de P2002 sobre el create que atrapa la carrera real
-// (dos requests que pasan el pre-chequeo antes de que ninguno confirme el
-// INSERT). Ambos responden 409, con mensajes distintos.
+// Las dos capas de defensa viven en paymentRepo.create: un pre-chequeo
+// (findUnique) que atrapa el caso secuencial, y el catch de P2002 sobre el
+// create que atrapa la carrera real (dos requests que pasan el pre-chequeo
+// antes de que ninguno confirme el INSERT). Ambas salen como reason
+// 'duplicate' y la ruta responde el mismo 409.
 describe('pago duplicado por sesión', () => {
   let clinicA: TestClinic;
   let userA: User;

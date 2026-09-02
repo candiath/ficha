@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { PulseDot } from '@/components/ui/pulse-dot';
-import { DirtyLabel } from '@/pages/PatientDetailPage';
+import { DirtyLabel } from '@/components/ui/dirty-label';
 import { useEffect } from 'react';
 
 // ── Sección: encabezado ──────────────────────────────────────────────────────

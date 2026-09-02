@@ -62,6 +62,13 @@ jobs:
         run: npx prisma generate
         working-directory: apps/api
 
+      # La API importa valores de runtime de @ficha/shared (los schemas de Zod
+      # de la evaluación), no solo tipos: sin el dist compilado, el import falla
+      # al arrancar los tests. En Render esto ya pasa porque el build corre
+      # `build:api`, que buildea shared primero.
+      - name: Buildear el paquete compartido
+        run: npm run build -w packages/shared
+
       # Idempotente: aplica solo las migraciones pendientes, así la branch
       # de CI acompaña a los PRs que traen migraciones nuevas.
       # El datasource declara directUrl para que migrate no pase por el pooler

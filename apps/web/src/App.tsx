@@ -17,7 +17,6 @@ import PatientDetailPage from '@/pages/PatientDetailPage'
 import PatientsPage from '@/pages/PatientsPage'
 import PaymentsPage from '@/pages/PaymentsPage'
 import SessionsPage from '@/pages/SessionsPage'
-import TechniquesPage from '@/pages/TechniquesPage'
 import TurnosPage from '@/pages/TurnosPage'
 import AlertsPage from '@/pages/AlertsPage'
 
@@ -90,7 +89,6 @@ export default function App() {
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="alerts" element={<AlertsPage />} />
-        <Route path="techniques" element={<TechniquesPage />} />
         <Route path="exercises" element={<EjerciciosPage />} />
         <Route path="messages" element={<MensajesPage />} />
         <Route path="account" element={<AccountPage />} />
