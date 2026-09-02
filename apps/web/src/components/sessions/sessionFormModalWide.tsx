@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useBeforeUnload } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,7 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -39,6 +41,7 @@ import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/pay
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
+import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels'
 import {
   getSessionDateWarnings,
   useSessionDateTolerances,
@@ -91,6 +94,40 @@ function getPainColor(value: number | null) {
   if (value <= 3) return 'text-emerald-600'
   if (value <= 6) return 'text-amber-600'
   return 'text-red-600'
+}
+
+/**
+ * Campo del formulario con marca de "modificado sin guardar": el chip
+ * DirtyLabel que ya usa la evaluación inicial, más una barra ámbar a la
+ * izquierda del control para poder escanear la columna de un vistazo.
+ *
+ * El borde existe siempre (transparente cuando está limpio) y el margen
+ * negativo mete la barra en el padding de la tarjeta: así aparecer la marca no
+ * corre ni un pixel del contenido.
+ */
+function DirtyFieldItem({
+  dirty,
+  label,
+  children,
+}: {
+  dirty?: boolean
+  /** Sin label, el llamador arma su propia cabecera (los sliders de dolor
+   *  necesitan el valor grande alineado a la derecha). */
+  label?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <FormItem
+      className={`-ml-3 border-l-2 pl-3 ${dirty ? 'border-amber-500' : 'border-transparent'}`}
+    >
+      {label !== undefined && (
+        <FormLabel>
+          <DirtyLabel label={label} dirty={dirty} />
+        </FormLabel>
+      )}
+      {children}
+    </FormItem>
+  )
 }
 
 export default function SessionFormModalWide({
@@ -274,6 +311,10 @@ export default function SessionFormModalWide({
   const painAfter = form.watch('painScaleAfter')
 
   const hasUnsavedChanges = form.formState.isDirty
+  // Qué campos cambiaron respecto de los valores con que se abrió el modal:
+  // alimenta la marca ámbar de cada campo. RHF los compara contra el último
+  // reset, así que volver un campo a su valor original lo saca de acá.
+  const { dirtyFields } = form.formState
 
   // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
   // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
@@ -298,13 +339,25 @@ export default function SessionFormModalWide({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl max-h-[90vh] overflow-y-auto p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b bg-muted/30">
-          <DialogTitle className="text-xl">
-            {isEditing
-              ? 'Editar sesión'
-              : sessionType === 'DISCHARGE'
-                ? 'Registrar alta'
-                : 'Nueva sesión'}
-          </DialogTitle>
+          <div className="flex items-start justify-between gap-4">
+            <DialogTitle className="text-xl">
+              {isEditing
+                ? 'Sesión registrada'
+                : sessionType === 'DISCHARGE'
+                  ? 'Registrar alta'
+                  : 'Nueva sesión'}
+            </DialogTitle>
+            {/* El tipo ya no se edita, pero sigue distinguiendo una nota rápida
+                o un alta de una sesión común: se muestra como etiqueta. */}
+            {isEditing && (
+              <Badge
+                variant="outline"
+                className={`shrink-0 ${SESSION_TYPE_CLASS[session.sessionType]}`}
+              >
+                {SESSION_TYPE_LABELS[session.sessionType]}
+              </Badge>
+            )}
+          </div>
           {!isEditing && sessionType === 'DISCHARGE' && (
             <DialogDescription>
               Al guardar, el motivo queda cerrado con fecha de alta.
@@ -345,8 +398,7 @@ export default function SessionFormModalWide({
                             dateTolerances,
                           )
                           return (
-                            <FormItem>
-                              <FormLabel>Fecha y hora</FormLabel>
+                            <DirtyFieldItem dirty={dirtyFields.sessionDate} label="Fecha y hora">
                               <FormControl>
                                 <Input type="datetime-local" {...field} />
                               </FormControl>
@@ -356,7 +408,7 @@ export default function SessionFormModalWide({
                                   {warning}
                                 </p>
                               ))}
-                            </FormItem>
+                            </DirtyFieldItem>
                           )
                         }}
                       />
@@ -387,9 +439,9 @@ export default function SessionFormModalWide({
                           control={form.control}
                           name="painScaleBefore"
                           render={({ field }) => (
-                            <FormItem>
+                            <DirtyFieldItem dirty={dirtyFields.painScaleBefore}>
                               <div className="flex items-center justify-between">
-                                <span className="text-sm">Antes</span>
+                                <DirtyLabel label="Antes" dirty={dirtyFields.painScaleBefore} />
                                 <span className={`text-2xl font-bold ${getPainColor(painBefore)}`}>
                                   {painBefore ?? '?'}
                                 </span>
@@ -406,16 +458,16 @@ export default function SessionFormModalWide({
                                 <span>Sin dolor</span>
                                 <span>Máximo</span>
                               </div>
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                         <FormField
                           control={form.control}
                           name="painScaleAfter"
                           render={({ field }) => (
-                            <FormItem>
+                            <DirtyFieldItem dirty={dirtyFields.painScaleAfter}>
                               <div className="flex items-center justify-between">
-                                <span className="text-sm">Después</span>
+                                <DirtyLabel label="Después" dirty={dirtyFields.painScaleAfter} />
                                 <span className={`text-2xl font-bold ${getPainColor(painAfter)}`}>
                                   {painAfter ?? '?'}
                                 </span>
@@ -432,7 +484,7 @@ export default function SessionFormModalWide({
                                 <span>Sin dolor</span>
                                 <span>Máximo</span>
                               </div>
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                       </div>
@@ -455,8 +507,7 @@ export default function SessionFormModalWide({
                           control={form.control}
                           name="packageId"
                           render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Paquete</FormLabel>
+                            <DirtyFieldItem dirty={dirtyFields.packageId} label="Paquete">
                               <Select value={field.value ?? ''} onValueChange={field.onChange}>
                                 <FormControl>
                                   <SelectTrigger>
@@ -475,7 +526,7 @@ export default function SessionFormModalWide({
                                 </SelectContent>
                               </Select>
                               <FormMessage />
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                       )}
@@ -485,15 +536,19 @@ export default function SessionFormModalWide({
                           control={form.control}
                           name="baseAmount"
                           render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                Monto base <span className="text-destructive">*</span>
-                                {lastPriceData?.isStale === false && (
-                                  <span className="text-muted-foreground font-normal ml-1 text-xs">
-                                    (último precio)
-                                  </span>
-                                )}
-                              </FormLabel>
+                            <DirtyFieldItem
+                              dirty={dirtyFields.baseAmount}
+                              label={
+                                <>
+                                  Monto base <span className="text-destructive">*</span>
+                                  {lastPriceData?.isStale === false && (
+                                    <span className="text-muted-foreground font-normal text-xs">
+                                      (último precio)
+                                    </span>
+                                  )}
+                                </>
+                              }
+                            >
                               <FormControl>
                                 <div className="relative">
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -510,15 +565,14 @@ export default function SessionFormModalWide({
                                 </div>
                               </FormControl>
                               <FormMessage />
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                         <FormField
                           control={form.control}
                           name="discount"
                           render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Descuento</FormLabel>
+                            <DirtyFieldItem dirty={dirtyFields.discount} label="Descuento">
                               <FormControl>
                                 <div className="relative">
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -535,7 +589,7 @@ export default function SessionFormModalWide({
                                 </div>
                               </FormControl>
                               <FormMessage />
-                            </FormItem>
+                            </DirtyFieldItem>
                           )}
                         />
                       </div>
@@ -544,8 +598,7 @@ export default function SessionFormModalWide({
                         control={form.control}
                         name="paymentNotes"
                         render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Notas de pago</FormLabel>
+                          <DirtyFieldItem dirty={dirtyFields.paymentNotes} label="Notas de pago">
                             <FormControl>
                               <Input
                                 placeholder="Ej: pagó mitad hoy, resto próxima semana"
@@ -553,7 +606,7 @@ export default function SessionFormModalWide({
                               />
                             </FormControl>
                             <FormMessage />
-                          </FormItem>
+                          </DirtyFieldItem>
                         )}
                       />
                     </CardContent>
@@ -575,8 +628,7 @@ export default function SessionFormModalWide({
                       control={form.control}
                       name="preSesionState"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Evaluación (estado pre-sesión)</FormLabel>
+                        <DirtyFieldItem dirty={dirtyFields.preSesionState} label="Evaluación (estado pre-sesión)">
                           <FormControl>
                             <Textarea
                               placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
@@ -585,7 +637,7 @@ export default function SessionFormModalWide({
                             />
                           </FormControl>
                           <FormMessage />
-                        </FormItem>
+                        </DirtyFieldItem>
                       )}
                     />
 
@@ -594,8 +646,7 @@ export default function SessionFormModalWide({
                       control={form.control}
                       name="observations"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Tratamiento</FormLabel>
+                        <DirtyFieldItem dirty={dirtyFields.observations} label="Tratamiento">
                           <FormControl>
                             <Textarea
                               placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
@@ -604,7 +655,7 @@ export default function SessionFormModalWide({
                             />
                           </FormControl>
                           <FormMessage />
-                        </FormItem>
+                        </DirtyFieldItem>
                       )}
                     />
 
@@ -612,8 +663,7 @@ export default function SessionFormModalWide({
                       control={form.control}
                       name="reEvaluationNotes"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Re-evaluación</FormLabel>
+                        <DirtyFieldItem dirty={dirtyFields.reEvaluationNotes} label="Re-evaluación">
                           <FormControl>
                             <Textarea
                               placeholder="Evaluación del dolor"
@@ -622,15 +672,14 @@ export default function SessionFormModalWide({
                             />
                           </FormControl>
                           <FormMessage />
-                        </FormItem>
+                        </DirtyFieldItem>
                       )}
                     />
                     <FormField
                       control={form.control}
                       name="patientResponse"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Respuesta del paciente</FormLabel>
+                        <DirtyFieldItem dirty={dirtyFields.patientResponse} label="Respuesta del paciente">
                           <FormControl>
                             <Textarea
                               placeholder="¿Cómo respondió a las posturas trabajadas?"
@@ -639,7 +688,7 @@ export default function SessionFormModalWide({
                             />
                           </FormControl>
                           <FormMessage />
-                        </FormItem>
+                        </DirtyFieldItem>
                       )}
                     />
                     
@@ -657,7 +706,16 @@ export default function SessionFormModalWide({
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={mutation.isPending} className="w-full sm:w-auto">
+              {/* Al editar, guardar sin cambios sería un PATCH que no cambia
+                  nada (y una entrada de auditoría de más), así que el botón
+                  espera a que haya algo que guardar. Al crear queda siempre
+                  habilitado: una sesión con los valores por defecto es válida,
+                  y el monto base lo exige el handleSubmit de arriba. */}
+              <Button
+                type="submit"
+                disabled={mutation.isPending || (isEditing && !hasUnsavedChanges)}
+                className="w-full sm:w-auto"
+              >
                 {mutation.isPending ? 'Guardando...' : 'Guardar sesión'}
               </Button>
             </DialogFooter>

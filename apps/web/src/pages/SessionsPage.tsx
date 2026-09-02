@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import SessionDetailSheet from '@/components/sessions/SessionDetailSheet';
+import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
 import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
 import { globalSessionApi, globalSessionKeys } from '@/services/globalSessions';
 import type { GlobalSession } from '@/types/globalSession';
@@ -124,11 +124,16 @@ export default function SessionsPage() {
         </div>
       )}
 
-      <SessionDetailSheet
-        session={selected}
-        patientId={selected?.patient.id ?? ''}
-        onClose={() => setSelected(null)}
-      />
+      {/* Ver una sesión registrada y editarla son la misma pantalla: se abre el
+          mismo formulario que la creó, con los datos cargados. */}
+      {selected && (
+        <SessionFormDialog
+          open
+          onOpenChange={(o) => !o && setSelected(null)}
+          patientId={selected.patient.id}
+          session={selected}
+        />
+      )}
     </div>
   );
 }
