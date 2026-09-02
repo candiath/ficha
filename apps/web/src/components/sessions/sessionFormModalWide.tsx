@@ -14,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
@@ -41,7 +40,7 @@ import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/pay
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
-import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels'
+import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge'
 import {
   getSessionDateWarnings,
   useSessionDateTolerances,
@@ -212,7 +211,7 @@ export default function SessionFormModalWide({
       })
     } else {
       form.reset({
-          sessionDate: toLocalDateTimeInput(new Date()),
+        sessionDate: toLocalDateTimeInput(new Date()),
         painScaleBefore: null,
         painScaleAfter: null,
         preSesionState: '',
@@ -348,15 +347,9 @@ export default function SessionFormModalWide({
                   : 'Nueva sesión'}
             </DialogTitle>
             {/* El tipo ya no se edita, pero sigue distinguiendo una nota rápida
-                o un alta de una sesión común: se muestra como etiqueta. */}
-            {isEditing && (
-              <Badge
-                variant="outline"
-                className={`shrink-0 ${SESSION_TYPE_CLASS[session.sessionType]}`}
-              >
-                {SESSION_TYPE_LABELS[session.sessionType]}
-              </Badge>
-            )}
+                o un alta de una sesión común. El badge no aparece para una
+                sesión común: ahí no habría nada que distinguir. */}
+            {isEditing && <SessionTypeBadge type={session.sessionType} className="shrink-0" />}
           </div>
           {!isEditing && sessionType === 'DISCHARGE' && (
             <DialogDescription>

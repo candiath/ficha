@@ -37,6 +37,7 @@ import ConsentTab from '@/components/patients/ConsentTab';
 import { PostureFamiliesTables } from '@/components/patients/PostureFamiliesTables';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
+import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { toast } from 'sonner';
 import { episodeApi, episodeKeys } from '@/services/episodes';
@@ -44,7 +45,7 @@ import type { ClinicalEpisode, EpisodeUpdateData } from '@/types/episode';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
-import { SEX_CLASS, SEX_LABELS, SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
+import { SEX_CLASS, SEX_LABELS } from '@/lib/labels';
 import type { BodyMarker } from '@/types/evaluation';
 import type { Session } from '@/types/session';
 
@@ -965,9 +966,7 @@ function SessionsTab({
                             {session.painScaleAfter ?? '—'}
                           </span>
                         )}
-                        <Badge variant="outline" className={SESSION_TYPE_CLASS[session.sessionType]}>
-                          {SESSION_TYPE_LABELS[session.sessionType]}
-                        </Badge>
+                        <SessionTypeBadge type={session.sessionType} />
                       </div>
                     </div>
                   </CardContent>

@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { CalendarDays } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -13,7 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
-import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
+import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
 import { globalSessionApi, globalSessionKeys } from '@/services/globalSessions';
 import type { GlobalSession } from '@/types/globalSession';
 
@@ -101,9 +100,7 @@ export default function SessionsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={SESSION_TYPE_CLASS[s.sessionType]}>
-                        {SESSION_TYPE_LABELS[s.sessionType]}
-                      </Badge>
+                      <SessionTypeBadge type={s.sessionType} />
                     </TableCell>
                     <TableCell>
                       <PainDelta before={s.painScaleBefore} after={s.painScaleAfter} />
