@@ -22,14 +22,21 @@ jobs:
   disparar:
     runs-on: ubuntu-latest
     steps:
+      # Vía workflow_dispatch y no repository_dispatch: son dos endpoints con
+      # permisos distintos en un PAT fine-grained. `/dispatches` (el de
+      # repository_dispatch) exige **Contents: write**, que incluye lectura —
+      # o sea que este token, que vive en un repo público, podría bajarse los
+      # dumps con las historias clínicas. `/actions/workflows/{id}/dispatches`
+      # se conforma con **Actions: write**, que no da acceso al contenido del
+      # repo. Es la diferencia entre poder pedir un backup y poder leerlo.
       - name: Pedir un backup de producción
         env:
           GH_TOKEN: ${{ secrets.BACKUP_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
-          gh api repos/candiath/ficha-backups/dispatches \
+          gh api repos/candiath/ficha-backups/actions/workflows/backup.yml/dispatches \
             --method POST \
-            --field event_type=backup \
-            --raw-field 'client_payload[motivo]=release PR #${{ github.event.pull_request.number }}'
+            --raw-field ref=main \
+            --raw-field 'inputs[motivo]=release PR #${{ github.event.pull_request.number }}'
           echo "Backup pedido. Verlo en:"
           echo "https://github.com/candiath/ficha-backups/actions"

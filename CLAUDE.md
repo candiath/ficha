@@ -75,9 +75,11 @@ El point-in-time recovery de Neon en el plan free cubre **6 horas** hacia atrás
 
 Por eso hay un repositorio aparte, **[`candiath/ficha-backups`](https://github.com/candiath/ficha-backups) (privado)**, con un `pg_dump` de producción versionado por git. El dump se escribe siempre en los mismos dos archivos —`dump/schema.sql` y `dump/data.sql`— y cada corrida que encuentra diferencias deja un commit: el historial de git *es* el versionado, y `git log dump/data.sql` es la línea de tiempo de la base. Una corrida sin cambios no commitea nada, y la detección es `git diff --cached --quiet`, sin preguntarle nada a la base.
 
-Corre diario a las 06:00 UTC, a mano por `workflow_dispatch`, y por `repository_dispatch` desde este repo al abrir el PR de release (`.github/workflows/backup-antes-del-release.yml`) — al **abrir** y no al mergear, porque para cuando el merge ocurre Render ya arrancó el build y `migrate deploy` puede estar corriendo.
+Corre diario a las 06:00 UTC, a mano, y desde este repo al abrir el PR de release (`.github/workflows/backup-antes-del-release.yml`) — al **abrir** y no al mergear, porque para cuando el merge ocurre Render ya arrancó el build y `migrate deploy` puede estar corriendo.
 
 **La credencial de producción vive solo en el repo privado.** Éste es público: aunque las secrets no se filtran a los PRs de forks, cualquiera con permiso de escritura podría sacarlas modificando un workflow. Acá solo está `BACKUP_DISPATCH_TOKEN`, que puede disparar aquel workflow y nada más.
+
+Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{id}/dispatches`), no por el de `repository_dispatch` (`/dispatches`), y la diferencia es de permisos: en un PAT fine-grained el segundo exige **Contents: write** sobre el repo privado, y Contents incluye lectura — o sea que el token del repo público podría bajarse los dumps con las historias clínicas. El primero se conforma con **Actions: write**, que permite pedir un backup pero no leerlo.
 
 Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
 
