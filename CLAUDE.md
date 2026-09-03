@@ -32,7 +32,9 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 
 Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y su propio `JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
-Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia `CI_DATABASE_URL` (secret de GitHub).
+Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci` / `br-wild-paper-acsbbmws`) y su propia `CI_DATABASE_URL` (secret de GitHub).
+
+Esa branch se creó desde `production` y después se le borró el esquema, así que arranca **vacía**: `migrate deploy` la reconstruye desde la primera migración en cada corrida, lo que de paso verifica que la cadena entera aplica sobre una base limpia. Vacía a propósito y no por descuido — los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
 
@@ -65,7 +67,7 @@ Si una migración falla, el build falla y Render **mantiene vivo el deploy anter
 
 **Migraciones destructivas en dos pasos.** Un `DROP COLUMN` que llega junto al código que deja de usar la columna rompe producción en el intervalo entre que la migración corre y el proceso nuevo toma el tráfico. Se hace en dos releases: primero se agrega lo nuevo y se deja de leer lo viejo; el `DROP` va en un release posterior, cuando ya nada lo referencia.
 
-Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. El `.env` local trae la URL de producción comentada solo para inspección con `db:studio`.
+Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. **El `.env` local no guarda la URL de producción**, ni siquiera comentada: tenerla a mano invita a copiarla, y una credencial de producción pegada donde no corresponde obliga a rotarla en las cuatro branches. Si hace falta inspeccionar producción con `db:studio`, se saca de la consola de Neon en el momento y se descarta.
 
 ### Backups
 
