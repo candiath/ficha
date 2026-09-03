@@ -32,7 +32,9 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 
 Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y su propio `JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
-Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia `CI_DATABASE_URL` (secret de GitHub).
+Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci` / `br-wild-paper-acsbbmws`) y su propia `CI_DATABASE_URL` (secret de GitHub).
+
+Esa branch se creó desde `production` y después se le borró el esquema, así que arranca **vacía**: `migrate deploy` la reconstruye desde la primera migración en cada corrida, lo que de paso verifica que la cadena entera aplica sobre una base limpia. Vacía a propósito y no por descuido — los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
 
@@ -65,7 +67,19 @@ Si una migración falla, el build falla y Render **mantiene vivo el deploy anter
 
 **Migraciones destructivas en dos pasos.** Un `DROP COLUMN` que llega junto al código que deja de usar la columna rompe producción en el intervalo entre que la migración corre y el proceso nuevo toma el tráfico. Se hace en dos releases: primero se agrega lo nuevo y se deja de leer lo viejo; el `DROP` va en un release posterior, cuando ya nada lo referencia.
 
-Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. El `.env` local trae la URL de producción comentada solo para inspección con `db:studio`.
+Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. **El `.env` local no guarda la URL de producción**, ni siquiera comentada: tenerla a mano invita a copiarla, y una credencial de producción pegada donde no corresponde obliga a rotarla en las cuatro branches. Si hace falta inspeccionar producción con `db:studio`, se saca de la consola de Neon en el momento y se descarta.
+
+### Backups
+
+El point-in-time recovery de Neon en el plan free cubre **6 horas** hacia atrás (`history_retention_seconds: 21600`). Alcanza para deshacer un error que se nota enseguida; no alcanza para nada que se descubra al día siguiente, ni sirve si se pierde la cuenta.
+
+Por eso hay un repositorio aparte, **[`candiath/ficha-backups`](https://github.com/candiath/ficha-backups) (privado)**, con un `pg_dump` de producción versionado por git. El dump se escribe siempre en los mismos dos archivos —`dump/schema.sql` y `dump/data.sql`— y cada corrida que encuentra diferencias deja un commit: el historial de git *es* el versionado, y `git log dump/data.sql` es la línea de tiempo de la base. Una corrida sin cambios no commitea nada, y la detección es `git diff --cached --quiet`, sin preguntarle nada a la base.
+
+Corre diario a las 06:00 UTC, a mano por `workflow_dispatch`, y por `repository_dispatch` desde este repo al abrir el PR de release (`.github/workflows/backup-antes-del-release.yml`) — al **abrir** y no al mergear, porque para cuando el merge ocurre Render ya arrancó el build y `migrate deploy` puede estar corriendo.
+
+**La credencial de producción vive solo en el repo privado.** Éste es público: aunque las secrets no se filtran a los PRs de forks, cualquiera con permiso de escritura podría sacarlas modificando un workflow. Acá solo está `BACKUP_DISPATCH_TOKEN`, que puede disparar aquel workflow y nada más.
+
+Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
 
 ### Cómo se llegó acá (2026-08-29)
 

@@ -8,6 +8,13 @@ on:
   # desplegó para cuando termina.
   push:
     branches: [dev]
+  # A demanda, sobre cualquier rama. No es un lujo: lo que el CI valida depende
+  # de credenciales que viven fuera del repo (CI_DATABASE_URL, CI_JWT_SECRET),
+  # así que un check en verde afirma algo sobre un commit en un momento, no
+  # sobre el estado de hoy. Después de rotar una clave hay que poder volver a
+  # correrlo sin inventar un push ni depender de que exista un run viejo para
+  # re-ejecutar.
+  workflow_dispatch:
 
 # Si llegan pushes seguidos al mismo PR, cancela la corrida vieja: los tests
 # van contra una DB compartida (branch de CI en Neon) y no tiene sentido
