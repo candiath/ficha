@@ -34,11 +34,16 @@ async function checkInactiveEpisode(
 ) {
   const lastActivity = await episodeRepo.lastActivityAt(ctx, patientId, episodeId);
 
+  // Un episodio sin ninguna sesión no es inactividad, es un episodio recién
+  // abierto: al paciente se lo da de alta justo cuando viene a atenderse, así
+  // que ese hueco siempre es de horas. Se alerta sólo cuando hubo actividad y
+  // se cortó — sin sesión previa no hay nada de qué hacer seguimiento.
+  if (!lastActivity) return;
+
   const inactiveCutoff = new Date();
   inactiveCutoff.setDate(inactiveCutoff.getDate() - INACTIVE_DAYS);
 
-  const isInactive = !lastActivity || lastActivity < inactiveCutoff;
-  if (!isInactive) return;
+  if (lastActivity >= inactiveCutoff) return;
 
   // No crear alerta si ya existe una no leída reciente
   const alertCutoff = new Date();
@@ -47,13 +52,9 @@ async function checkInactiveEpisode(
     return;
   }
 
-  const daysSince = lastActivity
-    ? Math.floor((Date.now() - lastActivity.getTime()) / 86_400_000)
-    : null;
+  const daysSince = Math.floor((Date.now() - lastActivity.getTime()) / 86_400_000);
   const episodeLabel = mainComplaint ? `"${mainComplaint}"` : 'el episodio activo';
-  const message = daysSince
-    ? `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`
-    : `El paciente no tiene sesiones registradas en ${episodeLabel}. Considerá hacer un seguimiento.`;
+  const message = `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`;
 
   await clinicalAlertRepo.create(ctx, { patientId, type: 'NO_SHOW', message });
 }
