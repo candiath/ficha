@@ -52,6 +52,14 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
       discount: z.number().nonnegative().default(0),
       notes: z.string().optional().nullable(),
     })
+    // Mismo invariante que POST /api/payments: un descuento mayor al monto
+    // base deja finalAmount negativo, o sea un cobro que devuelve plata. Va
+    // acá además de allá porque ésta es la vía por la que la app crea los
+    // cobros de verdad — el alta de la sesión los trae embebidos (issue #73).
+    .refine((d) => d.discount <= d.baseAmount, {
+      error: 'El descuento no puede superar el monto base',
+      path: ['discount'],
+    })
     .optional(),
 });
 

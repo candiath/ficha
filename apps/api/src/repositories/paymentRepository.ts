@@ -57,7 +57,9 @@ export type PaymentCreateResult =
 
 export type PaymentUpdateResult =
   | { ok: true; payment: PaymentDTO }
-  | { ok: false; reason: 'not_found' | 'package_not_found' };
+  // invalid_amounts: el descuento supera al monto base, o sea que
+  // finalAmount quedaría negativo — un cobro que devuelve plata.
+  | { ok: false; reason: 'not_found' | 'package_not_found' | 'invalid_amounts' };
 
 export interface LastBasePrice {
   amount: number | null;
@@ -80,6 +82,11 @@ export interface PaymentRepository {
    * con el catch de P2002 adentro para la carrera).
    */
   create(ctx: TenantContext, input: PaymentCreateInput): Promise<PaymentCreateResult>;
-  /** Recalcula finalAmount con los montos nuevos o los existentes. */
+  /**
+   * Recalcula finalAmount con los montos nuevos o los existentes, y rechaza
+   * la combinación que lo dejaría negativo. El chequeo vive acá y no en el
+   * schema de la ruta porque el PATCH es parcial: mandar solo `discount`
+   * puede pasar el monto base guardado, que Zod no conoce.
+   */
   update(ctx: TenantContext, id: string, input: PaymentUpdateInput): Promise<PaymentUpdateResult>;
 }
