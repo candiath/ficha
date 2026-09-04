@@ -70,11 +70,20 @@ const ALLOWED_ORIGIN: (string | RegExp)[] = IS_PRODUCTION
 app.use(cors({ origin: ALLOWED_ORIGIN }));
 app.use(express.json());
 
-// Marca del build: string fijo que se bumpea a mano. Sirve para saber qué
-// commit está sirviendo realmente un entorno desplegado, que no siempre es
-// el último de la branch: si un deploy falla, Render sigue sirviendo el
-// build anterior sin que nada en la app lo delate.
-const BUILD_MARKER = 'canary-2026-08-15';
+// Marca del build: el SHA corto del commit que está sirviendo este proceso.
+// Sirve para saber qué commit corre realmente un entorno desplegado, que no
+// siempre es el último de la branch: si un deploy falla, Render sigue
+// sirviendo el build anterior sin que nada en la app lo delate.
+//
+// Render expone RENDER_GIT_COMMIT en build y en runtime. Antes esto era un
+// string fijo que había que bumpear a mano —y que además vivía duplicado en
+// la landing—, así que envejecía sin que nadie se enterara: producción y
+// testing terminaron respondiendo la misma marca, con tres semanas de atraso.
+// Una marca que no cambia no distingue nada, que es justo lo contrario de
+// para lo que existe.
+//
+// Fuera de Render (local, tests) no hay commit del que hablar: 'local'.
+const BUILD_MARKER = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? 'local';
 
 app.get('/health', async (_req, res) => {
   try {
