@@ -242,6 +242,12 @@ model Session {
   observations     String?
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
+  // Borrado lógico, igual que Patient: una sesión cargada por error
+  // desaparece de los listados pero la fila queda, para no romper el pivote
+  // con episodios ni la auditoría, y para que el borrado sea reversible.
+  // Su cobro sí se elimina de verdad al borrarla, pero solo puede estar
+  // PENDING o WAIVED: una sesión ya cobrada no se deja borrar (409).
+  deletedAt        DateTime?   @map("deleted_at")
 
   tenant     Tenant            @relation(fields: [tenantId], references: [id])
   patient    Patient           @relation(fields: [patientId], references: [id])

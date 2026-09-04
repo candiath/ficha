@@ -23,4 +23,8 @@ export const sessionApi = {
     api.post<Session>(`/api/patients/${patientId}/sessions`, data),
   update: (patientId: string, sessionId: string, data: SessionUpdateData) =>
     api.patch<Session>(`/api/patients/${patientId}/sessions/${sessionId}`, data),
+  // Borrado lógico: la sesión desaparece de los listados y de las métricas,
+  // pero la fila queda. Responde 409 si la sesión ya tiene un cobro pagado.
+  remove: (patientId: string, sessionId: string) =>
+    api.delete(`/api/patients/${patientId}/sessions/${sessionId}`),
 };
