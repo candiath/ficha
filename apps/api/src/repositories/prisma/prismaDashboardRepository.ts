@@ -8,8 +8,12 @@ import type {
 } from '../dashboardRepository';
 
 // Las notas rápidas (sessionType NOTE) no son sesiones clínicas: quedan fuera
-// de todos los conteos. SESSION y DISCHARGE sí cuentan.
-const CLINICAL_SESSION_WHERE = { sessionType: { not: SessionType.NOTE } };
+// de todos los conteos. SESSION y DISCHARGE sí cuentan. Las borradas tampoco
+// cuentan: si no se listan en ningún lado, no pueden inflar las métricas.
+const CLINICAL_SESSION_WHERE = {
+  sessionType: { not: SessionType.NOTE },
+  deletedAt: null,
+};
 
 export const prismaDashboardRepository: DashboardRepository = {
   async getStats(

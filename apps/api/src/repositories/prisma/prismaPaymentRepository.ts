@@ -107,7 +107,8 @@ export const prismaPaymentRepository: PaymentRepository = {
 
     // El paciente se deriva de la sesión: la sesión debe ser del tenant.
     const session = await db.session.findFirst({
-      where: { id: input.sessionId },
+      // deletedAt: null — no se registra un cobro sobre una sesión borrada.
+      where: { id: input.sessionId, deletedAt: null },
       select: { id: true, patientId: true },
     });
     if (!session) return { ok: false, reason: 'session_not_found' };

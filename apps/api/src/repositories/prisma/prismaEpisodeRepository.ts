@@ -123,7 +123,9 @@ export const prismaEpisodeRepository: EpisodeRepository = {
   ): Promise<Date | null> {
     const db = forTenant(ctx);
     const lastSession = await db.session.findFirst({
-      where: { patientId, episodes: { some: { episodeId } } },
+      // deletedAt: null — una sesión borrada no cuenta como actividad, o el
+      // episodio parecería vivo por algo que se dio de baja.
+      where: { deletedAt: null, patientId, episodes: { some: { episodeId } } },
       orderBy: { sessionDate: 'desc' },
       select: { sessionDate: true },
     });
