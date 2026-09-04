@@ -17,6 +17,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CreditCard,
+  Pencil,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -46,6 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import PaymentEditDialog from '@/components/payments/PaymentEditDialog';
 import { paymentApi, paymentKeys } from '@/services/payments';
 import { PAYMENT_METHOD_CLASS, PAYMENT_METHOD_LABELS, PAYMENT_STATUS_CLASS, PAYMENT_STATUS_LABELS } from '@/lib/labels';
 import type { Payment } from '@/types/payment';
@@ -65,7 +67,10 @@ function formatMoney(n: number) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n);
 }
 
-function buildColumns(onMarkPaid: (p: Payment) => void): ColumnDef<Payment>[] {
+function buildColumns(
+  onMarkPaid: (p: Payment) => void,
+  onEdit: (p: Payment) => void,
+): ColumnDef<Payment>[] {
   return [
     {
       accessorKey: 'patient.fullName',
@@ -162,12 +167,26 @@ function buildColumns(onMarkPaid: (p: Payment) => void): ColumnDef<Payment>[] {
       enableHiding: false,
       cell: ({ row }) => {
         const p = row.original;
-        if (p.status !== 'PENDING') return null;
         return (
-          <Button size="sm" variant="outline" onClick={() => onMarkPaid(p)}>
-            <CreditCard className="h-3.5 w-3.5 mr-1" />
-            Cobrar
-          </Button>
+          <div className="flex items-center justify-end gap-1">
+            {p.status === 'PENDING' && (
+              <Button size="sm" variant="outline" onClick={() => onMarkPaid(p)}>
+                <CreditCard className="h-3.5 w-3.5 mr-1" />
+                Cobrar
+              </Button>
+            )}
+            {/* Disponible en cualquier estado: corregir un monto mal cargado y
+                revertir un cobro marcado por error son el mismo botón. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onEdit(p)}
+              aria-label={`Corregir el cobro de ${p.patient.fullName}`}
+              title="Corregir"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         );
       },
     },
@@ -181,6 +200,7 @@ export default function PaymentsPage() {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [paymentToCharge, setPaymentToCharge] = useState<Payment | null>(null);
+  const [paymentToEdit, setPaymentToEdit] = useState<Payment | null>(null);
 
   const { data: payments = [], isLoading, isError } = useQuery({
     queryKey: paymentKeys.list(statusFilter !== 'all' ? { status: statusFilter } : undefined),
@@ -208,7 +228,7 @@ export default function PaymentsPage() {
     markPaidMutation.mutate({ id: paymentToCharge.id, method });
   }
 
-  const columns = buildColumns(handleMarkPaid);
+  const columns = buildColumns(handleMarkPaid, setPaymentToEdit);
 
   const table = useReactTable({
     data: payments,
@@ -354,6 +374,9 @@ export default function PaymentsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Corrección de un cobro ya registrado: montos, estado y método. */}
+      <PaymentEditDialog payment={paymentToEdit} onClose={() => setPaymentToEdit(null)} />
 
       {/* Registro de cobro: reemplaza el doble confirm() nativo por un diálogo
           con dos opciones claras de método de pago */}
