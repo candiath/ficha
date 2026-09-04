@@ -24,6 +24,14 @@ const INACTIVE_DAYS = 21;
 // Días de cooldown para no duplicar alertas del mismo tipo
 const ALERT_COOLDOWN_DAYS = 7;
 
+// FOLLOW_UP y no NO_SHOW: "hace 40 días que este paciente no viene" es
+// seguimiento. Una inasistencia es faltar a un turno agendado, y hasta que
+// exista el modelo de agenda eso no se puede saber — no hay con qué faltar.
+// Tiparla acá dejaba el chip de la UI diciendo "Inasistencia" sobre un texto
+// que habla de otra cosa, y ocupaba el único tipo que sí va a tener fuente
+// real cuando lleguen los turnos.
+const INACTIVITY_ALERT_TYPE = 'FOLLOW_UP' as const;
+
 // La política (umbral de inactividad, cooldown, redacción del mensaje) vive
 // acá — es dominio; el acceso a datos va por los repos.
 async function checkInactiveEpisode(
@@ -48,7 +56,9 @@ async function checkInactiveEpisode(
   // No crear alerta si ya existe una no leída reciente
   const alertCutoff = new Date();
   alertCutoff.setDate(alertCutoff.getDate() - ALERT_COOLDOWN_DAYS);
-  if (await clinicalAlertRepo.hasRecentUnread(ctx, patientId, 'NO_SHOW', alertCutoff)) {
+  if (
+    await clinicalAlertRepo.hasRecentUnread(ctx, patientId, INACTIVITY_ALERT_TYPE, alertCutoff)
+  ) {
     return;
   }
 
@@ -56,7 +66,7 @@ async function checkInactiveEpisode(
   const episodeLabel = mainComplaint ? `"${mainComplaint}"` : 'el episodio activo';
   const message = `Sin sesiones en ${daysSince} días (episodio ${episodeLabel}). Considerá contactar al paciente o marcar el episodio como abandonado.`;
 
-  await clinicalAlertRepo.create(ctx, { patientId, type: 'NO_SHOW', message });
+  await clinicalAlertRepo.create(ctx, { patientId, type: INACTIVITY_ALERT_TYPE, message });
 }
 
 // GET /api/patients/:patientId/episodes
