@@ -61,4 +61,5 @@ leerlo antes de tocar nada: infraestructura y entornos, política de
 migraciones, backups, el patrón repositorio y el guard de multi-tenancy, la
 política de borrado lógico y cómo se declaran los campos JSON.
 
-Las notas de investigación y los análisis viven en [`.notes/`](.notes/).
+Las notas de investigación y los análisis quedan en `.notes/`, que está en el
+`.gitignore`: son locales de cada máquina y no viajan con el repo.
