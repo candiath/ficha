@@ -17,7 +17,10 @@ import { Separator } from '@/components/ui/separator'
 // Marca del build del front. Se contrasta con la que expone GET /health
 // de la API: los dos deploys son independientes (Netlify el front, Render
 // la API), así que pueden quedar parados en commits distintos sin aviso.
-const BUILD_MARKER = 'canary-2026-08-15';
+//
+// El valor lo inyecta vite.config.ts desde el COMMIT_REF de Netlify. El
+// fallback cubre los tests, que no pasan por esa config.
+const BUILD_MARKER = (import.meta.env.VITE_BUILD_MARKER as string | undefined) ?? 'local';
 
 const FEATURES = [
   {
