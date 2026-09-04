@@ -5,10 +5,10 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import {
   APIFutureDateTolerance,
-  APIPastDateTolerance,
   DAY_MS,
+  isSessionDateBeforeFloor,
   isSessionDateTooFarInFuture,
-  isSessionDateTooFarInPast,
+  MIN_SESSION_DATE_MS,
 } from '../src/lib/sessionDate';
 import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
 
@@ -84,6 +84,24 @@ describe('validación de fecha de sesión en la API', () => {
     expect(res.body.error).toBe('Datos inválidos');
     expect(res.body.details.sessionDate).toBeDefined();
   });
+
+  // --- Piso de pasado: lo viejo es válido, lo imposible no ---
+
+  // El caso que motivó el cambio: al empezar a usar Ficha, lo primero que hace
+  // falta es cargar la historia de los pacientes que ya venías tratando. El
+  // tope anterior (15 días) lo rechazaba.
+  it('acepta una sesión de hace más de un año', async () => {
+    const hace400Dias = new Date(Date.now() - 400 * DAY_MS).toISOString();
+    const res = await postWithDate(hace400Dias);
+    expect(res.status).toBe(201);
+  });
+
+  it('rechaza una fecha anterior al piso (año tipeado mal)', async () => {
+    const res = await postWithDate('1025-07-19T10:00:00.000Z');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Datos inválidos');
+    expect(res.body.details.sessionDate).toBeDefined();
+  });
 });
 
 // Los predicados son la última línea de defensa: reciben un Date ya construido,
@@ -133,42 +151,47 @@ describe('isSessionDateTooFarInFuture', () => {
   });
 });
 
-describe('isSessionDateTooFarInPast', () => {
-  const now = Date.UTC(2026, 6, 19, 12, 0, 0);
-  const at = (offset: number) => new Date(now + offset);
+// El piso NO se mide contra "ahora": una fecha vieja es legítima, una fecha
+// imposible no. Por eso este predicado no toma un `now` — su resultado no
+// depende de cuándo se pregunte.
+describe('isSessionDateBeforeFloor', () => {
+  const floor = new Date(MIN_SESSION_DATE_MS);
 
-  it('la fecha de referencia no está en el pasado', () => {
-    expect(isSessionDateTooFarInPast(at(0), now)).toBe(false);
+  it('la fecha de hoy está por encima del piso', () => {
+    expect(isSessionDateBeforeFloor(new Date())).toBe(false);
   });
 
-  it('un atraso dentro del tope no se rechaza', () => {
-    expect(isSessionDateTooFarInPast(at(-(APIPastDateTolerance - 1)), now)).toBe(false);
+  // Lo que el tope viejo de 15 días rechazaba y ahora tiene que pasar.
+  it('una sesión de hace meses se acepta', () => {
+    expect(isSessionDateBeforeFloor(new Date(Date.now() - 200 * DAY_MS))).toBe(false);
   });
 
-  it('exactamente en el tope se permite (comparación estricta >)', () => {
-    expect(isSessionDateTooFarInPast(at(-APIPastDateTolerance), now)).toBe(false);
+  it('una sesión de hace años se acepta', () => {
+    expect(isSessionDateBeforeFloor(new Date('2015-03-04T09:00:00.000Z'))).toBe(false);
   });
 
-  it('un milisegundo más allá del tope se rechaza', () => {
-    expect(isSessionDateTooFarInPast(at(-(APIPastDateTolerance + 1)), now)).toBe(true);
+  it('exactamente el piso se permite (comparación estricta <)', () => {
+    expect(isSessionDateBeforeFloor(floor)).toBe(false);
   });
 
-  it('una fecha absurdamente pasada se rechaza', () => {
-    expect(isSessionDateTooFarInPast(at(-400 * DAY_MS), now)).toBe(true);
+  it('un milisegundo antes del piso se rechaza', () => {
+    expect(isSessionDateBeforeFloor(new Date(MIN_SESSION_DATE_MS - 1))).toBe(true);
   });
 
   it('una fecha pre-1970 (timestamp negativo) se rechaza', () => {
-    expect(isSessionDateTooFarInPast(new Date('1900-01-01T00:00:00.000Z'), now)).toBe(true);
+    expect(isSessionDateBeforeFloor(new Date('1900-01-01T00:00:00.000Z'))).toBe(true);
   });
 
-  // Regresión que arreglamos: una fecha MUY futura no debe reportarse como
-  // "demasiado lejos en el pasado". Medir en una sola dirección lo garantiza.
-  it('una fecha futura nunca dispara el tope de pasado', () => {
-    expect(isSessionDateTooFarInPast(at(400 * DAY_MS), now)).toBe(false);
+  it('un año tipeado mal se rechaza', () => {
+    expect(isSessionDateBeforeFloor(new Date('1025-07-19T12:00:00.000Z'))).toBe(true);
+  });
+
+  it('una fecha futura nunca dispara el piso', () => {
+    expect(isSessionDateBeforeFloor(new Date(Date.now() + 400 * DAY_MS))).toBe(false);
   });
 
   it('un Invalid Date se rechaza en vez de colarse', () => {
-    expect(isSessionDateTooFarInPast(new Date('no-soy-fecha'), now)).toBe(true);
-    expect(isSessionDateTooFarInPast(new Date(NaN), now)).toBe(true);
+    expect(isSessionDateBeforeFloor(new Date('no-soy-fecha'))).toBe(true);
+    expect(isSessionDateBeforeFloor(new Date(NaN))).toBe(true);
   });
 });
