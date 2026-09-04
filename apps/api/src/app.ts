@@ -18,6 +18,7 @@ import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
+import tenantRouter from './routes/tenant';
 import functionalScalesRouter from './routes/functionalScales';
 import usersRouter from './routes/users';
 
@@ -114,6 +115,9 @@ app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/dashboard', dashboardRouter);
+// La configuración de la clínica: la lectura es para cualquier usuario y la
+// escritura solo para ADMIN, así que el requireRole va dentro del router.
+app.use('/api/tenant', tenantRouter);
 // Gestión de usuarios: única zona ADMIN-only de la API por ahora.
 app.use('/api/users', requireRole('ADMIN'), usersRouter);
 
