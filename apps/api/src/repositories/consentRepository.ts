@@ -17,5 +17,6 @@ export interface InformedConsentDTO {
 export interface ConsentRepository {
   getByPatient(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO | null>;
   sign(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO>;
-  revoke(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO>;
+  /** null si el paciente no tiene consentimiento: no hay nada que revocar. */
+  revoke(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO | null>;
 }
