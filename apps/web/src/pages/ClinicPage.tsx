@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { Building2, Clock, DatabaseBackup, ExternalLink, Globe, Mail, MapPin, Phone } from 'lucide-react';
+import { Building2, DatabaseBackup, ExternalLink, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { useAuth } from '@/contexts/AuthContext';
 
 // El workflow que hace el pg_dump vive en un repo aparte y privado
 // (candiath/ficha-backups): la credencial de producción no puede estar en el
@@ -11,21 +12,20 @@ import { Separator } from '@/components/ui/separator';
 const BACKUP_WORKFLOW_URL =
   'https://github.com/candiath/ficha-backups/actions/workflows/backup.yml';
 
-// Placeholder — se leerá del tenant autenticado cuando se implemente JWT.
-const DEV_TENANT = {
-  name: 'Clínica Demo RPG',
-  slug: 'demo-rpg',
-  email: 'contacto@demo-rpg.com',
-  phone: '+54 11 1234-5678',
-  address: 'Av. Corrientes 1234, CABA',
-  cuit: '30-12345678-9',
-  specialty: 'Reeducación Postural Global (RPG)',
-  timezone: 'America/Argentina/Buenos_Aires',
-  workingHours: 'Lunes a viernes, 8:00 – 20:00',
-};
-
 export default function ClinicPage() {
   useEffect(() => { document.title = 'Clínica'; }, []);
+
+  // RequireAuth garantiza que hay sesión cuando esta página se renderiza.
+  //
+  // Hasta acá esta pantalla mostraba una clínica inventada —"Clínica Demo
+  // RPG", CUIT 30-12345678-9, Av. Corrientes 1234— con un comentario que
+  // decía "se leerá del tenant autenticado cuando se implemente JWT". El JWT
+  // hace meses que está: lo que faltaba era que /api/auth/me devolviera la
+  // clínica. Ahora la devuelve, y lo único que se muestra es lo que existe
+  // de verdad en la base: Tenant tiene nombre y slug, nada más.
+  const { user } = useAuth();
+  const tenant = user?.tenant;
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-6">
@@ -51,7 +51,7 @@ export default function ClinicPage() {
               <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <div>
                 <p className="text-xs text-muted-foreground">Nombre</p>
-                <p className="text-sm font-medium">{DEV_TENANT.name}</p>
+                <p className="text-sm font-medium">{tenant?.name ?? '—'}</p>
               </div>
             </div>
             <Separator />
@@ -59,67 +59,7 @@ export default function ClinicPage() {
               <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
               <div>
                 <p className="text-xs text-muted-foreground">Identificador (slug)</p>
-                <p className="text-sm font-mono">{DEV_TENANT.slug}</p>
-              </div>
-            </div>
-            <Separator />
-            <div className="flex items-center gap-3">
-              <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Dirección</p>
-                <p className="text-sm font-medium">{DEV_TENANT.address}</p>
-              </div>
-            </div>
-            <Separator />
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-3">
-                <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Teléfono</p>
-                  <p className="text-sm font-medium">{DEV_TENANT.phone}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Email</p>
-                  <p className="text-sm font-medium">{DEV_TENANT.email}</p>
-                </div>
-              </div>
-            </div>
-            <Separator />
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-muted-foreground">CUIT</p>
-                <p className="text-sm font-mono">{DEV_TENANT.cuit}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Especialidad</p>
-                <p className="text-sm font-medium">{DEV_TENANT.specialty}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Horarios */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Horarios y zona horaria</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Horario de atención</p>
-                <p className="text-sm font-medium">{DEV_TENANT.workingHours}</p>
-              </div>
-            </div>
-            <Separator />
-            <div className="flex items-center gap-3">
-              <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Zona horaria</p>
-                <p className="text-sm font-mono">{DEV_TENANT.timezone}</p>
+                <p className="text-sm font-mono">{tenant?.slug ?? '—'}</p>
               </div>
             </div>
           </CardContent>
@@ -171,7 +111,8 @@ export default function ClinicPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground">
-          La edición de datos de clínica estará disponible junto con el módulo de autenticación.
+          Los datos de contacto, el CUIT y los horarios de atención todavía no se pueden
+          cargar: la clínica solo guarda su nombre e identificador.
         </p>
       </div>
     </div>

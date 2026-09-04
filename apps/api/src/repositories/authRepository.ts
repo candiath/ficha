@@ -10,11 +10,19 @@ import type { UserRole } from '@prisma/client';
 
 // Para el login: incluye passwordHash (la ruta hace el bcrypt.compare) e
 // isActive (la ruta decide el mensaje único que no revela cuál falló).
+// La clínica del usuario. Se devuelve junto al perfil porque la app la
+// muestra (pantalla Clínica); el id del tenant no va: es interno.
+export interface TenantIdentity {
+  name: string;
+  slug: string;
+}
+
 export interface LoginUser {
   id: string;
   email: string;
   name: string | null;
   role: UserRole;
+  tenant: TenantIdentity;
   tenantId: string;
   passwordHash: string;
   isActive: boolean;
@@ -34,6 +42,7 @@ export interface PublicProfile {
   email: string;
   name: string | null;
   role: UserRole;
+  tenant: TenantIdentity;
 }
 
 export interface Credentials {

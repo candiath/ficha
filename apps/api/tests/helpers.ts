@@ -20,6 +20,9 @@ interface CreateUserOptions {
 
 export interface TestClinic {
   tenantId: string;
+  /** Nombre y slug del tenant: /api/auth/me y el login los devuelven. */
+  name: string;
+  slug: string;
   /** `algo` → `algo-<runId>@test.ficha.local`: único entre corridas y rastreable al limpiar. */
   email(local: string): string;
   createUser(opts?: CreateUserOptions): Promise<User>;
@@ -64,7 +67,7 @@ export async function createTestClinic(): Promise<TestClinic> {
     await prisma.tenant.delete({ where: { id: tenant.id } });
   }
 
-  return { tenantId: tenant.id, email, createUser, cleanup };
+  return { tenantId: tenant.id, name: tenant.name, slug: tenant.slug, email, createUser, cleanup };
 }
 
 interface SignTestTokenOptions {

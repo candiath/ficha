@@ -22,13 +22,24 @@ export * from './postureFamilies';
 
 export type UserRole = 'ADMIN' | 'THERAPIST';
 
-// Usuario tal como lo expone la API (sin passwordHash ni tenantId:
-// el tenant es un detalle interno que el cliente nunca necesita).
+// La clínica a la que pertenece el usuario, tal como se muestra en la app.
+// Solo su identidad: el id del tenant sigue siendo un detalle interno que el
+// cliente nunca necesita (viaja en el token y se resuelve server-side).
+export interface AuthTenant {
+  name: string;
+  slug: string;
+}
+
+// Usuario tal como lo expone la API (sin passwordHash ni tenantId).
+// Incluye la clínica porque "quién soy" en una app multi-tenant también
+// responde "en qué clínica estoy": la pantalla de Clínica lo lee de acá en
+// vez de tener los datos escritos a mano.
 export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
   role: UserRole;
+  tenant: AuthTenant;
 }
 
 // Respuesta de POST /api/auth/login.

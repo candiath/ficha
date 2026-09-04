@@ -13,7 +13,15 @@ import type {
 // cual scopear. Todo se busca por claves únicas globales (email, id del
 // propio token): nunca por campos que un request pueda ampliar a otro tenant.
 
-const publicProfileSelect = { id: true, email: true, name: true, role: true } as const;
+// La clínica viaja anidada en el perfil: es una sola query en vez de dos, y
+// la comparten /me y el login (los dos devuelven el mismo AuthUser).
+const publicProfileSelect = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  tenant: { select: { name: true, slug: true } },
+} as const;
 
 export const prismaAuthRepository: AuthRepository = {
   async findByEmailForLogin(email: string): Promise<LoginUser | null> {
