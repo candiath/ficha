@@ -5,14 +5,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
-import { Users, CalendarDays, TrendingUp, CreditCard, Search, Plus, Clock } from 'lucide-react'
+import { Users, CalendarDays, TrendingUp, CreditCard, Search, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { dashboardApi, dashboardKeys } from '@/services/dashboard'
 import { patientApi, patientKeys } from '@/services/patients'
-// Los turnos siguen siendo mock: todavía no hay modelo de agenda en la API.
-import { mockAppointments, getMockPatientById } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 
 // Cinco colores porque la API devuelve el top 5 de motivos de consulta:
@@ -24,41 +22,6 @@ const PATHOLOGY_COLORS = [
   'var(--chart-4)',
   'var(--chart-5)',
 ]
-
-const STATUS_LABELS: Record<string, string> = {
-  scheduled: 'Programado',
-  confirmed: 'Confirmado',
-  completed: 'Completado',
-  cancelled: 'Cancelado',
-  no_show: 'Inasistencia',
-}
-
-const STATUS_CLASSES: Record<string, string> = {
-  scheduled: 'bg-amber-50 text-amber-700 border border-amber-200',
-  confirmed: 'bg-green-50 text-green-700 border border-green-200',
-  completed: 'bg-muted text-muted-foreground border border-border',
-  cancelled: 'bg-red-50 text-red-700 border border-red-200',
-  no_show: 'bg-red-50 text-red-700 border border-red-200',
-}
-
-function formatAppointmentDate(dateStr: string) {
-  const date = new Date(dateStr + 'T00:00:00')
-  return date.toLocaleDateString('es-AR', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-  })
-}
-
-// Upcoming: today and forward, non-cancelled, max 5
-function getUpcoming() {
-  const today = new Date().toISOString().split('T')[0]
-  return mockAppointments
-    .filter(a => a.date >= today && a.status !== 'cancelled')
-    .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime))
-    .slice(0, 5)
-}
 
 // La API devuelve los meses como "YYYY-MM" (agnóstica de locale) y el label
 // corto lo arma el cliente. El día 1 a mediodía UTC evita que el corrimiento
@@ -93,8 +56,6 @@ export default function DashboardPage() {
         p.fullName.toLowerCase().includes(query.toLowerCase())
       )
     : []
-
-  const upcoming = getUpcoming()
 
   const statCards = [
     {
@@ -363,65 +324,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Upcoming appointments */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Próximos turnos</CardTitle>
-            <Link to="/agenda">
-              <Button variant="ghost" size="sm" className="text-xs h-7">
-                Ver agenda
-              </Button>
-            </Link>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {upcoming.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              Sin turnos próximos
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {upcoming.map((apt) => {
-                const patient = getMockPatientById(apt.patientId);
-                return (
-                  <div
-                    key={apt.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold shrink-0">
-                      {patient?.fullName
-                        .split(" ")
-                        .map((n) => n[0])
-                        .slice(0, 2)
-                        .join("") ?? "?"}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {patient?.fullName ?? "Paciente"}
-                      </p>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        <span>
-                          {formatAppointmentDate(apt.date)} — {apt.startTime}
-                        </span>
-                      </div>
-                    </div>
-                    <span
-                      className={cn(
-                        "text-xs px-2 py-0.5 rounded-full font-medium shrink-0",
-                        STATUS_CLASSES[apt.status],
-                      )}
-                    >
-                      {STATUS_LABELS[apt.status]}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

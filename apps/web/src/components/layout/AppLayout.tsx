@@ -22,16 +22,21 @@ import QuickNoteButton from '@/components/layout/QuickNoteButton';
 import { useQuery } from '@tanstack/react-query';
 import { alertApi, alertKeys } from '@/services/alerts';
 
+// disabled: la pantalla existe como maqueta pero no tiene backend, así que
+// lo único que podría mostrar son datos inventados. El ítem queda visible y
+// gris con el tooltip "(próximamente)": comunica que viene sin dejar entrar.
+// Se saca la bandera cuando la pantalla tiene API real (y se vuelve a montar
+// su ruta en App.tsx).
 const clinicItems = [
   { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard },
-  { to: '/agenda',    label: 'Agenda',     icon: CalendarRange },
+  { to: '/agenda',    label: 'Agenda',     icon: CalendarRange,   disabled: true },
   { to: '/patients',  label: 'Pacientes',  icon: Users },
-  { to: '/turnos',    label: 'Turnos',     icon: CalendarCheck },
+  { to: '/turnos',    label: 'Turnos',     icon: CalendarCheck,   disabled: true },
   { to: '/sessions',  label: 'Sesiones',   icon: CalendarDays },
   { to: '/payments',  label: 'Cobros',     icon: CreditCard },
   { to: '/alerts',    label: 'Alertas',    icon: Bell },
-  { to: '/exercises', label: 'Ejercicios', icon: Dumbbell },
-  { to: '/messages',  label: 'Mensajes',   icon: MessageSquare },
+  { to: '/exercises', label: 'Ejercicios', icon: Dumbbell,        disabled: true },
+  { to: '/messages',  label: 'Mensajes',   icon: MessageSquare,   disabled: true },
 ];
 
 const settingsItems = [

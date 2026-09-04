@@ -96,37 +96,6 @@ export function getMockAppointmentsByDate(date: string): MockAppointment[] {
     .sort((a, b) => a.startTime.localeCompare(b.startTime))
 }
 
-export function getUpcomingMockAppointments(count: number): MockAppointment[] {
-  const today = new Date().toISOString().split('T')[0]
-  return mockAppointments
-    .filter(a => a.date >= today && a.status !== 'cancelled')
-    .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime))
-    .slice(0, count)
-}
-
-// ─── Practice stats ───────────────────────────────────────────────────────────
-
-export const practiceStats = {
-  activePatients: 5,
-  totalSessions: 18,
-  sessionsThisMonth: 3,
-  pendingPayments: 1,
-  pathologies: [
-    { name: 'Lumbalgia',    count: 2 },
-    { name: 'Cervicalgia',  count: 2 },
-    { name: 'Dorsalgia',    count: 1 },
-    { name: 'Escoliosis',   count: 1 },
-  ],
-  sessionsByMonth: [
-    { month: 'Oct', count: 5 },
-    { month: 'Nov', count: 3 },
-    { month: 'Dic', count: 1 },
-    { month: 'Ene', count: 1 },
-    { month: 'Feb', count: 1 },
-    { month: 'Mar', count: 3 },
-  ],
-}
-
 // ─── Exercises ────────────────────────────────────────────────────────────────
 
 export const exercises: Exercise[] = [
