@@ -14,42 +14,32 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { ALERT_TYPE_CLASS, ALERT_TYPE_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { alertApi, alertKeys } from '@/services/alerts';
 
 type AlertType = 'FOLLOW_UP' | 'NO_SHOW' | 'PAYMENT' | 'CUSTOM';
 
-const ALERT_CONFIG: Record<
-  AlertType,
-  { icon: typeof Bell; label: string; color: string; badgeClass: string }
-> = {
+// El texto y el color del badge salen de lib/labels.ts, que ya los exportaba
+// y que nadie usaba: eran la tercera copia de las mismas cuatro etiquetas.
+// Acá queda solo lo que es propio de esta pantalla — el ícono y el color del
+// círculo—, porque labels.ts es texto y clases, sin dependencias de UI.
+const ALERT_ICON: Record<AlertType, { icon: typeof Bell; circle: string }> = {
   FOLLOW_UP: {
     icon: Clock,
-    label: 'Seguimiento',
-    color: 'bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400',
-    badgeClass:
-      'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300',
+    circle: 'bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400',
   },
   NO_SHOW: {
     icon: CalendarOff,
-    label: 'Inasistencia',
-    color: 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400',
-    badgeClass:
-      'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300',
+    circle: 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400',
   },
   PAYMENT: {
     icon: CreditCard,
-    label: 'Pago pendiente',
-    color: 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
-    badgeClass:
-      'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300',
+    circle: 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
   },
   CUSTOM: {
     icon: MessageCircle,
-    label: 'Personalizada',
-    color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
-    badgeClass:
-      'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400',
+    circle: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
   },
 };
 
@@ -93,10 +83,10 @@ export default function AlertsPage() {
 
   const filterOptions: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'Todas' },
-    { value: 'FOLLOW_UP', label: 'Seguimiento' },
-    { value: 'NO_SHOW', label: 'Inasistencias' },
-    { value: 'PAYMENT', label: 'Pagos' },
-    { value: 'CUSTOM', label: 'Otras' },
+    { value: 'FOLLOW_UP', label: ALERT_TYPE_LABELS.FOLLOW_UP },
+    { value: 'NO_SHOW', label: ALERT_TYPE_LABELS.NO_SHOW },
+    { value: 'PAYMENT', label: ALERT_TYPE_LABELS.PAYMENT },
+    { value: 'CUSTOM', label: ALERT_TYPE_LABELS.CUSTOM },
   ];
 
   return (
@@ -201,7 +191,7 @@ export default function AlertsPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((alert) => {
-            const config = ALERT_CONFIG[alert.type as AlertType];
+            const config = ALERT_ICON[alert.type as AlertType];
             const Icon = config?.icon ?? Bell;
             const date = new Date(alert.createdAt);
 
@@ -219,7 +209,7 @@ export default function AlertsPage() {
                     <div
                       className={cn(
                         'flex items-center justify-center w-9 h-9 rounded-full shrink-0',
-                        config.color,
+                        config?.circle,
                       )}
                     >
                       <Icon className="h-4 w-4" />
@@ -228,8 +218,11 @@ export default function AlertsPage() {
                     {/* Contenido */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <Badge variant="outline" className={cn('text-[10px]', config?.badgeClass)}>
-                          {config?.label ?? alert.type}
+                        <Badge
+                          variant="outline"
+                          className={cn('text-[10px]', ALERT_TYPE_CLASS[alert.type])}
+                        >
+                          {ALERT_TYPE_LABELS[alert.type] ?? alert.type}
                         </Badge>
                         {!alert.isRead && (
                           <span className="w-2 h-2 rounded-full bg-primary shrink-0" />

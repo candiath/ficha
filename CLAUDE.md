@@ -110,7 +110,7 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 - Los DTOs no exponen `tenantId`; fechas como ISO string y `Decimal` como `number`.
 - Zod y la semántica HTTP se quedan en la ruta; la política de datos (borrado lógico, "global o del tenant", "no borrar un paquete usado") vive en el repositorio.
 
-Dos excepciones documentadas: `authRepository` **no** recibe `ctx` (sus lecturas son las que lo construyen: login y `authenticate`), y `techniqueRepository` filtra el tenant a mano porque `Technique` tiene `tenantId` nullable y queda fuera del guard.
+Una excepción documentada: `authRepository` **no** recibe `ctx` (sus lecturas son las que lo construyen: login y `authenticate`). Había una segunda —`techniqueRepository`, que filtraba el tenant a mano— pero los catálogos de técnicas se eliminaron del modelo el 01/09/2026 y con ellos el repositorio.
 
 ### Borrado de pacientes
 

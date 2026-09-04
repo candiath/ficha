@@ -20,15 +20,10 @@ import { sessionApi, sessionKeys } from '@/services/sessions';
 import { episodeApi, episodeKeys } from '@/services/episodes';
 import { globalSessionKeys } from '@/services/globalSessions';
 import { toast } from 'sonner';
+import { EPISODE_STATUS_LABELS } from '@/lib/labels';
 import type { ClinicalEpisode } from '@/types/episode';
 
 type Step = 'patient' | 'episode' | 'note';
-
-const EPISODE_STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Activo',
-  DISCHARGED: 'Alta',
-  ABANDONED: 'Abandonado',
-};
 
 // Header del paciente seleccionado (reutilizado en steps episode y note)
 function PatientHeader({

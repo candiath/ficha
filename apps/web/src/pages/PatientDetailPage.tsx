@@ -45,7 +45,12 @@ import type { ClinicalEpisode, EpisodeUpdateData } from '@/types/episode';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
 import { sessionApi, sessionKeys } from '@/services/sessions';
-import { SEX_CLASS, SEX_LABELS } from '@/lib/labels';
+import {
+  EPISODE_STATUS_CLASS,
+  EPISODE_STATUS_LABELS,
+  SEX_CLASS,
+  SEX_LABELS,
+} from '@/lib/labels';
 import type { BodyMarker } from '@/types/evaluation';
 import type { Session } from '@/types/session';
 
@@ -103,18 +108,6 @@ function DetailField({ label, value }: { label: string; value?: React.ReactNode 
     </div>
   );
 }
-
-const EPISODE_STATUS_LABELS: Record<string, string> = {
-  ACTIVE: 'Activo',
-  DISCHARGED: 'Alta',
-  ABANDONED: 'Abandonado',
-};
-
-const EPISODE_STATUS_CLASS: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  DISCHARGED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  ABANDONED: 'bg-gray-100 text-gray-600',
-};
 
 function EpisodeCombobox({
   episodes,
