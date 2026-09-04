@@ -6,19 +6,31 @@ import { AlertTriangle } from 'lucide-react'
 import AppLayout from '@/components/layout/AppLayout'
 import { useAuth } from '@/contexts/AuthContext'
 import AccountPage from '@/pages/AccountPage'
-import AgendaPage from '@/pages/AgendaPage'
 import ClinicPage from '@/pages/ClinicPage'
 import DashboardPage from '@/pages/DashboardPage'
-import EjerciciosPage from '@/pages/EjerciciosPage'
 import LandingPage from '@/pages/LandingPage'
 import LoginPage from '@/pages/LoginPage'
-import MensajesPage from '@/pages/MensajesPage'
 import PatientDetailPage from '@/pages/PatientDetailPage'
 import PatientsPage from '@/pages/PatientsPage'
 import PaymentsPage from '@/pages/PaymentsPage'
 import SessionsPage from '@/pages/SessionsPage'
-import TurnosPage from '@/pages/TurnosPage'
 import AlertsPage from '@/pages/AlertsPage'
+
+// Pantallas que todavía son maqueta: no tienen modelo ni endpoint detrás, así
+// que lo único que pueden mostrar son datos inventados. Fuera de desarrollo no
+// se montan —el ítem del menú queda deshabilitado (ver AppLayout) y la URL cae
+// en el catch-all— pero siguen accesibles en local para seguir trabajándolas.
+//
+// Van por lazy() como LabPage: así Vite las deja afuera del bundle de
+// producción junto con mock-data.ts, en vez de embarcar código muerto.
+const DRAFT_PAGES = import.meta.env.DEV
+  ? [
+      { path: 'agenda', Component: lazy(() => import('@/pages/AgendaPage')) },
+      { path: 'turnos', Component: lazy(() => import('@/pages/TurnosPage')) },
+      { path: 'exercises', Component: lazy(() => import('@/pages/EjerciciosPage')) },
+      { path: 'messages', Component: lazy(() => import('@/pages/MensajesPage')) },
+    ]
+  : [];
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -82,19 +94,26 @@ export default function App() {
       <Route element={<RequireAuth />}>
       <Route element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="agenda" element={<AgendaPage />} />
         <Route path="patients" element={<PatientsPage />} />
         <Route path="patients/:id" element={<PatientDetailPage />} />
-        <Route path="turnos" element={<TurnosPage />} />
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="alerts" element={<AlertsPage />} />
-        <Route path="exercises" element={<EjerciciosPage />} />
-        <Route path="messages" element={<MensajesPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="clinic" element={<ClinicPage />} />
+        {DRAFT_PAGES.map(({ path, Component }) => (
+          <Route
+            key={path}
+            path={path}
+            element={<Suspense fallback={null}><Component /></Suspense>}
+          />
+        ))}
       </Route>
       </Route>
+      {/* Cualquier ruta desconocida vuelve al dashboard. Sin esto, una URL que
+          no matchea (p. ej. /turnos en producción, o un link viejo) renderiza
+          una pantalla en blanco sin ningún indicio de qué pasó. */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </>
   )
