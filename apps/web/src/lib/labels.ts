@@ -58,6 +58,25 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   TRANSFER: 'Transferencia',
 };
 
+export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
+  SCHEDULED: 'Agendado',
+  CONFIRMED: 'Confirmado',
+  COMPLETED: 'Atendido',
+  CANCELLED: 'Cancelado',
+  NO_SHOW: 'No asistió',
+};
+
+// El borde del chip en la grilla semanal. Cancelado y no asistió comparten el
+// rojo porque los dos significan "esta franja quedó libre", pero el texto los
+// distingue: uno avisó y el otro no.
+export const APPOINTMENT_STATUS_CLASS: Record<string, string> = {
+  SCHEDULED: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
+  CONFIRMED: 'border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200',
+  COMPLETED: 'border-border bg-muted text-muted-foreground',
+  CANCELLED: 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
+  NO_SHOW: 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
+};
+
 export const ALERT_TYPE_LABELS: Record<string, string> = {
   FOLLOW_UP: 'Seguimiento',
   NO_SHOW: 'Inasistencia',
