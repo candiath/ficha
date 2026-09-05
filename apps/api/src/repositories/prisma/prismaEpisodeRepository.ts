@@ -5,6 +5,7 @@ import type {
   EpisodeDTO,
   EpisodeRepository,
   EpisodeUpdateInput,
+  StaleEpisodeDTO,
 } from '../episodeRepository';
 
 const episodeSelect = {
@@ -114,6 +115,45 @@ export const prismaEpisodeRepository: EpisodeRepository = {
       where: { id: { in: uniqueIds }, patientId },
     });
     return found === uniqueIds.length;
+  },
+
+  async listStale(ctx: TenantContext, cutoff: Date): Promise<StaleEpisodeDTO[]> {
+    const db = forTenant(ctx);
+
+    // Se traen los episodios abiertos con la fecha de su última sesión, y el
+    // filtro por antigüedad se hace acá: Prisma no sabe ordenar por un campo
+    // de una relación anidada dentro de un where. El volumen por clínica
+    // (episodios abiertos de un consultorio) hace que sea barato, mismo
+    // criterio que la agregación por mes del dashboard (issue #64).
+    const rows = await db.clinicalEpisode.findMany({
+      where: {
+        status: 'ACTIVE',
+        // Un paciente borrado no puede recibir seguimiento: la alerta pediría
+        // una acción imposible. Mismo criterio que el listado de alertas.
+        patient: { deletedAt: null },
+      },
+      select: {
+        id: true,
+        patientId: true,
+        mainComplaint: true,
+        sessions: {
+          where: { session: { deletedAt: null } },
+          orderBy: { session: { sessionDate: 'desc' } },
+          take: 1,
+          select: { session: { select: { sessionDate: true } } },
+        },
+      },
+    });
+
+    return rows
+      .map((row) => ({
+        patientId: row.patientId,
+        episodeId: row.id,
+        mainComplaint: row.mainComplaint,
+        lastActivityAt: row.sessions[0]?.session.sessionDate ?? null,
+      }))
+      .filter((e) => e.lastActivityAt === null || e.lastActivityAt < cutoff)
+      .map((e) => ({ ...e, lastActivityAt: e.lastActivityAt?.toISOString() ?? null }));
   },
 
   async lastActivityAt(
