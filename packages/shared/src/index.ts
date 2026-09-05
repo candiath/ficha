@@ -42,6 +42,28 @@ export interface AuthUser {
   tenant: AuthTenant;
 }
 
+// ── Configuración de la clínica ──────────────────────────────────────────────
+
+// Lo que devuelve GET /api/tenant. Sin id (el cliente ya sabe en qué clínica
+// está) y sin el slug editable: es un identificador, no un dato de contacto.
+export interface TenantConfig extends AuthTenant {
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  cuit: string | null;
+  specialty: string | null;
+  /** Identificador IANA, p. ej. "America/Argentina/Buenos_Aires". */
+  timezone: string;
+  /** "HH:mm" en hora local de la clínica. */
+  workdayStart: string;
+  workdayEnd: string;
+  /** Días laborables con la convención de Date#getDay(): 0 domingo … 6 sábado. */
+  workdays: number[];
+}
+
+// Payload de PATCH /api/tenant (solo ADMIN). Todo opcional: es un PATCH.
+export type TenantConfigInput = Partial<Omit<TenantConfig, 'slug'>>;
+
 // Respuesta de POST /api/auth/login.
 export interface LoginResponse {
   token: string;
