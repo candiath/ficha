@@ -118,14 +118,45 @@ export function formatRange(from: string, to: string): string {
 }
 
 /**
- * Las horas en punto que dibuja la grilla semanal, desde la apertura hasta el
- * cierre de la clínica. El cierre no se incluye: a esa hora ya no se atiende.
+ * Las horas en punto que dibuja la grilla semanal.
+ *
+ * Arranca en el horario de atención de la clínica —de la apertura al cierre,
+ * sin incluir el cierre porque a esa hora ya no se atiende— y **se estira**
+ * para que entre cualquier turno que caiga afuera.
+ *
+ * Ese estiramiento no es un detalle: la configuración define la forma del
+ * lienzo vacío, no qué datos existen. Sin él, un turno a las 05:00 en una
+ * clínica que abre a las 06:00 no tiene fila donde dibujarse y desaparece de
+ * la pantalla sin ninguna señal — peor que la grilla fija que esto reemplazó,
+ * porque ahora la app deja crear turnos que después no puede mostrar.
+ *
+ * @param times horas de inicio de los turnos del rango visible ("HH:mm")
  */
-export function hourSlots(workdayStart: string, workdayEnd: string): string[] {
-  const desde = Number(workdayStart.slice(0, 2));
-  const hasta = Number(workdayEnd.slice(0, 2));
-  if (hasta <= desde) return [];
-  return Array.from({ length: hasta - desde }, (_, i) =>
+export function hourSlots(
+  workdayStart: string,
+  workdayEnd: string,
+  times: string[] = [],
+): string[] {
+  const hora = (t: string) => Number(t.slice(0, 2));
+
+  let desde = hora(workdayStart);
+  // El cierre es exclusivo, así que la última fila es la hora anterior.
+  let hasta = hora(workdayEnd) - 1;
+
+  // Un horario invertido o vacío no dibuja nada por sí solo, pero los turnos
+  // que existan igual tienen que verse.
+  if (hasta < desde) {
+    desde = 24;
+    hasta = -1;
+  }
+
+  for (const t of times) {
+    desde = Math.min(desde, hora(t));
+    hasta = Math.max(hasta, hora(t));
+  }
+
+  if (hasta < desde) return [];
+  return Array.from({ length: hasta - desde + 1 }, (_, i) =>
     `${String(desde + i).padStart(2, '0')}:00`,
   );
 }

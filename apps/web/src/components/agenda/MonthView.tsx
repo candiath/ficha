@@ -32,9 +32,11 @@ export default function MonthView({
   selected: string;
   onSelectDay: (date: string) => void;
 }) {
+  // Los cancelados también se muestran, tachados. Esconderlos hacía que un
+  // turno "desapareciera" del mes sin explicación, y en una agenda eso se lee
+  // como que se perdió — peor que una celda un poco más cargada.
   const porDia = new Map<string, Appointment[]>();
   for (const a of appointments) {
-    if (a.status === 'CANCELLED') continue; // un cancelado no ocupa lugar
     const previos = porDia.get(a.date);
     if (previos) previos.push(a);
     else porDia.set(a.date, [a]);
@@ -85,6 +87,7 @@ export default function MonthView({
                   className={cn(
                     'text-[10px] px-1 py-0.5 rounded truncate border',
                     APPOINTMENT_STATUS_CLASS[a.status],
+                    a.status === 'CANCELLED' && 'line-through opacity-70',
                   )}
                 >
                   {a.startTime} {a.patientName.split(' ')[0]}
