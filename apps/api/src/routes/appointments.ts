@@ -9,7 +9,13 @@ import {
   clinicTimeToInstant,
   instantToClinicTime,
 } from '../lib/clinicTime';
-import { appointmentRepo, episodeRepo, patientRepo, tenantRepo } from '../repositories';
+import {
+  appointmentRepo,
+  clinicalAlertRepo,
+  episodeRepo,
+  patientRepo,
+  tenantRepo,
+} from '../repositories';
 import type { AppointmentDTO } from '../repositories/appointmentRepository';
 
 const router = Router();
@@ -18,6 +24,10 @@ const router = Router();
 // (seis semanas de grilla); el tope está para que nadie se traiga la agenda
 // entera de un año en una sola query, no para molestar al uso normal.
 const MAX_RANGO_DIAS = 62;
+
+// Cooldown de la alerta de inasistencia, para que marcar y desmarcar el
+// estado no genere una alerta por click.
+const ALERTA_COOLDOWN_DIAS = 7;
 
 // Un tratamiento de RPG largo son ~20 sesiones semanales. El tope alto está
 // para que un `occurrences: 5000` no escriba cinco mil filas en una
@@ -180,6 +190,31 @@ router.patch('/:id', async (req, res) => {
   if (!turno) {
     res.status(404).json({ error: 'Turno no encontrado' });
     return;
+  }
+
+  // Faltar sin avisar es, por fin, algo que se puede saber: hasta que existió
+  // la agenda no había turno al que faltar, y por eso la alerta de
+  // inactividad se retipó a FOLLOW_UP en #111 dejando NO_SHOW libre.
+  //
+  // Fire-and-forget como el resto de las alertas y la auditoría: que falle
+  // registrarla no debe hacer fallar el cambio de estado, que es lo que el
+  // usuario pidió.
+  if (body.status === 'NO_SHOW') {
+    const desde = new Date();
+    desde.setDate(desde.getDate() - ALERTA_COOLDOWN_DIAS);
+    const inicio = instantToClinicTime(new Date(turno.startsAt), timezone);
+
+    clinicalAlertRepo
+      .hasRecentUnread(req.context, turno.patientId, 'NO_SHOW', desde)
+      .then((yaHay) => {
+        if (yaHay) return;
+        return clinicalAlertRepo.create(req.context, {
+          patientId: turno.patientId,
+          type: 'NO_SHOW',
+          message: `Faltó sin avisar al turno del ${inicio.date} a las ${inicio.time}.`,
+        });
+      })
+      .catch((err) => console.error('[alerta no-show]', err));
   }
 
   res.json({ data: serialize(turno, timezone) });

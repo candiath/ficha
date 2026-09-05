@@ -3,6 +3,7 @@ import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
   SessionCreateInput,
+  SessionCreateResult,
   SessionDTO,
   SessionRepository,
   SessionUpdateInput,
@@ -13,6 +14,11 @@ import type {
 // sesión borrada no se lista, no se lee y no se edita — el mismo criterio que
 // patientRepository aplica a los pacientes.
 const VIGENTE = { deletedAt: null } as const;
+
+// Se lanza dentro de la transacción para que Prisma la revierta, y se
+// convierte en un resultado justo afuera. Es la forma de abortar una
+// transacción interactiva sin que el error salga como un 500.
+class TurnoYaRegistrado extends Error {}
 
 const sessionSelect = {
   id: true,
@@ -150,9 +156,9 @@ export const prismaSessionRepository: SessionRepository = {
     ctx: TenantContext,
     patientId: string,
     input: SessionCreateInput,
-  ): Promise<SessionDTO> {
+  ): Promise<SessionCreateResult> {
     const db = forTenant(ctx);
-    const { episodeIds, payment } = input;
+    const { episodeIds, payment, appointmentId } = input;
 
     // Todo lo que dispara el registro de una sesión es atómico: si el pago o
     // el cierre de episodios fallan, no queda una sesión a medias (sin pago
@@ -205,10 +211,34 @@ export const prismaSessionRepository: SessionRepository = {
         });
       }
 
+      // El vínculo con el turno va en la MISMA transacción: si la sesión se
+      // crea y el vínculo no, el turno queda pidiendo que se registre algo
+      // que ya se registró. La condición viaja en el where —sessionId null—
+      // así que dos intentos simultáneos no pueden producir dos sesiones para
+      // la misma visita; el segundo no matchea y revierte todo.
+      if (appointmentId) {
+        const { count } = await tx.appointment.updateMany({
+          where: {
+            id: appointmentId,
+            tenantId: ctx.tenantId,
+            patientId,
+            sessionId: null,
+          },
+          data: { sessionId: created.id, status: 'COMPLETED', cancelledAt: null },
+        });
+        if (count === 0) throw new TurnoYaRegistrado();
+      }
+
       return created;
+    }).catch((e: unknown) => {
+      // El único caso en que la transacción se aborta a propósito: el turno
+      // ya tenía sesión. Todo lo demás sigue siendo un error de verdad.
+      if (e instanceof TurnoYaRegistrado) return null;
+      throw e;
     });
 
-    return toDTO(row);
+    if (row === null) return { ok: false, reason: 'appointment_taken' };
+    return { ok: true, session: toDTO(row) };
   },
 
   async update(

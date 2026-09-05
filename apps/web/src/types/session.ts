@@ -28,6 +28,11 @@ export interface SessionPaymentInput {
 
 export type SessionCreateData = Omit<Session, 'id' | 'patientId' | 'createdAt' | 'updatedAt'> & {
   payment?: SessionPaymentInput;
+  /**
+   * El turno del que sale esta sesión, cuando se registra desde la agenda.
+   * La API lo vincula en la misma transacción y marca el turno como atendido.
+   */
+  appointmentId?: string | null;
 };
 
 // El PATCH no acepta payment: el pago se edita por /api/payments.
