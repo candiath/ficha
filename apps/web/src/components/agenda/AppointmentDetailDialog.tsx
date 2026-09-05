@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CalendarX, Check, Repeat, User, X } from 'lucide-react';
+import { CalendarX, Check, FileText, Repeat, User, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Appointment, AppointmentStatus } from '@ficha/shared';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import SessionFormModalWide from '@/components/sessions/sessionFormModalWide';
 import { formatLongDate } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS, APPOINTMENT_STATUS_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -27,6 +29,7 @@ export default function AppointmentDetailDialog({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [registrando, setRegistrando] = useState(false);
 
   const invalidar = () =>
     queryClient.invalidateQueries({ queryKey: appointmentKeys.all });
@@ -107,6 +110,28 @@ export default function AppointmentDetailDialog({
 
             <Separator />
 
+            {/* El punto de tener agenda: el turno ya sabe quién, cuándo y por
+                qué motivo, así que registrar la sesión no vuelve a pedir nada
+                de eso. Si ya se registró, el botón desaparece — la API
+                rechaza el segundo intento igual, pero mejor no ofrecerlo. */}
+            {a.sessionId ? (
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0" />
+                La sesión de este turno ya está registrada.
+              </p>
+            ) : (
+              <Button
+                className="w-full"
+                disabled={pendiente}
+                onClick={() => setRegistrando(true)}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Vino: registrar la sesión
+              </Button>
+            )}
+
+            <Separator />
+
             {/* Las tres respuestas posibles a "¿qué pasó con este turno?".
                 Confirmado es previo: el paciente avisó que viene. */}
             <div className="grid grid-cols-3 gap-2">
@@ -165,6 +190,23 @@ export default function AppointmentDetailDialog({
                 Cerrar
               </Button>
             </DialogFooter>
+
+            {/* El mismo formulario de siempre, con paciente, fecha y motivo ya
+                cargados desde el turno. Al guardar, la API vincula los dos en
+                una transacción y el turno queda como atendido. */}
+            {registrando && (
+              <SessionFormModalWide
+                open
+                onOpenChange={(v) => !v && setRegistrando(false)}
+                patientId={a.patientId}
+                episodeId={a.episodeId ?? undefined}
+                appointment={a}
+                onSuccess={() => {
+                  setRegistrando(false);
+                  onClose();
+                }}
+              />
+            )}
           </>
         )}
       </DialogContent>

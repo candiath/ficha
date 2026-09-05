@@ -5,7 +5,13 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { addClinicDays, instantToClinicTime } from '../src/lib/clinicTime';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import {
+  createTestClinic,
+  signTestToken,
+  sleep,
+  waitFor,
+  type TestClinic,
+} from './helpers';
 
 const AR = 'America/Argentina/Buenos_Aires';
 
@@ -43,7 +49,12 @@ describe('turnos', () => {
   });
 
   afterAll(async () => {
+    await sleep(400);
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -273,6 +284,106 @@ describe('turnos', () => {
       status: 'SCHEDULED',
     });
     expect(reabierto.body.data.cancelledAt).toBeNull();
+  });
+
+  // ── Turno → sesión ────────────────────────────────────────────────────────
+
+  // El punto de todo el módulo: el turno ya sabe quién, cuándo y por qué, así
+  // que registrar la sesión no vuelve a pedir nada de eso.
+  it('registrar la sesión desde el turno lo deja vinculado y atendido', async () => {
+    const creado = await agendar({
+      date: fechaClinica(-1),
+      time: '09:00',
+      episodeId: episode.id,
+    });
+    const turno = creado.body.data[0];
+
+    const sesion = await auth(
+      request(app).post(`/api/patients/${patient.id}/sessions`),
+    ).send({
+      sessionDate: new Date().toISOString(),
+      episodeIds: [episode.id],
+      appointmentId: turno.id,
+      observations: 'Trabajo de cadena posterior',
+    });
+
+    expect(sesion.status).toBe(201);
+
+    const fila = await prisma.appointment.findUniqueOrThrow({
+      where: { id: turno.id },
+      select: { sessionId: true, status: true },
+    });
+    expect(fila.sessionId).toBe(sesion.body.data.id);
+    expect(fila.status).toBe('COMPLETED');
+  });
+
+  // Dos clicks en "registrar sesión", o dos pestañas. Lo que importa no es
+  // solo el 409: es que la segunda sesión NO se haya creado.
+  it('no deja registrar dos sesiones para el mismo turno', async () => {
+    const creado = await agendar({ date: fechaClinica(-2), time: '11:00' });
+    const turno = creado.body.data[0];
+
+    const primera = await auth(
+      request(app).post(`/api/patients/${patient.id}/sessions`),
+    ).send({ sessionDate: new Date().toISOString(), appointmentId: turno.id });
+    expect(primera.status).toBe(201);
+
+    const antes = await prisma.session.count({ where: { patientId: patient.id } });
+
+    const segunda = await auth(
+      request(app).post(`/api/patients/${patient.id}/sessions`),
+    ).send({ sessionDate: new Date().toISOString(), appointmentId: turno.id });
+
+    expect(segunda.status).toBe(409);
+    const despues = await prisma.session.count({ where: { patientId: patient.id } });
+    expect(despues).toBe(antes);
+  });
+
+  it('rechaza vincular el turno de otro paciente', async () => {
+    const otro = await prisma.patient.create({
+      data: { tenantId: clinic.tenantId, fullName: 'Paciente Sin Turno' },
+      select: { id: true },
+    });
+    const creado = await agendar({ date: fechaClinica(-3), time: '12:00' });
+
+    const res = await auth(request(app).post(`/api/patients/${otro.id}/sessions`)).send({
+      sessionDate: new Date().toISOString(),
+      appointmentId: creado.body.data[0].id,
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  // Hasta que existió la agenda no había turno al que faltar, y por eso la
+  // alerta de inactividad se retipó a FOLLOW_UP en #111.
+  it('marcar "no vino" genera la alerta de inasistencia, una sola vez', async () => {
+    const creado = await agendar({ date: fechaClinica(-4), time: '14:00' });
+    const turno = creado.body.data[0];
+
+    await auth(request(app).patch(`/api/appointments/${turno.id}`)).send({
+      status: 'NO_SHOW',
+    });
+
+    const alerta = await waitFor(() =>
+      prisma.clinicalAlert.findFirst({
+        where: { tenantId: clinic.tenantId, patientId: patient.id, type: 'NO_SHOW' },
+      }),
+    );
+    expect(alerta.message).toMatch(/Faltó sin avisar/);
+
+    // Marcar y desmarcar no puede generar una alerta por click.
+    await auth(request(app).patch(`/api/appointments/${turno.id}`)).send({
+      status: 'SCHEDULED',
+    });
+    await auth(request(app).patch(`/api/appointments/${turno.id}`)).send({
+      status: 'NO_SHOW',
+    });
+    await sleep(600);
+
+    const cuantas = await prisma.clinicalAlert.count({
+      where: { tenantId: clinic.tenantId, type: 'NO_SHOW' },
+    });
+    expect(cuantas).toBe(1);
   });
 
   // ── Validación y aislamiento ──────────────────────────────────────────────

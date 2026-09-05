@@ -53,7 +53,23 @@ export interface SessionPaymentInput {
 export interface SessionCreateInput extends SessionFields {
   episodeIds: string[];
   payment?: SessionPaymentInput;
+  /**
+   * El turno del que salió esta sesión, si se registra desde la agenda.
+   *
+   * Va en la misma transacción que la sesión: vincular después, con un
+   * segundo request, es lo que dejaba sesiones sin cobro antes de que el
+   * POST aceptara el pago junto. La ruta valida que el turno sea de este
+   * paciente; acá se exige además que no tenga ya una sesión.
+   */
+  appointmentId?: string | null;
 }
+
+export type SessionCreateResult =
+  | { ok: true; session: SessionDTO }
+  // El turno ya produjo su sesión. Pasa si se aprieta dos veces "registrar
+  // sesión" o si otra pestaña ganó de mano: la sesión NO se crea, para no
+  // duplicar el registro clínico de una misma visita.
+  | { ok: false; reason: 'appointment_taken' };
 
 // payment queda afuera a propósito: el pago se edita por /api/payments.
 export type SessionUpdateInput = Partial<SessionFields> & { episodeIds?: string[] };
@@ -83,7 +99,7 @@ export interface SessionRepository {
     ctx: TenantContext,
     patientId: string,
     input: SessionCreateInput,
-  ): Promise<SessionDTO>;
+  ): Promise<SessionCreateResult>;
   /** null si no hay sesión vigente de ese paciente con ese id. */
   /**
    * Borrado lógico de una sesión cargada por error.
