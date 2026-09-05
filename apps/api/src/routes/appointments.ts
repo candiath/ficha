@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { IdSchema } from '../lib/validation';
 import {
   addClinicDays,
   addMinutes,
@@ -49,8 +50,8 @@ const RangoSchema = z
   );
 
 const CreateSchema = z.object({
-  patientId: z.string().uuid(),
-  episodeId: z.string().uuid().optional().nullable(),
+  patientId: IdSchema,
+  episodeId: IdSchema.optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
   // Hora de pared de la clínica, no un instante: el cliente no debería tener
   // que conocer la zona horaria para agendar. La conversión pasa acá.
@@ -74,7 +75,7 @@ const UpdateSchema = z.object({
   time: HoraSchema.optional(),
   durationMinutes: z.number().int().min(5).max(480).optional(),
   status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
-  episodeId: z.string().uuid().optional().nullable(),
+  episodeId: IdSchema.optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
 });
 

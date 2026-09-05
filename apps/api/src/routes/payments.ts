@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { IdSchema } from '../lib/validation';
 import type { PaymentStatus } from '@prisma/client';
 import { auditLogRepo, paymentRepo } from '../repositories';
 
@@ -32,7 +33,7 @@ const PaymentUpdateSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'WAIVED']).optional(),
   method: z.enum(['CASH', 'TRANSFER']).optional().nullable(),
   paidAt: z.string().datetime().optional().nullable(),
-  packageId: z.string().uuid().optional().nullable(),
+  packageId: IdSchema.optional().nullable(),
   notes: z.string().optional().nullable(),
 });
 

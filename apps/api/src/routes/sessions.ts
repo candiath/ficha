@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { IdSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/sessionDate';
 import {
   appointmentRepo,
@@ -29,7 +30,7 @@ const router = Router({ mergeParams: true });
 const SessionFieldsSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
-  episodeIds: z.array(z.string().uuid()),
+  episodeIds: z.array(IdSchema),
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
   patientResponse: z.string().optional().nullable(),
@@ -45,15 +46,15 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
   // Los defaults del alta: una sesión sin tipo es SESSION y puede no abordar
   // ningún episodio.
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
-  episodeIds: z.array(z.string().uuid()).optional().default([]),
+  episodeIds: z.array(IdSchema).optional().default([]),
   // El turno del que sale esta sesión, cuando se registra desde la agenda.
   // Va acá y no en un endpoint aparte para que sesión, cobro y vínculo se
   // creen en una sola transacción: encadenar requests es lo que dejaba
   // sesiones sin cobro antes (A3).
-  appointmentId: z.string().uuid().optional().nullable(),
+  appointmentId: IdSchema.optional().nullable(),
   payment: z
     .object({
-      packageId: z.string().uuid().optional().nullable(),
+      packageId: IdSchema.optional().nullable(),
       baseAmount: z.number().nonnegative(),
       discount: z.number().nonnegative().default(0),
       notes: z.string().optional().nullable(),
