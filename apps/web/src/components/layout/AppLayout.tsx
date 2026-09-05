@@ -1,4 +1,4 @@
-import { Bell, Building2, CalendarCheck, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, LogOut, MessageSquare, User, Users } from 'lucide-react';
+import { Bell, Building2, CalendarDays, CalendarRange, CreditCard, Dumbbell, LayoutDashboard, LogOut, MessageSquare, User, Users } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -29,9 +29,8 @@ import { alertApi, alertKeys } from '@/services/alerts';
 // su ruta en App.tsx).
 const clinicItems = [
   { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard },
-  { to: '/agenda',    label: 'Agenda',     icon: CalendarRange,   disabled: true },
+  { to: '/agenda',    label: 'Agenda',     icon: CalendarRange },
   { to: '/patients',  label: 'Pacientes',  icon: Users },
-  { to: '/turnos',    label: 'Turnos',     icon: CalendarCheck,   disabled: true },
   { to: '/sessions',  label: 'Sesiones',   icon: CalendarDays },
   { to: '/payments',  label: 'Cobros',     icon: CreditCard },
   { to: '/alerts',    label: 'Alertas',    icon: Bell },
