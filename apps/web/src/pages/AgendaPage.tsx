@@ -87,11 +87,24 @@ export default function AgendaPage() {
     );
   }
 
-  // Solo los días en que la clínica atiende, en orden lunes→domingo.
-  const diasSemana = daysFrom(lunes, 7).filter((d) =>
-    tenant.workdays.includes(weekdayOf(d)),
+  // Los días en que la clínica atiende, MÁS cualquier otro que tenga turnos.
+  //
+  // Ese "más" es el punto: la configuración da la forma del lienzo vacío, no
+  // decide qué datos existen. Filtrando solo por workdays, un turno cargado un
+  // sábado en una clínica de lunes a viernes no tiene columna donde dibujarse
+  // y desaparece sin ninguna señal — que es exactamente lo que pasó.
+  const conTurnos = new Set(turnos.map((a) => a.date));
+  const diasSemana = daysFrom(lunes, 7).filter(
+    (d) => tenant.workdays.includes(weekdayOf(d)) || conTurnos.has(d),
   );
-  const horas = hourSlots(tenant.workdayStart, tenant.workdayEnd);
+
+  // Mismo criterio para las horas: el rango de atención se estira si hay un
+  // turno antes de abrir o después de cerrar.
+  const horas = hourSlots(
+    tenant.workdayStart,
+    tenant.workdayEnd,
+    turnos.filter((a) => diasSemana.includes(a.date)).map((a) => a.startTime),
+  );
 
   const delDia = turnos
     .filter((a) => a.date === dia)
@@ -184,6 +197,7 @@ export default function AgendaPage() {
               hours={horas}
               appointments={turnos}
               today={hoy}
+              workdays={tenant.workdays}
               onSelect={setSeleccionado}
               onEmptySlot={(date, time) => setNuevo({ date, time })}
             />

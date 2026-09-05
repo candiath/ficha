@@ -115,6 +115,35 @@ describe('hourSlots', () => {
     expect(hourSlots('09:00', '09:00')).toEqual([]);
   });
 
+  // El bug que motivó esto: un turno fuera del horario de atención no tenía
+  // fila donde dibujarse y desaparecía de la pantalla sin ninguna señal.
+  it('se estira hacia atrás para un turno antes de abrir', () => {
+    expect(hourSlots('08:00', '12:00', ['05:30'])).toEqual([
+      '05:00', '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
+    ]);
+  });
+
+  it('se estira hacia adelante para un turno después de cerrar', () => {
+    expect(hourSlots('08:00', '10:00', ['21:00'])).toEqual([
+      '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
+      '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00',
+    ]);
+  });
+
+  it('un turno dentro del horario no cambia nada', () => {
+    expect(hourSlots('08:00', '12:00', ['09:15', '10:00'])).toEqual([
+      '08:00', '09:00', '10:00', '11:00',
+    ]);
+  });
+
+  // Aunque la configuración esté rota, los turnos que existen tienen que
+  // verse: es preferible una grilla mínima a un turno invisible.
+  it('con un horario invertido, igual dibuja las horas de los turnos', () => {
+    expect(hourSlots('20:00', '08:00', ['09:00', '11:00'])).toEqual([
+      '09:00', '10:00', '11:00',
+    ]);
+  });
+
   it('un turno cae en la hora en punto de su franja', () => {
     expect(hourSlotOf('09:00')).toBe('09:00');
     expect(hourSlotOf('09:45')).toBe('09:00');

@@ -1,5 +1,5 @@
 import type { Appointment } from '@ficha/shared';
-import { dayNumber, hourSlotOf, shortWeekday } from '@/lib/agendaDates';
+import { dayNumber, hourSlotOf, shortWeekday, weekdayOf } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +15,7 @@ export default function WeekView({
   hours,
   appointments,
   today,
+  workdays,
   onSelect,
   onEmptySlot,
 }: {
@@ -22,6 +23,8 @@ export default function WeekView({
   hours: string[];
   appointments: Appointment[];
   today: string;
+  /** Días de atención de la clínica, para señalar los que no lo son. */
+  workdays: number[];
   onSelect: (a: Appointment) => void;
   onEmptySlot: (date: string, time: string) => void;
 }) {
@@ -54,6 +57,9 @@ export default function WeekView({
             </th>
             {days.map((d) => {
               const esHoy = d === today;
+              // Un día fuera del horario de atención que igual tiene turnos:
+              // se dibuja, pero se marca para que se note que no es habitual.
+              const fueraDeHorario = !workdays.includes(weekdayOf(d));
               return (
                 <th
                   key={d}
@@ -64,6 +70,14 @@ export default function WeekView({
                 >
                   <p className="text-xs font-medium text-muted-foreground">
                     {shortWeekday(d)}
+                    {fueraDeHorario && (
+                      <span
+                        className="ml-1 text-amber-600"
+                        title="La clínica no atiende este día"
+                      >
+                        •
+                      </span>
+                    )}
                   </p>
                   <p
                     className={cn(
