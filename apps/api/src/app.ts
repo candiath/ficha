@@ -7,6 +7,7 @@ import { requireRole } from './middlewares/requireRole';
 import { getJwtSecret } from './lib/jwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
+import appointmentsRouter from './routes/appointments';
 import authRouter from './routes/auth';
 import auditLogRouter from './routes/auditLog';
 import consentRouter from './routes/consent';
@@ -114,6 +115,7 @@ app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);
+app.use('/api/appointments', appointmentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 // La configuración de la clínica: la lectura es para cualquier usuario y la
 // escritura solo para ADMIN, así que el requireRole va dentro del router.

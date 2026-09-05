@@ -38,6 +38,7 @@ const TENANT_SCOPED_MODELS = [
   'AuditLog',
   'ClinicalAlert',
   'FunctionalScale',
+  'Appointment',
 ] as const;
 
 // Set para el chequeo de runtime en la extension (.has(model)).
