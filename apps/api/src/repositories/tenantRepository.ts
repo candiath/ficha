@@ -44,4 +44,13 @@ export interface TenantRepository {
    */
   get(ctx: TenantContext): Promise<TenantDTO>;
   update(ctx: TenantContext, input: TenantUpdateInput): Promise<TenantDTO>;
+  /**
+   * Reclama el turno de correr el motor de alertas, si la última corrida es
+   * anterior a `cutoff`. Devuelve true solo a quien lo reclamó.
+   *
+   * Es una reclama y no una lectura seguida de una escritura: la condición
+   * viaja en el where del update, así que dos requests simultáneos —el badge
+   * y la página de alertas cargando a la vez— no corren el motor dos veces.
+   */
+  claimAlertsRefresh(ctx: TenantContext, cutoff: Date): Promise<boolean>;
 }
