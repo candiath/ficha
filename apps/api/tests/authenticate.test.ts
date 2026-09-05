@@ -124,6 +124,7 @@ describe('middleware authenticate', () => {
       email: user.email,
       name: user.name,
       role: user.role,
+      tenant: { name: clinic.name, slug: clinic.slug },
     });
   });
 });

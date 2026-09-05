@@ -52,6 +52,14 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
       discount: z.number().nonnegative().default(0),
       notes: z.string().optional().nullable(),
     })
+    // Mismo invariante que POST /api/payments: un descuento mayor al monto
+    // base deja finalAmount negativo, o sea un cobro que devuelve plata. Va
+    // acá además de allá porque ésta es la vía por la que la app crea los
+    // cobros de verdad — el alta de la sesión los trae embebidos (issue #73).
+    .refine((d) => d.discount <= d.baseAmount, {
+      error: 'El descuento no puede superar el monto base',
+      path: ['discount'],
+    })
     .optional(),
 });
 
@@ -201,6 +209,51 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     .catch((err) => console.error('[audit]', err));
 
   res.json({ data: session });
+});
+
+// DELETE /api/patients/:patientId/sessions/:sessionId
+// Borrado lógico, igual que pacientes: la sesión desaparece de los listados y
+// de las métricas, pero la fila queda —para no romper el pivote con episodios
+// ni la auditoría— y el borrado es reversible.
+router.delete<SessionParams>('/:sessionId', async (req, res) => {
+  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  const result = await sessionRepo.softDelete(
+    req.context,
+    req.params.patientId,
+    req.params.sessionId,
+  );
+
+  // Inexistente, de otro paciente o ya borrada: mismo 404, sin revelar cuál.
+  if (result === 'not_found') {
+    res.status(404).json({ error: 'Sesión no encontrada' });
+    return;
+  }
+
+  // La sesión existe pero ya se cobró. Plata que entró de verdad no se hace
+  // desaparecer borrando la sesión: primero se revierte el cobro, y entonces
+  // sí se puede eliminar. Mismo criterio que el 409 de los paquetes en uso.
+  if (result === 'paid') {
+    res.status(409).json({
+      error: 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de eliminarla.',
+    });
+    return;
+  }
+
+  auditLogRepo
+    .create(req.context, {
+      patientId: req.params.patientId,
+      entity: 'SESSION',
+      entityId: req.params.sessionId,
+      action: 'DELETED',
+      description: 'Sesión eliminada',
+    })
+    .catch((err) => console.error('[audit]', err));
+
+  res.status(204).send();
 });
 
 export default router;

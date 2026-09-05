@@ -23,6 +23,32 @@ model Tenant {
   id        String   @id @default(uuid())
   name      String
   slug      String   @unique
+
+  // Datos de contacto y fiscales. Opcionales: una clínica recién creada solo
+  // tiene nombre y slug, y estos se completan desde la pantalla de Clínica.
+  // Hacen falta para el membrete de los informes imprimibles.
+  email     String?
+  phone     String?
+  address   String?
+  cuit      String?
+  specialty String?
+
+  // Zona horaria IANA de la clínica. NO es cosmética: un turno "de 9:00" es
+  // hora de pared, pero se guarda como instante UTC. Sin esto, agrupar por
+  // día o por semana se hace en UTC y una sesión de las 22:00 de fin de mes
+  // cae en el mes siguiente (el dashboard ya documenta ese corrimiento).
+  timezone  String   @default("America/Argentina/Buenos_Aires")
+
+  // Horario de atención, en hora local de la clínica. Estructurado y no texto
+  // libre porque la grilla de la agenda tiene que poder leerlo: hoy dibuja
+  // 08:00-19:00 de lunes a sábado hardcodeado. Limitación conocida: un mismo
+  // rango para todos los días laborables, así que "sábados solo a la mañana"
+  // no se puede expresar todavía.
+  workdayStart String @default("08:00") @map("workday_start")
+  workdayEnd   String @default("20:00") @map("workday_end")
+  // Días laborables, con la convención de Date#getDay(): 0 domingo … 6 sábado.
+  workdays     Int[]  @default([1, 2, 3, 4, 5])
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -242,6 +268,12 @@ model Session {
   observations     String?
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
+  // Borrado lógico, igual que Patient: una sesión cargada por error
+  // desaparece de los listados pero la fila queda, para no romper el pivote
+  // con episodios ni la auditoría, y para que el borrado sea reversible.
+  // Su cobro sí se elimina de verdad al borrarla, pero solo puede estar
+  // PENDING o WAIVED: una sesión ya cobrada no se deja borrar (409).
+  deletedAt        DateTime?   @map("deleted_at")
 
   tenant     Tenant            @relation(fields: [tenantId], references: [id])
   patient    Patient           @relation(fields: [patientId], references: [id])

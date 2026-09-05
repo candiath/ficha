@@ -37,9 +37,20 @@ describe('POST /api/auth/login', () => {
       email: user.email,
       name: user.name,
       role: user.role,
+      // La clínica viaja como identidad (nombre y slug), no como id.
+      tenant: { name: clinic.name, slug: clinic.slug },
     });
     // Ni passwordHash ni tenantId ni nada extra: exactamente estas claves.
-    expect(Object.keys(res.body.data.user).sort()).toEqual(['email', 'id', 'name', 'role']);
+    expect(Object.keys(res.body.data.user).sort()).toEqual([
+      'email',
+      'id',
+      'name',
+      'role',
+      'tenant',
+    ]);
+    // Y el tenant anidado tampoco filtra su id: el cliente nunca lo necesita
+    // (viaja en el token y se resuelve server-side).
+    expect(Object.keys(res.body.data.user.tenant).sort()).toEqual(['name', 'slug']);
 
     // El token emitido sirve de verdad contra una ruta protegida.
     const me = await request(app)

@@ -85,6 +85,21 @@ export interface SessionRepository {
     input: SessionCreateInput,
   ): Promise<SessionDTO>;
   /** null si no hay sesión vigente de ese paciente con ese id. */
+  /**
+   * Borrado lógico de una sesión cargada por error.
+   *
+   * - 'not_found': no existe, es de otro paciente/tenant, o ya estaba borrada.
+   * - 'paid': tiene un cobro PAGADO. No se borra: plata que entró de verdad
+   *   no se hace desaparecer desde acá. Primero hay que revertir el cobro.
+   * - 'deleted': se marcó deletedAt y, si tenía un cobro PENDING o WAIVED,
+   *   se eliminó — un cobro pendiente por una sesión que no existió no es
+   *   historial, es trabajo pendiente sobre algo que no pasó.
+   */
+  softDelete(
+    ctx: TenantContext,
+    patientId: string,
+    id: string,
+  ): Promise<'deleted' | 'not_found' | 'paid'>;
   update(
     ctx: TenantContext,
     patientId: string,

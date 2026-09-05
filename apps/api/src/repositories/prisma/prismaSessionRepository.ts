@@ -9,6 +9,11 @@ import type {
   SessionWithPatientDTO,
 } from '../sessionRepository';
 
+// Política del repositorio: todo método opera sobre sesiones vigentes. Una
+// sesión borrada no se lista, no se lee y no se edita — el mismo criterio que
+// patientRepository aplica a los pacientes.
+const VIGENTE = { deletedAt: null } as const;
+
 const sessionSelect = {
   id: true,
   patientId: true,
@@ -112,6 +117,7 @@ export const prismaSessionRepository: SessionRepository = {
     const db = forTenant(ctx);
     const rows = await db.session.findMany({
       where: {
+        ...VIGENTE,
         patientId,
         ...(filters?.episodeId ? { episodes: { some: { episodeId: filters.episodeId } } } : {}),
       },
@@ -124,7 +130,7 @@ export const prismaSessionRepository: SessionRepository = {
   async getById(ctx: TenantContext, patientId: string, id: string): Promise<SessionDTO | null> {
     const db = forTenant(ctx);
     const row = await db.session.findFirst({
-      where: { id, patientId },
+      where: { ...VIGENTE, id, patientId },
       select: sessionSelect,
     });
     return row ? toDTO(row) : null;
@@ -133,6 +139,7 @@ export const prismaSessionRepository: SessionRepository = {
   async listAllForTenant(ctx: TenantContext): Promise<SessionWithPatientDTO[]> {
     const db = forTenant(ctx);
     const rows = await db.session.findMany({
+      where: VIGENTE,
       orderBy: { sessionDate: 'desc' },
       select: sessionWithPatientSelect,
     });
@@ -220,7 +227,9 @@ export const prismaSessionRepository: SessionRepository = {
       // el reemplazo de episodios es anidado y no se puede hacer con
       // updateMany, así que este es el equivalente sin ventana.
       const row = await db.session.update({
-        where: { id, patientId },
+        // deletedAt en el where: una sesión borrada no se edita. Si no
+        // matchea, Prisma tira P2025 y esto devuelve null → 404.
+        where: { ...VIGENTE, id, patientId },
         data: {
           ...sessionData(input),
           // Reemplaza el conjunto de episodios vinculados solo si se envía.
@@ -239,5 +248,46 @@ export const prismaSessionRepository: SessionRepository = {
       }
       throw e;
     }
+  },
+
+  async softDelete(
+    ctx: TenantContext,
+    patientId: string,
+    id: string,
+  ): Promise<'deleted' | 'not_found' | 'paid'> {
+    const db = forTenant(ctx);
+
+    return db.$transaction(async (tx) => {
+      // 1. Sacar el cobro, salvo que esté PAGADO. La condición va en el where
+      //    del delete: si estaba pagado no borra nada y la fila sigue ahí.
+      //
+      //    Se elimina de verdad y no se marca: un cobro PENDING o WAIVED por
+      //    una sesión que no existió no es historial —no hubo plata— sino
+      //    trabajo pendiente sobre algo que no pasó. Borrarlo también evita
+      //    tener que filtrar sesiones borradas en Cobros y en el remanente de
+      //    los paquetes, que es justo el filtro que después alguien olvida.
+      await tx.payment.deleteMany({
+        where: { sessionId: id, tenantId: ctx.tenantId, status: { not: 'PAID' } },
+      });
+
+      // 2. Borrar la sesión solo si ya no le queda ningún cobro colgando. Si
+      //    el cobro estaba pagado sigue existiendo y este updateMany no toca
+      //    nada: la condición viaja en el where del write, sin ventana entre
+      //    el chequeo y la escritura.
+      const { count } = await tx.session.updateMany({
+        where: { id, patientId, tenantId: ctx.tenantId, deletedAt: null, payment: { is: null } },
+        data: { deletedAt: new Date() },
+      });
+
+      if (count === 1) return 'deleted';
+
+      // count 0 son dos casos distintos para el cliente: la sesión existe
+      // pero está cobrada (409), o no existe / ya estaba borrada (404).
+      const stillThere = await tx.session.findFirst({
+        where: { id, patientId, tenantId: ctx.tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      return stillThere ? 'paid' : 'not_found';
+    });
   },
 };

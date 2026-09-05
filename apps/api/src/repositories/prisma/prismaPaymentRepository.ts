@@ -107,7 +107,8 @@ export const prismaPaymentRepository: PaymentRepository = {
 
     // El paciente se deriva de la sesión: la sesión debe ser del tenant.
     const session = await db.session.findFirst({
-      where: { id: input.sessionId },
+      // deletedAt: null — no se registra un cobro sobre una sesión borrada.
+      where: { id: input.sessionId, deletedAt: null },
       select: { id: true, patientId: true },
     });
     if (!session) return { ok: false, reason: 'session_not_found' };
@@ -180,6 +181,12 @@ export const prismaPaymentRepository: PaymentRepository = {
 
     const newBase = input.baseAmount ?? Number(existing.baseAmount);
     const newDiscount = input.discount ?? Number(existing.discount);
+
+    // Un descuento mayor al monto base dejaría finalAmount negativo: un cobro
+    // que devuelve plata. Se valida acá y no en el schema de la ruta porque el
+    // PATCH es parcial — mandar solo `discount` se compara contra el monto
+    // base guardado, que Zod no conoce (issue #73).
+    if (newDiscount > newBase) return { ok: false, reason: 'invalid_amounts' };
 
     const row = await db.payment.update({
       where: { id },

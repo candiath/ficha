@@ -11,13 +11,20 @@ const router = Router();
 // Sin patientId: el paciente se deriva de la sesión. Aceptarlo del body
 // permitía crear pagos apuntando a pacientes de otro tenant (y el GET,
 // que incluye patient.fullName, exponía el nombre ajeno).
-const PaymentCreateSchema = z.object({
-  sessionId: z.string().min(1),
-  packageId: z.string().optional().nullable(),
-  baseAmount: z.number().nonnegative(),
-  discount: z.number().nonnegative().default(0),
-  notes: z.string().optional().nullable(),
-});
+const PaymentCreateSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    packageId: z.string().optional().nullable(),
+    baseAmount: z.number().nonnegative(),
+    discount: z.number().nonnegative().default(0),
+    notes: z.string().optional().nullable(),
+  })
+  // El alta trae los dos montos juntos, así que acá sí alcanza con Zod. En el
+  // PATCH no: es parcial y el chequeo vive en el repositorio (issue #73).
+  .refine((d) => d.discount <= d.baseAmount, {
+    error: 'El descuento no puede superar el monto base',
+    path: ['discount'],
+  });
 
 const PaymentUpdateSchema = z.object({
   baseAmount: z.number().nonnegative().optional(),
@@ -105,12 +112,17 @@ router.patch('/:id', async (req, res) => {
   });
 
   if (!result.ok) {
-    if (result.reason === 'not_found') {
-      res.status(404).json({ error: 'Pago no encontrado' });
-      return;
+    switch (result.reason) {
+      case 'not_found':
+        res.status(404).json({ error: 'Pago no encontrado' });
+        return;
+      case 'package_not_found':
+        res.status(404).json({ error: 'Paquete no encontrado' });
+        return;
+      case 'invalid_amounts':
+        res.status(400).json({ error: 'El descuento no puede superar el monto base' });
+        return;
     }
-    res.status(404).json({ error: 'Paquete no encontrado' });
-    return;
   }
 
   res.json({ data: result.payment });

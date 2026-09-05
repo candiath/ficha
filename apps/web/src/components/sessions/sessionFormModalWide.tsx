@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, CreditCard, FileText, ListChecks } from 'lucide-react'
+import { Calendar, CreditCard, FileText, ListChecks, Trash2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -142,6 +142,7 @@ export default function SessionFormModalWide({
   const isEditing = !!session
   const dateTolerances = useSessionDateTolerances()
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const { data: episodes = [] } = useQuery({
     queryKey: episodeKeys.list(patientId),
@@ -303,6 +304,40 @@ export default function SessionFormModalWide({
     },
     onError: () => {
       toast.error('Error al guardar la sesión')
+    },
+  })
+
+  // Borrado de una sesión cargada por error. Invalida lo mismo que el guardado
+  // —listados del paciente, episodios, listado global y cobros— porque el
+  // borrado también se lleva el cobro pendiente de la sesión.
+  const deleteMutation = useMutation({
+    mutationFn: () => {
+      if (!session) throw new Error('No hay sesión que eliminar')
+      return sessionApi.remove(patientId, session.id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'patients' &&
+          q.queryKey[1] === patientId &&
+          q.queryKey.includes('sessions'),
+      })
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
+      queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
+      queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      toast.success('Sesión eliminada')
+      setShowDeleteConfirm(false)
+      onOpenChange(false)
+      form.reset()
+      onSuccess?.()
+    },
+    onError: (err: Error) => {
+      // El 409 de "ya está cobrada" trae un mensaje que le sirve al usuario
+      // (dice qué hacer antes), así que se muestra tal cual en vez de un
+      // genérico. api.ts ya lo trae en err.message.
+      toast.error(err.message || 'Error al eliminar la sesión')
+      setShowDeleteConfirm(false)
     },
   })
 
@@ -691,6 +726,21 @@ export default function SessionFormModalWide({
             </div>
 
             <DialogFooter className="mt-6 pt-4 border-t gap-2 flex-col-reverse sm:flex-row">
+              {/* Solo al editar: una sesión que todavía no existe no se borra.
+                  sm:mr-auto lo separa de las acciones de guardado — es una
+                  acción destructiva y no debe quedar pegada a "Guardar". */}
+              {isEditing && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={deleteMutation.isPending}
+                  className="w-full sm:w-auto sm:mr-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Eliminar
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -714,6 +764,32 @@ export default function SessionFormModalWide({
             </DialogFooter>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+
+    {/* Confirmación de borrado */}
+    <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Eliminar esta sesión?</DialogTitle>
+          <DialogDescription>
+            Deja de aparecer en el historial del paciente, en el listado de sesiones y
+            en las estadísticas. Si tenía un cobro pendiente, también se elimina.
+            {' '}Si la sesión ya está cobrada, primero hay que revertir el cobro.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => deleteMutation.mutate()}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? 'Eliminando...' : 'Eliminar sesión'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
 

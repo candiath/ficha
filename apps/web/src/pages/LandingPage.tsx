@@ -17,7 +17,10 @@ import { Separator } from '@/components/ui/separator'
 // Marca del build del front. Se contrasta con la que expone GET /health
 // de la API: los dos deploys son independientes (Netlify el front, Render
 // la API), así que pueden quedar parados en commits distintos sin aviso.
-const BUILD_MARKER = 'canary-2026-08-15';
+//
+// El valor lo inyecta vite.config.ts desde el COMMIT_REF de Netlify. El
+// fallback cubre los tests, que no pasan por esa config.
+const BUILD_MARKER = (import.meta.env.VITE_BUILD_MARKER as string | undefined) ?? 'local';
 
 const FEATURES = [
   {
@@ -30,19 +33,20 @@ const FEATURES = [
     icon: FileText,
     title: 'Evaluación inicial',
     description:
-      'Documentá la primera consulta con anamnesis completa y adjuntá fotos posturales para tener un punto de partida claro.',
+      'Documentá la primera consulta con anamnesis completa, familias de posturas y escala de dolor, para tener un punto de partida claro.',
   },
   {
     icon: Camera,
     title: 'Fotos de evolución',
     description:
-      'Comparé la postura del paciente entre la evaluación inicial y las sesiones actuales. Un diferenciador clave en RPG.',
+      'Compará la postura del paciente entre la evaluación inicial y las sesiones actuales. Un diferenciador clave en RPG.',
+    soon: true,
   },
   {
     icon: CalendarDays,
     title: 'Seguimiento de sesiones',
     description:
-      'Registrá cada sesión con las técnicas RPG utilizadas, la región corporal trabajada y las notas clínicas relevantes.',
+      'Registrá cada sesión con la evolución del dolor, el motivo de consulta que abordó y las notas clínicas relevantes.',
   },
   {
     icon: ActivitySquare,
@@ -58,10 +62,9 @@ const FEATURES = [
   },
   {
     icon: CreditCard,
-    title: 'Gestión de pagos',
+    title: 'Gestión de cobros',
     description:
-      'Registrá cobros, controlá deudas y llevá el seguimiento financiero de tu consultorio. Próximamente.',
-    soon: true,
+      'Registrá cobros por sesión, paquetes prepagos y descuentos, y mirá de un vistazo lo que falta cobrar.',
   },
   {
     icon: Users,
@@ -81,12 +84,12 @@ const STEPS = [
   {
     n: '02',
     title: 'Realizás la evaluación inicial',
-    description: 'Documentás la postura, adjuntás fotos y dejás registrado el punto de partida.',
+    description: 'Documentás la postura y la anamnesis, y dejás registrado el punto de partida.',
   },
   {
     n: '03',
     title: 'Registrás cada sesión',
-    description: 'Anotás las técnicas y regiones trabajadas. El historial se construye solo.',
+    description: 'Anotás cómo llegó, qué trabajaste y cómo respondió. El historial se construye solo.',
   },
 ]
 
@@ -117,8 +120,8 @@ export default function LandingPage() {
           que tu consultorio necesita
         </h1>
         <p className="text-muted-foreground text-xl max-w-2xl mx-auto mb-10">
-          Administrá pacientes, evaluaciones posturales, sesiones y evolución fotográfica
-          desde una sola herramienta, diseñada para la práctica de RPG.
+          Administrá pacientes, evaluaciones posturales, sesiones y cobros desde una
+          sola herramienta, diseñada para la práctica de RPG.
         </p>
         <div className="flex items-center justify-center gap-3">
           <Button size="lg" onClick={() => navigate('/dashboard')}>
@@ -179,47 +182,6 @@ export default function LandingPage() {
               <p className="text-muted-foreground text-sm">{description}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      <Separator />
-
-      {/* Pricing placeholder */}
-      <section className="max-w-5xl mx-auto px-6 py-20">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold tracking-tight mb-3">Planes</h2>
-          <p className="text-muted-foreground text-lg">Simple y transparente.</p>
-        </div>
-        <div className="flex justify-center">
-          <Card className="w-full max-w-sm">
-            <CardHeader className="text-center">
-              <Badge variant="secondary" className="w-fit mx-auto mb-2">
-                Plan Pro
-              </Badge>
-              <CardTitle className="text-4xl font-bold">
-                $XX
-                <span className="text-base font-normal text-muted-foreground"> / mes</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {[
-                'Pacientes ilimitados',
-                'Evaluaciones y sesiones ilimitadas',
-                'Fotos de evolución',
-                'Historial clínico completo',
-                'Estadísticas del consultorio',
-                'Gestión de pagos (próximamente)',
-              ].map((item) => (
-                <div key={item} className="flex items-center gap-2 text-sm">
-                  <ChevronRight className="h-4 w-4 text-primary shrink-0" />
-                  <span>{item}</span>
-                </div>
-              ))}
-              <div className="pt-4">
-                <Button className="w-full" onClick={() => navigate('/patients')}>Empezar ahora</Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </section>
 

@@ -22,14 +22,47 @@ export * from './postureFamilies';
 
 export type UserRole = 'ADMIN' | 'THERAPIST';
 
-// Usuario tal como lo expone la API (sin passwordHash ni tenantId:
-// el tenant es un detalle interno que el cliente nunca necesita).
+// La clínica a la que pertenece el usuario, tal como se muestra en la app.
+// Solo su identidad: el id del tenant sigue siendo un detalle interno que el
+// cliente nunca necesita (viaja en el token y se resuelve server-side).
+export interface AuthTenant {
+  name: string;
+  slug: string;
+}
+
+// Usuario tal como lo expone la API (sin passwordHash ni tenantId).
+// Incluye la clínica porque "quién soy" en una app multi-tenant también
+// responde "en qué clínica estoy": la pantalla de Clínica lo lee de acá en
+// vez de tener los datos escritos a mano.
 export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
   role: UserRole;
+  tenant: AuthTenant;
 }
+
+// ── Configuración de la clínica ──────────────────────────────────────────────
+
+// Lo que devuelve GET /api/tenant. Sin id (el cliente ya sabe en qué clínica
+// está) y sin el slug editable: es un identificador, no un dato de contacto.
+export interface TenantConfig extends AuthTenant {
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  cuit: string | null;
+  specialty: string | null;
+  /** Identificador IANA, p. ej. "America/Argentina/Buenos_Aires". */
+  timezone: string;
+  /** "HH:mm" en hora local de la clínica. */
+  workdayStart: string;
+  workdayEnd: string;
+  /** Días laborables con la convención de Date#getDay(): 0 domingo … 6 sábado. */
+  workdays: number[];
+}
+
+// Payload de PATCH /api/tenant (solo ADMIN). Todo opcional: es un PATCH.
+export type TenantConfigInput = Partial<Omit<TenantConfig, 'slug'>>;
 
 // Respuesta de POST /api/auth/login.
 export interface LoginResponse {
