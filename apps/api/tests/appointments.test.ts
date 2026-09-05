@@ -140,6 +140,36 @@ describe('turnos', () => {
     }
   });
 
+  // La serie se creaba con un create por turno dentro de una transacción
+  // interactiva: diez viajes de ida y vuelta que contra una base remota se
+  // comían el timeout de 5 s de Prisma y hacían fallar la serie entera. Se
+  // manifestó en CI y no en local, porque ahí la latencia es real.
+  //
+  // Ahora es un solo INSERT. Este test no mide tiempo —sería flaky— sino que
+  // pide el máximo permitido: si volviera al bucle, sería un año de turnos
+  // semanales en una transacción y la diferencia dejaría de ser sutil.
+  it('crea una serie del tamaño máximo sin quedarse a mitad de camino', async () => {
+    const date = fechaClinica(120);
+    const res = await agendar({
+      date,
+      time: '10:00',
+      repeat: { everyWeeks: 1, occurrences: 52 },
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data).toHaveLength(52);
+
+    // Todos con la misma serie, en orden, y ninguno perdido.
+    const series = new Set(res.body.data.map((t: { seriesId: string }) => t.seriesId));
+    expect(series.size).toBe(1);
+    expect(res.body.data[51].date).toBe(addClinicDays(date, 51 * 7));
+
+    const enBase = await prisma.appointment.count({
+      where: { seriesId: res.body.data[0].seriesId },
+    });
+    expect(enBase).toBe(52);
+  });
+
   it('cada dos semanas separa los turnos catorce días', async () => {
     const date = fechaClinica(60);
     const res = await agendar({
