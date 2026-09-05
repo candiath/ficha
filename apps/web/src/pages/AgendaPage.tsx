@@ -1,254 +1,294 @@
-import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Printer } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { mockAppointments, getMockPatientById, getMockAppointmentsByDate } from '@/lib/mock-data'
-import { cn } from '@/lib/utils'
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, Plus, Printer } from 'lucide-react';
+import type { Appointment } from '@ficha/shared';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import AppointmentDetailDialog from '@/components/agenda/AppointmentDetailDialog';
+import AppointmentDialog from '@/components/agenda/AppointmentDialog';
+import MonthView from '@/components/agenda/MonthView';
+import WeekView from '@/components/agenda/WeekView';
+import {
+  addDays,
+  daysFrom,
+  formatLongDate,
+  formatMonth,
+  formatRange,
+  hourSlots,
+  mondayOf,
+  monthGrid,
+  todayInClinic,
+  weekdayOf,
+} from '@/lib/agendaDates';
+import { APPOINTMENT_STATUS_CLASS, APPOINTMENT_STATUS_LABELS } from '@/lib/labels';
+import { cn } from '@/lib/utils';
+import { appointmentApi, appointmentKeys } from '@/services/appointments';
+import { tenantApi, tenantKeys } from '@/services/tenant';
 
-const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
-const HOURS = [
-  '08:00', '09:00', '10:00', '11:00', '12:00',
-  '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00',
-]
+type Vista = 'semana' | 'mes';
 
-type AppointmentStatus = 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show'
-
-const STATUS_COLORS: Record<AppointmentStatus, string> = {
-  scheduled: 'bg-amber-50 border-amber-300 text-amber-800',
-  confirmed:  'bg-green-50 border-green-300 text-green-800',
-  completed:  'bg-muted border-border text-muted-foreground',
-  cancelled:  'bg-red-50 border-red-300 text-red-700',
-  no_show:    'bg-red-50 border-red-300 text-red-700',
-}
-
-const STATUS_LABELS: Record<AppointmentStatus, string> = {
-  scheduled: 'Programado',
-  confirmed:  'Confirmado',
-  completed:  'Completado',
-  cancelled:  'Cancelado',
-  no_show:    'Inasistencia',
-}
-
-function getMondayOf(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function getWeekDates(monday: Date): Date[] {
-  return Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(monday)
-    d.setDate(d.getDate() + i)
-    return d
-  })
-}
-
-function toDateStr(date: Date): string {
-  return date.toISOString().split('T')[0]
-}
-
-function formatDateRange(dates: Date[]): string {
-  const start = dates[0]
-  const end = dates[5]
-  const startMonth = start.toLocaleDateString('es-AR', { month: 'short', timeZone: 'UTC' })
-  const endMonth   = end.toLocaleDateString('es-AR', { month: 'short', timeZone: 'UTC' })
-  if (startMonth === endMonth) {
-    return `${start.getDate()} – ${end.getDate()} de ${startMonth} ${start.getFullYear()}`
-  }
-  return `${start.getDate()} ${startMonth} – ${end.getDate()} ${endMonth} ${end.getFullYear()}`
-}
-
+/**
+ * La agenda: una sola pantalla con dos vistas de los mismos datos.
+ *
+ * Antes eran dos rutas —Agenda y Turnos— con dos mocks distintos entre sí, las
+ * mismas etiquetas escritas dos veces con nombres diferentes, y la de Turnos
+ * congelada en marzo de 2026.
+ *
+ * Todas las fechas que se manejan acá son strings "YYYY-MM-DD" en hora de la
+ * clínica, tal como los devuelve la API. El navegador no vuelve a convertir
+ * nada: es lo que evita que un turno de las 22:00 se dibuje al día siguiente.
+ */
 export default function AgendaPage() {
   useEffect(() => { document.title = 'Agenda'; }, []);
-  const [weekStart, setWeekStart] = useState(() => getMondayOf(new Date()))
 
-  const weekDates = getWeekDates(weekStart)
-  const todayStr  = toDateStr(new Date())
+  const [vista, setVista] = useState<Vista>('semana');
+  // Se guarda la fecha en foco y no un offset, para que cambiar de vista no
+  // pierda dónde estabas. null = hoy, resuelto cuando llega la configuración.
+  const [ancla, setAncla] = useState<string | null>(null);
+  const [diaElegido, setDiaElegido] = useState<string | null>(null);
+  const [seleccionado, setSeleccionado] = useState<Appointment | null>(null);
+  const [nuevo, setNuevo] = useState<{ date: string; time: string } | null>(null);
 
-  function navigate(dir: -1 | 1) {
-    setWeekStart(prev => {
-      const d = new Date(prev)
-      d.setDate(d.getDate() + dir * 7)
-      return d
-    })
+  const { data: tenant } = useQuery({
+    queryKey: tenantKeys.config,
+    queryFn: tenantApi.get,
+  });
+
+  // Hasta que llegue la configuración no se sabe ni qué día es hoy para la
+  // clínica. Se usa la zona del navegador solo para no renderizar en blanco;
+  // la query de turnos espera a `tenant` y no se dispara con datos provisorios.
+  const hoy = todayInClinic(tenant?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const foco = ancla ?? hoy;
+  const dia = diaElegido ?? hoy;
+
+  const lunes = mondayOf(foco);
+  const anio = Number(foco.slice(0, 4));
+  const mes = Number(foco.slice(5, 7)) - 1;
+  const grillaMes = monthGrid(anio, mes);
+
+  // El rango que se le pide a la API depende de la vista. La grilla del mes
+  // son 42 días fijos, así que incluye el relleno de los meses vecinos y sus
+  // turnos también se ven.
+  const [desde, hasta] =
+    vista === 'semana' ? [lunes, addDays(lunes, 6)] : [grillaMes[0], grillaMes[41]];
+
+  const { data: turnos = [], isError } = useQuery({
+    queryKey: appointmentKeys.range(desde, hasta),
+    queryFn: () => appointmentApi.list(desde, hasta),
+    enabled: !!tenant,
+  });
+
+  if (!tenant) {
+    return (
+      <div className="p-6">
+        <h2 className="text-2xl font-semibold tracking-tight">Agenda</h2>
+        <p className="text-sm text-muted-foreground mt-2">Cargando...</p>
+      </div>
+    );
   }
 
-  function goToday() {
-    setWeekStart(getMondayOf(new Date()))
-  }
+  // Los días en que la clínica atiende, MÁS cualquier otro que tenga turnos.
+  //
+  // Ese "más" es el punto: la configuración da la forma del lienzo vacío, no
+  // decide qué datos existen. Filtrando solo por workdays, un turno cargado un
+  // sábado en una clínica de lunes a viernes no tiene columna donde dibujarse
+  // y desaparece sin ninguna señal — que es exactamente lo que pasó.
+  const conTurnos = new Set(turnos.map((a) => a.date));
+  const diasSemana = daysFrom(lunes, 7).filter(
+    (d) => tenant.workdays.includes(weekdayOf(d)) || conTurnos.has(d),
+  );
 
-  // Appointments for a given date + hour slot
-  function getSlotAppointment(date: Date, hour: string) {
-    const dateStr = toDateStr(date)
-    return mockAppointments.find(
-      a => a.date === dateStr && a.startTime === hour && a.status !== 'cancelled'
-    )
-  }
+  // Mismo criterio para las horas: el rango de atención se estira si hay un
+  // turno antes de abrir o después de cerrar.
+  const horas = hourSlots(
+    tenant.workdayStart,
+    tenant.workdayEnd,
+    turnos.filter((a) => diasSemana.includes(a.date)).map((a) => a.startTime),
+  );
 
-  // Summary counts for this week
-  const weekSummary = (() => {
-    const allApts = weekDates.flatMap(d => getMockAppointmentsByDate(toDateStr(d)))
-    return {
-      total:       allApts.length,
-      confirmed:   allApts.filter(a => a.status === 'confirmed').length,
-      scheduled:   allApts.filter(a => a.status === 'scheduled').length,
-      free:        HOURS.length * 6 - allApts.length,
+  const delDia = turnos
+    .filter((a) => a.date === dia)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  function navegar(direccion: -1 | 1) {
+    if (vista === 'semana') {
+      setAncla(addDays(foco, direccion * 7));
+      return;
     }
-  })()
+    // Al 1° del mes vecino, y no "30 días después": los meses no miden igual.
+    setAncla(new Date(Date.UTC(anio, mes + direccion, 1)).toISOString().slice(0, 10));
+  }
+
+  const titulo =
+    vista === 'semana' ? formatRange(lunes, addDays(lunes, 6)) : formatMonth(anio, mes);
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between no-print">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Agenda semanal</h2>
-          <p className="text-muted-foreground text-sm mt-1">{formatDateRange(weekDates)}</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Agenda</h2>
+          <p className="text-muted-foreground text-sm mt-1">{titulo}</p>
         </div>
-        <Button variant="outline" onClick={() => window.print()}>
-          <Printer className="h-4 w-4 mr-2" />
-          Imprimir
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-input overflow-hidden">
+            {(['semana', 'mes'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setVista(v)}
+                aria-pressed={vista === v}
+                className={cn(
+                  'px-3 h-8 text-sm capitalize transition-colors',
+                  vista === v
+                    ? 'bg-primary text-primary-foreground font-medium'
+                    : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          <Button variant="outline" onClick={() => window.print()}>
+            <Printer className="h-4 w-4 mr-2" />
+            Imprimir
+          </Button>
+          <Button onClick={() => setNuevo({ date: dia, time: tenant.workdayStart })}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nuevo turno
+          </Button>
+        </div>
       </div>
 
-      {/* Week navigation */}
       <div className="flex items-center justify-center gap-3 no-print">
-        <Button variant="outline" size="icon" onClick={() => navigate(-1)}>
+        <Button variant="outline" size="icon" onClick={() => navegar(-1)} aria-label="Anterior">
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <Button variant="outline" className="h-9 px-4" onClick={goToday}>
+        <Button
+          variant="outline"
+          className="h-9 px-4"
+          onClick={() => {
+            setAncla(hoy);
+            setDiaElegido(hoy);
+          }}
+        >
           Hoy
         </Button>
-        <Button variant="outline" size="icon" onClick={() => navigate(1)}>
+        <Button variant="outline" size="icon" onClick={() => navegar(1)} aria-label="Siguiente">
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Print header (hidden on screen) */}
+      {/* Encabezado que solo sale al imprimir: la hoja tiene que decir de qué
+          clínica y de qué semana es. */}
       <div className="hidden print:block text-center mb-6">
-        <h1 className="text-xl font-bold">Agenda Semanal — Ficha RPG</h1>
-        <p className="text-muted-foreground">{formatDateRange(weekDates)}</p>
+        <h1 className="text-xl font-bold">Agenda — {tenant.name}</h1>
+        <p className="text-muted-foreground">{titulo}</p>
       </div>
 
-      {/* Grid */}
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse" style={{ minWidth: 700 }}>
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="w-16 p-2 text-left text-xs font-medium text-muted-foreground border-r border-border bg-muted/30">
-                    Hora
-                  </th>
-                  {weekDates.map((date, i) => {
-                    const isToday = toDateStr(date) === todayStr
-                    return (
-                      <th
-                        key={i}
+      {isError && (
+        <p className="text-destructive text-sm">No se pudieron cargar los turnos.</p>
+      )}
+
+      {vista === 'semana' ? (
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            <WeekView
+              days={diasSemana}
+              hours={horas}
+              appointments={turnos}
+              today={hoy}
+              workdays={tenant.workdays}
+              onSelect={setSeleccionado}
+              onEmptySlot={(date, time) => setNuevo({ date, time })}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2 overflow-hidden">
+            <CardContent className="p-0">
+              <MonthView
+                grid={grillaMes}
+                year={anio}
+                month={mes}
+                appointments={turnos}
+                today={hoy}
+                selected={dia}
+                onSelectDay={setDiaElegido}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="no-print">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium">{formatLongDate(dia)}</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {delDia.length} turno{delDia.length === 1 ? '' : 's'}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {delDia.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No hay turnos este día
+                </p>
+              ) : (
+                delDia.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setSeleccionado(a)}
+                    className="w-full text-left p-3 rounded-lg border border-border hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium tabular-nums">
+                        {a.startTime} – {a.endTime}
+                      </span>
+                      <span
                         className={cn(
-                          'p-2 text-center border-r border-border last:border-r-0',
-                          isToday ? 'bg-primary/5' : 'bg-muted/30'
+                          'text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap',
+                          APPOINTMENT_STATUS_CLASS[a.status],
                         )}
                       >
-                        <p className="text-xs font-medium text-muted-foreground">{DAYS[i]}</p>
-                        <p className={cn('text-xl font-semibold', isToday ? 'text-primary' : 'text-foreground')}>
-                          {date.getDate()}
-                        </p>
-                      </th>
-                    )
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {HOURS.map(hour => (
-                  <tr key={hour} className="border-b border-border last:border-b-0">
-                    <td className="p-2 text-xs text-muted-foreground border-r border-border font-mono bg-muted/10 align-top whitespace-nowrap">
-                      {hour}
-                    </td>
-                    {weekDates.map((date, di) => {
-                      const apt = getSlotAppointment(date, hour)
-                      const isToday = toDateStr(date) === todayStr
-                      return (
-                        <td
-                          key={di}
-                          className={cn(
-                            'p-1 border-r border-border last:border-r-0 h-14 align-top',
-                            isToday && 'bg-primary/5'
-                          )}
-                        >
-                          {apt && (
-                            <div
-                              title={STATUS_LABELS[apt.status as AppointmentStatus]}
-                              className={cn(
-                                'p-1.5 rounded border text-xs h-full',
-                                STATUS_COLORS[apt.status as AppointmentStatus]
-                              )}
-                            >
-                              <p className="font-medium truncate leading-tight">
-                                {getMockPatientById(apt.patientId)?.fullName ?? 'Paciente'}
-                              </p>
-                              <p className="text-[10px] opacity-75 leading-tight mt-0.5">
-                                {apt.startTime} – {apt.endTime}
-                              </p>
-                            </div>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-4 text-xs no-print">
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm bg-amber-50 border border-amber-300" />
-          <span className="text-muted-foreground">Programado</span>
+                        {APPOINTMENT_STATUS_LABELS[a.status]}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-1">{a.patientName}</p>
+                    {a.episodeMainComplaint && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {a.episodeMainComplaint}
+                      </p>
+                    )}
+                  </button>
+                ))
+              )}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setNuevo({ date: dia, time: tenant.workdayStart })}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Agendar este día
+              </Button>
+            </CardContent>
+          </Card>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm bg-green-50 border border-green-300" />
-          <span className="text-muted-foreground">Confirmado</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm bg-muted border border-border" />
-          <span className="text-muted-foreground">Completado</span>
-        </div>
-      </div>
+      )}
 
-      {/* Weekly summary */}
-      <Card className="no-print">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Resumen de la semana</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="text-center p-3 bg-muted/50 rounded-lg">
-              <p className="text-2xl font-semibold">{weekSummary.total}</p>
-              <p className="text-xs text-muted-foreground">Total turnos</p>
-            </div>
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <p className="text-2xl font-semibold text-green-700">{weekSummary.confirmed}</p>
-              <p className="text-xs text-muted-foreground">Confirmados</p>
-            </div>
-            <div className="text-center p-3 bg-amber-50 rounded-lg">
-              <p className="text-2xl font-semibold text-amber-700">{weekSummary.scheduled}</p>
-              <p className="text-xs text-muted-foreground">Pendientes</p>
-            </div>
-            <div className="text-center p-3 bg-muted/50 rounded-lg">
-              <p className="text-2xl font-semibold">{weekSummary.free}</p>
-              <p className="text-xs text-muted-foreground">Espacios libres</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <AppointmentDetailDialog
+        appointment={seleccionado}
+        onClose={() => setSeleccionado(null)}
+      />
 
-      {/* Print styles */}
+      {nuevo && (
+        <AppointmentDialog
+          open
+          onClose={() => setNuevo(null)}
+          date={nuevo.date}
+          time={nuevo.time}
+          sameDay={turnos.filter((a) => a.date === nuevo.date)}
+        />
+      )}
+
       <style>{`
         @media print {
           .no-print { display: none !important; }
@@ -257,5 +297,5 @@ export default function AgendaPage() {
         }
       `}</style>
     </div>
-  )
+  );
 }

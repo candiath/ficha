@@ -64,6 +64,7 @@ model Tenant {
   functionalScales    FunctionalScale[]
   clinicalEpisodes    ClinicalEpisode[]
   loginEvents         LoginEvent[]
+  appointments        Appointment[]
 
   @@map("tenants")
 }
@@ -90,10 +91,11 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id])
-  sessions    Session[]
-  auditLogs   AuditLog[]
-  loginEvents LoginEvent[]
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  sessions     Session[]
+  auditLogs    AuditLog[]
+  loginEvents  LoginEvent[]
+  appointments Appointment[]
 
   @@index([tenantId])
   @@map("users")
@@ -166,6 +168,7 @@ model Patient {
   clinicalAlerts     ClinicalAlert[]
   functionalScales   FunctionalScale[]
   clinicalEpisodes   ClinicalEpisode[]
+  appointments       Appointment[]
 
   @@index([tenantId])
   @@map("patients")
@@ -193,6 +196,7 @@ model ClinicalEpisode {
   initialEvaluation InitialEvaluation?
   sessions          SessionEpisode[]
   functionalScales  FunctionalScale[]
+  appointments      Appointment[]
 
   @@index([tenantId])
   @@index([patientId])
@@ -278,9 +282,10 @@ model Session {
   tenant     Tenant            @relation(fields: [tenantId], references: [id])
   patient    Patient           @relation(fields: [patientId], references: [id])
   user       User              @relation(fields: [userId], references: [id])
-  episodes   SessionEpisode[]
-  photos     SessionPhoto[]
-  payment    Payment?
+  episodes    SessionEpisode[]
+  photos      SessionPhoto[]
+  payment     Payment?
+  appointment Appointment?
 
   @@index([tenantId])
   @@index([patientId])
@@ -504,4 +509,72 @@ model FunctionalScale {
   @@index([episodeId])
   @@index([appliedAt])
   @@map("functional_scales")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Turnos.
+//
+// startsAt/endsAt son instantes UTC, pero la app habla en hora de pared de la
+// clínica: la conversión vive en lib/clinicTime.ts y usa Tenant.timezone. Un
+// turno "de las 9:00" no significa nada sin esa zona.
+//
+// endsAt explícito y no derivado de una duración: cambiar la duración por
+// defecto no debe mover los turnos que ya estaban agendados.
+//
+// NO hay restricción de solapamiento a propósito. Dos turnos pueden pisarse
+// —sobreturnos, un familiar que acompaña, una reprogramación de apuro— y
+// prohibirlo en la base convertiría un caso normal en un error. La UI avisa
+// cuando el horario ya está ocupado, pero deja seguir.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AppointmentStatus {
+  SCHEDULED // agendado, sin confirmar
+  CONFIRMED // el paciente confirmó
+  COMPLETED // vino; normalmente con sessionId
+  CANCELLED // avisó que no venía
+  NO_SHOW   // no vino ni avisó
+}
+
+model Appointment {
+  id        String @id @default(uuid())
+  tenantId  String @map("tenant_id")
+  patientId String @map("patient_id")
+  // Qué profesional atiende. Hoy todos ven todo, pero el turno es de alguien.
+  userId    String @map("user_id")
+  // Por qué motivo. Opcional: se puede agendar antes de abrir el episodio.
+  episodeId String? @map("episode_id")
+
+  // La sesión que produjo este turno, si el paciente vino y se registró.
+  // @unique: una sesión sale de un turno como mucho, así que marcar el mismo
+  // turno como cumplido dos veces no puede duplicar la sesión.
+  sessionId String? @unique @map("session_id")
+
+  // Los turnos recurrentes se materializan como filas independientes que
+  // comparten este id. Cada una se mueve o se cancela sola, y además existe
+  // "cancelar los que quedan de la serie" — el caso de un tratamiento de diez
+  // sesiones que se suspende en la tercera. Sin tabla aparte: no hay nada que
+  // guardar sobre la serie salvo que sus turnos son la misma.
+  seriesId String? @map("series_id")
+
+  startsAt    DateTime          @map("starts_at")
+  endsAt      DateTime          @map("ends_at")
+  status      AppointmentStatus @default(SCHEDULED)
+  notes       String?
+  cancelledAt DateTime?         @map("cancelled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id])
+  patient Patient          @relation(fields: [patientId], references: [id])
+  user    User             @relation(fields: [userId], references: [id])
+  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
+  session Session?         @relation(fields: [sessionId], references: [id])
+
+  // La consulta de la agenda es siempre "los turnos de esta clínica entre dos
+  // instantes": este índice compuesto es el que la sostiene.
+  @@index([tenantId, startsAt])
+  @@index([patientId])
+  @@index([seriesId])
+  @@map("appointments")
 }

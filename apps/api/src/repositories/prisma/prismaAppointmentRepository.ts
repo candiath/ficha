@@ -1,0 +1,177 @@
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
+import { forTenant } from '../../lib/tenantScope';
+import type { TenantContext } from '../types';
+import type {
+  AppointmentCreateInput,
+  AppointmentDTO,
+  AppointmentRepository,
+  AppointmentUpdateInput,
+} from '../appointmentRepository';
+
+const appointmentSelect = {
+  id: true,
+  patientId: true,
+  userId: true,
+  episodeId: true,
+  sessionId: true,
+  seriesId: true,
+  startsAt: true,
+  endsAt: true,
+  status: true,
+  notes: true,
+  cancelledAt: true,
+  patient: { select: { fullName: true } },
+  episode: { select: { mainComplaint: true } },
+} as const;
+
+type Row = {
+  id: string;
+  patientId: string;
+  userId: string;
+  episodeId: string | null;
+  sessionId: string | null;
+  seriesId: string | null;
+  startsAt: Date;
+  endsAt: Date;
+  status: AppointmentDTO['status'];
+  notes: string | null;
+  cancelledAt: Date | null;
+  patient: { fullName: string };
+  episode: { mainComplaint: string | null } | null;
+};
+
+function toDTO(row: Row): AppointmentDTO {
+  return {
+    id: row.id,
+    patientId: row.patientId,
+    patientName: row.patient.fullName,
+    userId: row.userId,
+    episodeId: row.episodeId,
+    episodeMainComplaint: row.episode?.mainComplaint ?? null,
+    sessionId: row.sessionId,
+    seriesId: row.seriesId,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt.toISOString(),
+    status: row.status,
+    notes: row.notes,
+    cancelledAt: row.cancelledAt?.toISOString() ?? null,
+  };
+}
+
+export const prismaAppointmentRepository: AppointmentRepository = {
+  async listInRange(
+    ctx: TenantContext,
+    desde: Date,
+    hasta: Date,
+  ): Promise<AppointmentDTO[]> {
+    const db = forTenant(ctx);
+    const rows = await db.appointment.findMany({
+      // Medio abierto: el fin de una semana es exactamente el comienzo de la
+      // siguiente, así que un turno a medianoche aparece en una sola.
+      where: { startsAt: { gte: desde, lt: hasta } },
+      orderBy: { startsAt: 'asc' },
+      select: appointmentSelect,
+    });
+    return rows.map(toDTO);
+  },
+
+  async getById(ctx: TenantContext, id: string): Promise<AppointmentDTO | null> {
+    const db = forTenant(ctx);
+    const row = await db.appointment.findFirst({ where: { id }, select: appointmentSelect });
+    return row ? toDTO(row) : null;
+  },
+
+  async create(
+    ctx: TenantContext,
+    input: AppointmentCreateInput,
+  ): Promise<AppointmentDTO[]> {
+    const db = forTenant(ctx);
+
+    // Un solo hueco no es una serie: dejarle el seriesId en null evita que
+    // después "cancelar la serie" alcance a un turno suelto.
+    const seriesId = input.slots.length > 1 ? randomUUID() : null;
+
+    // Los ids se generan acá para poder releer exactamente estas filas
+    // después del createMany, que en Postgres no devuelve las columnas.
+    const filas = input.slots.map((slot) => ({
+      id: randomUUID(),
+      patientId: input.patientId,
+      // El turno queda atribuido a quien lo agenda. Cuando haga falta agendar
+      // para otro profesional, esto pasa a venir del body y se valida contra
+      // el tenant; hoy sería una opción sin usuario.
+      userId: ctx.userId,
+      episodeId: input.episodeId ?? null,
+      notes: input.notes ?? null,
+      seriesId,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+    }));
+
+    // Un solo INSERT y no uno por turno dentro de una transacción interactiva.
+    // Todos o ninguno igual —createMany es atómico— pero además entra en un
+    // viaje de ida y vuelta en lugar de diez: con la latencia de un runner de
+    // CI contra Neon, el bucle se comía el timeout de 5 s de `$transaction` y
+    // la serie fallaba entera. El test lo atrapó en CI y no en local, que es
+    // exactamente para lo que sirve tener latencia real en el medio.
+    await db.appointment.createMany({ data: filas });
+
+    const creadas = await db.appointment.findMany({
+      where: { id: { in: filas.map((f) => f.id) } },
+      orderBy: { startsAt: 'asc' },
+      select: appointmentSelect,
+    });
+    return creadas.map(toDTO);
+  },
+
+  async update(
+    ctx: TenantContext,
+    id: string,
+    input: AppointmentUpdateInput,
+  ): Promise<AppointmentDTO | null> {
+    const db = forTenant(ctx);
+    try {
+      const row = await db.appointment.update({
+        where: { id },
+        data: {
+          ...(input.startsAt !== undefined && { startsAt: input.startsAt }),
+          ...(input.endsAt !== undefined && { endsAt: input.endsAt }),
+          ...(input.episodeId !== undefined && { episodeId: input.episodeId }),
+          ...(input.notes !== undefined && { notes: input.notes }),
+          ...(input.status !== undefined && {
+            status: input.status,
+            // cancelledAt acompaña al estado y no se pide por separado: es
+            // cuándo pasó lo que el estado dice, no un dato independiente.
+            cancelledAt: input.status === 'CANCELLED' ? new Date() : null,
+          }),
+        },
+        select: appointmentSelect,
+      });
+      return toDTO(row);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        return null;
+      }
+      throw e;
+    }
+  },
+
+  async cancelSeriesFrom(
+    ctx: TenantContext,
+    seriesId: string,
+    desde: Date,
+  ): Promise<number> {
+    const db = forTenant(ctx);
+    const { count } = await db.appointment.updateMany({
+      where: {
+        seriesId,
+        startsAt: { gte: desde },
+        // Solo lo que sigue pendiente: un turno ya cancelado no cambia, y uno
+        // COMPLETED o NO_SHOW ya es historial.
+        status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+    });
+    return count;
+  },
+};

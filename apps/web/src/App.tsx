@@ -6,6 +6,7 @@ import { AlertTriangle } from 'lucide-react'
 import AppLayout from '@/components/layout/AppLayout'
 import { useAuth } from '@/contexts/AuthContext'
 import AccountPage from '@/pages/AccountPage'
+import AgendaPage from '@/pages/AgendaPage'
 import ClinicPage from '@/pages/ClinicPage'
 import DashboardPage from '@/pages/DashboardPage'
 import LandingPage from '@/pages/LandingPage'
@@ -25,8 +26,6 @@ import AlertsPage from '@/pages/AlertsPage'
 // producción junto con mock-data.ts, en vez de embarcar código muerto.
 const DRAFT_PAGES = import.meta.env.DEV
   ? [
-      { path: 'agenda', Component: lazy(() => import('@/pages/AgendaPage')) },
-      { path: 'turnos', Component: lazy(() => import('@/pages/TurnosPage')) },
       { path: 'exercises', Component: lazy(() => import('@/pages/EjerciciosPage')) },
       { path: 'messages', Component: lazy(() => import('@/pages/MensajesPage')) },
     ]
@@ -94,6 +93,11 @@ export default function App() {
       <Route element={<RequireAuth />}>
       <Route element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="agenda" element={<AgendaPage />} />
+        {/* /turnos era la otra mitad de la agenda, con su propio calendario y
+            su propio mock. Ahora es una sola pantalla con dos vistas; el
+            redirect cubre un favorito o un link viejo. */}
+        <Route path="turnos" element={<Navigate to="/agenda" replace />} />
         <Route path="patients" element={<PatientsPage />} />
         <Route path="patients/:id" element={<PatientDetailPage />} />
         <Route path="sessions" element={<SessionsPage />} />

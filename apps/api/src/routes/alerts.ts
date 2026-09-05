@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { IdSchema } from '../lib/validation';
 import { clinicalAlertRepo, patientRepo } from '../repositories';
 
 const router = Router();
 
 const AlertCreateSchema = z.object({
-  patientId: z.string().uuid(),
+  patientId: IdSchema,
   type: z.enum(['FOLLOW_UP', 'NO_SHOW', 'PAYMENT', 'CUSTOM']),
   message: z.string().min(1),
 });

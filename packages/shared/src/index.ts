@@ -126,3 +126,64 @@ export interface DashboardStats {
   pathologies: PathologyCount[];
   sessionsByMonth: MonthSessionCount[];
 }
+
+// ── Turnos ───────────────────────────────────────────────────────────────────
+
+export type AppointmentStatus =
+  | 'SCHEDULED'
+  | 'CONFIRMED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW';
+
+/**
+ * Un turno como lo devuelve la API.
+ *
+ * Trae el instante (`startsAt`/`endsAt`) Y la hora de pared de la clínica ya
+ * resuelta (`date`/`startTime`/`endTime`). La redundancia es a propósito: el
+ * cliente necesita saber en qué casilla de la grilla va cada turno, y hacer esa
+ * conversión en el navegador significaría reimplementar la zona horaria de la
+ * clínica ahí — con el detalle de que la zona del navegador puede no ser la
+ * misma.
+ */
+export interface Appointment {
+  id: string;
+  patientId: string;
+  patientName: string;
+  userId: string;
+  episodeId: string | null;
+  episodeMainComplaint: string | null;
+  /** La sesión que salió de este turno, si el paciente vino y se registró. */
+  sessionId: string | null;
+  /** Compartido por los turnos de una misma serie recurrente. */
+  seriesId: string | null;
+  startsAt: string;
+  endsAt: string;
+  /** Hora de pared de la clínica. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: AppointmentStatus;
+  notes: string | null;
+  cancelledAt: string | null;
+}
+
+export interface AppointmentCreateInput {
+  patientId: string;
+  episodeId?: string | null;
+  notes?: string | null;
+  date: string;
+  time: string;
+  durationMinutes: number;
+  /** Si viene, se crean `occurrences` turnos que comparten un seriesId. */
+  repeat?: { everyWeeks: number; occurrences: number };
+}
+
+export interface AppointmentUpdateInput {
+  date?: string;
+  time?: string;
+  durationMinutes?: number;
+  status?: AppointmentStatus;
+  episodeId?: string | null;
+  notes?: string | null;
+}

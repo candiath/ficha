@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { IdSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/sessionDate';
 import {
+  appointmentRepo,
   auditLogRepo,
   episodeRepo,
   packageRepo,
@@ -28,7 +30,7 @@ const router = Router({ mergeParams: true });
 const SessionFieldsSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
-  episodeIds: z.array(z.string().uuid()),
+  episodeIds: z.array(IdSchema),
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
   patientResponse: z.string().optional().nullable(),
@@ -44,10 +46,15 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
   // Los defaults del alta: una sesión sin tipo es SESSION y puede no abordar
   // ningún episodio.
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
-  episodeIds: z.array(z.string().uuid()).optional().default([]),
+  episodeIds: z.array(IdSchema).optional().default([]),
+  // El turno del que sale esta sesión, cuando se registra desde la agenda.
+  // Va acá y no en un endpoint aparte para que sesión, cobro y vínculo se
+  // creen en una sola transacción: encadenar requests es lo que dejaba
+  // sesiones sin cobro antes (A3).
+  appointmentId: IdSchema.optional().nullable(),
   payment: z
     .object({
-      packageId: z.string().uuid().optional().nullable(),
+      packageId: IdSchema.optional().nullable(),
       baseAmount: z.number().nonnegative(),
       discount: z.number().nonnegative().default(0),
       notes: z.string().optional().nullable(),
@@ -111,7 +118,7 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  const { episodeIds, payment, ...rest } = SessionCreateSchema.parse(req.body);
+  const { episodeIds, payment, appointmentId, ...rest } = SessionCreateSchema.parse(req.body);
 
   // Los episodeIds vienen del body: sin esta verificación, un connect a
   // ciegas permitiría vincular la sesión a episodios de otro paciente o de
@@ -131,14 +138,36 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  // Sesión, cobro y cierre de episodios se crean en una sola transacción
-  // dentro del repo: si algo falla no queda una sesión a medias.
-  const session = await sessionRepo.create(req.context, req.params.patientId, {
+  // El turno tiene que ser de este paciente. Sin esto se podría registrar
+  // la sesión de un paciente contra el turno de otro, y el turno ajeno
+  // quedaría marcado como atendido.
+  if (appointmentId) {
+    const turno = await appointmentRepo.getById(req.context, appointmentId);
+    if (!turno || turno.patientId !== req.params.patientId) {
+      res.status(404).json({ error: 'Turno no encontrado' });
+      return;
+    }
+  }
+
+  // Sesión, cobro, cierre de episodios y vínculo con el turno se crean en una
+  // sola transacción dentro del repo: si algo falla no queda una sesión a
+  // medias.
+  const result = await sessionRepo.create(req.context, req.params.patientId, {
     ...rest,
     sessionDate: new Date(rest.sessionDate),
     episodeIds,
     payment,
+    appointmentId,
   });
+
+  // El turno ya había producido su sesión: dos clicks en "registrar sesión",
+  // o dos pestañas. La sesión no se creó, así que no hay nada que deshacer.
+  if (!result.ok) {
+    res.status(409).json({ error: 'Ese turno ya tiene una sesión registrada' });
+    return;
+  }
+
+  const session = result.session;
 
   const sessionTypeDesc: Record<string, string> = {
     SESSION: 'Sesión RPG registrada',

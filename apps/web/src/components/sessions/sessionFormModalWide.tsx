@@ -36,6 +36,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { Appointment } from '@ficha/shared'
+import { appointmentKeys } from '@/services/appointments'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
@@ -86,6 +88,9 @@ interface SessionFormModalWideProps {
   /** Se invoca tras guardar con éxito. Útil, p. ej., para resetear la paginación
    *  cuando se crea una sesión nueva (queda en la página 1). */
   onSuccess?: () => void
+  /** El turno del que sale esta sesión, si se abre desde la agenda. Precarga
+   *  la fecha y hora, y al guardar deja el turno marcado como atendido. */
+  appointment?: Appointment
 }
 
 function getPainColor(value: number | null) {
@@ -137,6 +142,7 @@ export default function SessionFormModalWide({
   session,
   sessionType = 'SESSION',
   onSuccess,
+  appointment,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
   const isEditing = !!session
@@ -212,7 +218,11 @@ export default function SessionFormModalWide({
       })
     } else {
       form.reset({
-        sessionDate: toLocalDateTimeInput(new Date()),
+        // Desde la agenda, la fecha y hora salen del turno: es exactamente el
+        // dato que el turno ya tenía y que no hay que volver a cargar.
+        sessionDate: toLocalDateTimeInput(
+          appointment ? new Date(appointment.startsAt) : new Date(),
+        ),
         painScaleBefore: null,
         painScaleAfter: null,
         preSesionState: '',
@@ -225,7 +235,7 @@ export default function SessionFormModalWide({
         paymentNotes: '',
       })
     }
-  }, [open, session, episodeId, isEditing, form])
+  }, [open, session, episodeId, isEditing, appointment, form])
 
   // El último precio llega de una query async y puede resolver DESPUÉS de abrir el
   // modal. Lo aplicamos cuando llega, pero solo si el usuario todavía no tocó el
@@ -276,6 +286,10 @@ export default function SessionFormModalWide({
         ...sessionData,
         sessionType,
         episodeIds,
+        // Va en el mismo request: la API crea la sesión y vincula el turno en
+        // una transacción, así no puede quedar una sesión registrada con el
+        // turno todavía pidiendo que se registre.
+        ...(appointment ? { appointmentId: appointment.id } : {}),
         payment: {
           packageId: values.packageId || null,
           baseAmount: parseFloat(values.baseAmount ?? '0'),
@@ -297,6 +311,10 @@ export default function SessionFormModalWide({
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
       queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      // El turno pasó a "atendido": la agenda tiene que reflejarlo.
+      if (appointment) {
+        queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
+      }
       toast.success(isEditing ? 'Sesión actualizada' : 'Sesión registrada')
       onOpenChange(false)
       form.reset()

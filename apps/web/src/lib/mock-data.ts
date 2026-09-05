@@ -1,26 +1,18 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type AppointmentStatus = 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show'
 export type ExerciseDifficulty = 'easy' | 'medium' | 'hard'
 export type ExerciseCategory = 'Respiracion' | 'Elongacion' | 'Postural' | 'Fortalecimiento'
 export type AlertType = 'follow_up' | 'no_show' | 'payment' | 'custom'
 export type MessageCategory = 'reminder' | 'cancellation' | 'follow_up' | 'general'
 
+// Los pacientes de ejemplo que todavía usa la maqueta de Mensajes. La
+// pantalla solo se monta en desarrollo, así que esto no llega a producción;
+// desaparece cuando Mensajes tenga backend (#127).
 export interface MockPatient {
   id: string
   fullName: string
   occupation: string
   status: 'active' | 'discharged'
-}
-
-export interface MockAppointment {
-  id: string
-  patientId: string
-  date: string       // YYYY-MM-DD
-  startTime: string  // HH:MM
-  endTime: string    // HH:MM
-  status: AppointmentStatus
-  notes?: string
 }
 
 export interface Exercise {
@@ -60,41 +52,6 @@ export const mockPatients: MockPatient[] = [
   { id: 'p5', fullName: 'Lucía Fernández Torres', occupation: 'Abogada',                status: 'active' },
   { id: 'p6', fullName: 'Pedro Sánchez Díaz',     occupation: 'Ingeniero de software',  status: 'active' },
 ]
-
-// ─── Appointments (relative to current week) ──────────────────────────────────
-
-function getRelativeDate(dayOffset: number): string {
-  const today = new Date()
-  const monday = new Date(today)
-  const day = today.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  monday.setDate(today.getDate() + diff)
-  const target = new Date(monday)
-  target.setDate(monday.getDate() + dayOffset)
-  return target.toISOString().split('T')[0]
-}
-
-export const mockAppointments: MockAppointment[] = [
-  { id: 'apt1', patientId: 'p1', date: getRelativeDate(0), startTime: '09:00', endTime: '10:00', status: 'confirmed',  notes: 'Sesión de seguimiento' },
-  { id: 'apt2', patientId: 'p2', date: getRelativeDate(0), startTime: '10:30', endTime: '11:30', status: 'confirmed',  notes: '' },
-  { id: 'apt3', patientId: 'p5', date: getRelativeDate(0), startTime: '15:00', endTime: '16:00', status: 'scheduled',  notes: 'Primera vez - evaluación inicial' },
-  { id: 'apt4', patientId: 'p3', date: getRelativeDate(1), startTime: '09:00', endTime: '10:00', status: 'scheduled',  notes: '' },
-  { id: 'apt5', patientId: 'p6', date: getRelativeDate(1), startTime: '11:00', endTime: '12:00', status: 'confirmed',  notes: 'Control quincenal' },
-  { id: 'apt6', patientId: 'p1', date: getRelativeDate(2), startTime: '14:00', endTime: '15:00', status: 'scheduled',  notes: '' },
-  { id: 'apt7', patientId: 'p2', date: getRelativeDate(3), startTime: '10:00', endTime: '11:00', status: 'scheduled',  notes: '' },
-  { id: 'apt8', patientId: 'p5', date: getRelativeDate(4), startTime: '16:00', endTime: '17:00', status: 'scheduled',  notes: '' },
-  { id: 'apt9', patientId: 'p3', date: getRelativeDate(5), startTime: '09:30', endTime: '10:30', status: 'scheduled',  notes: '' },
-]
-
-export function getMockPatientById(id: string): MockPatient | undefined {
-  return mockPatients.find(p => p.id === id)
-}
-
-export function getMockAppointmentsByDate(date: string): MockAppointment[] {
-  return mockAppointments
-    .filter(a => a.date === date && a.status !== 'cancelled')
-    .sort((a, b) => a.startTime.localeCompare(b.startTime))
-}
 
 // ─── Exercises ────────────────────────────────────────────────────────────────
 

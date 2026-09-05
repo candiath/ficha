@@ -15,3 +15,4 @@ export { prismaPaymentRepository as paymentRepo } from './prisma/prismaPaymentRe
 export { prismaSessionRepository as sessionRepo } from './prisma/prismaSessionRepository';
 export { prismaDashboardRepository as dashboardRepo } from './prisma/prismaDashboardRepository';
 export { prismaTenantRepository as tenantRepo } from './prisma/prismaTenantRepository';
+export { prismaAppointmentRepository as appointmentRepo } from './prisma/prismaAppointmentRepository';
