@@ -92,35 +92,36 @@ export const prismaAppointmentRepository: AppointmentRepository = {
     // después "cancelar la serie" alcance a un turno suelto.
     const seriesId = input.slots.length > 1 ? randomUUID() : null;
 
-    // Todos o ninguno: una serie a medias es peor que ninguna serie, porque
-    // el usuario cree que agendó diez y agendó seis.
-    //
-    // Nota multi-tenant: el `tx` de una transacción interactiva no está
-    // reescrito por TenantScopedClient, así que el tenantId va explícito (ver
-    // #55 y el mismo comentario en prismaSessionRepository).
-    return db.$transaction(async (tx) => {
-      const creados = [];
-      for (const slot of input.slots) {
-        const row = await tx.appointment.create({
-          data: {
-            tenantId: ctx.tenantId,
-            patientId: input.patientId,
-            // El turno queda atribuido a quien lo agenda. Cuando haga falta
-            // agendar para otro profesional, esto pasa a venir del body y se
-            // valida contra el tenant; hoy sería una opción sin usuario.
-            userId: ctx.userId,
-            episodeId: input.episodeId ?? null,
-            notes: input.notes ?? null,
-            seriesId,
-            startsAt: slot.startsAt,
-            endsAt: slot.endsAt,
-          },
-          select: appointmentSelect,
-        });
-        creados.push(toDTO(row));
-      }
-      return creados;
+    // Los ids se generan acá para poder releer exactamente estas filas
+    // después del createMany, que en Postgres no devuelve las columnas.
+    const filas = input.slots.map((slot) => ({
+      id: randomUUID(),
+      patientId: input.patientId,
+      // El turno queda atribuido a quien lo agenda. Cuando haga falta agendar
+      // para otro profesional, esto pasa a venir del body y se valida contra
+      // el tenant; hoy sería una opción sin usuario.
+      userId: ctx.userId,
+      episodeId: input.episodeId ?? null,
+      notes: input.notes ?? null,
+      seriesId,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+    }));
+
+    // Un solo INSERT y no uno por turno dentro de una transacción interactiva.
+    // Todos o ninguno igual —createMany es atómico— pero además entra en un
+    // viaje de ida y vuelta en lugar de diez: con la latencia de un runner de
+    // CI contra Neon, el bucle se comía el timeout de 5 s de `$transaction` y
+    // la serie fallaba entera. El test lo atrapó en CI y no en local, que es
+    // exactamente para lo que sirve tener latencia real en el medio.
+    await db.appointment.createMany({ data: filas });
+
+    const creadas = await db.appointment.findMany({
+      where: { id: { in: filas.map((f) => f.id) } },
+      orderBy: { startsAt: 'asc' },
+      select: appointmentSelect,
     });
+    return creadas.map(toDTO);
   },
 
   async update(
