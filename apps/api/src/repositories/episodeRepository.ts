@@ -14,6 +14,18 @@ export interface EpisodeDTO {
   updatedAt: string;
 }
 
+// Un episodio abierto de la clínica, con cuándo fue su última sesión. Lo
+// consume el motor de alertas, que necesita mirar TODOS los episodios y no
+// los de un paciente: la regla de inactividad corría al abrir la ficha, así
+// que el paciente que nadie miraba nunca generaba alerta.
+export interface StaleEpisodeDTO {
+  patientId: string;
+  episodeId: string;
+  mainComplaint: string | null;
+  /** null si el episodio nunca tuvo una sesión. */
+  lastActivityAt: string | null;
+}
+
 // Fechas como Date: la conversión desde el string ISO del body es de la ruta.
 export interface EpisodeCreateInput {
   mainComplaint?: string | null;
@@ -51,6 +63,15 @@ export interface EpisodeRepository {
     episodeIds: string[],
   ): Promise<boolean>;
   /** Fecha de la última sesión que abordó el episodio; null si nunca tuvo. */
+  /**
+   * Episodios ACTIVE de la clínica cuya última sesión es anterior a `cutoff`,
+   * junto con los que nunca tuvieron ninguna.
+   *
+   * Devuelve también los que no tienen sesiones para que quien llama decida:
+   * la regla de inactividad los ignora (un episodio recién abierto no es un
+   * tratamiento abandonado), pero esa decisión es política y no persistencia.
+   */
+  listStale(ctx: TenantContext, cutoff: Date): Promise<StaleEpisodeDTO[]>;
   lastActivityAt(
     ctx: TenantContext,
     patientId: string,

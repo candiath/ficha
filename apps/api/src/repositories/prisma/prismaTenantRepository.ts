@@ -70,4 +70,16 @@ export const prismaTenantRepository: TenantRepository = {
       select: tenantSelect,
     });
   },
+
+  async claimAlertsRefresh(ctx: TenantContext, cutoff: Date): Promise<boolean> {
+    const db = forTenant(ctx);
+    const { count } = await db.tenant.updateMany({
+      where: {
+        id: ctx.tenantId,
+        OR: [{ alertsRefreshedAt: null }, { alertsRefreshedAt: { lt: cutoff } }],
+      },
+      data: { alertsRefreshedAt: new Date() },
+    });
+    return count === 1;
+  },
 };

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { IdSchema } from '../lib/validation';
+import { refreshAlerts } from '../lib/alertRules';
 import { clinicalAlertRepo, patientRepo } from '../repositories';
 
 const router = Router();
@@ -12,7 +13,13 @@ const AlertCreateSchema = z.object({
 });
 
 // GET /api/alerts — list alerts with optional filters
+//
+// Antes de listar, el motor recalcula: sin cron, leer es el único momento en
+// que se puede saber que hace tres semanas que un paciente no viene. Está
+// throttled por tenant, así que casi siempre es una query de más y nada más.
 router.get('/', async (req, res) => {
+  await refreshAlerts(req.context);
+
   const type = typeof req.query.type === 'string' ? req.query.type : undefined;
   const isRead =
     req.query.isRead === 'true' ? true : req.query.isRead === 'false' ? false : undefined;
@@ -22,7 +29,14 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/alerts/stats — unread counts by type
+//
+// El badge del layout pega acá en cada carga de página, así que también
+// dispara el motor: si solo lo hiciera la lista, el contador que te dice que
+// vayas a mirar nunca se enteraría de nada nuevo. El throttle es lo que hace
+// que eso no sea caro.
 router.get('/stats', async (req, res) => {
+  await refreshAlerts(req.context);
+
   const data = await clinicalAlertRepo.stats(req.context);
   res.json({ data });
 });
