@@ -73,6 +73,8 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 // payment queda afuera a propósito: el pago se edita por /api/payments.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
+const SessionFiltersSchema = z.object({ episodeId: IdSchema.optional() });
+
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
@@ -81,7 +83,7 @@ router.get<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : undefined;
+  const { episodeId } = SessionFiltersSchema.parse(req.query);
 
   const sessions = await sessionRepo.listByPatient(req.context, req.params.patientId, {
     episodeId,

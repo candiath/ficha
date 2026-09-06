@@ -9,6 +9,14 @@ import { authenticate } from '../middlewares/auth';
 
 const router = Router();
 
+// Hash señuelo, calculado una vez al arrancar: contra esto se compara cuando
+// el email no existe. Ver el porqué en el handler del login.
+//
+// Cost 10, el mismo que usan las contraseñas reales (bcrypt.compare toma el
+// costo del hash guardado): si fuera más barato, la diferencia de tiempo
+// volvería a delatar el caso.
+const HASH_SENUELO = bcrypt.hashSync('contraseña-que-no-existe', 10);
+
 // El login es el endpoint que reciben los ataques de fuerza bruta:
 // 10 intentos por IP cada 15 minutos es de sobra para un humano
 // y frena un diccionario automatizado.
@@ -76,8 +84,21 @@ router.post('/login', loginLimiter, async (req, res) => {
   // Mensaje idéntico para email inexistente, usuario desactivado o
   // contraseña incorrecta: distinguirlos permitiría enumerar qué emails
   // tienen cuenta.
-  const valid = user && user.isActive && (await bcrypt.compare(password, user.passwordHash));
-  if (!valid) {
+  //
+  // Pero el mensaje no alcanzaba: el TIEMPO los distinguía. Antes esto era
+  // una sola expresión encadenada, y la evaluación perezosa hacía que bcrypt
+  // no llegara a correr cuando el email no existía: 67 ms contra 0. Un
+  // atacante prueba una lista de emails con cualquier contraseña y separa los
+  // que tienen cuenta — exactamente lo que el mensaje uniforme intentaba
+  // impedir (issue #71).
+  //
+  // Ahora bcrypt corre siempre: sin usuario, contra un hash señuelo. Que
+  // `passwordOk` se calcule en su propia línea, ANTES de decidir, es lo que
+  // sostiene la propiedad — plegarlo de vuelta dentro del if reintroduce el
+  // cortocircuito y con él el canal.
+  const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? HASH_SENUELO);
+
+  if (!user || !user.isActive || !passwordOk) {
     recordLoginEvent(req, email, user ?? null, false);
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { IdSchema } from '../lib/validation';
-import type { PaymentStatus } from '@prisma/client';
 import { auditLogRepo, paymentRepo } from '../repositories';
 
 // Las queries, la derivación del paciente desde la sesión, el cálculo de
@@ -37,10 +36,18 @@ const PaymentUpdateSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+// Los filtros de la query se validan como el body y no se castean: un
+// ?status=BASURA casteado a PaymentStatus llegaba crudo al where de Prisma,
+// que lo rechazaba con un error de validación y terminaba en 500. Es un dato
+// que viene del cliente, así que merece el mismo trato que el body (#75).
+const PaymentFiltersSchema = z.object({
+  patientId: IdSchema.optional(),
+  status: z.enum(['PENDING', 'PAID', 'WAIVED']).optional(),
+});
+
 // GET /api/payments?patientId=xxx&status=PENDING
 router.get('/', async (req, res) => {
-  const patientId = req.query.patientId as string | undefined;
-  const status = req.query.status as PaymentStatus | undefined;
+  const { patientId, status } = PaymentFiltersSchema.parse(req.query);
 
   const payments = await paymentRepo.list(req.context, { patientId, status });
   res.json({ data: payments });
