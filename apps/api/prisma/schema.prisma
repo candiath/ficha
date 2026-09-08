@@ -49,6 +49,15 @@ model Tenant {
   // Días laborables, con la convención de Date#getDay(): 0 domingo … 6 sábado.
   workdays     Int[]  @default([1, 2, 3, 4, 5])
 
+  // Última vez que corrió el motor de alertas para esta clínica.
+  //
+  // Las alertas se recalculan al leerlas, no por un cron —Render free no
+  // tiene—, y esta marca evita rehacer el trabajo en cada request: el badge
+  // del layout pide las stats en cada carga de página. La reclama se hace con
+  // la condición en el where del update, así que dos requests simultáneos no
+  // corren el motor dos veces.
+  alertsRefreshedAt DateTime? @map("alerts_refreshed_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
