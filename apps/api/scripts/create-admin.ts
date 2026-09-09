@@ -12,6 +12,9 @@ import { EmailSchema, PasswordSchema } from '../src/lib/validation';
 //   TENANT_NAME="Clínica X" ADMIN_EMAIL=a@b.com ADMIN_PASSWORD=... \
 //     npm run create:admin -w apps/api
 // ADMIN_NAME es opcional. La contraseña nunca se imprime.
+//
+// TENANT_ID también es opcional, y es la salida para cuando el slug dejó de
+// deducirse del nombre (ver resolverClinica).
 
 const prisma = new PrismaClient();
 
@@ -25,6 +28,56 @@ function slugify(name: string): string {
     .replace(/\p{M}/gu, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+// Cómo se resuelve la clínica, en orden:
+//
+//   1. TENANT_ID, si viene. Es la salida para cuando el slug ya no se deduce
+//      del nombre: la clínica se renombró, o el slug se editó a mano.
+//   2. El slug derivado del nombre, que es el caso normal.
+//   3. Crearla — pero solo si todavía no hay ninguna clínica.
+//
+// El paso 3 es el que se arregló. Antes se creaba siempre que la búsqueda por
+// slug fallara, así que un simple renombre convertía este script en una
+// fábrica de clínicas duplicadas: el ADMIN nuevo quedaba parado en un tenant
+// vacío, sin pacientes y sin un solo mensaje de error que lo delatara.
+//
+// El slug no es una clave: es la única correspondencia nombre→clínica que
+// existe, y depende de que nadie renombre nada. Cuando esa correspondencia se
+// rompe, la ambigüedad la resuelve la persona con TENANT_ID, no el script
+// adivinando.
+async function resolverClinica(tenantName: string) {
+  const tenantId = process.env.TENANT_ID;
+
+  if (tenantId) {
+    const porId = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!porId) {
+      console.error(`No existe ninguna clínica con id ${tenantId}. No se hizo ningún cambio.`);
+      process.exit(1);
+    }
+    return porId;
+  }
+
+  const slug = slugify(tenantName);
+  const porSlug = await prisma.tenant.findUnique({ where: { slug } });
+  if (porSlug) return porSlug;
+
+  const existentes = await prisma.tenant.findMany({
+    select: { id: true, name: true, slug: true },
+    orderBy: { name: 'asc' },
+  });
+
+  if (existentes.length > 0) {
+    console.error(
+      `Ninguna clínica tiene el slug "${slug}" (derivado de "${tenantName}"), ` +
+        `pero ya hay ${existentes.length} creada(s). No se creó ninguna clínica nueva.\n` +
+        'Si querías una de éstas, volvé a correr con TENANT_ID:\n' +
+        existentes.map((t) => `  ${t.id}  ${t.name} (${t.slug})`).join('\n'),
+    );
+    process.exit(1);
+  }
+
+  return prisma.tenant.create({ data: { name: tenantName, slug } });
 }
 
 async function main() {
@@ -52,12 +105,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Si la clínica ya existe (mismo slug) se reutiliza: el script también
-  // sirve para agregar un ADMIN extra más adelante.
-  const slug = slugify(tenantName);
-  const tenant =
-    (await prisma.tenant.findUnique({ where: { slug } })) ??
-    (await prisma.tenant.create({ data: { name: tenantName, slug } }));
+  // Si la clínica ya existe se reutiliza: el script también sirve para
+  // agregar un ADMIN extra más adelante.
+  const tenant = await resolverClinica(tenantName);
 
   const passwordHash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
