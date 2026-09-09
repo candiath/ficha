@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { IdSchema } from '../lib/validation';
 import { packageRepo, patientRepo } from '../repositories';
 
 // Las queries viven en packageRepo (incluida la regla "no borrar un paquete
@@ -15,9 +16,11 @@ const PackageCreateSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+const PackageFiltersSchema = z.object({ patientId: IdSchema.optional() });
+
 // GET /api/packages?patientId=xxx  — lista paquetes de un paciente con sesiones usadas
 router.get('/', async (req, res) => {
-  const patientId = req.query.patientId as string | undefined;
+  const { patientId } = PackageFiltersSchema.parse(req.query);
   const data = await packageRepo.list(req.context, { patientId });
   res.json({ data });
 });

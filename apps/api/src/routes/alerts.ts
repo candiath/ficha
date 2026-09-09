@@ -12,6 +12,16 @@ const AlertCreateSchema = z.object({
   message: z.string().min(1),
 });
 
+const AlertFiltersSchema = z.object({
+  type: z.enum(['FOLLOW_UP', 'NO_SHOW', 'PAYMENT', 'CUSTOM']).optional(),
+  // Los booleanos de una query llegan como texto: se aceptan solo las dos
+  // formas válidas en vez de tratar cualquier otra cosa como false.
+  isRead: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+});
+
 // GET /api/alerts — list alerts with optional filters
 //
 // Antes de listar, el motor recalcula: sin cron, leer es el único momento en
@@ -20,9 +30,7 @@ const AlertCreateSchema = z.object({
 router.get('/', async (req, res) => {
   await refreshAlerts(req.context);
 
-  const type = typeof req.query.type === 'string' ? req.query.type : undefined;
-  const isRead =
-    req.query.isRead === 'true' ? true : req.query.isRead === 'false' ? false : undefined;
+  const { type, isRead } = AlertFiltersSchema.parse(req.query);
 
   const data = await clinicalAlertRepo.list(req.context, { type, isRead });
   res.json({ data });
