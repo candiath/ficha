@@ -119,6 +119,15 @@ async function cobrosVencidos(ctx: TenantContext): Promise<AlertaPropuesta[]> {
 
   for (const cobro of pendientes) {
     if (!vigentes.has(cobro.patientId)) continue;
+    // Un cobro de monto cero no es una deuda: no hay nada que reclamar, y
+    // contarlo además rompe el mensaje agrupado ("2 sesiones sin cobrar por
+    // $5.000", donde una de las dos no debe nada).
+    //
+    // El filtro va acá aunque settle() ya haga nacer eximidos esos cobros: es
+    // otra regla, y es la que cubre las filas anteriores a este cambio, las
+    // que alguien vuelva a PENDING a mano, y un camino de escritura futuro
+    // que se olvide de derivar el estado.
+    if (cobro.finalAmount <= 0) continue;
     const previo = porPaciente.get(cobro.patientId);
     if (previo) {
       previo.cantidad += 1;

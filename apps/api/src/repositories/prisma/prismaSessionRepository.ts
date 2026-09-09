@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { forTenant } from '../../lib/tenantScope';
+import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type {
   SessionCreateInput,
@@ -187,6 +188,9 @@ export const prismaSessionRepository: SessionRepository = {
       });
 
       if (payment) {
+        // settle() decide monto y estado juntos: un cobro que da 0 nace
+        // WAIVED, porque no hay ninguna deuda que reclamar.
+        const { finalAmount, status } = settle(payment.baseAmount, payment.discount);
         await tx.payment.create({
           data: {
             tenantId: ctx.tenantId,
@@ -195,7 +199,8 @@ export const prismaSessionRepository: SessionRepository = {
             packageId: payment.packageId ?? null,
             baseAmount: payment.baseAmount,
             discount: payment.discount,
-            finalAmount: payment.baseAmount - payment.discount,
+            finalAmount,
+            status,
             notes: payment.notes ?? null,
           },
         });
