@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { forTenant } from '../../lib/tenantScope';
+import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type {
   LastBasePrice,
@@ -132,6 +133,10 @@ export const prismaPaymentRepository: PaymentRepository = {
     });
     if (existing) return { ok: false, reason: 'duplicate' };
 
+    // Mismo criterio que el cobro embebido en el alta de la sesión: si no hay
+    // nada que cobrar, el cobro nace eximido y no como deuda.
+    const { finalAmount, status } = settle(input.baseAmount, input.discount);
+
     try {
       const row = await db.payment.create({
         data: {
@@ -140,7 +145,8 @@ export const prismaPaymentRepository: PaymentRepository = {
           packageId: input.packageId ?? null,
           baseAmount: input.baseAmount,
           discount: input.discount,
-          finalAmount: input.baseAmount - input.discount,
+          finalAmount,
+          status,
           notes: input.notes ?? null,
         },
         select: paymentSelect,
@@ -162,10 +168,11 @@ export const prismaPaymentRepository: PaymentRepository = {
     const db = forTenant(ctx);
 
     // Los montos existentes hacen falta para recalcular finalAmount cuando
-    // el update trae solo uno de los dos.
+    // el update trae solo uno de los dos. El estado, para que settle() sepa
+    // si puede eximir: solo un PENDING se exime solo.
     const existing = await db.payment.findFirst({
       where: { id },
-      select: { baseAmount: true, discount: true, patientId: true },
+      select: { baseAmount: true, discount: true, patientId: true, status: true },
     });
     if (!existing) return { ok: false, reason: 'not_found' };
 
@@ -188,13 +195,19 @@ export const prismaPaymentRepository: PaymentRepository = {
     // base guardado, que Zod no conoce (issue #73).
     if (newDiscount > newBase) return { ok: false, reason: 'invalid_amounts' };
 
+    // Un descuento que lleva el cobro a 0 lo exime, pero solo si estaba
+    // PENDING: ni un PAID (ahí entró plata) ni un WAIVED puesto a mano se
+    // tocan. Un `status` explícito en el body gana sobre lo derivado — quien
+    // lo manda está diciendo qué quiere.
+    const { finalAmount, status } = settle(newBase, newDiscount, existing.status);
+
     const row = await db.payment.update({
       where: { id },
       data: {
         ...(input.baseAmount !== undefined && { baseAmount: input.baseAmount }),
         ...(input.discount !== undefined && { discount: input.discount }),
-        finalAmount: newBase - newDiscount,
-        ...(input.status !== undefined && { status: input.status }),
+        finalAmount,
+        status: input.status ?? status,
         ...(input.method !== undefined && { method: input.method }),
         ...(input.paidAt !== undefined && { paidAt: input.paidAt }),
         ...(input.packageId !== undefined && { packageId: input.packageId }),
