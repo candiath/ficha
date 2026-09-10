@@ -23,13 +23,6 @@ export function getJwtSecret(): string {
   return secret;
 }
 
-export function signAccessToken(payload: TokenPayload): string {
-  return jwt.sign({ tenantId: payload.tenantId }, getJwtSecret(), {
-    subject: payload.sub,
-    expiresIn: JWT_EXPIRES_IN,
-  });
-}
-
 // Lo que devuelve la verificación: el payload más iat (momento de emisión,
 // en segundos Unix; lo agrega jwt.sign automáticamente). El middleware lo
 // compara contra passwordChangedAt para invalidar tokens viejos.
@@ -37,8 +30,24 @@ export interface VerifiedToken extends TokenPayload {
   iat: number;
 }
 
+// Se firma y se verifica con HS256 y nada más. jsonwebtoken 9 ya rechaza
+// `alg: none` por su cuenta, y con secreto simétrico no hay clave pública que
+// prestarse para una confusión de algoritmos — así que esto no tapa un agujero
+// abierto, cierra la familia entera por adelantado. Si algún día se pasa a
+// claves asimétricas, no fijar el algoritmo acá es exactamente el bug que
+// permite firmar tokens con la clave pública.
+const JWT_ALGORITHM = 'HS256' as const;
+
+export function signAccessToken(payload: TokenPayload): string {
+  return jwt.sign({ tenantId: payload.tenantId }, getJwtSecret(), {
+    subject: payload.sub,
+    expiresIn: JWT_EXPIRES_IN,
+    algorithm: JWT_ALGORITHM,
+  });
+}
+
 export function verifyAccessToken(token: string): VerifiedToken {
-  const decoded = jwt.verify(token, getJwtSecret());
+  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: [JWT_ALGORITHM] });
   if (
     typeof decoded === 'string' ||
     typeof decoded.sub !== 'string' ||
