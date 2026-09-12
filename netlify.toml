@@ -6,3 +6,46 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Headers de seguridad del sitio estático.
+#
+# helmet cubre las respuestas de la API en Render, pero no esto: el XSS que
+# importa ocurre en la app que Netlify sirve, que es donde vive el token en
+# localStorage. Hasta acá el sitio salía sin ningún header, así que un script
+# inyectado podía leer el token y llevarse historias clínicas.
+#
+# Netlify aplica estos headers a los tres contextos (producción, branch deploy
+# de dev, y deploy previews): [[headers]] no distingue contexto.
+[[headers]]
+  for = "/*"
+
+  [headers.values]
+    # script-src sin 'unsafe-inline' porque se verificó que el build de Vite
+    # no emite un solo script inline: el index.html generado referencia el
+    # bundle por src y nada más. Eso es lo que hace que esta CSP sirva de algo
+    # — con 'unsafe-inline' en scripts, no frenaría el ataque que motiva todo.
+    #
+    # style-src SÍ lo necesita: Base UI posiciona popovers, tooltips y selects
+    # con estilos inline, y hay cinco style={{}} propios. Un estilo inline no
+    # ejecuta código, así que el riesgo es de otro orden.
+    #
+    # connect-src lista las dos APIs porque el mismo archivo sirve producción
+    # y el branch deploy de dev. No las mezcla: cada API tiene su CORS y su
+    # JWT_SECRET, así que un token de una no vale en la otra.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://ficha-i3t6.onrender.com https://ficha-staging.onrender.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+
+    # frame-ancestors ya lo cubre en navegadores modernos; X-Frame-Options
+    # queda para los que no leen CSP.
+    X-Frame-Options = "DENY"
+
+    # Sin esto, un archivo servido con el content-type equivocado puede
+    # terminar interpretado como script.
+    X-Content-Type-Options = "nosniff"
+
+    # No filtrar la URL completa (que lleva ids de pacientes) a sitios ajenos.
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+    # La app no usa ninguna de las tres. Si algún día se cargan fotos desde la
+    # cámara del celular (#123), hay que sacar camera= de esta lista; subir un
+    # archivo con <input type="file"> NO la necesita.
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

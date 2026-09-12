@@ -159,9 +159,13 @@ export default function SessionFormModalWide({
   // quedó decidido antes de abrir el modal. Al crear viene del episodio en el
   // que está parado el usuario; al editar, del que la sesión ya tiene.
   //
-  // El M:N sigue existiendo en la base (hay sesiones viejas con varios
-  // motivos), así que al editar una de ésas nos quedamos con el primero y el
-  // guardado desvincula el resto.
+  // El M:N sigue existiendo en la base, pero la API ya no acepta más de un
+  // episodio por sesión (ver episodeIdsField en routes/sessions.ts), así que
+  // este [0] no puede descartar nada: no puede haber un segundo.
+  //
+  // Acá decía que había sesiones viejas con varios motivos, y no era cierto:
+  // al poner el límite se contaron las filas de session_episodes agrupadas por
+  // sesión en producción y en development, y el máximo era 1 en las dos.
   const effectiveEpisodeId = (isEditing ? session?.episodeIds[0] : episodeId) ?? ''
   const effectiveEpisode = episodes.find((ep) => ep.id === effectiveEpisodeId)
 

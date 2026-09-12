@@ -9,16 +9,64 @@ import { authenticate } from '../middlewares/auth';
 
 const router = Router();
 
+// Hash señuelo, calculado una vez al arrancar: contra esto se compara cuando
+// el email no existe. Ver el porqué en el handler del login.
+//
+// Cost 10, el mismo que usan las contraseñas reales (bcrypt.compare toma el
+// costo del hash guardado): si fuera más barato, la diferencia de tiempo
+// volvería a delatar el caso.
+const HASH_SENUELO = bcrypt.hashSync('contraseña-que-no-existe', 10);
+
+// Los dos frenos del login comparten mensaje y umbral: un solo número que
+// recordar, y desde afuera no se distingue cuál de los dos respondió.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+const LOGIN_THROTTLED = { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' };
+
 // El login es el endpoint que reciben los ataques de fuerza bruta:
 // 10 intentos por IP cada 15 minutos es de sobra para un humano
 // y frena un diccionario automatizado.
+//
+// El store es en memoria, así que el presupuesto se reinicia con cada
+// arranque — y Render free duerme el servicio tras ~15 minutos sin tráfico.
+// No es un agujero MIENTRAS la ventana no supere ese tiempo de inactividad:
+// para provocar un reinicio hay que esperar más de lo que dura la ventana,
+// y para entonces el presupuesto ya se renovó solo. Alargar la ventana sin
+// mover el store a la base sí abriría la brecha.
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
+  windowMs: LOGIN_WINDOW_MS,
+  limit: LOGIN_MAX_ATTEMPTS,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' },
+  message: LOGIN_THROTTLED,
 });
+
+// Freno por cuenta, además del freno por IP de arriba. El limiter cuenta
+// por IP, y un atacante que rota IPs no lo encuentra nunca: contra una
+// cuenta puntual podía probar contraseñas sin techo. Esto pone el techo del
+// lado del email: diez fallos seguidos en quince minutos y la cuenta no
+// acepta más intentos —ni con la contraseña correcta— hasta que el más
+// viejo salga de la ventana.
+//
+// Se cuenta sobre login_events y no en memoria por dos razones. Sobrevive
+// a los reinicios, que es justo lo que el limiter no hace. Y ya registra
+// los intentos contra emails que no existen, así que un email desconocido
+// se frena igual que uno real: el 429 no sirve para enumerar cuentas.
+//
+// Un login exitoso corta la racha: la persona que se equivocó tres veces y
+// después entró no arrastra esos fallos. Y los intentos que el freno
+// rechaza no se registran: si contaran, bastaría un request cada quince
+// minutos para mantener la cuenta cerrada indefinidamente.
+//
+// La contracara, inherente a todo bloqueo por cuenta: quien conozca el
+// email de una persona puede dejarla afuera del login a fuerza de fallos.
+// Se acepta porque el daño es visible y temporal, mientras que el que
+// evita —una contraseña adivinada en silencio— no lo es.
+async function isAccountThrottled(email: string): Promise<boolean> {
+  const since = new Date(Date.now() - LOGIN_WINDOW_MS);
+  const attempts = await authRepo.recentLoginAttempts(email, since, LOGIN_MAX_ATTEMPTS);
+  return attempts.length >= LOGIN_MAX_ATTEMPTS && attempts.every((a) => !a.success);
+}
 
 const LoginSchema = z.object({
   email: EmailSchema,
@@ -28,11 +76,11 @@ const LoginSchema = z.object({
 // Cambiar la contraseña pide la actual, así que también es blanco de
 // fuerza bruta (alguien con un token robado probando adivinarla).
 const changePasswordLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
+  windowMs: LOGIN_WINDOW_MS,
+  limit: LOGIN_MAX_ATTEMPTS,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' },
+  message: LOGIN_THROTTLED,
 });
 
 const ChangePasswordSchema = z
@@ -46,16 +94,21 @@ const ChangePasswordSchema = z
   });
 
 // Telemetría de seguridad: registra cada intento de login (exitoso o no)
-// con IP y user-agent. Fire-and-forget: un fallo al registrar no debe
-// demorar ni frustrar el login. req.ip es la IP real gracias a trust proxy.
+// con IP y user-agent. Nunca rechaza: un fallo al registrar se loguea y no
+// frustra el login. req.ip es la IP real gracias a trust proxy.
 // user es null cuando el email no corresponde a ninguna cuenta.
+//
+// Devuelve la promesa porque el registro de un FALLO se espera: es lo que
+// cuenta el freno por cuenta, y responder antes de que aterrice dejaría una
+// ventana en la que el siguiente intento no lo ve. El del éxito no sostiene
+// nada y sigue siendo fire-and-forget.
 function recordLoginEvent(
   req: Request,
   email: string,
   user: { id: string; tenantId: string } | null,
   success: boolean,
-) {
-  authRepo
+): Promise<void> {
+  return authRepo
     .recordLoginEvent({
       email,
       tenantId: user?.tenantId ?? null,
@@ -71,19 +124,39 @@ function recordLoginEvent(
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = LoginSchema.parse(req.body);
 
+  // Antes de buscar el usuario y de bcrypt: un intento frenado no cuesta
+  // trabajo ni deja rastro (ver isAccountThrottled).
+  if (await isAccountThrottled(email)) {
+    res.status(429).json(LOGIN_THROTTLED);
+    return;
+  }
+
   const user = await authRepo.findByEmailForLogin(email);
 
   // Mensaje idéntico para email inexistente, usuario desactivado o
   // contraseña incorrecta: distinguirlos permitiría enumerar qué emails
   // tienen cuenta.
-  const valid = user && user.isActive && (await bcrypt.compare(password, user.passwordHash));
-  if (!valid) {
-    recordLoginEvent(req, email, user ?? null, false);
+  //
+  // Pero el mensaje no alcanzaba: el TIEMPO los distinguía. Antes esto era
+  // una sola expresión encadenada, y la evaluación perezosa hacía que bcrypt
+  // no llegara a correr cuando el email no existía: 67 ms contra 0. Un
+  // atacante prueba una lista de emails con cualquier contraseña y separa los
+  // que tienen cuenta — exactamente lo que el mensaje uniforme intentaba
+  // impedir (issue #71).
+  //
+  // Ahora bcrypt corre siempre: sin usuario, contra un hash señuelo. Que
+  // `passwordOk` se calcule en su propia línea, ANTES de decidir, es lo que
+  // sostiene la propiedad — plegarlo de vuelta dentro del if reintroduce el
+  // cortocircuito y con él el canal.
+  const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? HASH_SENUELO);
+
+  if (!user || !user.isActive || !passwordOk) {
+    await recordLoginEvent(req, email, user ?? null, false);
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
   }
 
-  recordLoginEvent(req, email, user, true);
+  void recordLoginEvent(req, email, user, true);
 
   // Fire-and-forget: registrar el acceso no debe demorar ni frustrar el login.
   authRepo

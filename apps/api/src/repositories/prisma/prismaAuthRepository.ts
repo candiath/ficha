@@ -3,6 +3,7 @@ import type {
   AuthRepository,
   AuthUser,
   Credentials,
+  LoginAttempt,
   LoginEventInput,
   LoginUser,
   PublicProfile,
@@ -75,5 +76,14 @@ export const prismaAuthRepository: AuthRepository = {
 
   async recordLoginEvent(input: LoginEventInput): Promise<void> {
     await prisma.loginEvent.create({ data: input });
+  },
+
+  async recentLoginAttempts(email: string, since: Date, limit: number): Promise<LoginAttempt[]> {
+    return prisma.loginEvent.findMany({
+      where: { email, createdAt: { gt: since } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { success: true },
+    });
   },
 };

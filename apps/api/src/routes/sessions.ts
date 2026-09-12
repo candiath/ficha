@@ -27,10 +27,22 @@ const router = Router({ mergeParams: true });
 // "pisá lo que había": un PATCH sin sessionType convertía un alta en sesión
 // común, y uno sin episodeIds los desvinculaba todos (issue #97). Los defaults
 // son del alta, así que viven solo en SessionCreateSchema.
+
+// Una sesión aborda un único motivo de consulta. Es una regla de la API y no
+// del schema: el pivote sesión↔episodio sigue siendo M:N en la base, así que
+// levantar el límite es borrar este .max(1), no una migración.
+//
+// Mientras esté, el `episodeIds[0]` con el que el formulario web carga una
+// sesión para editarla no puede descartar un segundo episodio al guardar,
+// porque no puede haber un segundo episodio.
+const episodeIdsField = z
+  .array(IdSchema)
+  .max(1, 'Una sesión aborda un único motivo de consulta');
+
 const SessionFieldsSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
-  episodeIds: z.array(IdSchema),
+  episodeIds: episodeIdsField,
   preSesionState: z.string().optional().nullable(),
   reEvaluationNotes: z.string().optional().nullable(),
   patientResponse: z.string().optional().nullable(),
@@ -46,7 +58,7 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
   // Los defaults del alta: una sesión sin tipo es SESSION y puede no abordar
   // ningún episodio.
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
-  episodeIds: z.array(IdSchema).optional().default([]),
+  episodeIds: episodeIdsField.optional().default([]),
   // El turno del que sale esta sesión, cuando se registra desde la agenda.
   // Va acá y no en un endpoint aparte para que sesión, cobro y vínculo se
   // creen en una sola transacción: encadenar requests es lo que dejaba
@@ -73,6 +85,8 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 // payment queda afuera a propósito: el pago se edita por /api/payments.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
+const SessionFiltersSchema = z.object({ episodeId: IdSchema.optional() });
+
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
@@ -81,7 +95,7 @@ router.get<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  const episodeId = typeof req.query.episodeId === 'string' ? req.query.episodeId : undefined;
+  const { episodeId } = SessionFiltersSchema.parse(req.query);
 
   const sessions = await sessionRepo.listByPatient(req.context, req.params.patientId, {
     episodeId,
