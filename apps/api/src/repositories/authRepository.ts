@@ -60,6 +60,12 @@ export interface LoginEventInput {
   userAgent: string | null;
 }
 
+// Lo justo para decidir si una cuenta está frenada: la ruta mira si los
+// últimos intentos fueron todos fallidos.
+export interface LoginAttempt {
+  success: boolean;
+}
+
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 export interface AuthRepository {
@@ -77,4 +83,11 @@ export interface AuthRepository {
   updatePassword(userId: string, passwordHash: string): Promise<void>;
   /** Telemetría de seguridad: cada intento de login, exitoso o no. */
   recordLoginEvent(input: LoginEventInput): Promise<void>;
+  /**
+   * Los últimos `limit` intentos contra un email posteriores a `since`, del
+   * más reciente al más viejo. Sirve al freno por cuenta del login: cuenta
+   * por email y no por usuario a propósito, así un email que no existe se
+   * frena igual que uno real.
+   */
+  recentLoginAttempts(email: string, since: Date, limit: number): Promise<LoginAttempt[]>;
 }
