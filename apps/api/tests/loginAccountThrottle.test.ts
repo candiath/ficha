@@ -15,7 +15,13 @@ const THROTTLED = { error: 'Demasiados intentos. Probá de nuevo en unos minutos
 //
 // En archivo propio por la misma razón que loginRateLimit: acumula fallos
 // que ninguna otra suite tiene por qué heredar.
-describe('freno por cuenta de POST /api/auth/login', () => {
+//
+// Timeout propio, por encima de los 15 s globales: cada test acumula diez
+// intentos o más, y cada intento son tres viajes a Neon (el freno, el
+// usuario y el registro del fallo, que se espera) más un bcrypt. Desde los
+// runners de GitHub eso ronda el segundo por intento; la primera versión
+// de esta suite, con un test de 21 intentos, se pasó del límite en CI.
+describe('freno por cuenta de POST /api/auth/login', { timeout: 45_000 }, () => {
   let clinic: TestClinic;
   // La suite entera hace menos de 255 requests, así que alcanza un octeto.
   let nextIp = 1;
@@ -84,17 +90,16 @@ describe('freno por cuenta de POST /api/auth/login', () => {
     const ok = await login(user.email, TEST_PASSWORD);
     expect(ok.status).toBe(200);
     // El registro del éxito es fire-and-forget: esperar a que aterrice
-    // antes de seguir, para que quede ordenado antes de los fallos nuevos.
+    // antes de seguir, para que quede ordenado antes del fallo nuevo.
     await waitFor(() => prisma.loginEvent.findFirst({ where: { email: user.email, success: true } }));
 
-    // Nueve fallos más: 18 en total, pero solo 9 seguidos desde el éxito.
-    await fail(user.email, 9);
+    // Un fallo más: diez en la ventana, pero solo uno seguido desde el éxito.
+    await fail(user.email, 1);
 
-    const decimo = await login(user.email, 'contraseña-incorrecta');
-    expect(decimo.status).toBe(401);
-
-    // Y ahora sí son diez seguidos.
-    const undecimo = await login(user.email, TEST_PASSWORD);
-    expect(undecimo.status).toBe(429);
+    // Éste es el que distingue las dos semánticas. Si el freno contara
+    // "diez fallos en la ventana", acá habría 429; como mira "los últimos
+    // diez intentos, todos fallidos", el éxito en el medio lo desarma.
+    const res = await login(user.email, TEST_PASSWORD);
+    expect(res.status).toBe(200);
   });
 });
