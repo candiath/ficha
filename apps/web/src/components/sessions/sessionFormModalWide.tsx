@@ -95,9 +95,9 @@ interface SessionFormModalWideProps {
 
 function getPainColor(value: number | null) {
   if (value === null) return 'text-muted-foreground'
-  if (value <= 3) return 'text-emerald-600'
-  if (value <= 6) return 'text-amber-600'
-  return 'text-red-600'
+  if (value <= 3) return 'text-emerald-600 dark:text-emerald-400'
+  if (value <= 6) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
 }
 
 /**

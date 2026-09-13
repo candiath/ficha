@@ -20,7 +20,7 @@ function PainDelta({ before, after }: { before: number | null; after: number | n
   if (before === null && after === null) return <span className="text-muted-foreground">—</span>;
   const display = `${before ?? '—'} → ${after ?? '—'}`;
   if (before !== null && after !== null && after < before) {
-    return <span className="text-green-600 tabular-nums">{display}</span>;
+    return <span className="text-green-600 dark:text-green-400 tabular-nums">{display}</span>;
   }
   if (before !== null && after !== null && after > before) {
     return <span className="text-destructive tabular-nums">{display}</span>;
