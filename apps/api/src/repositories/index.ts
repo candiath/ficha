@@ -16,3 +16,4 @@ export { prismaSessionRepository as sessionRepo } from './prisma/prismaSessionRe
 export { prismaDashboardRepository as dashboardRepo } from './prisma/prismaDashboardRepository';
 export { prismaTenantRepository as tenantRepo } from './prisma/prismaTenantRepository';
 export { prismaAppointmentRepository as appointmentRepo } from './prisma/prismaAppointmentRepository';
+export { prismaPlatformRepository as platformRepo } from './prisma/prismaPlatformRepository';

@@ -36,7 +36,7 @@ export interface VerifiedToken extends TokenPayload {
 // abierto, cierra la familia entera por adelantado. Si algún día se pasa a
 // claves asimétricas, no fijar el algoritmo acá es exactamente el bug que
 // permite firmar tokens con la clave pública.
-const JWT_ALGORITHM = 'HS256' as const;
+export const JWT_ALGORITHM = 'HS256' as const;
 
 export function signAccessToken(payload: TokenPayload): string {
   return jwt.sign({ tenantId: payload.tenantId }, getJwtSecret(), {
