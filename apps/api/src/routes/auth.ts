@@ -68,9 +68,9 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const user = await authRepo.findByEmailForLogin(email);
 
-  // Mensaje idéntico para email inexistente, usuario desactivado o
-  // contraseña incorrecta: distinguirlos permitiría enumerar qué emails
-  // tienen cuenta.
+  // Mensaje idéntico para email inexistente, usuario desactivado, clínica
+  // desactivada o contraseña incorrecta: distinguirlos permitiría enumerar
+  // qué emails tienen cuenta.
   //
   // Pero el mensaje no alcanzaba: el TIEMPO los distinguía. Antes esto era
   // una sola expresión encadenada, y la evaluación perezosa hacía que bcrypt
@@ -85,7 +85,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   // cortocircuito y con él el canal.
   const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? HASH_SENUELO);
 
-  if (!user || !user.isActive || !passwordOk) {
+  if (!user || !user.isActive || !user.tenantActive || !passwordOk) {
     await recordAttempt(req, email, user ?? null, false);
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
