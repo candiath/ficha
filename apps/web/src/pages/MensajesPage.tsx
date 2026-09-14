@@ -42,10 +42,10 @@ const CATEGORY_VARIANT: Record<MessageCategory, 'default' | 'secondary' | 'outli
 }
 
 const ALERT_CONFIG: Record<AlertType, { label: string; icon: React.ElementType; classes: string }> = {
-  follow_up: { label: 'Seguimiento', icon: Calendar,     classes: 'text-blue-700 bg-blue-50 border-blue-200' },
-  no_show:   { label: 'Inasistencia',icon: AlertCircle,  classes: 'text-red-700 bg-red-50 border-red-200' },
-  payment:   { label: 'Pago',        icon: CreditCard,   classes: 'text-amber-700 bg-amber-50 border-amber-200' },
-  custom:    { label: 'Personalizada',icon: Bell,        classes: 'text-purple-700 bg-purple-50 border-purple-200' },
+  follow_up: { label: 'Seguimiento', icon: Calendar,     classes: 'text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-950/40 dark:border-blue-800' },
+  no_show:   { label: 'Inasistencia',icon: AlertCircle,  classes: 'text-red-700 bg-red-50 border-red-200 dark:text-red-300 dark:bg-red-950/40 dark:border-red-800' },
+  payment:   { label: 'Pago',        icon: CreditCard,   classes: 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800' },
+  custom:    { label: 'Personalizada',icon: Bell,        classes: 'text-purple-700 bg-purple-50 border-purple-200 dark:text-purple-300 dark:bg-purple-950/40 dark:border-purple-800' },
 }
 
 function interpolate(content: string, patientName: string) {
@@ -272,7 +272,7 @@ export default function MensajesPage() {
                 disabled={!preview}
               >
                 {copied ? (
-                  <><Check className="h-4 w-4 mr-2 text-green-600" /> ¡Copiado!</>
+                  <><Check className="h-4 w-4 mr-2 text-green-600 dark:text-green-400" /> ¡Copiado!</>
                 ) : (
                   <><Copy className="h-4 w-4 mr-2" /> Copiar mensaje</>
                 )}
