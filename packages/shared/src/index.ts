@@ -85,9 +85,10 @@ export interface ChangePasswordResponse {
 
 // ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
 
-// Usuario del tenant como lo expone GET /api/users: AuthUser más los campos
-// administrativos que un ADMIN necesita ver.
-export interface TenantUser extends AuthUser {
+// Usuario del tenant como lo expone GET /api/users: la identidad de AuthUser
+// más los campos administrativos que un ADMIN necesita ver. Sin `tenant`: la
+// lista es de la propia clínica, y la API no lo manda.
+export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   isActive: boolean;
   lastLoginAt: string | null;
 }
