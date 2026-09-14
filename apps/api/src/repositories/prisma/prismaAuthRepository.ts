@@ -26,20 +26,32 @@ const publicProfileSelect = {
 
 export const prismaAuthRepository: AuthRepository = {
   async findByEmailForLogin(email: string): Promise<LoginUser | null> {
-    return prisma.user.findUnique({
+    const row = await prisma.user.findUnique({
       where: { email },
       select: {
         ...publicProfileSelect,
+        tenant: { select: { name: true, slug: true, deactivatedAt: true } },
         tenantId: true,
         passwordHash: true,
         isActive: true,
       },
     });
+    if (!row) return null;
+    // deactivatedAt no sale del repositorio: el cliente recibe la identidad
+    // de la clínica (name, slug) y la ruta solo necesita el booleano.
+    const { tenant, ...user } = row;
+    return {
+      ...user,
+      tenant: { name: tenant.name, slug: tenant.slug },
+      tenantActive: tenant.deactivatedAt === null,
+    };
   },
 
   async findForAuth(userId: string): Promise<AuthUser | null> {
+    // La clínica desactivada revoca a todos sus usuarios de golpe, en el
+    // request siguiente: es la misma mecánica que isActive, un nivel arriba.
     return prisma.user.findFirst({
-      where: { id: userId, isActive: true },
+      where: { id: userId, isActive: true, tenant: { deactivatedAt: null } },
       select: { id: true, tenantId: true, role: true, passwordChangedAt: true },
     });
   },
