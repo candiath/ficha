@@ -100,6 +100,14 @@ export interface CreateUserInput {
   role?: UserRole;
 }
 
+// Payload de PATCH /api/users/:id. Al menos uno de los dos; la API responde
+// 400 a un body vacío y 409 si el cambio dejaría a la clínica sin una ADMIN
+// activa.
+export interface UpdateUserInput {
+  role?: UserRole;
+  isActive?: boolean;
+}
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 
 // Un motivo de consulta (ClinicalEpisode.mainComplaint) con su frecuencia.
