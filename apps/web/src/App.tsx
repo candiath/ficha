@@ -31,6 +31,12 @@ const DRAFT_PAGES = import.meta.env.DEV
     ]
   : [];
 
+// El operador de plataforma (#153): otra sesión, otro login, otras pantallas.
+// Un solo chunk lazy con el subárbol /platform/* entero, así el bundle de la
+// clínica no carga nada de esto — y viceversa: nada de la plataforma importa
+// AuthContext ni AppLayout.
+const PlatformApp = lazy(() => import('@/pages/platform/PlatformApp'));
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 function ApiStatusBanner() {
@@ -90,6 +96,7 @@ export default function App() {
       {import.meta.env.DEV && LabPage && (
         <Route path="lab" element={<Suspense fallback={null}><LabPage /></Suspense>} />
       )}
+      <Route path="platform/*" element={<Suspense fallback={null}><PlatformApp /></Suspense>} />
       <Route element={<RequireAuth />}>
       <Route element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
