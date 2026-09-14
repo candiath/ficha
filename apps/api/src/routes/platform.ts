@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
-import { SLUG_PATTERN, slugify } from '../lib/slug';
+import { SLUG_PATTERN, slugify } from '@ficha/shared';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 
 // Rutas del operador de plataforma (issue #153). Se montan detrás de
