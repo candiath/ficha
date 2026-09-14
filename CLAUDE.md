@@ -117,6 +117,8 @@ Dos excepciones documentadas:
 
 Hubo una tercera —`techniqueRepository`— pero los catálogos de técnicas se eliminaron del modelo el 01/09/2026 y con ellos el repositorio.
 
+**Todo modelo con columna `tenantId` tiene que estar en `TENANT_SCOPED_MODELS` o en `TENANT_MODELS_FUERA_DEL_GUARD`** (hoy solo `LoginEvent`, con el motivo al lado). Olvidarse de clasificar un modelo nuevo es el único bug del guard que no falla visiblemente —devuelve filas de todas las clínicas sin un solo error—, así que `tests/tenantScopeCoverage.test.ts` compara el schema contra las dos listas y rompe el CI si aparece uno sin clasificar.
+
 ### Borrado de pacientes
 
 Es **lógico** (`deletedAt`): el paciente desaparece de `GET /api/patients`, su ficha da 404 y no puede recibir datos clínicos nuevos (las rutas que crean episodios, sesiones, escalas, alertas y paquetes pasan por `patientRepo.exists()`). Pero **el historial ya registrado lo sigue nombrando**: los joins `patient: { select: { fullName } }` de Cobros, Sesiones y Paquetes no filtran `deletedAt` a propósito — un cobro sin nombre sería un registro inútil. Borrar un paciente lo oculta; no reescribe el pasado. (Issue #72, cerrado *by design*.)

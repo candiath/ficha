@@ -26,7 +26,14 @@ import type { TenantContext } from '../repositories/types';
 // que llegan como `model` en la extension), no los de la tabla SQL. De esta
 // tupla se derivan tanto el Set de runtime como el tipo ScopedModelName (abajo):
 // agregar un modelo es una sola línea acá.
-const TENANT_SCOPED_MODELS = [
+//
+// Y olvidarse de agregarlo es el único bug de este archivo que NO falla
+// visiblemente: un modelo con tenantId que no está acá compila, pasa los
+// tests de su ruta y devuelve filas de todas las clínicas. Por eso
+// tests/tenantScopeCoverage.test.ts compara el schema contra esta tupla más
+// TENANT_MODELS_FUERA_DEL_GUARD: todo modelo con tenantId tiene que estar en
+// una de las dos, y el CI rompe si aparece uno sin clasificar.
+export const TENANT_SCOPED_MODELS = [
   'User',
   'Patient',
   'ClinicalEpisode',
@@ -43,6 +50,25 @@ const TENANT_SCOPED_MODELS = [
 
 // Set para el chequeo de runtime en la extension (.has(model)).
 const TENANT_SCOPED_MODEL_SET = new Set<string>(TENANT_SCOPED_MODELS);
+
+// Modelos que tienen columna tenantId y a propósito NO pasan por el guard,
+// cada uno con su motivo. Es la otra mitad de la clasificación que exige el
+// test de cobertura: un modelo con tenantId está scopeado o está acá, y si
+// no está en ningún lado, el CI rompe.
+//
+// Tenant no figura porque no tiene columna tenantId: el tenant ES el id, y
+// tenantRepository filtra a mano por `id: ctx.tenantId`.
+export const TENANT_MODELS_FUERA_DEL_GUARD = {
+  // tenantId es nullable: un intento de login contra un email desconocido no
+  // pertenece a ninguna clínica, y el guard inyecta tenantId en el where de
+  // toda lectura y en el data de todo create — justo lo que esa fila no puede
+  // llevar. Se escribe desde auth.ts, antes de que exista un TenantContext.
+  //
+  // Y desde #146 también se LEE sin tenant, por email, para el freno de login
+  // por cuenta: el email frenado puede no ser de nadie. Es una lectura
+  // cross-tenant deliberada, no un olvido — no "arreglarla" scopeándola.
+  LoginEvent: 'tenantId nullable; se escribe y se lee por email antes de que exista un tenant',
+} as const satisfies Record<string, string>;
 
 // Operaciones cuyo `where` acota las filas afectadas: se les inyecta tenantId.
 // En Prisma 5 el WhereUniqueInput acepta campos no-únicos, así que esto vale
