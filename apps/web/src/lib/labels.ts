@@ -1,4 +1,5 @@
 import type { PaymentMethod } from '@/types/payment';
+import type { UserRole } from '@ficha/shared';
 
 export const SEX_LABELS: Record<string, string> = {
   MALE: 'Masculino',
@@ -89,4 +90,11 @@ export const ALERT_TYPE_CLASS: Record<string, string> = {
   NO_SHOW: 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300',
   PAYMENT: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300',
   CUSTOM: 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400',
+};
+
+// Los dos roles de la clínica. ADMIN es quien la dirige: gestiona usuarios y
+// configuración; THERAPIST es el personal que atiende.
+export const ROLE_LABELS: Record<UserRole, string> = {
+  ADMIN: 'Administrador',
+  THERAPIST: 'Fisioterapeuta',
 };
