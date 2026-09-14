@@ -196,3 +196,67 @@ export interface AppointmentUpdateInput {
   episodeId?: string | null;
   notes?: string | null;
 }
+
+// ── Operador de plataforma (/api/platform/*) ────────────────────────────────
+//
+// Otra sesión, otro token, otro cliente HTTP: nada de esto pasa por AuthUser
+// ni por el AuthContext de la clínica. Ver issue #153.
+
+export interface PlatformOperator {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+export interface PlatformLoginResponse {
+  token: string;
+  operator: PlatformOperator;
+}
+
+// Una clínica vista por el operador: identidad, estado y cuántas ADMIN
+// activas tiene. Nada de contacto ni horarios (son de la clínica) y por
+// supuesto nada clínico.
+export interface PlatformTenant {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  /** null = activa. Desactivada, todos sus usuarios pierden el acceso. */
+  deactivatedAt: string | null;
+  activeAdmins: number;
+}
+
+export interface PlatformTenantCreateInput {
+  name: string;
+  /** Si falta, la API lo deriva del nombre. */
+  slug?: string;
+}
+
+// Un usuario de una clínica visto por el operador: lo mismo que ve una ADMIN
+// de esa clínica.
+export type PlatformUser = TenantUser;
+
+// El rol no se manda: el operador crea ADMIN, y punto.
+export interface PlatformAdminCreateInput {
+  email: string;
+  name: string;
+  password: string;
+}
+
+export type PlatformAction =
+  | 'TENANT_CREATED'
+  | 'TENANT_DEACTIVATED'
+  | 'TENANT_REACTIVATED'
+  | 'ADMIN_CREATED'
+  | 'USER_ROLE_CHANGED'
+  | 'USER_ACTIVE_CHANGED';
+
+export interface PlatformAuditEntry {
+  id: string;
+  operatorId: string | null;
+  tenantId: string;
+  targetUserId: string | null;
+  action: PlatformAction;
+  description: string;
+  createdAt: string;
+}
