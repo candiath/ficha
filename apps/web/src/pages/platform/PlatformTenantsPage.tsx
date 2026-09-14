@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Building2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { SLUG_PATTERN, slugify } from '@ficha/shared';
 import TenantStatus from '@/components/platform/TenantStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,11 +19,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { platformKeys, platformTenantsApi } from '@/services/platform';
-
-// La forma que la API acepta para un slug escrito a mano (SLUG_PATTERN en
-// apps/api/src/lib/slug.ts). Si no se escribe ninguno, la API lo deriva del
-// nombre; la web no lo calcula para no tener dos implementaciones.
-const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -118,12 +114,19 @@ function CreateTenantForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
 
+  // La misma slugify que usa la API (packages/shared): lo que se muestra acá
+  // es exactamente lo que va a quedar.
+  const derivado = slugify(name);
   const error =
     name.trim().length < 2
       ? 'El nombre debe tener al menos 2 caracteres'
-      : slug.trim() && !SLUG_PATTERN.test(slug.trim())
-        ? 'El identificador solo admite minúsculas, números y guiones simples'
-        : null;
+      : slug.trim()
+        ? SLUG_PATTERN.test(slug.trim())
+          ? null
+          : 'El identificador solo admite minúsculas, números y guiones simples'
+        : derivado
+          ? null
+          : 'No se puede derivar un identificador del nombre; escribí uno';
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -164,12 +167,12 @@ function CreateTenantForm({ onClose }: { onClose: () => void }) {
             id="pt-slug"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
-            placeholder="se deriva del nombre"
+            placeholder={derivado || 'se deriva del nombre'}
             className="font-mono"
           />
           <p className="text-xs text-muted-foreground">
-            Opcional. Queda fijo: después no se puede cambiar. Vacío, sale del nombre en
-            minúsculas y con guiones.
+            Opcional. Queda fijo: después no se puede cambiar. Vacío, se usa{' '}
+            <span className="font-mono">{derivado || '…'}</span>.
           </p>
         </div>
         {error && name && <p className="text-sm text-destructive">{error}</p>}
