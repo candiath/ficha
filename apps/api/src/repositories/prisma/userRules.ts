@@ -22,16 +22,23 @@ import type { UserUpdateInput } from '../userRepository';
 // instante pasan las dos (READ COMMITTED: cada updateMany ve a la otra todavía
 // ADMIN). Cerrarla exige una transacción Serializable con reintento de P2034;
 // la ventana es de milisegundos y exige dos admins coordinadas, así que no se
-// paga ese costo hoy.
+// paga ese costo hoy. Y desde que existe el operador de plataforma (#153) la
+// clínica que cayera en ella ya no queda huérfana: el operador le nombra una
+// ADMIN nueva.
+//
+// "No es ADMIN" se escribe como `not: 'ADMIN'` y no como el otro rol: hoy hay
+// dos, pero la regla habla de admins, no de fisioterapeutas — si aparece un
+// tercer rol, sigue diciendo lo mismo sin tocarla.
 export function whereConservaAdmin(id: string, input: UserUpdateInput): Prisma.UserWhereInput {
-  const quitaAdminActiva = input.role === 'THERAPIST' || input.isActive === false;
+  const quitaAdminActiva =
+    (input.role !== undefined && input.role !== 'ADMIN') || input.isActive === false;
   if (!quitaAdminActiva) return {};
 
   return {
     OR: [
       // No era ADMIN, o ya estaba inactiva: la escritura no cambia cuántas
       // admins activas quedan.
-      { role: 'THERAPIST' },
+      { role: { not: 'ADMIN' } },
       { isActive: false },
       // O queda otra.
       { tenant: { users: { some: { id: { not: id }, role: 'ADMIN', isActive: true } } } },
