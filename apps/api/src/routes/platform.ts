@@ -146,7 +146,12 @@ router.patch('/tenants/:tenantId/users/:userId', async (req, res) => {
 
 // GET /api/platform/tenants/:tenantId/audit-log
 router.get('/tenants/:tenantId/audit-log', async (req, res) => {
-  res.json({ data: await platformRepo.listAuditLog(req.params.tenantId) });
+  const entries = await platformRepo.listAuditLog(req.params.tenantId);
+  if (!entries) {
+    res.status(404).json({ error: 'Clínica no encontrada' });
+    return;
+  }
+  res.json({ data: entries });
 });
 
 // Una ruta de plataforma que no existe es 404 acá mismo. Sin esto caería en

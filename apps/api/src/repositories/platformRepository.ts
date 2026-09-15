@@ -123,6 +123,10 @@ export interface PlatformRepository {
    */
   updateTenantUser(op: OperatorContext, tenantId: string, userId: string, input: UserUpdateInput): Promise<UserUpdateResult>;
 
-  /** Acciones sobre una clínica, de la más reciente a la más vieja. */
-  listAuditLog(tenantId: string): Promise<PlatformAuditLogDTO[]>;
+  /**
+   * Acciones sobre una clínica, de la más reciente a la más vieja. null si
+   * la clínica no existe: una lista vacía es "todavía nadie la tocó", que
+   * es otra cosa.
+   */
+  listAuditLog(tenantId: string): Promise<PlatformAuditLogDTO[] | null>;
 }

@@ -222,6 +222,9 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       const res = await asOperator(request(app).patch(`${PLATFORM}/tenants/no-existe`)).send({ active: false });
       expect(res.status).toBe(404);
       expect((await asOperator(request(app).get(`${PLATFORM}/tenants/no-existe/users`))).status).toBe(404);
+      // También la auditoría: `[]` sería "nadie la tocó todavía", que es otra
+      // cosa que "no existe".
+      expect((await asOperator(request(app).get(`${PLATFORM}/tenants/no-existe/audit-log`))).status).toBe(404);
     });
   });
 
@@ -313,6 +316,27 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
         targetUserId: fisio.id,
         operatorId: op.operator.id,
       });
+      // La descripción es para una persona: el rol va en castellano, no como
+      // el enum crudo.
+      expect(audit.body.data[0].description).toContain('a ADMIN');
+    });
+
+    // Un PATCH que repite el valor actual matchea la fila igual (count 1);
+    // sin cuidado, la auditoría diría "cambió el rol a ADMIN" sobre alguien
+    // que ya lo era. Una auditoría que afirma hechos que no ocurrieron vale
+    // menos que ninguna.
+    it('repetir el valor actual responde 200 pero no deja auditoría', async () => {
+      const antes = await asOperator(request(app).get(`${PLATFORM}/tenants/${tenantId}/audit-log`));
+      const admins: User[] = await prisma.user.findMany({ where: { tenantId, role: 'ADMIN' } });
+      const admin = admins[0];
+
+      const res = await asOperator(
+        request(app).patch(`${PLATFORM}/tenants/${tenantId}/users/${admin.id}`),
+      ).send({ role: 'ADMIN', isActive: true });
+      expect(res.status).toBe(200);
+
+      const despues = await asOperator(request(app).get(`${PLATFORM}/tenants/${tenantId}/audit-log`));
+      expect(despues.body.data).toHaveLength(antes.body.data.length);
     });
 
     it('la misma regla que la clínica: no se puede degradar a la última ADMIN activa', async () => {
