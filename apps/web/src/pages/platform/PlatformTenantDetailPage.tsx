@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ShieldPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import type { PlatformUser, UpdateUserInput, UserRole } from '@ficha/shared';
+import type { PlatformAction, PlatformUser, UpdateUserInput, UserRole } from '@ficha/shared';
 import TenantStatus from '@/components/platform/TenantStatus';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,9 @@ import { platformKeys, platformTenantsApi } from '@/services/platform';
 
 const ROLES: UserRole[] = ['ADMIN', 'THERAPIST'];
 
-const ACTION_LABELS: Record<string, string> = {
+// Tipado con la unión y no con string: si la API agrega una acción, el
+// typecheck avisa acá en vez de mostrar el enum crudo en el historial.
+const ACTION_LABELS: Record<PlatformAction, string> = {
   TENANT_CREATED: 'Clínica creada',
   TENANT_DEACTIVATED: 'Clínica desactivada',
   TENANT_REACTIVATED: 'Clínica reactivada',
@@ -67,26 +69,34 @@ export default function PlatformTenantDetailPage() {
 
   // La lista trae todo lo que hace falta de la clínica; una ruta de detalle
   // no agregaría campos, solo un request.
-  const { data: tenants } = useQuery({
+  const { data: tenants, isFetching: refrescandoLista } = useQuery({
     queryKey: platformKeys.tenants,
     queryFn: platformTenantsApi.list,
   });
   const tenant = tenants?.find((t) => t.id === tenantId);
+  // La lista ya llegó, no se está refrescando, y la clínica no está: un id
+  // viejo o tipeado a mano. Distinto de "todavía cargando" (tenants
+  // undefined) y de "la lista en caché es vieja y ya viene otra" — en los
+  // dos casos no se afirma nada todavía.
+  const noExiste = tenants !== undefined && !refrescandoLista && !tenant;
 
   useEffect(() => {
     document.title = tenant ? `${tenant.name} — Plataforma` : 'Clínica — Plataforma';
   }, [tenant]);
 
+  // Usuarios e historial recién cuando se sabe que la clínica existe: sin
+  // esto, un id inexistente disparaba dos 404 y mostraba "no se pudieron
+  // cargar los usuarios" como si fuera un error de red.
   const { data: users, isLoading, isError } = useQuery({
     queryKey: platformKeys.users(tenantId),
     queryFn: () => platformTenantsApi.users(tenantId),
-    enabled: !!tenantId,
+    enabled: !!tenant,
   });
 
   const { data: audit } = useQuery({
     queryKey: platformKeys.audit(tenantId),
     queryFn: () => platformTenantsApi.auditLog(tenantId),
-    enabled: !!tenantId,
+    enabled: !!tenant,
   });
 
   function invalidateAll() {
@@ -163,15 +173,32 @@ export default function PlatformTenantDetailPage() {
     });
   }
 
+  const volver = (
+    <Link
+      to="/platform/tenants"
+      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft className="h-4 w-4" />
+      Clínicas
+    </Link>
+  );
+
+  if (noExiste) {
+    return (
+      <div className="space-y-4">
+        {volver}
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No hay ninguna clínica con ese identificador.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <Link
-        to="/platform/tenants"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Clínicas
-      </Link>
+      {volver}
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
