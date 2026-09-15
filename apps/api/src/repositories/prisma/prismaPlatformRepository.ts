@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type UserRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import type { OperatorContext } from '../types';
 import type { UserUpdateInput, UserUpdateResult } from '../userRepository';
@@ -83,6 +83,15 @@ function toAuditDTO(row: AuditRow): PlatformAuditLogDTO {
 function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
+
+// Cómo se nombra cada rol en la descripción de la auditoría, que es texto
+// para una persona y se muestra tal cual en la UI. "ADMIN" es el término
+// que usa toda la pantalla de plataforma ("Sin ADMIN", "Crear ADMIN"); el
+// otro rol, en castellano y no como el enum crudo.
+const ROLE_EN_AUDITORIA: Record<UserRole, string> = {
+  ADMIN: 'ADMIN',
+  THERAPIST: 'fisioterapeuta',
+};
 
 export const prismaPlatformRepository: PlatformRepository = {
   // ─── Operadores ────────────────────────────────────────────────────────────
@@ -247,6 +256,19 @@ export const prismaPlatformRepository: PlatformRepository = {
     input: UserUpdateInput,
   ): Promise<UserUpdateResult> {
     return prisma.$transaction(async (tx) => {
+      // El estado previo se lee para dos cosas: distinguir "no existe" (404)
+      // de "existe pero la regla lo frenó" (409), y auditar solo lo que
+      // cambia de verdad. Un PATCH que repite el valor actual matchea el
+      // updateMany igual —count 1—, y sin esta lectura dejaría una fila que
+      // afirma "cambió el rol a ADMIN" sobre alguien que ya lo era. No es la
+      // condición de la escritura (ésa sigue en el where de abajo): es solo
+      // la referencia contra la que se decide qué hechos registrar.
+      const antes = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { role: true, isActive: true },
+      });
+      if (!antes) return { ok: false, reason: 'not_found' } as const;
+
       // tenantId explícito en el where (acá no hay guard) más la misma regla
       // de la última ADMIN que aplica la clínica sobre sí misma: el operador
       // puede nombrar una ADMIN, no dejar a la clínica sin ninguna.
@@ -257,27 +279,24 @@ export const prismaPlatformRepository: PlatformRepository = {
           ...(input.isActive !== undefined && { isActive: input.isActive }),
         },
       });
-
-      if (count === 0) {
-        const existe = await tx.user.findFirst({ where: { id: userId, tenantId }, select: { id: true } });
-        return { ok: false, reason: existe ? 'last_admin' : 'not_found' } as const;
-      }
+      if (count === 0) return { ok: false, reason: 'last_admin' } as const;
 
       const user = await tx.user.findFirstOrThrow({ where: { id: userId, tenantId }, select: userSelect });
 
-      // Una fila por campo tocado: "cambió el rol" y "cambió el estado" son
-      // dos hechos distintos aunque lleguen en el mismo PATCH.
+      // Una fila por campo que CAMBIÓ: "cambió el rol" y "cambió el estado"
+      // son dos hechos distintos aunque lleguen en el mismo PATCH, y un campo
+      // que llegó con el valor que ya tenía no es un hecho.
       const base = { operatorId: op.operatorId, tenantId, targetUserId: user.id };
-      if (input.role !== undefined) {
+      if (input.role !== undefined && input.role !== antes.role) {
         await tx.platformAuditLog.create({
           data: {
             ...base,
             action: 'USER_ROLE_CHANGED',
-            description: `Cambió el rol de ${user.email} a ${input.role}`,
+            description: `Cambió el rol de ${user.email} a ${ROLE_EN_AUDITORIA[input.role]}`,
           },
         });
       }
-      if (input.isActive !== undefined) {
+      if (input.isActive !== undefined && input.isActive !== antes.isActive) {
         await tx.platformAuditLog.create({
           data: {
             ...base,
@@ -293,7 +312,10 @@ export const prismaPlatformRepository: PlatformRepository = {
 
   // ─── Auditoría ─────────────────────────────────────────────────────────────
 
-  async listAuditLog(tenantId: string): Promise<PlatformAuditLogDTO[]> {
+  async listAuditLog(tenantId: string): Promise<PlatformAuditLogDTO[] | null> {
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenant) return null;
+
     const rows = await prisma.platformAuditLog.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
