@@ -1,5 +1,6 @@
 import { platformApi } from '@/lib/api';
 import type {
+  ChangePasswordResponse,
   PlatformAdminCreateInput,
   PlatformAuditEntry,
   PlatformLoginResponse,
@@ -22,6 +23,12 @@ export const platformAuthApi = {
   login: (email: string, password: string) =>
     platformApi.post<PlatformLoginResponse>('/api/platform/auth/login', { email, password }),
   me: () => platformApi.get<PlatformOperator>('/api/platform/auth/me'),
+  // Devuelve un token nuevo: el cambio invalida todos los anteriores.
+  changePassword: (currentPassword: string, newPassword: string) =>
+    platformApi.post<ChangePasswordResponse>('/api/platform/auth/change-password', {
+      currentPassword,
+      newPassword,
+    }),
 };
 
 export const platformTenantsApi = {

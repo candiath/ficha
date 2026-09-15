@@ -15,7 +15,7 @@ vi.mock('@/services/platform', () => ({
     users: (id: string) => ['platform', 'tenants', id, 'users'],
     audit: (id: string) => ['platform', 'tenants', id, 'audit'],
   },
-  platformAuthApi: { login: vi.fn(), me: vi.fn() },
+  platformAuthApi: { login: vi.fn(), me: vi.fn(), changePassword: vi.fn() },
   platformTenantsApi: {
     list: vi.fn(),
     create: vi.fn(),
