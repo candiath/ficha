@@ -1,6 +1,7 @@
+import jwt from 'jsonwebtoken';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getPlatformJwtSecret, signOperatorToken, verifyOperatorToken } from '../src/lib/platformJwt';
-import { verifyAccessToken } from '../src/lib/jwt';
+import { signAccessToken, verifyAccessToken } from '../src/lib/jwt';
 
 // Unit tests del secreto y la forma del token de operador, sin DB.
 const ORIGINAL = { ...process.env };
@@ -36,10 +37,30 @@ describe('forma del token de operador', () => {
     expect(typeof decoded.iat).toBe('number');
   });
 
-  // Aun con el mismo secreto, la forma ya lo rechazaría: el middleware de la
-  // clínica exige tenantId y el de plataforma exige que no lo haya.
+  // Con secretos distintos, el otro verificador lo rechaza por firma.
   it('el verificador de la clínica lo rechaza, y al revés', () => {
-    const operatorToken = signOperatorToken('op-1');
-    expect(() => verifyAccessToken(operatorToken)).toThrow();
+    expect(() => verifyAccessToken(signOperatorToken('op-1'))).toThrow();
+    expect(() => verifyOperatorToken(signAccessToken({ sub: 'u-1', tenantId: 't-1' }))).toThrow();
+  });
+
+  // Y aun con el MISMO secreto, la forma ya lo rechazaría: el verificador de
+  // la clínica exige tenantId y el de plataforma exige que no lo haya (más
+  // kind=platform). Se firma a mano con el secreto del otro lado para que la
+  // firma sea válida y lo único que falle sea la forma — es la segunda capa
+  // del aislamiento, y tiene que sostenerse sola.
+  it('con la firma del otro lado, la forma alcanza para rechazarlo en las dos direcciones', () => {
+    const operatorShapedWithClinicSecret = jwt.sign(
+      { kind: 'platform' },
+      process.env.JWT_SECRET as string,
+      { subject: 'op-1', expiresIn: '1h' },
+    );
+    expect(() => verifyAccessToken(operatorShapedWithClinicSecret)).toThrow(/formato/);
+
+    const userShapedWithPlatformSecret = jwt.sign(
+      { tenantId: 't-1' },
+      process.env.PLATFORM_JWT_SECRET as string,
+      { subject: 'u-1', expiresIn: '1h' },
+    );
+    expect(() => verifyOperatorToken(userShapedWithPlatformSecret)).toThrow(/formato/);
   });
 });
