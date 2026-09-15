@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Building2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { SLUG_PATTERN, slugify } from '@ficha/shared';
+import { SLUG_PATTERN, slugify, type PlatformTenant } from '@ficha/shared';
 import TenantStatus from '@/components/platform/TenantStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -111,6 +111,7 @@ function CreateTenantDialog({ open, onClose }: { open: boolean; onClose: () => v
 
 function CreateTenantForm({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
 
@@ -135,9 +136,18 @@ function CreateTenantForm({ onClose }: { onClose: () => void }) {
         ...(slug.trim() && { slug: slug.trim() }),
       }),
     onSuccess: (tenant) => {
+      // La respuesta ya es la clínica tal como quedó: se suma a la lista en
+      // caché antes de invalidar, así el detalle la encuentra al instante en
+      // vez de ver la lista vieja (sin ella) hasta que llegue el refetch.
+      queryClient.setQueryData<PlatformTenant[]>(platformKeys.tenants, (old) =>
+        old ? [...old, tenant] : [tenant],
+      );
       queryClient.invalidateQueries({ queryKey: platformKeys.tenants });
       toast.success(`Clínica "${tenant.name}" creada. Ahora nombrale una ADMIN.`);
       onClose();
+      // El paso siguiente es siempre crearle la ADMIN, y eso vive en el
+      // detalle: llevar ahí directo ahorra buscarla en la lista.
+      navigate(`/platform/tenants/${tenant.id}`);
     },
     onError: (err: Error) => toast.error(err.message || 'No se pudo crear la clínica'),
   });
