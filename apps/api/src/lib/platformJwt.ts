@@ -15,9 +15,13 @@ import { JWT_ALGORITHM } from './jwt';
 
 const PLATFORM_TOKEN_KIND = 'platform';
 
+// Más corto que el de la clínica (12h) y sin heredar JWT_EXPIRES_IN: una
+// sesión de operador es "entro, hago una cosa, salgo", no una jornada de
+// atención. Importa porque los dos tokens viven en el localStorage del mismo
+// origen: un XSS en la app clínica podría leer éste, que es el más poderoso
+// del sistema, y lo único que acota ese daño es cuánto dura.
 const PLATFORM_JWT_EXPIRES_IN = (process.env.PLATFORM_JWT_EXPIRES_IN ??
-  process.env.JWT_EXPIRES_IN ??
-  '12h') as jwt.SignOptions['expiresIn'];
+  '2h') as jwt.SignOptions['expiresIn'];
 
 // Misma exigencia que getJwtSecret, más una: no puede ser el mismo valor.
 // Si lo fuera, la separación quedaría reducida a la forma del token, y
