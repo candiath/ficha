@@ -69,6 +69,15 @@ export function createLoginLimiter() {
 // de una persona puede dejarla afuera del login a fuerza de fallos. Se
 // acepta porque el daño es visible y temporal, mientras que el que evita
 // —una contraseña adivinada en silencio— no lo es.
+//
+// Con el operador de plataforma esa contracara pesa más, y se acepta igual
+// a conciencia: es la cuenta que nombra ADMIN a una clínica que se quedó
+// sin ninguna y la que apaga una clínica en una emergencia, así que dejarla
+// afuera quince minutos es dejar afuera la vía de recuperación. Lo que lo
+// vuelve tolerable es que el email del operador no es público —no aparece
+// en ninguna pantalla de la clínica— y que la ventana es corta. Si alguna
+// vez hiciera falta, la salida es una lista de IPs de confianza exentas
+// del freno para /api/platform/auth, no aflojar el freno.
 export async function isAccountThrottled(email: string): Promise<boolean> {
   const since = new Date(Date.now() - LOGIN_WINDOW_MS);
   const attempts = await authRepo.recentLoginAttempts(email, since, LOGIN_MAX_ATTEMPTS);
