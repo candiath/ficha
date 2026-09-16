@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { slugify } from '../src/lib/slug';
+import { slugify } from '@ficha/shared';
 import { EmailSchema, PasswordSchema } from '../src/lib/validation';
 
 // Bootstrap de producción: el seed no crea usuarios en prod (a propósito,

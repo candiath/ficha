@@ -22,6 +22,23 @@ import { Input } from '@/components/ui/input';
 import { setToken } from '@/lib/api';
 import { authApi } from '@/services/auth';
 import { toast } from 'sonner';
+import type { ChangePasswordResponse } from '@ficha/shared';
+
+// De qué sesión es la contraseña que se cambia: contra qué endpoint se manda
+// y dónde se guarda el token nuevo. El formulario, la validación y los
+// mensajes son los mismos para la clínica y para el operador de plataforma;
+// lo único distinto es esto, así que es lo único que se inyecta. Por defecto,
+// la sesión de la clínica (AccountPage no pasa nada).
+export interface PasswordSession {
+  changePassword: (currentPassword: string, newPassword: string) => Promise<ChangePasswordResponse>;
+  setToken: (token: string) => void;
+}
+
+const clinicSession: PasswordSession = {
+  changePassword: (currentPassword, newPassword) =>
+    authApi.changePassword(currentPassword, newPassword),
+  setToken,
+};
 
 const schema = z
   .object({
@@ -43,9 +60,10 @@ type FormValues = z.infer<typeof schema>;
 interface Props {
   open: boolean;
   onClose: () => void;
+  session?: PasswordSession;
 }
 
-export default function ChangePasswordDialog({ open, onClose }: Props) {
+export default function ChangePasswordDialog({ open, onClose, session = clinicSession }: Props) {
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { currentPassword: '', newPassword: '', confirmPassword: '' },
@@ -59,11 +77,11 @@ export default function ChangePasswordDialog({ open, onClose }: Props) {
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>
-      authApi.changePassword(values.currentPassword, values.newPassword),
+      session.changePassword(values.currentPassword, values.newPassword),
     onSuccess: ({ token }) => {
       // El cambio invalidó todos los tokens anteriores, incluido el de esta
       // sesión; guardar el nuevo evita quedar deslogueado.
-      setToken(token);
+      session.setToken(token);
       toast.success('Contraseña actualizada');
       form.reset();
       onClose();
