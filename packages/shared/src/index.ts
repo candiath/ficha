@@ -85,9 +85,10 @@ export interface ChangePasswordResponse {
 
 // ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
 
-// Usuario del tenant como lo expone GET /api/users: AuthUser más los campos
-// administrativos que un ADMIN necesita ver.
-export interface TenantUser extends AuthUser {
+// Usuario del tenant como lo expone GET /api/users: la identidad de AuthUser
+// más los campos administrativos que un ADMIN necesita ver. Sin `tenant`: la
+// lista es de la propia clínica, y la API no lo manda.
+export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   isActive: boolean;
   lastLoginAt: string | null;
 }
@@ -98,6 +99,14 @@ export interface CreateUserInput {
   name: string;
   password: string;
   role?: UserRole;
+}
+
+// Payload de PATCH /api/users/:id. Al menos uno de los dos; la API responde
+// 400 a un body vacío y 409 si el cambio dejaría a la clínica sin una ADMIN
+// activa.
+export interface UpdateUserInput {
+  role?: UserRole;
+  isActive?: boolean;
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
