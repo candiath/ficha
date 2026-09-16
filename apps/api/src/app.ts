@@ -2,9 +2,11 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
+import { authenticateOperator } from './middlewares/platformAuth';
 import { errorHandler } from './middlewares/errorHandler';
 import { requireRole } from './middlewares/requireRole';
 import { getJwtSecret } from './lib/jwt';
+import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
 import appointmentsRouter from './routes/appointments';
@@ -17,6 +19,8 @@ import evaluationRouter from './routes/evaluations';
 import globalSessionsRouter from './routes/globalSessions';
 import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
+import platformRouter from './routes/platform';
+import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
 import tenantRouter from './routes/tenant';
@@ -31,6 +35,9 @@ const app = express();
 // Validar la configuración al armar la app: mejor explotar acá que descubrir
 // en el primer login que JWT_SECRET no estaba definido.
 getJwtSecret();
+// Ídem para el secreto del operador de plataforma — y además tienen que ser
+// distintos (lo verifica la propia función).
+getPlatformJwtSecret();
 
 // Detrás de un proxy (Render), la IP real del cliente viene en
 // X-Forwarded-For; sin esto el rate limiter vería la IP del proxy
@@ -98,6 +105,13 @@ app.get('/health', async (_req, res) => {
 
 // Rutas públicas: login (y el propio /health más arriba).
 app.use('/api/auth', authRouter);
+
+// Operador de plataforma (#153): su propio login y sus propias rutas, montadas
+// ANTES de authenticate y por lo tanto fuera de él y de forTenant. Un token de
+// operador no vale acá abajo (otro secreto, otra forma) ni uno de usuario vale
+// acá arriba. Solo tocan clínicas y lo administrativo de sus usuarios.
+app.use('/api/platform/auth', platformAuthRouter);
+app.use('/api/platform', authenticateOperator, platformRouter);
 
 // Todo lo que se monta debajo de esta línea requiere un token válido.
 // authenticate adjunta req.context = { tenantId, userId, role }, que las rutas

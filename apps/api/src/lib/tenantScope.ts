@@ -68,6 +68,14 @@ export const TENANT_MODELS_FUERA_DEL_GUARD = {
   // por cuenta: el email frenado puede no ser de nadie. Es una lectura
   // cross-tenant deliberada, no un olvido — no "arreglarla" scopeándola.
   LoginEvent: 'tenantId nullable; se escribe y se lee por email antes de que exista un tenant',
+
+  // La auditoría del operador de plataforma (#153). La escribe alguien que no
+  // tiene tenant —el operador no pertenece a ninguna clínica— y el tenantId
+  // es el OBJETIVO de la acción, no el dueño de la fila. Solo la toca
+  // platformRepository, que usa el prisma base y recibe el tenantId como
+  // argumento explícito. Es una tabla cross-tenant por definición: el
+  // operador ve las acciones sobre todas las clínicas.
+  PlatformAuditLog: 'la escribe el operador de plataforma, que no tiene tenant; tenantId es el objetivo',
 } as const satisfies Record<string, string>;
 
 // Operaciones cuyo `where` acota las filas afectadas: se les inyecta tenantId.

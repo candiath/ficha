@@ -58,6 +58,13 @@ model Tenant {
   // corren el motor dos veces.
   alertsRefreshedAt DateTime? @map("alerts_refreshed_at")
 
+  // Clínica desactivada por el operador de plataforma (null = activa). Es
+  // el borrado lógico de la clínica entera: todos sus usuarios pierden el
+  // acceso en el request siguiente (authenticate y el login lo miran) y
+  // nada se borra, así que reactivarla lo devuelve tal cual. Timestamp y no
+  // boolean por lo mismo que deletedAt: importa desde cuándo.
+  deactivatedAt DateTime? @map("deactivated_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -74,6 +81,7 @@ model Tenant {
   clinicalEpisodes    ClinicalEpisode[]
   loginEvents         LoginEvent[]
   appointments        Appointment[]
+  platformAuditLogs   PlatformAuditLog[]
 
   @@map("tenants")
 }
@@ -105,9 +113,79 @@ model User {
   auditLogs    AuditLog[]
   loginEvents  LoginEvent[]
   appointments Appointment[]
+  platformAuditLogs PlatformAuditLog[]
 
   @@index([tenantId])
   @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operador de plataforma (issue #153): quien crea clínicas y les delega su
+// primer ADMIN. Mantiene la plataforma; no es personal de salud de ninguna
+// clínica y NO puede leer ni escribir nada clínico.
+//
+// Tabla aparte y no un tercer valor de UserRole, a propósito: todo el
+// aislamiento entre clínicas se apoya en que ningún request cruza tenants
+// (forTenant inyecta el tenantId en cada query). Un "SYSADMIN" dentro de
+// users que "vea todas las clínicas" sería una excepción a esa regla en cada
+// repositorio, y users.tenantId es obligatorio: el operador no pertenece a
+// ninguna. Tiene su propio login, su propio hash y su propio secreto de JWT
+// (PLATFORM_JWT_SECRET): un token de operador no lo acepta authenticate, ni
+// uno de usuario el middleware de operador.
+// ─────────────────────────────────────────────────────────────────────────────
+model PlatformOperator {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  name              String?
+  isActive          Boolean   @default(true) @map("is_active")
+  lastLoginAt       DateTime? @map("last_login_at")
+  passwordChangedAt DateTime? @map("password_changed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  auditLogs   PlatformAuditLog[]
+  loginEvents LoginEvent[]
+
+  @@map("platform_operators")
+}
+
+enum PlatformAction {
+  TENANT_CREATED
+  TENANT_DEACTIVATED
+  TENANT_REACTIVATED
+  ADMIN_CREATED
+  USER_ROLE_CHANGED
+  USER_ACTIVE_CHANGED
+}
+
+// Cada acción del operador, con el operador como actor. Tabla propia y no
+// audit_logs: aquélla es la auditoría clínica de un paciente (patientId
+// obligatorio, scopeada por tenant), y esto registra quién tocó la
+// plataforma. Se escribe en la misma transacción que la acción, así que no
+// puede existir una acción sin su fila.
+//
+// Tiene columna tenantId pero queda FUERA del guard de tenant, declarado en
+// TENANT_MODELS_FUERA_DEL_GUARD: la escribe alguien que no tiene tenant, y
+// el tenantId es el objetivo de la acción, no el dueño de la fila.
+model PlatformAuditLog {
+  id           String         @id @default(uuid())
+  operatorId   String?        @map("operator_id")
+  tenantId     String         @map("tenant_id")
+  targetUserId String?        @map("target_user_id")
+  action       PlatformAction
+  description  String
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  // SetNull en los dos: el registro sobrevive a que se borre el operador o
+  // el usuario al que apuntaba; la descripción conserva los datos en texto.
+  operator   PlatformOperator? @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  tenant     Tenant            @relation(fields: [tenantId], references: [id])
+  targetUser User?             @relation(fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("platform_audit_logs")
 }
 
 // Telemetría de seguridad: cada intento de login, exitoso o fallido.
@@ -126,6 +204,10 @@ model LoginEvent {
   // un usuario aunque después cambie su email.
   tenantId  String?  @map("tenant_id")
   userId    String?  @map("user_id")
+  // El login del operador de plataforma registra sus intentos acá mismo —
+  // así el freno por cuenta, que cuenta por email, lo cubre sin código
+  // aparte— y esta columna dice de quién fue un éxito sin tenant ni usuario.
+  operatorId String? @map("operator_id")
   success   Boolean
   ip        String?
   userAgent String?  @map("user_agent")
@@ -134,8 +216,9 @@ model LoginEvent {
   // SetNull: si se borra el usuario, el evento se conserva sin actor.
   // No se pierde a quién apuntaba el intento: la columna email de arriba es
   // un dato propio de esta tabla (no viene de la relación) y queda intacta.
-  tenant Tenant? @relation(fields: [tenantId], references: [id])
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tenant   Tenant?           @relation(fields: [tenantId], references: [id])
+  user     User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  operator PlatformOperator? @relation(fields: [operatorId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([createdAt])
