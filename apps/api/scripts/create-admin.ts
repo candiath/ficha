@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { slugify } from '@ficha/shared';
 import { EmailSchema, PasswordSchema } from '../src/lib/validation';
 
 // Bootstrap de producción: el seed no crea usuarios en prod (a propósito,
@@ -17,18 +18,6 @@ import { EmailSchema, PasswordSchema } from '../src/lib/validation';
 // deducirse del nombre (ver resolverClinica).
 
 const prisma = new PrismaClient();
-
-// Slug URL-safe a partir del nombre: minúsculas, sin acentos, guiones.
-// NFD separa cada letra acentuada en letra + diacrítico, y \p{M} borra
-// esos diacríticos ("Clínica" → "clinica").
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
 
 // Cómo se resuelve la clínica, en orden:
 //

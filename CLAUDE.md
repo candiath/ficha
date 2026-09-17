@@ -30,7 +30,7 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
 | DB (Neon branch) | `production` / `br-mute-star-acmnbdh1` | `staging` / `br-quiet-bread-ac78jda0` | `development` / `br-cool-lake-ac3pow9e` |
 
-Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y su propio `JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
+Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos secretos de un mismo entorno tienen que ser distintos entre sí: la API no arranca si son iguales (ver *Operador de plataforma*). Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
 Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci` / `br-wild-paper-acsbbmws`) y su propia `CI_DATABASE_URL` (secret de GitHub).
 
@@ -110,14 +110,23 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 - Los DTOs no exponen `tenantId`; fechas como ISO string y `Decimal` como `number`.
 - Zod y la semántica HTTP se quedan en la ruta; la política de datos (borrado lógico, "global o del tenant", "no borrar un paquete usado") vive en el repositorio.
 
-Dos excepciones documentadas:
+Tres excepciones documentadas:
 
 - **`authRepository` no recibe `ctx`**: sus lecturas son las que lo construyen (login y `authenticate`), así que corren antes de que exista un tenant.
 - **`tenantRepository` filtra a mano por `id: ctx.tenantId`**: `Tenant` no está —ni debe estar— en `TENANT_SCOPED_MODELS`, porque el guard filtra inyectando una columna `tenantId` y en esa tabla el tenant *es* el `id`. Ponerla en la lista haría que buscara `tenants.tenant_id`, que no existe.
+- **`platformRepository` recibe el `tenantId` como argumento explícito** en cada operación, en vez de un `ctx`: es la capa del operador de plataforma (abajo), la única que elige el tenant a mano. Usa el `prisma` base y solo toca `tenants`, lo administrativo de `users` y `platform_audit_logs`.
 
-Hubo una tercera —`techniqueRepository`— pero los catálogos de técnicas se eliminaron del modelo el 01/09/2026 y con ellos el repositorio.
+Hubo otra —`techniqueRepository`— pero los catálogos de técnicas se eliminaron del modelo el 01/09/2026 y con ellos el repositorio.
 
-**Todo modelo con columna `tenantId` tiene que estar en `TENANT_SCOPED_MODELS` o en `TENANT_MODELS_FUERA_DEL_GUARD`** (hoy solo `LoginEvent`, con el motivo al lado). Olvidarse de clasificar un modelo nuevo es el único bug del guard que no falla visiblemente —devuelve filas de todas las clínicas sin un solo error—, así que `tests/tenantScopeCoverage.test.ts` compara el schema contra las dos listas y rompe el CI si aparece uno sin clasificar.
+**Todo modelo con columna `tenantId` tiene que estar en `TENANT_SCOPED_MODELS` o en `TENANT_MODELS_FUERA_DEL_GUARD`** (hoy `LoginEvent` y `PlatformAuditLog`, con el motivo al lado). Olvidarse de clasificar un modelo nuevo es el único bug del guard que no falla visiblemente —devuelve filas de todas las clínicas sin un solo error—, así que `tests/tenantScopeCoverage.test.ts` compara el schema contra las dos listas y rompe el CI si aparece uno sin clasificar.
+
+### Operador de plataforma
+
+Quien crea clínicas y les nombra su primera ADMIN (issue #153). **No es un tercer valor de `UserRole`**: es la tabla `platform_operators`, con su propio login (`/api/platform/auth/*`), su propio secreto (`PLATFORM_JWT_SECRET`, obligatorio y distinto de `JWT_SECRET`) y sus propias rutas (`/api/platform/*`), montadas en `app.ts` **antes** de `authenticate` y por lo tanto fuera de él y de `forTenant`. Un token de operador es inválido para la API clínica por firma (otro secreto) y por forma (sin `tenantId`); uno de usuario, inválido para la plataforma por lo mismo al revés. `tests/platformIsolation.test.ts` prueba las dos direcciones con tokens fabricados.
+
+Lo que puede: listar y crear clínicas, desactivarlas (`tenants.deactivated_at`: todos sus usuarios reciben 401 en el request siguiente, porque `findForAuth` lo exige null), crear el ADMIN de una clínica y cambiar rol o estado de sus usuarios —con la misma regla de "la clínica conserva una ADMIN activa" que aplica `userRepository` (`whereConservaAdmin`)—. Lo que no puede: nada clínico. Cada acción deja una fila en `platform_audit_logs` **en la misma transacción**.
+
+El bootstrap es `npm run create:operator -w apps/api` con `OPERATOR_EMAIL` y `OPERATOR_PASSWORD`: se corre **una vez por entorno**, y a partir de ahí todo pasa por la UI de `/platform`. Es lo que reemplaza a `create-admin.ts`, que ya no debería hacer falta. En local el seed crea `operador@ficha.dev` / `password123`.
 
 ### Borrado de pacientes
 
@@ -133,7 +142,7 @@ La evaluación inicial guarda varias columnas `Json?` (grilla de familias de pos
 
 Lo guardado es sparse: una celda vacía no se guarda, una fila o tabla que queda sin celdas se borra, y una grilla sin nada se guarda como `NULL`. `setPostureCell` hace esa poda; no armar el objeto a mano.
 
-Éste es el único módulo de `packages/shared` con **valores de runtime** (el resto son `import type`). Por eso `apps/web/vite.config.ts` y `vitest.config.ts` aliasan `@ficha/shared` al código fuente —el paquete compila a CommonJS, que un browser no puede cargar— y el job `test` del CI buildea `packages/shared` antes de correr los tests de la API. Render ya lo hacía vía `build:api`.
+Éste es uno de los dos módulos de `packages/shared` con **valores de runtime** (el resto son `import type`); el otro es `slug.ts`, con `slugify` y `SLUG_PATTERN`, para que la API derive el slug de una clínica con exactamente la misma función con la que la web lo previsualiza. Por eso `apps/web/vite.config.ts` y `vitest.config.ts` aliasan `@ficha/shared` al código fuente —el paquete compila a CommonJS, que un browser no puede cargar— y el job `test` del CI buildea `packages/shared` antes de correr los tests de la API. Render ya lo hacía vía `build:api`. Si se agrega un tercero, esta lista se actualiza: un valor de runtime nuevo en un paquete que casi todos importan como tipos es fácil de perder de vista.
 
 Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()`.
 
