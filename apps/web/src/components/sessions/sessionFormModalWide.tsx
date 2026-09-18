@@ -331,7 +331,10 @@ export default function SessionFormModalWide({
 
   // Borrado de una sesión cargada por error. Invalida lo mismo que el guardado
   // —listados del paciente, episodios, listado global y cobros— porque el
-  // borrado también se lleva el cobro pendiente de la sesión.
+  // borrado también se lleva el cobro pendiente de la sesión. Y la agenda: si
+  // la sesión salió de un turno, la API lo soltó y el turno vuelve a ofrecer
+  // "registrar la sesión". Al editar no se sabe si hubo turno, así que se
+  // invalida siempre.
   const deleteMutation = useMutation({
     mutationFn: () => {
       if (!session) throw new Error('No hay sesión que eliminar')
@@ -348,6 +351,7 @@ export default function SessionFormModalWide({
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
       queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
       toast.success('Sesión eliminada')
       setShowDeleteConfirm(false)
       onOpenChange(false)
