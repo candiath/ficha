@@ -314,7 +314,22 @@ export const prismaSessionRepository: SessionRepository = {
         data: { deletedAt: new Date() },
       });
 
-      if (count === 1) return 'deleted';
+      if (count === 1) {
+        // 3. Soltar el turno del que salió la sesión, si hubo uno. Sin esto
+        //    el turno quedaría apuntando a una sesión que ya no se ve: la
+        //    agenda diría para siempre "la sesión ya está registrada" y el
+        //    POST con ese appointmentId daría 409 por el sessionId ocupado.
+        //    Se limpia solo el vínculo; el estado no se toca, porque que la
+        //    sesión se haya cargado mal no dice nada sobre si el paciente
+        //    vino (COMPLETED sin sessionId es un estado válido: "vino, sin
+        //    sesión registrada"). Si en realidad no vino, la agenda deja
+        //    marcarlo NO_SHOW igual que siempre.
+        await tx.appointment.updateMany({
+          where: { sessionId: id, tenantId: ctx.tenantId },
+          data: { sessionId: null },
+        });
+        return 'deleted';
+      }
 
       // count 0 son dos casos distintos para el cliente: la sesión existe
       // pero está cobrada (409), o no existe / ya estaba borrada (404).
