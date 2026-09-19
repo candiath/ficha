@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { IdSchema } from '../lib/validation';
-import { sessionDateField } from '../lib/sessionDate';
+import { sessionDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
   auditLogRepo,

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { DAY_MS } from '../src/lib/sessionDate';
+import { DAY_MS } from '../src/lib/clinicalDate';
 import { createTestClinic, signTestToken, sleep, waitFor, type TestClinic } from './helpers';
 
 // El CRUD de sesiones por HTTP: los caminos que las otras suites no cubren.
