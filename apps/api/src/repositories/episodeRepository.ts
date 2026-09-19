@@ -38,6 +38,13 @@ export interface EpisodeUpdateInput {
   closedAt?: Date | null;
 }
 
+// Tres salidas, así que resultado discriminado (convención del repo, misma
+// forma que PaymentUpdateResult): existe y se escribió, no existe, o existe
+// pero la fecha de cierre es anterior a la apertura.
+export type EpisodeUpdateResult =
+  | { ok: true; episode: EpisodeDTO }
+  | { ok: false; reason: 'not_found' | 'closed_before_opened' };
+
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 // Los episodios viven anidados bajo un paciente: todo método pide patientId
@@ -49,13 +56,18 @@ export interface EpisodeRepository {
   /** true si el episodio existe y es del paciente (y del tenant). */
   exists(ctx: TenantContext, patientId: string, id: string): Promise<boolean>;
   create(ctx: TenantContext, patientId: string, input: EpisodeCreateInput): Promise<EpisodeDTO>;
-  /** null si el episodio no existe, es de otro paciente o de otro tenant. */
+  /**
+   * `not_found` si el episodio no existe, es de otro paciente o de otro tenant;
+   * `closed_before_opened` si la fecha de cierre que se quiere escribir es
+   * anterior a la apertura guardada. Las dos se deciden en la misma query que
+   * escribe: la comparación contra openedAt viaja en el where.
+   */
   update(
     ctx: TenantContext,
     patientId: string,
     id: string,
     input: EpisodeUpdateInput,
-  ): Promise<EpisodeDTO | null>;
+  ): Promise<EpisodeUpdateResult>;
   /** true si TODOS los ids son episodios del paciente (dedupe interno). */
   allBelongToPatient(
     ctx: TenantContext,
