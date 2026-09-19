@@ -36,7 +36,7 @@ import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
 import { PostureFamiliesTables } from '@/components/patients/PostureFamiliesTables';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
-import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
+import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
 import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
 import { toast } from 'sonner';
