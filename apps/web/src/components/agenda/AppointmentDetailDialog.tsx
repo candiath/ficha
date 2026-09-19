@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import SessionFormModalWide from '@/components/sessions/sessionFormModalWide';
+import SessionFormModalWide from '@/components/sessions/SessionFormModalWide';
 import { formatLongDate } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS, APPOINTMENT_STATUS_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';

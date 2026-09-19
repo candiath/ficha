@@ -94,7 +94,7 @@ router.get('/tenants/:tenantId/users', async (req, res) => {
 });
 
 // POST /api/platform/tenants/:tenantId/users — el primer ADMIN de la clínica
-// (o uno más). Reemplaza al script create-admin.
+// (o uno más). Es lo que antes hacía el script create-admin, ya borrado.
 router.post('/tenants/:tenantId/users', async (req, res) => {
   const { email, name, password } = CreateAdminSchema.parse(req.body);
 

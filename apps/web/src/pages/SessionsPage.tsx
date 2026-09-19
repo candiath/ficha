@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import SessionFormDialog from '@/components/sessions/sessionFormModalWide';
+import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
 import { globalSessionApi, globalSessionKeys } from '@/services/globalSessions';
 import type { GlobalSession } from '@/types/globalSession';

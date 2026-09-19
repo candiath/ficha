@@ -15,7 +15,6 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "create:admin": "ts-node --transpile-only scripts/create-admin.ts",
     "create:operator": "ts-node --transpile-only scripts/create-operator.ts"
   },
   "prisma": {

@@ -96,7 +96,7 @@ Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de 
 
 ## Base de datos
 
-Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). **No usar Docker**: `docker-compose.yml` y los scripts `db:up`/`db:down`/`db:reset` son vestigiales. `prisma migrate dev` corre directo contra Neon.
+Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). No hay base local ni Docker: `prisma migrate dev` corre directo contra Neon.
 
 ### Acceso a datos: patrón repositorio
 
@@ -126,7 +126,7 @@ Quien crea clínicas y les nombra su primera ADMIN (issue #153). **No es un terc
 
 Lo que puede: listar y crear clínicas, desactivarlas (`tenants.deactivated_at`: todos sus usuarios reciben 401 en el request siguiente, porque `findForAuth` lo exige null), crear el ADMIN de una clínica y cambiar rol o estado de sus usuarios —con la misma regla de "la clínica conserva una ADMIN activa" que aplica `userRepository` (`whereConservaAdmin`)—. Lo que no puede: nada clínico. Cada acción deja una fila en `platform_audit_logs` **en la misma transacción**.
 
-El bootstrap es `npm run create:operator -w apps/api` con `OPERATOR_EMAIL` y `OPERATOR_PASSWORD`: se corre **una vez por entorno**, y a partir de ahí todo pasa por la UI de `/platform`. Es lo que reemplaza a `create-admin.ts`, que ya no debería hacer falta. En local el seed crea `operador@ficha.dev` / `password123`.
+El bootstrap es `npm run create:operator -w apps/api` con `OPERATOR_EMAIL` y `OPERATOR_PASSWORD`: se corre **una vez por entorno**, y a partir de ahí todo pasa por la UI de `/platform`. Reemplazó a `create-admin.ts`, que se borró en #79. En local el seed crea `operador@ficha.dev` / `password123`.
 
 ### Borrado de pacientes
 
