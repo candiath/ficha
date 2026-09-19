@@ -31,8 +31,8 @@ npm run db:seed         # tenant demo, admin@ficha.dev y operador@ficha.dev / pa
 npm run dev             # api en :3001, web en :5173
 ```
 
-**La base corre en Neon, no en Docker.** El `docker-compose.yml` y los scripts
-`db:up` / `db:down` / `db:reset` son vestigiales.
+**La base corre en Neon, no en Docker.** No hay base local: `db:migrate` y
+`db:seed` pegan contra la branch `development` del proyecto de Neon.
 
 ## Comandos
 

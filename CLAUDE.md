@@ -96,7 +96,7 @@ Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de 
 
 ## Base de datos
 
-Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). **No usar Docker**: `docker-compose.yml` y los scripts `db:up`/`db:down`/`db:reset` son vestigiales. `prisma migrate dev` corre directo contra Neon.
+Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). No hay base local ni Docker: `prisma migrate dev` corre directo contra Neon.
 
 ### Acceso a datos: patrón repositorio
 
