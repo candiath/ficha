@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { DAY_MS } from '../src/lib/sessionDate';
+import { DAY_MS } from '../src/lib/clinicalDate';
 import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
 
 // GET /api/sessions es la vista de "todas las sesiones" de la clínica: sin un
