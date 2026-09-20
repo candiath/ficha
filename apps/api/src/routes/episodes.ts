@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { clinicalDateField } from '../lib/clinicalDate';
+import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, patientRepo } from '../repositories';
 
 type Params = { patientId: string; episodeId: string };
@@ -15,7 +16,7 @@ function cierra(status: string | undefined): boolean {
 }
 
 const EpisodeCreateSchema = z.object({
-  mainComplaint: z.string().optional().nullable(),
+  mainComplaint: OptionalTextSchema,
   openedAt: clinicalDateField('La fecha de apertura').optional(),
 });
 
@@ -27,7 +28,7 @@ const EpisodeCreateSchema = z.object({
 const EpisodeUpdateSchema = z
   .object({
     status: z.enum(['ACTIVE', 'DISCHARGED', 'ABANDONED']).optional(),
-    mainComplaint: z.string().optional().nullable(),
+    mainComplaint: OptionalTextSchema,
     closedAt: clinicalDateField('La fecha de cierre').nullable().optional(),
   })
   .superRefine((data, ctx) => {

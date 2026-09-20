@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { EmailSchema, PasswordSchema } from '../lib/validation';
+import { EmailSchema, PasswordSchema, requiredText } from '../lib/validation';
 import { userRepo } from '../repositories';
 
 // Gestión de usuarios de la clínica. Se monta detrás de authenticate +
@@ -16,7 +16,7 @@ const RoleSchema = z.enum(['ADMIN', 'THERAPIST']);
 
 const CreateUserSchema = z.object({
   email: EmailSchema,
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
   password: PasswordSchema,
   role: RoleSchema.default('THERAPIST'),
 });

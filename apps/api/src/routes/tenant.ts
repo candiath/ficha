@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { optionalText, requiredText } from '../lib/validation';
 import { requireRole } from '../middlewares/requireRole';
 import { tenantRepo } from '../repositories';
 
@@ -27,16 +28,9 @@ function isValidTimeZone(tz: string): boolean {
   }
 }
 
-// Un string vacío desde un formulario significa "sin dato", no "guardá una
-// cadena vacía": se normaliza a null para que la app tenga una sola forma de
-// preguntar si el campo está cargado.
-const OptionalText = z
-  .string()
-  .trim()
-  .max(200)
-  .nullable()
-  .optional()
-  .transform((v) => (v === '' ? null : v));
+// La regla de "un string vacío es sin dato" nació acá y hoy vive en
+// lib/validation.ts, igual para toda la API.
+const OptionalText = optionalText({ max: 200 });
 
 // CUIT argentino: 11 dígitos. Se valida el formato y se normaliza a
 // XX-XXXXXXXX-X para que se muestre igual sin importar cómo se haya tipeado.
@@ -61,7 +55,7 @@ const TenantUpdateSchema = z
   .object({
     // El slug no está: es un identificador, no un dato de contacto. Cambiarlo
     // no debería ser un renombre casual desde un formulario.
-    name: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').optional(),
+    name: requiredText(2, 'El nombre debe tener al menos 2 caracteres').optional(),
     email: z
       .union([z.literal(''), z.email('Email inválido')])
       .nullable()
