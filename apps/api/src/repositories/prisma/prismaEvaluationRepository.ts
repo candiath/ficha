@@ -45,18 +45,45 @@ function toDTO(row: EvaluationRow): EvaluationDTO {
   };
 }
 
-// Un Json de Prisma no acepta null de JS a secas: JsonNull es el null SQL.
-// El ?? también convierte `undefined` (campo ausente del PUT) en JsonNull:
-// el PUT es reemplazo completo, no merge.
+const JSON_FIELDS = [
+  'retractionMap',
+  'familyPainAppearance',
+  'familyPainDisappearance',
+  'postureFamilies',
+] as const satisfies readonly (keyof EvaluationUpsertInput)[];
+
+// Los campos que no son JSON viajan tal cual: son escalares que Prisma ya sabe
+// escribir, y los ausentes no están en el objeto (Zod no inventa la clave), así
+// que el update no los toca. Las cuatro columnas JSON se sacan de acá porque
+// las arma jsonFields con su propio null.
+type ScalarFields = Omit<EvaluationUpsertInput, (typeof JSON_FIELDS)[number]>;
+
+function scalarFields(input: EvaluationUpsertInput): ScalarFields {
+  const scalars: EvaluationUpsertInput = { ...input };
+  for (const field of JSON_FIELDS) delete scalars[field];
+  return scalars;
+}
+
+// Las cuatro columnas JSON, con la misma regla que el resto de la API: el
+// campo que no viene no se toca, el que viene en null se borra.
+//
+// Dos cosas obligan a armarlas a mano en vez de dejarlas en el spread del
+// input. Una, que un Json de Prisma no acepta el null de JS: el null SQL se
+// escribe con JsonNull. La otra, que la clave tiene que quedar AUSENTE cuando
+// el campo no vino — antes se completaba con `?? JsonNull`, y así un PUT que
+// no mencionaba la grilla la borraba (#161).
 function jsonFields(input: EvaluationUpsertInput) {
-  return {
-    retractionMap: (input.retractionMap as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-    familyPainAppearance:
-      (input.familyPainAppearance as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-    familyPainDisappearance:
-      (input.familyPainDisappearance as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-    postureFamilies: input.postureFamilies ?? Prisma.JsonNull,
-  };
+  const data: Record<string, Prisma.InputJsonValue | typeof Prisma.JsonNull> = {};
+
+  for (const field of JSON_FIELDS) {
+    const value = input[field];
+    // undefined es "no vino": un body JSON no puede transportar undefined, así
+    // que no hay forma de que signifique otra cosa.
+    if (value === undefined) continue;
+    data[field] = value === null ? Prisma.JsonNull : value;
+  }
+
+  return data;
 }
 
 export const prismaEvaluationRepository: EvaluationRepository = {
@@ -90,13 +117,13 @@ export const prismaEvaluationRepository: EvaluationRepository = {
     const row = await db.initialEvaluation.upsert({
       where: { episodeId },
       create: {
-        ...input,
+        ...scalarFields(input),
         ...jsonFields(input),
         patientId,
         episodeId,
       },
       update: {
-        ...input,
+        ...scalarFields(input),
         ...jsonFields(input),
       },
       select: evaluationSelect,
