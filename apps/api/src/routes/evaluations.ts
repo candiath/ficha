@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { familyPainSchema, postureFamiliesSchema } from '@ficha/shared';
 import { z } from 'zod';
+import { OptionalTextSchema } from '../lib/validation';
 import { auditLogRepo, episodeRepo, evaluationRepo } from '../repositories';
 
 type Params = { patientId: string; episodeId: string };
@@ -11,19 +12,19 @@ type Params = { patientId: string; episodeId: string };
 const router = Router({ mergeParams: true });
 
 const EvaluationSchema = z.object({
-  reasonForConsultation: z.string().optional().nullable(),
-  medicalHistory: z.string().optional().nullable(),
-  globalPosture: z.string().optional().nullable(),
-  breathingPattern: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-  morphotype: z.string().optional().nullable(),
+  reasonForConsultation: OptionalTextSchema,
+  medicalHistory: OptionalTextSchema,
+  globalPosture: OptionalTextSchema,
+  breathingPattern: OptionalTextSchema,
+  notes: OptionalTextSchema,
+  morphotype: OptionalTextSchema,
   retractionMap: z.unknown().optional().nullable(),
-  footEvaluation: z.string().optional().nullable(),
-  breathingPatternDetail: z.string().optional().nullable(),
-  flexibilityNotes: z.string().optional().nullable(),
-  physicalActivity: z.string().optional().nullable(),
-  painAppearanceMoment: z.string().optional().nullable(),
-  painFrequency: z.string().optional().nullable(),
+  footEvaluation: OptionalTextSchema,
+  breathingPatternDetail: OptionalTextSchema,
+  flexibilityNotes: OptionalTextSchema,
+  physicalActivity: OptionalTextSchema,
+  painAppearanceMoment: OptionalTextSchema,
+  painFrequency: OptionalTextSchema,
   // Los tres campos de la sección de familias se validan de verdad: su forma
   // vive en @ficha/shared, que es también la que dibuja la grilla en la web.
   familyPainAppearance: familyPainSchema.optional().nullable(),

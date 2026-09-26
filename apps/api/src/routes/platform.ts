@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { SLUG_PATTERN, slugify } from '@ficha/shared';
-import { EmailSchema, PasswordSchema } from '../lib/validation';
+import { EmailSchema, PasswordSchema, requiredText } from '../lib/validation';
 
 // Rutas del operador de plataforma (issue #153). Se montan detrás de
 // authenticateOperator y FUERA de authenticate: acá no hay TenantContext, y
@@ -13,7 +13,7 @@ import { EmailSchema, PasswordSchema } from '../lib/validation';
 const router = Router();
 
 const CreateTenantSchema = z.object({
-  name: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
   // Opcional: por defecto sale del nombre. Si viene a mano tiene que tener
   // la misma forma, porque es lo que va a aparecer en URLs.
   slug: z
@@ -31,7 +31,7 @@ const SetTenantActiveSchema = z.object({
 // crea la clínica desde su propia pantalla.
 const CreateAdminSchema = z.object({
   email: EmailSchema,
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
   password: PasswordSchema,
 });
 

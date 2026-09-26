@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema } from '../lib/validation';
+import { IdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
@@ -43,12 +43,12 @@ const SessionFieldsSchema = z.object({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
   episodeIds: episodeIdsField,
-  preSesionState: z.string().optional().nullable(),
-  reEvaluationNotes: z.string().optional().nullable(),
-  patientResponse: z.string().optional().nullable(),
+  preSesionState: OptionalTextSchema,
+  reEvaluationNotes: OptionalTextSchema,
+  patientResponse: OptionalTextSchema,
   painScaleBefore: z.number().int().min(0).max(10).optional().nullable(),
   painScaleAfter: z.number().int().min(0).max(10).optional().nullable(),
-  observations: z.string().optional().nullable(),
+  observations: OptionalTextSchema,
 });
 
 // El POST acepta además el cobro de la sesión para crear todo en una sola

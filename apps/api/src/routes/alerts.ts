@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema } from '../lib/validation';
+import { IdSchema, requiredText } from '../lib/validation';
 import { refreshAlerts } from '../lib/alertRules';
 import { clinicalAlertRepo, patientRepo } from '../repositories';
 
@@ -9,7 +9,7 @@ const router = Router();
 const AlertCreateSchema = z.object({
   patientId: IdSchema,
   type: z.enum(['FOLLOW_UP', 'NO_SHOW', 'PAYMENT', 'CUSTOM']),
-  message: z.string().min(1),
+  message: requiredText(1, 'La alerta necesita un mensaje'),
 });
 
 const AlertFiltersSchema = z.object({
