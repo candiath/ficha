@@ -153,4 +153,18 @@ Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()
 - La API envuelve respuestas en `{ data: ... }`; todo `/api/*` salvo `/api/auth/*` y `/health` exige `Authorization: Bearer <token>` (401 → `{"error":"No autenticado"}`).
 - CI (`.github/workflows/test.yml`): jobs paralelos para API (con migraciones) y web.
 
+### Un solo vacío, y lo decide la API
+
+Hay una sola forma de decir "este campo no tiene dato" y es `null`. Como un formulario web no tiene `null` sino `""`, la API acepta las dos y normaliza; el front manda lo que el control tiene en la mano y no traduce nada.
+
+| Lo que llega | Qué pasa |
+| --- | --- |
+| el campo no viene | no se toca |
+| `""` o `"   "` | `null` |
+| `null` | `null` |
+
+Los schemas están en `apps/api/src/lib/validation.ts` (`OptionalTextSchema`, `OptionalDateSchema`, `OptionalDateTimeSchema`, `OptionalIdSchema`, `optionalEnum`, `optionalText({ max })`) y las rutas los usan en vez de repetir la regla. El texto obligatorio va con `requiredText(min, mensaje)`, que **trimea antes de medir**: sin eso, un nombre de tres espacios pasa `min(2)` y queda una ficha con un paciente sin nombre.
+
+Esto vale también para las columnas JSON de la evaluación inicial: `jsonFields()` omite la clave del campo que no vino, en vez de completarla con `JsonNull`. Lo contrario —lo que hacía hasta #161— convertía cada PUT parcial en un borrado silencioso de la grilla de posturas.
+
 Para levantar y verificar la app end-to-end (puertos, seed, gotchas de Windows): skill `verify` en `.claude/skills/verify/SKILL.md`.
