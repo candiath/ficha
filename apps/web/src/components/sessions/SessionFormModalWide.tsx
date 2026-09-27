@@ -295,10 +295,10 @@ export default function SessionFormModalWide({
         // turno todavía pidiendo que se registre.
         ...(appointment ? { appointmentId: appointment.id } : {}),
         payment: {
-          packageId: values.packageId || null,
+          packageId: values.packageId,
           baseAmount: parseFloat(values.baseAmount ?? '0'),
           discount: values.discount ? parseFloat(values.discount) : 0,
-          notes: values.paymentNotes || null,
+          notes: values.paymentNotes,
         },
       })
     },

@@ -132,8 +132,8 @@ function CreateTenantForm({ onClose }: { onClose: () => void }) {
   const mutation = useMutation({
     mutationFn: () =>
       platformTenantsApi.create({
-        name: name.trim(),
-        ...(slug.trim() && { slug: slug.trim() }),
+        name,
+        slug,
       }),
     onSuccess: (tenant) => {
       // La respuesta ya es la clínica tal como quedó: se suma a la lista en

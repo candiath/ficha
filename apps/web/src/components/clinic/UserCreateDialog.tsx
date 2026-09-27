@@ -35,7 +35,7 @@ import { userKeys, usersApi } from '@/services/users';
 // Los mismos mínimos que la API (EmailSchema / PasswordSchema / name min 2):
 // avisados antes de mandar, pero allá se validan igual.
 const schema = z.object({
-  name: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  name: z.string().refine((v) => v.trim().length >= 2, 'El nombre debe tener al menos 2 caracteres'),
   email: z.email('Ingresá un email válido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   role: z.enum(['ADMIN', 'THERAPIST']),

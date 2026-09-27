@@ -403,8 +403,8 @@ function CreateAdminForm({
   const mutation = useMutation({
     mutationFn: () =>
       platformTenantsApi.createAdmin(tenantId, {
-        name: name.trim(),
-        email: email.trim(),
+        name,
+        email,
         password,
       }),
     onSuccess: (user) => {
