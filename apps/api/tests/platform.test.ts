@@ -159,6 +159,18 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       });
     });
 
+    it('un slug vacío o de espacios cuenta como no venir: sale del nombre', async () => {
+      const res = await asOperator(request(app).post(`${PLATFORM}/tenants`)).send({
+        name: `  Clínica Sin Slug ${op.operator.id.slice(0, 8)} `,
+        slug: '   ',
+      });
+
+      expect(res.status).toBe(201);
+      createdTenantIds.push(res.body.data.id);
+      expect(res.body.data.name).toBe(`Clínica Sin Slug ${op.operator.id.slice(0, 8)}`);
+      expect(res.body.data.slug).toBe(`clinica-sin-slug-${op.operator.id.slice(0, 8)}`);
+    });
+
     it('un slug repetido responde 409', async () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants`)).send({
         name: 'Otro nombre',

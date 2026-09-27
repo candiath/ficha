@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { SLUG_PATTERN, slugify } from '@ficha/shared';
-import { EmailSchema, PasswordSchema, requiredText } from '../lib/validation';
+import { EmailSchema, OptionalTextSchema, PasswordSchema, requiredText } from '../lib/validation';
 
 // Rutas del operador de plataforma (issue #153). Se montan detrás de
 // authenticateOperator y FUERA de authenticate: acá no hay TenantContext, y
@@ -14,13 +14,12 @@ const router = Router();
 
 const CreateTenantSchema = z.object({
   name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
-  // Opcional: por defecto sale del nombre. Si viene a mano tiene que tener
-  // la misma forma, porque es lo que va a aparecer en URLs.
-  slug: z
-    .string()
-    .trim()
-    .regex(SLUG_PATTERN, 'El slug solo admite minúsculas, números y guiones simples')
-    .optional(),
+  // Opcional: por defecto sale del nombre, y "" cuenta como no venir. Si viene
+  // a mano tiene que tener la misma forma, porque es lo que va a aparecer en
+  // URLs.
+  slug: OptionalTextSchema.refine((v) => v == null || SLUG_PATTERN.test(v), {
+    error: 'El slug solo admite minúsculas, números y guiones simples',
+  }),
 });
 
 const SetTenantActiveSchema = z.object({

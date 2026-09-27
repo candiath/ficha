@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema, OptionalTextSchema } from '../lib/validation';
+import { IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
@@ -66,10 +66,10 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
   appointmentId: IdSchema.optional().nullable(),
   payment: z
     .object({
-      packageId: IdSchema.optional().nullable(),
+      packageId: OptionalIdSchema,
       baseAmount: z.number().nonnegative(),
       discount: z.number().nonnegative().default(0),
-      notes: z.string().optional().nullable(),
+      notes: OptionalTextSchema,
     })
     // Mismo invariante que POST /api/payments: un descuento mayor al monto
     // base deja finalAmount negativo, o sea un cobro que devuelve plata. Va
