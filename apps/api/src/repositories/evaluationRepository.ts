@@ -34,8 +34,13 @@ export interface EvaluationDTO {
   updatedAt: string;
 }
 
-// El PUT es un reemplazo completo: un campo ausente se guarda como null
-// (los Json con JsonNull), no se preserva el valor anterior.
+// El PUT actualiza lo que viene y deja el resto como estaba, con la regla que
+// vale en toda la API (lib/validation.ts): el campo ausente no se toca, el que
+// viene en null —o en "" desde un formulario— se borra.
+//
+// Antes era mitad y mitad: los escalares ausentes se preservaban y los cuatro
+// Json ausentes se borraban, así que el mismo request conservaba `notes` y
+// vaciaba la grilla de posturas (#161).
 export interface EvaluationUpsertInput {
   reasonForConsultation?: string | null;
   medicalHistory?: string | null;

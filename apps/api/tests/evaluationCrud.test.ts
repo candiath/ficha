@@ -150,17 +150,10 @@ describe('CRUD de la evaluación inicial', () => {
     expect(res.body.data.evaScale).toBeNull();
   });
 
-  // Este test documenta una inconsistencia, no un invariante querido: el port
-  // dice "el PUT es reemplazo completo, un campo ausente se guarda como null",
-  // y eso hoy vale sólo para las cuatro columnas JSON —jsonFields() las fuerza
-  // a JsonNull—. Un campo escalar ausente ni siquiera llega al update, porque
-  // Zod no lo pone en el objeto parseado, así que conserva el valor anterior.
-  // O sea que el mismo request borra postureFamilies y preserva notes.
-  //
-  // No se arregla acá: cuál de las dos semánticas es la correcta es una
-  // decisión de diseño (#161), y la web manda el formulario entero, así que
-  // hoy no se nota. Si se unifica, este test cambia a propósito.
-  it('hoy el campo ausente se comporta distinto según sea escalar o JSON', async () => {
+  // El caso de #161: hasta que se arregló, un campo ausente se comportaba
+  // distinto según su tipo —el escalar sobrevivía y el JSON se borraba—, así
+  // que este mismo request conservaba `notes` y vaciaba la grilla de posturas.
+  it('el campo ausente no se toca, sea escalar o JSON', async () => {
     const propio = await nuevoEpisodio();
     await auth(request(app).put(url(propio.id))).send({
       notes: 'Primera consulta',
@@ -173,10 +166,35 @@ describe('CRUD de la evaluación inicial', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.reasonForConsultation).toBe('Dolor dorsal');
-    // El JSON ausente se borra…
-    expect(res.body.data.postureFamilies).toBeNull();
-    // …y el escalar ausente sobrevive.
     expect(res.body.data.notes).toBe('Primera consulta');
+    expect(res.body.data.postureFamilies).toEqual({ tabla1: { '1': { A: 'x' } } });
+  });
+
+  it('una columna JSON se borra mandándola en null, como cualquier otro campo', async () => {
+    const propio = await nuevoEpisodio();
+    await auth(request(app).put(url(propio.id))).send({
+      postureFamilies: { tabla1: { '1': { A: 'x' } } },
+      familyPainAppearance: ['1', '3'],
+    });
+
+    const res = await auth(request(app).put(url(propio.id))).send({
+      postureFamilies: null,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.postureFamilies).toBeNull();
+    // Y la que no viajó en el body sigue donde estaba.
+    expect(res.body.data.familyPainAppearance).toEqual(['1', '3']);
+  });
+
+  it('un texto se borra con "" igual que con null, porque lo normaliza la API', async () => {
+    const propio = await nuevoEpisodio();
+    await auth(request(app).put(url(propio.id))).send({ notes: 'Primera consulta' });
+
+    const res = await auth(request(app).put(url(propio.id))).send({ notes: '   ' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.notes).toBeNull();
   });
 
   it('el GET devuelve lo último que se guardó', async () => {
