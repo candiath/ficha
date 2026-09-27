@@ -100,7 +100,7 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
         baseAmount: base,
         discount: disc,
         status,
-        notes: notes.trim() || null,
+        notes,
         // Al salir de PAGADO se limpian método y fecha de cobro: si el cobro
         // se marcó por error, no puede quedar rastro de una plata que no
         // entró. Al entrar en PAGADO, la ruta pone paidAt sola si no la

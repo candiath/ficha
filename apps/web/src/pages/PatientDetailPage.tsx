@@ -56,18 +56,18 @@ import type { Session } from '@/types/session';
 
 const evalSchema = z.object({
   occupation: z.string().optional().or(z.literal('')),
-  reasonForConsultation: z.string().optional().or(z.literal('')),
-  medicalHistory: z.string().optional().or(z.literal('')),
-  globalPosture: z.string().optional().or(z.literal('')),
-  breathingPattern: z.string().optional().or(z.literal('')),
-  notes: z.string().optional().or(z.literal('')),
-  morphotype: z.string().optional().or(z.literal('')),
-  footEvaluation: z.string().optional().or(z.literal('')),
-  breathingPatternDetail: z.string().optional().or(z.literal('')),
-  flexibilityNotes: z.string().optional().or(z.literal('')),
-  physicalActivity: z.string().optional().or(z.literal('')),
-  painAppearanceMoment: z.string().optional().or(z.literal('')),
-  painFrequency: z.string().optional().or(z.literal('')),
+  reasonForConsultation: z.string(),
+  medicalHistory: z.string(),
+  globalPosture: z.string(),
+  breathingPattern: z.string(),
+  notes: z.string(),
+  morphotype: z.string(),
+  footEvaluation: z.string(),
+  breathingPatternDetail: z.string(),
+  flexibilityNotes: z.string(),
+  physicalActivity: z.string(),
+  painAppearanceMoment: z.string(),
+  painFrequency: z.string(),
   // Los tres usan el mismo schema con el que valida la API: si el formulario
   // arma algo que el servidor rechazaría, se ve acá y no en un 400.
   familyPainAppearance: familyPainSchema.optional(),
@@ -299,19 +299,19 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
   const mutation = useMutation({
     mutationFn: async (values: EvalFormValues) => {
       const evalPromise = evaluationApi.upsert(patientId, episodeId, {
-        reasonForConsultation: values.reasonForConsultation || null,
-        medicalHistory: values.medicalHistory || null,
-        globalPosture: values.globalPosture || null,
-        breathingPattern: values.breathingPattern || null,
-        notes: values.notes || null,
-        morphotype: values.morphotype || null,
+        reasonForConsultation: values.reasonForConsultation,
+        medicalHistory: values.medicalHistory,
+        globalPosture: values.globalPosture,
+        breathingPattern: values.breathingPattern,
+        notes: values.notes,
+        morphotype: values.morphotype,
         retractionMap: retractionMap.length > 0 ? retractionMap : null,
-        footEvaluation: values.footEvaluation || null,
-        breathingPatternDetail: values.breathingPatternDetail || null,
-        flexibilityNotes: values.flexibilityNotes || null,
-        physicalActivity: values.physicalActivity || null,
-        painAppearanceMoment: values.painAppearanceMoment || null,
-        painFrequency: values.painFrequency || null,
+        footEvaluation: values.footEvaluation,
+        breathingPatternDetail: values.breathingPatternDetail,
+        flexibilityNotes: values.flexibilityNotes,
+        physicalActivity: values.physicalActivity,
+        painAppearanceMoment: values.painAppearanceMoment,
+        painFrequency: values.painFrequency,
         familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
         familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
         // Grilla sparse: sin celdas marcadas se guarda NULL, igual que familyPain
@@ -1076,7 +1076,7 @@ export default function PatientDetailPage() {
 
   const createEpisodeMutation = useMutation({
     mutationFn: (complaint: string) =>
-      episodeApi.create(id!, { mainComplaint: complaint || null }),
+      episodeApi.create(id!, { mainComplaint: complaint }),
     onSuccess: (newEpisode) => {
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
       setActiveEpisodeId(newEpisode.id);
@@ -1391,7 +1391,7 @@ export default function PatientDetailPage() {
                   value={editEpisodeComplaint}
                   onChange={(e) => setEditEpisodeComplaint(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint || null });
+                    if (e.key === 'Enter') updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint });
                   }}
                   autoFocus
                 />
@@ -1448,7 +1448,7 @@ export default function PatientDetailPage() {
                     Cancelar
                   </Button>
                   <Button
-                    onClick={() => updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint || null })}
+                    onClick={() => updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint })}
                     disabled={updateEpisodeMutation.isPending}
                   >
                     {updateEpisodeMutation.isPending ? 'Guardando...' : 'Guardar'}

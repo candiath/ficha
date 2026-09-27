@@ -115,8 +115,8 @@ function NewAppointmentForm({
     mutationFn: () =>
       appointmentApi.create({
         patientId,
-        episodeId: episodeId || null,
-        notes: notes.trim() || null,
+        episodeId,
+        notes,
         date,
         time: startTime,
         durationMinutes,
