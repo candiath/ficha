@@ -55,7 +55,7 @@ import type { BodyMarker } from '@/types/evaluation';
 import type { Session } from '@/types/session';
 
 const evalSchema = z.object({
-  occupation: z.string().optional().or(z.literal('')),
+  occupation: z.string(),
   reasonForConsultation: z.string(),
   medicalHistory: z.string(),
   globalPosture: z.string(),
@@ -321,9 +321,8 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
             : null,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
       });
-      const newOccupation = values.occupation || null;
-      if (newOccupation !== (occupation ?? null)) {
-        await patientApi.update(patientId, { occupation: newOccupation });
+      if (values.occupation !== (occupation ?? '')) {
+        await patientApi.update(patientId, { occupation: values.occupation });
       }
       return evalPromise;
     },

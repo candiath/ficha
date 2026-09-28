@@ -80,8 +80,8 @@ function EditForm({ tenant, onClose }: { tenant: TenantConfig; onClose: () => vo
   const mutation = useMutation({
     mutationFn: () =>
       tenantApi.update({
-        name: name.trim(),
-        email: email.trim(),
+        name,
+        email,
         phone,
         address,
         cuit,

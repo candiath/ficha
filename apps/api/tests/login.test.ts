@@ -84,6 +84,15 @@ describe('POST /api/auth/login', () => {
     expect(res.body.data.user.id).toBe(user.id);
   });
 
+  it('trimea el email antes de validarlo: un espacio de más no lo vuelve inválido', async () => {
+    const res = await request(app)
+      .post(LOGIN)
+      .send({ email: `  ${user.email} `, password: TEST_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.id).toBe(user.id);
+  });
+
   it('un email con formato inválido responde 400', async () => {
     const res = await request(app)
       .post(LOGIN)

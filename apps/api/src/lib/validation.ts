@@ -5,11 +5,10 @@ import { z } from 'zod';
 // mañana la política de contraseñas cambia, se toca solo acá.
 
 // Emails siempre normalizados (trim + minúsculas): la columna es @unique
-// y "Ana@x.com" y "ana@x.com" deben ser la misma cuenta.
-export const EmailSchema = z
-  .string()
-  .email()
-  .transform((e) => e.trim().toLowerCase());
+// y "Ana@x.com" y "ana@x.com" deben ser la misma cuenta. El trim va antes de
+// validar: si no, " ana@x.com" es un email inválido en vez de uno con un
+// espacio de más.
+export const EmailSchema = z.string().trim().toLowerCase().pipe(z.email());
 
 // Política mínima para contraseñas nuevas (alta de usuario y cambio).
 // El login NO la usa: ahí se acepta cualquier cosa y decide bcrypt.compare,

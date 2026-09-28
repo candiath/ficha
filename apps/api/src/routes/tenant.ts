@@ -57,7 +57,9 @@ const TenantUpdateSchema = z
     // no debería ser un renombre casual desde un formulario.
     name: requiredText(2, 'El nombre debe tener al menos 2 caracteres').optional(),
     email: z
-      .union([z.literal(''), z.email('Email inválido')])
+      .string()
+      .trim()
+      .pipe(z.union([z.literal(''), z.email('Email inválido')]))
       .nullable()
       .optional()
       .transform((v) => (v === '' ? null : v)),

@@ -29,6 +29,8 @@ describe('un solo vacío: "" entra como null', () => {
   afterAll(async () => {
     await sleep(300);
     await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -147,5 +149,35 @@ describe('un solo vacío: "" entra como null', () => {
     expect(res.status).toBe(201);
     expect(res.body.data[0].episodeId).toBeNull();
     expect(res.body.data[0].notes).toBeNull();
+  });
+
+  it('el cobro embebido en el alta de sesión sigue la misma regla', async () => {
+    const patient = await crearPaciente();
+
+    const res = await auth(request(app).post(`/api/patients/${patient.id}/sessions`)).send({
+      sessionDate: new Date().toISOString(),
+      payment: { packageId: '', baseAmount: 100, notes: '   ' },
+    });
+
+    expect(res.status).toBe(201);
+    const payment = await prisma.payment.findFirst({
+      where: { sessionId: res.body.data.id },
+      select: { packageId: true, notes: true },
+    });
+    expect(payment).toEqual({ packageId: null, notes: null });
+  });
+
+  // ── Email ─────────────────────────────────────────────────────────────────
+
+  it('el email de la clínica se trimea antes de validarlo, y vacío es null', async () => {
+    const conEspacios = await auth(request(app).patch('/api/tenant')).send({
+      email: '  contacto@clinica.test ',
+    });
+    expect(conEspacios.status).toBe(200);
+    expect(conEspacios.body.data.email).toBe('contacto@clinica.test');
+
+    const vacio = await auth(request(app).patch('/api/tenant')).send({ email: '   ' });
+    expect(vacio.status).toBe(200);
+    expect(vacio.body.data.email).toBeNull();
   });
 });
