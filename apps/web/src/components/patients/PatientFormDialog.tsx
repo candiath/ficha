@@ -89,21 +89,8 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
   }, [open, patient, form]);
 
   const mutation = useMutation({
-    mutationFn: (values: FormValues) => {
-      const data = {
-        ...values,
-        birthDate: values.birthDate || null,
-        phone: values.phone || null,
-        occupation: values.occupation || null,
-        referringDoctor: values.referringDoctor || null,
-        insuranceName: values.insuranceName || null,
-        insuranceNumber: values.insuranceNumber || null,
-        insurancePlan: values.insurancePlan || null,
-      };
-      return isEditing
-        ? patientApi.update(patient.id, data)
-        : patientApi.create(data);
-    },
+    mutationFn: (values: FormValues) =>
+      isEditing ? patientApi.update(patient.id, values) : patientApi.create(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientKeys.all });
       toast.success(isEditing ? 'Paciente actualizado' : 'Paciente creado');

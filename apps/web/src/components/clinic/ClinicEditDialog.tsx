@@ -81,11 +81,11 @@ function EditForm({ tenant, onClose }: { tenant: TenantConfig; onClose: () => vo
     mutationFn: () =>
       tenantApi.update({
         name: name.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        address: address.trim() || null,
-        cuit: cuit.trim() || null,
-        specialty: specialty.trim() || null,
+        email: email.trim(),
+        phone,
+        address,
+        cuit,
+        specialty,
         timezone,
         workdayStart,
         workdayEnd,
