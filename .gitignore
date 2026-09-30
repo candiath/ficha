@@ -16,7 +16,11 @@ v0_example
 
 tsconfig.tsbuildinfo
 
-.claude
+# Claude Code: se versiona la config compartida (permisos, hook, skills);
+# lo personal y lo efímero queda afuera.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
 .notes
 # Local Netlify folder
 .netlify
