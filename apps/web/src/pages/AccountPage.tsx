@@ -6,12 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/contexts/AuthContext';
-import type { UserRole } from '@ficha/shared';
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  ADMIN: 'Administrador',
-  THERAPIST: 'Fisioterapeuta',
-};
+import { ROLE_LABELS } from '@/lib/labels';
 
 // "María García" → "MG"; sin nombre, la inicial del email.
 function getInitials(name: string | null, email: string): string {

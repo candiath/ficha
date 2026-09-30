@@ -43,6 +43,19 @@ async function main() {
     },
   });
 
+  // ── Operador de plataforma (contraseña: password123 — solo dev) ─────────
+  // Para trabajar la UI de /platform en local. En producción el primero se
+  // crea con scripts/create-operator.ts; el guard de arriba lo cubre.
+  await prisma.platformOperator.upsert({
+    where: { email: 'operador@ficha.dev' },
+    update: {},
+    create: {
+      email: 'operador@ficha.dev',
+      passwordHash: hashedPassword,
+      name: 'Operador Demo',
+    },
+  });
+
   // ── Paciente de prueba ────────────────────────────────────────────────────
   const patient = await prisma.patient.upsert({
     where: { id: 'dev-patient-001' },

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema } from '../lib/validation';
+import { IdSchema, OptionalTextSchema, requiredText } from '../lib/validation';
 import { packageRepo, patientRepo } from '../repositories';
 
 // Las queries viven en packageRepo (incluida la regla "no borrar un paquete
@@ -9,11 +9,11 @@ import { packageRepo, patientRepo } from '../repositories';
 const router = Router();
 
 const PackageCreateSchema = z.object({
-  patientId: z.string().min(1),
-  name: z.string().min(1),
+  patientId: IdSchema,
+  name: requiredText(1, 'El paquete necesita un nombre'),
   totalSessions: z.number().int().min(1),
   pricePerSession: z.number().positive(),
-  notes: z.string().optional().nullable(),
+  notes: OptionalTextSchema,
 });
 
 const PackageFiltersSchema = z.object({ patientId: IdSchema.optional() });

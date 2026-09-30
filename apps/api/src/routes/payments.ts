@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema } from '../lib/validation';
+import {
+  IdSchema,
+  OptionalDateTimeSchema,
+  OptionalIdSchema,
+  OptionalTextSchema,
+} from '../lib/validation';
 import { auditLogRepo, paymentRepo } from '../repositories';
 
 // Las queries, la derivación del paciente desde la sesión, el cálculo de
@@ -13,11 +18,11 @@ const router = Router();
 // que incluye patient.fullName, exponía el nombre ajeno).
 const PaymentCreateSchema = z
   .object({
-    sessionId: z.string().min(1),
-    packageId: z.string().optional().nullable(),
+    sessionId: IdSchema,
+    packageId: OptionalIdSchema,
     baseAmount: z.number().nonnegative(),
     discount: z.number().nonnegative().default(0),
-    notes: z.string().optional().nullable(),
+    notes: OptionalTextSchema,
   })
   // El alta trae los dos montos juntos, así que acá sí alcanza con Zod. En el
   // PATCH no: es parcial y el chequeo vive en el repositorio (issue #73).
@@ -31,9 +36,9 @@ const PaymentUpdateSchema = z.object({
   discount: z.number().nonnegative().optional(),
   status: z.enum(['PENDING', 'PAID', 'WAIVED']).optional(),
   method: z.enum(['CASH', 'TRANSFER']).optional().nullable(),
-  paidAt: z.string().datetime().optional().nullable(),
-  packageId: IdSchema.optional().nullable(),
-  notes: z.string().optional().nullable(),
+  paidAt: OptionalDateTimeSchema,
+  packageId: OptionalIdSchema,
+  notes: OptionalTextSchema,
 });
 
 // Los filtros de la query se validan como el body y no se castean: un

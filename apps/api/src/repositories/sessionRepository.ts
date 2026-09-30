@@ -109,7 +109,9 @@ export interface SessionRepository {
    *   no se hace desaparecer desde acá. Primero hay que revertir el cobro.
    * - 'deleted': se marcó deletedAt y, si tenía un cobro PENDING o WAIVED,
    *   se eliminó — un cobro pendiente por una sesión que no existió no es
-   *   historial, es trabajo pendiente sobre algo que no pasó.
+   *   historial, es trabajo pendiente sobre algo que no pasó. Si salió de un
+   *   turno, el turno queda sin sessionId para poder registrarla de nuevo;
+   *   su estado no cambia.
    */
   softDelete(
     ctx: TenantContext,

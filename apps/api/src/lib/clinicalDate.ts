@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Validación server-side de la fecha de una sesión.
+ * Validación server-side de una fecha clínica: la de una sesión, la apertura
+ * de un episodio, su cierre.
  *
  * Contexto (ver .notes/sesiones-fecha-timezone-y-validacion.md): la política de
  * fechas nació sólo en el frontend. Ahí hay dos capas:
@@ -14,6 +15,12 @@ import { z } from 'zod';
  * es inusual pero posible —una sesión cargada tarde, o la historia previa de
  * un paciente que venís tratando hace meses— la API lo acepta y el frontend
  * lo advierte.
+ *
+ * Nació como `sessionDate.ts`, con la fecha de sesión como único caso (#51).
+ * El tope no tiene nada de particular a las sesiones —un año tipeado mal es
+ * un año tipeado mal en cualquier fecha de la ficha—, así que cuando los
+ * episodios necesitaron el mismo piso se generalizó en vez de copiarse: el
+ * criterio vive una sola vez y cada campo aporta cómo se llama en su error.
  */
 
 const MINUTE_MS = 60 * 1000;
@@ -21,7 +28,7 @@ const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 const APIFutureDateTolerance = DAY_MS * 5;
 
-// Piso absoluto de fecha de sesión. No es una tolerancia relativa a "ahora":
+// Piso absoluto de fecha clínica. No es una tolerancia relativa a "ahora":
 // es el filtro de datos rotos. Una fecha simplemente vieja es legítima —al
 // empezar a usar Ficha lo primero que hace falta es cargar la historia de los
 // pacientes que ya venís tratando— y la API la tiene que aceptar. Lo que no
@@ -32,20 +39,20 @@ const APIFutureDateTolerance = DAY_MS * 5;
 // migración de historia previa, que es justo lo que se necesita al arrancar.
 // La advertencia blanda del frontend (más de un día en el pasado) se queda:
 // avisa sin bloquear, que es el nivel correcto para una fecha inusual.
-const MIN_SESSION_DATE_MS = Date.UTC(2000, 0, 1);
+const MIN_CLINICAL_DATE_MS = Date.UTC(2000, 0, 1);
 
 // Exportadas para que los tests (y el mensaje de error) hablen en las mismas
 // unidades que la política, sin repetir el número mágico.
-export { MINUTE_MS, HOUR_MS, DAY_MS, APIFutureDateTolerance, MIN_SESSION_DATE_MS };
+export { MINUTE_MS, HOUR_MS, DAY_MS, APIFutureDateTolerance, MIN_CLINICAL_DATE_MS };
 
 /**
  * ¿La fecha cae más allá del tope duro permitido a futuro? Si devuelve true, el
  * schema rechaza el request con 400.
  *
- * @param date fecha de la sesión ya parseada a Date
+ * @param date la fecha ya parseada a Date
  * @param now  instante de referencia en ms (inyectable para testear)
  */
-export function isSessionDateTooFarInFuture(date: Date, now: number = Date.now()): boolean {
+export function isClinicalDateTooFarInFuture(date: Date, now: number = Date.now()): boolean {
   // Un Invalid Date da getTime() === NaN, y `NaN > x` es siempre false: sin este
   // guard una fecha ilegible se colaría como válida. z.iso.datetime() ya la corta
   // en el schema, pero el predicado no debe confiar en su llamador (defensa en
@@ -63,13 +70,13 @@ export function isSessionDateTooFarInFuture(date: Date, now: number = Date.now()
  * un `now` — el resultado no depende de cuándo se pregunte, y una fecha futura
  * queda trivialmente por encima del piso.
  *
- * @param date fecha de la sesión ya parseada a Date
+ * @param date la fecha ya parseada a Date
  */
-export function isSessionDateBeforeFloor(date: Date): boolean {
+export function isClinicalDateBeforeFloor(date: Date): boolean {
   // Mismo guard que el de futuro: un Invalid Date (getTime() === NaN) debe
   // rechazarse, no colarse por el `false` implícito de comparar contra NaN.
   if (Number.isNaN(date.getTime())) return true;
-  return date.getTime() < MIN_SESSION_DATE_MS;
+  return date.getTime() < MIN_CLINICAL_DATE_MS;
 }
 
 /**
@@ -81,13 +88,22 @@ export function isSessionDateBeforeFloor(date: Date): boolean {
  *    atrás. Al vivir en el field, cubren POST y PATCH por igual:
  *    SessionUpdateSchema es .partial(), pero el refine corre cuando la fecha
  *    viene presente.
+ *
+ * `subject` es cómo se llama la fecha en los mensajes de error ("La fecha de
+ * sesión", "La fecha de cierre"): es lo único que cambia entre un campo y otro,
+ * y va en el mensaje porque el 400 lo lee una persona que tiene varios campos
+ * de fecha en la misma pantalla.
  */
-export const sessionDateField = z.iso
-  .datetime({ error: 'La fecha de sesión es ilegible o está vacía' })
-  .refine((value) => !isSessionDateTooFarInFuture(new Date(value)), {
-    error: 'La fecha de sesión está demasiado lejos en el futuro',
-  })
-  .refine((value) => !isSessionDateBeforeFloor(new Date(value)), {
-    error: 'La fecha de sesión es anterior al año 2000: revisá el año',
-  });
+export function clinicalDateField(subject: string) {
+  return z.iso
+    .datetime({ error: `${subject} es ilegible o está vacía` })
+    .refine((value) => !isClinicalDateTooFarInFuture(new Date(value)), {
+      error: `${subject} está demasiado lejos en el futuro`,
+    })
+    .refine((value) => !isClinicalDateBeforeFloor(new Date(value)), {
+      error: `${subject} es anterior al año 2000: revisá el año`,
+    });
+}
+
+export const sessionDateField = clinicalDateField('La fecha de sesión');
 

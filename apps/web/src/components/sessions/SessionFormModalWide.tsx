@@ -63,10 +63,10 @@ const schema = z.object({
     }),
   painScaleBefore: z.number().min(0).max(10).nullable(),
   painScaleAfter: z.number().min(0).max(10).nullable(),
-  preSesionState: z.string().optional().or(z.literal('')),
-  reEvaluationNotes: z.string().optional().or(z.literal('')),
-  patientResponse: z.string().optional().or(z.literal('')),
-  observations: z.string().optional().or(z.literal('')),
+  preSesionState: z.string(),
+  reEvaluationNotes: z.string(),
+  patientResponse: z.string(),
+  observations: z.string(),
   baseAmount: z.string().optional().or(z.literal('')),
   discount: z.string().optional().or(z.literal('')),
   packageId: z.string().optional().or(z.literal('')),
@@ -95,9 +95,9 @@ interface SessionFormModalWideProps {
 
 function getPainColor(value: number | null) {
   if (value === null) return 'text-muted-foreground'
-  if (value <= 3) return 'text-emerald-600'
-  if (value <= 6) return 'text-amber-600'
-  return 'text-red-600'
+  if (value <= 3) return 'text-emerald-600 dark:text-emerald-400'
+  if (value <= 6) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
 }
 
 /**
@@ -265,10 +265,10 @@ export default function SessionFormModalWide({
         sessionDate: new Date(values.sessionDate).toISOString(),
         painScaleBefore: values.painScaleBefore,
         painScaleAfter: values.painScaleAfter,
-        preSesionState: values.preSesionState || null,
-        reEvaluationNotes: values.reEvaluationNotes || null,
-        patientResponse: values.patientResponse || null,
-        observations: values.observations || null,
+        preSesionState: values.preSesionState,
+        reEvaluationNotes: values.reEvaluationNotes,
+        patientResponse: values.patientResponse,
+        observations: values.observations,
       }
 
       // El motivo viaja siempre como un arreglo de a lo sumo uno: es lo que
@@ -295,10 +295,10 @@ export default function SessionFormModalWide({
         // turno todavía pidiendo que se registre.
         ...(appointment ? { appointmentId: appointment.id } : {}),
         payment: {
-          packageId: values.packageId || null,
+          packageId: values.packageId,
           baseAmount: parseFloat(values.baseAmount ?? '0'),
           discount: values.discount ? parseFloat(values.discount) : 0,
-          notes: values.paymentNotes || null,
+          notes: values.paymentNotes,
         },
       })
     },
@@ -331,7 +331,10 @@ export default function SessionFormModalWide({
 
   // Borrado de una sesión cargada por error. Invalida lo mismo que el guardado
   // —listados del paciente, episodios, listado global y cobros— porque el
-  // borrado también se lleva el cobro pendiente de la sesión.
+  // borrado también se lleva el cobro pendiente de la sesión. Y la agenda: si
+  // la sesión salió de un turno, la API lo soltó y el turno vuelve a ofrecer
+  // "registrar la sesión". Al editar no se sabe si hubo turno, así que se
+  // invalida siempre.
   const deleteMutation = useMutation({
     mutationFn: () => {
       if (!session) throw new Error('No hay sesión que eliminar')
@@ -348,6 +351,7 @@ export default function SessionFormModalWide({
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
       queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
       toast.success('Sesión eliminada')
       setShowDeleteConfirm(false)
       onOpenChange(false)

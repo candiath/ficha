@@ -16,6 +16,10 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  // Vuelve a pedir /me. Para cuando el perfil cambió del lado del servidor
+  // en esta misma sesión: una ADMIN que se cambia el rol a sí misma dejaría
+  // de serlo en la API pero seguiría viéndose ADMIN acá hasta recargar.
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -68,8 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  // Si /me falla con 401 el cliente HTTP ya limpió el token y disparó el
+  // evento de arriba; no hay nada más que hacer acá.
+  const refresh = useCallback(async () => {
+    const u = await authApi.me().catch(() => null);
+    if (u) setUser(u);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );

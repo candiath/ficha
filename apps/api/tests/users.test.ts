@@ -159,4 +159,151 @@ describe('requireRole + /api/users', () => {
       .set('Authorization', `Bearer ${therapistToken}`);
     expect(restored.status).toBe(200);
   });
+
+  it('un PATCH sin isActive ni role responde 400', async () => {
+    const res = await request(app)
+      .patch(`${USERS}/${therapist.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it('un rol que no existe responde 400', async () => {
+    const res = await request(app)
+      .patch(`${USERS}/${therapist.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ role: 'SYSADMIN' });
+
+    expect(res.status).toBe(400);
+  });
+});
+
+// El rol se cambia sobre la cuenta existente, no borrando y recreando: la
+// auditoría apunta al userId. Y la clínica nunca se queda sin una ADMIN
+// activa — la regla vive en la query que escribe (whereConservaAdmin).
+describe('PATCH /api/users/:id — cambio de rol', () => {
+  let clinic: TestClinic;
+  let admin: User;
+  let adminToken: string;
+
+  const patch = (token: string, id: string, body: object) =>
+    request(app).patch(`${USERS}/${id}`).set('Authorization', `Bearer ${token}`).send(body);
+
+  const listUsers = (token: string) =>
+    request(app).get(USERS).set('Authorization', `Bearer ${token}`);
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    admin = await clinic.createUser({ role: 'ADMIN' });
+    adminToken = signTestToken(admin);
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+  });
+
+  it('ascender a ADMIN aplica en el request siguiente, con el mismo token', async () => {
+    const colega = await clinic.createUser();
+    const colegaToken = signTestToken(colega);
+
+    // Antes: THERAPIST, sin acceso a la gestión de usuarios.
+    expect((await listUsers(colegaToken)).status).toBe(403);
+
+    const res = await patch(adminToken, colega.id, { role: 'ADMIN' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('ADMIN');
+
+    // authenticate lee el rol de la DB, no del token: no hay que reloguearse.
+    expect((await listUsers(colegaToken)).status).toBe(200);
+
+    // Ida y vuelta: al bajarla, pierde el acceso con el mismo token. Deja a
+    // `admin` como única ADMIN activa para los tests que siguen.
+    expect((await patch(adminToken, colega.id, { role: 'THERAPIST' })).status).toBe(200);
+    expect((await listUsers(colegaToken)).status).toBe(403);
+  });
+
+  it('degradar a una ADMIN cuando queda otra activa aplica al instante', async () => {
+    const segunda = await clinic.createUser({ role: 'ADMIN' });
+    const segundaToken = signTestToken(segunda);
+    expect((await listUsers(segundaToken)).status).toBe(200);
+
+    const res = await patch(adminToken, segunda.id, { role: 'THERAPIST' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('THERAPIST');
+
+    expect((await listUsers(segundaToken)).status).toBe(403);
+  });
+
+  it('una ADMIN puede degradarse a sí misma si queda otra', async () => {
+    const otraClinica = await createTestClinic();
+    try {
+      const a = await otraClinica.createUser({ role: 'ADMIN' });
+      await otraClinica.createUser({ role: 'ADMIN' });
+
+      const res = await patch(signTestToken(a), a.id, { role: 'THERAPIST' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.role).toBe('THERAPIST');
+    } finally {
+      await otraClinica.cleanup();
+    }
+  });
+
+  it('la última ADMIN activa no puede degradarse: 409 y sigue siendo ADMIN', async () => {
+    // A esta altura `admin` es la única ADMIN activa de la clínica.
+    const res = await patch(adminToken, admin.id, { role: 'THERAPIST' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/administradora/);
+
+    const sigue = await prisma.user.findUnique({ where: { id: admin.id } });
+    expect(sigue?.role).toBe('ADMIN');
+    // Y su sesión sigue siendo de ADMIN.
+    expect((await listUsers(adminToken)).status).toBe(200);
+  });
+
+  it('una ADMIN desactivada no cuenta como "otra"', async () => {
+    await clinic.createUser({ role: 'ADMIN', isActive: false });
+
+    const res = await patch(adminToken, admin.id, { role: 'THERAPIST' });
+    expect(res.status).toBe(409);
+  });
+
+  it('degradar a una ADMIN inactiva se permite: no cambia cuántas activas quedan', async () => {
+    const inactiva = await clinic.createUser({ role: 'ADMIN', isActive: false });
+
+    const res = await patch(adminToken, inactiva.id, { role: 'THERAPIST' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('THERAPIST');
+  });
+
+  it('desactivar a la otra ADMIN se permite, pero después ya nadie puede degradarse', async () => {
+    const otraClinica = await createTestClinic();
+    try {
+      const a = await otraClinica.createUser({ role: 'ADMIN' });
+      const b = await otraClinica.createUser({ role: 'ADMIN' });
+      const tokenA = signTestToken(a);
+
+      // Con B activa, A puede desactivarla: A sigue ahí.
+      expect((await patch(tokenA, b.id, { isActive: false })).status).toBe(200);
+
+      // Ahora A es la última: ni degradarse ella ni degradar a B (que ya no
+      // suma) la deja sin salida — solo lo primero se frena.
+      expect((await patch(tokenA, a.id, { role: 'THERAPIST' })).status).toBe(409);
+
+      // Reactivar a B vuelve a habilitar la degradación de A.
+      expect((await patch(tokenA, b.id, { isActive: true })).status).toBe(200);
+      expect((await patch(tokenA, a.id, { role: 'THERAPIST' })).status).toBe(200);
+    } finally {
+      await otraClinica.cleanup();
+    }
+  });
+
+  it('rol y estado en el mismo PATCH: desactivar y degradar a la vez', async () => {
+    const colega = await clinic.createUser({ role: 'ADMIN' });
+
+    const res = await patch(adminToken, colega.id, { role: 'THERAPIST', isActive: false });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ role: 'THERAPIST', isActive: false });
+  });
 });

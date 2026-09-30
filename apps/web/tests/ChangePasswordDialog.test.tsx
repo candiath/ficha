@@ -188,3 +188,41 @@ describe('higiene del formulario', () => {
     expect(screen.getByLabelText('Contraseña nueva')).toHaveValue('');
   });
 });
+
+// El mismo diálogo sirve a la sesión del operador de plataforma inyectando
+// contra qué endpoint se manda y dónde va el token nuevo. Lo que importa
+// probar es que no se cruce nada: el token de la clínica queda intacto y el
+// de plataforma es el que se actualiza.
+describe('con otra sesión inyectada', () => {
+  it('usa el changePassword y el setToken de esa sesión, no los de la clínica', async () => {
+    const otraChangePassword = vi.fn().mockResolvedValue({ token: 'token-plataforma-nuevo' });
+    const otraSetToken = vi.fn();
+    localStorage.setItem('ficha_token', 'token-clinica');
+    const onClose = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChangePasswordDialog
+          open
+          onClose={onClose}
+          session={{ changePassword: otraChangePassword, setToken: otraSetToken }}
+        />
+      </QueryClientProvider>
+    );
+    const user = await fillForm({
+      current: 'actual-123',
+      nueva: 'nueva-segura-1',
+      repetir: 'nueva-segura-1',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(otraChangePassword).toHaveBeenCalledWith('actual-123', 'nueva-segura-1');
+    expect(otraSetToken).toHaveBeenCalledWith('token-plataforma-nuevo');
+    expect(changePassword).not.toHaveBeenCalled();
+    expect(localStorage.getItem('ficha_token')).toBe('token-clinica');
+  });
+});

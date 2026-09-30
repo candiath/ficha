@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
 import QuickNoteButton from '@/components/layout/QuickNoteButton';
+import ThemeToggle from '@/components/layout/ThemeToggle';
 import { useQuery } from '@tanstack/react-query';
 import { alertApi, alertKeys } from '@/services/alerts';
 
@@ -150,6 +151,7 @@ export default function AppLayout() {
         <header className="flex items-center h-12 px-4 border-b shrink-0">
           <SidebarTrigger className="-ml-1" />
           <div className="flex-1" />
+          <ThemeToggle />
           <Link to="/alerts" className="relative p-1.5 rounded-md hover:bg-muted transition-colors">
             <Bell className="h-5 w-5 text-muted-foreground" />
             {unreadAlertCount > 0 && (

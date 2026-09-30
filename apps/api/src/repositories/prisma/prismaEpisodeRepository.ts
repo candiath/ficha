@@ -5,6 +5,7 @@ import type {
   EpisodeDTO,
   EpisodeRepository,
   EpisodeUpdateInput,
+  EpisodeUpdateResult,
   StaleEpisodeDTO,
 } from '../episodeRepository';
 
@@ -82,21 +83,40 @@ export const prismaEpisodeRepository: EpisodeRepository = {
     patientId: string,
     id: string,
     input: EpisodeUpdateInput,
-  ): Promise<EpisodeDTO | null> {
+  ): Promise<EpisodeUpdateResult> {
     const db = forTenant(ctx);
     // updateMany y no update: existencia, pertenencia al paciente y al tenant
     // se deciden en la misma query que escribe (patrón de patientRepo.update).
+    //
+    // La coherencia de las fechas va en el mismo where: un episodio no puede
+    // cerrarse antes de abrirse, y openedAt vive en la base. Comparar contra
+    // una fila leída antes dejaría una ventana entre el chequeo y la escritura.
     const { count } = await db.clinicalEpisode.updateMany({
-      where: { id, patientId },
+      where: {
+        id,
+        patientId,
+        ...(input.closedAt ? { openedAt: { lte: input.closedAt } } : {}),
+      },
       data: input,
     });
-    if (count === 0) return null;
+
+    if (count === 0) {
+      // Sin fecha de cierre en el where, no haber escrito solo puede ser que
+      // el episodio no exista; con ella, hay que preguntar cuál de las dos.
+      const row = await db.clinicalEpisode.findFirst({
+        where: { id, patientId },
+        select: { id: true },
+      });
+      return { ok: false, reason: row ? 'closed_before_opened' : 'not_found' };
+    }
 
     const row = await db.clinicalEpisode.findFirst({
       where: { id, patientId },
       select: episodeSelect,
     });
-    return row ? toDTO(row) : null;
+    // Desaparecer entre el update y esta lectura no es un caso real (nada borra
+    // episodios), pero el tipo lo exige y mentir con un throw sería peor.
+    return row ? { ok: true, episode: toDTO(row) } : { ok: false, reason: 'not_found' };
   },
 
   async allBelongToPatient(

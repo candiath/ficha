@@ -19,3 +19,17 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+
+// jsdom tampoco implementa matchMedia, y next-themes lo consulta al montar
+// para resolver el tema "system". El stub responde que ninguna media query
+// matchea (o sea: sistema en claro) y no emite cambios.
+window.matchMedia ??= (query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent: () => false,
+});

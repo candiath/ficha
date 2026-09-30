@@ -21,6 +21,7 @@ export default defineConfig([
             'vitest.config.ts',
             'prisma/seed.ts',
             'scripts/create-admin.ts',
+            'scripts/create-operator.ts',
           ],
         },
         // Monorepo: fija la raíz a esta carpeta para que el ESLint del IDE

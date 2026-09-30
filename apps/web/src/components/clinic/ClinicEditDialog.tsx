@@ -80,12 +80,12 @@ function EditForm({ tenant, onClose }: { tenant: TenantConfig; onClose: () => vo
   const mutation = useMutation({
     mutationFn: () =>
       tenantApi.update({
-        name: name.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        address: address.trim() || null,
-        cuit: cuit.trim() || null,
-        specialty: specialty.trim() || null,
+        name,
+        email,
+        phone,
+        address,
+        cuit,
+        specialty,
         timezone,
         workdayStart,
         workdayEnd,

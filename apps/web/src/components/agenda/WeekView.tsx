@@ -72,7 +72,7 @@ export default function WeekView({
                     {shortWeekday(d)}
                     {fueraDeHorario && (
                       <span
-                        className="ml-1 text-amber-600"
+                        className="ml-1 text-amber-600 dark:text-amber-400"
                         title="La clínica no atiende este día"
                       >
                         •

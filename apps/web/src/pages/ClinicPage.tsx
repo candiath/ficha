@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import ClinicEditDialog from '@/components/clinic/ClinicEditDialog';
+import UsersCard from '@/components/clinic/UsersCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { ARGENTINA_TIMEZONES, formatSchedule } from '@/lib/clinicSchedule';
 import { tenantApi, tenantKeys } from '@/services/tenant';
@@ -163,6 +164,10 @@ export default function ClinicPage() {
             <Dato icon={Globe} label="Zona horaria" value={zonaLabel} />
           </CardContent>
         </Card>
+
+        {/* Usuarios: alta, rol y estado. Solo ADMIN — la ruta entera es 403
+            para el resto, así que ni se monta. */}
+        {esAdmin && <UsersCard />}
 
         {/* Backups */}
         <Card>

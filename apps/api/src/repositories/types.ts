@@ -10,3 +10,12 @@ export interface TenantContext {
   userId: string;
   role: UserRole;
 }
+
+// Contexto del operador de plataforma autenticado (middleware
+// authenticateOperator, en req.operator). A propósito NO es un
+// TenantContext: el operador no pertenece a ninguna clínica, y que los
+// repositorios de dominio no lo acepten es lo que le impide tocar datos
+// clínicos por accidente. Solo lo recibe platformRepository.
+export interface OperatorContext {
+  operatorId: string;
+}

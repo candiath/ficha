@@ -26,6 +26,9 @@ export interface LoginUser {
   tenantId: string;
   passwordHash: string;
   isActive: boolean;
+  // false si el operador de plataforma desactivó la clínica entera. Para el
+  // login vale lo mismo que un usuario inactivo: el mismo 401 genérico.
+  tenantActive: boolean;
 }
 
 // Para authenticate: lo justo para armar req.context y validar el token.
@@ -55,6 +58,8 @@ export interface LoginEventInput {
   email: string;
   tenantId: string | null;
   userId: string | null;
+  // Solo en el login del operador de plataforma; omitido en el de la clínica.
+  operatorId?: string | null;
   success: boolean;
   ip: string | null;
   userAgent: string | null;
@@ -71,7 +76,11 @@ export interface LoginAttempt {
 export interface AuthRepository {
   /** Para el login. Incluye inactivos: la ruta decide el mensaje único. */
   findByEmailForLogin(email: string): Promise<LoginUser | null>;
-  /** Para authenticate: solo usuarios activos (null revoca el acceso). */
+  /**
+   * Para authenticate: solo usuarios activos de clínicas activas (null
+   * revoca el acceso). Que la clínica esté desactivada se decide acá y no
+   * en el middleware para que ninguna ruta pueda olvidarse de mirarlo.
+   */
   findForAuth(userId: string): Promise<AuthUser | null>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;

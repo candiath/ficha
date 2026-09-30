@@ -1,5 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import {
+  OptionalDateSchema,
+  OptionalTextSchema,
+  optionalEnum,
+  requiredText,
+} from '../lib/validation';
 import { auditLogRepo, patientRepo } from '../repositories';
 
 // Las queries viven en patientRepo, que aplica la política de borrado lógico
@@ -7,17 +13,18 @@ import { auditLogRepo, patientRepo } from '../repositories';
 // validar el body, mapear null a 404 y registrar auditoría.
 const router = Router();
 
-// z.coerce.date() convierte strings ISO / 'YYYY-MM-DD' a Date automáticamente.
+// Los campos opcionales usan los schemas compartidos: un "" del formulario
+// entra como null y el campo ausente no se toca (lib/validation.ts).
 const PatientCreateSchema = z.object({
-  fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  birthDate: z.coerce.date().optional().nullable(),
-  sex: z.enum(['MALE', 'FEMALE', 'OTHER']).optional().nullable(),
-  phone: z.string().optional().nullable(),
-  occupation: z.string().optional().nullable(),
-  referringDoctor: z.string().optional().nullable(),
-  insuranceName: z.string().optional().nullable(),
-  insuranceNumber: z.string().optional().nullable(),
-  insurancePlan: z.string().optional().nullable(),
+  fullName: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
+  birthDate: OptionalDateSchema,
+  sex: optionalEnum(['MALE', 'FEMALE', 'OTHER']),
+  phone: OptionalTextSchema,
+  occupation: OptionalTextSchema,
+  referringDoctor: OptionalTextSchema,
+  insuranceName: OptionalTextSchema,
+  insuranceNumber: OptionalTextSchema,
+  insurancePlan: OptionalTextSchema,
 });
 
 const PatientUpdateSchema = PatientCreateSchema.partial();

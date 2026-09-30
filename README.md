@@ -21,17 +21,18 @@ Monorepo de npm workspaces.
 
 Hace falta Node 24 y un `apps/api/.env` con `DATABASE_URL` y
 `DIRECT_DATABASE_URL` apuntando a la branch `development` de Neon, más un
-`JWT_SECRET` de 32+ caracteres. Hay un `.env.example` al lado.
+`JWT_SECRET` y un `PLATFORM_JWT_SECRET` de 32+ caracteres, distintos entre sí.
+Hay un `.env.example` al lado.
 
 ```bash
 npm install
 npm run db:migrate      # aplica las migraciones pendientes
-npm run db:seed         # tenant demo + admin@ficha.dev / password123 (solo dev)
+npm run db:seed         # tenant demo, admin@ficha.dev y operador@ficha.dev / password123 (solo dev)
 npm run dev             # api en :3001, web en :5173
 ```
 
-**La base corre en Neon, no en Docker.** El `docker-compose.yml` y los scripts
-`db:up` / `db:down` / `db:reset` son vestigiales.
+**La base corre en Neon, no en Docker.** No hay base local: `db:migrate` y
+`db:seed` pegan contra la branch `development` del proyecto de Neon.
 
 ## Comandos
 
@@ -52,7 +53,7 @@ Ramas `feat/*` o `fix/*` desde `dev`; los PRs van **contra `dev`, nunca contra
 Promover a producción es un PR `dev` → `main`.
 
 Hay tres entornos aislados de verdad —producción, testing y desarrollo—, cada
-uno con su propia branch de Neon y su propio `JWT_SECRET`.
+uno con su propia branch de Neon y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET`.
 
 ## Documentación
 

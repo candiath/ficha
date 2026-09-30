@@ -18,9 +18,6 @@
     "migrate:prod": "npm run db:migrate:prod -w apps/api",
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
-    "db:up": "docker compose up -d",
-    "db:down": "docker compose down",
-    "db:reset": "docker compose down -v && docker compose up -d",
     "db:migrate": "npm run db:migrate -w apps/api",
     "db:seed": "npm run db:seed -w apps/api",
     "db:studio": "npm run db:studio -w apps/api"
