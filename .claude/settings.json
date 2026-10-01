@@ -1,0 +1,128 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Glob(**)",
+      "Grep(**)",
+
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git cherry:*)",
+
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx prettier:*)",
+      "Bash(npx prisma:*)",
+      "PowerShell(npm run:*)",
+      "PowerShell(npm test:*)",
+
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(pwd)",
+
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr status:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue status:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(gh workflow list:*)",
+      "Bash(gh workflow view:*)",
+      "Bash(gh api:*)",
+      "Bash(gh auth status:*)",
+      "Bash(gh status)",
+      "Bash(gh search:*)",
+
+      "Bash(curl *localhost:3001*)",
+      "PowerShell(Get-Process -Name node)",
+      "PowerShell(npm run dev -w apps/api)",
+      "PowerShell($deadline = \\(Get-Date\\).AddSeconds\\(30\\); do { try { $r = Invoke-RestMethod http://localhost:3001/health -TimeoutSec 2; break } catch { Start-Sleep -Milliseconds 500 } } while \\(\\(Get-Date\\) -lt $deadline\\); $r | ConvertTo-Json -Compress)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue | % { taskkill /PID $_.OwningProcess /T /F })",
+
+      "mcp__plugin_render_render__list_logs",
+      "mcp__plugin_render_render__list_services",
+      "mcp__plugin_render_render__get_service",
+      "mcp__plugin_render_render__get_deploy",
+      "mcp__plugin_render_render__list_deploys",
+      "mcp__plugin_render_render__list_events",
+      "mcp__plugin_render_render__get_metrics",
+      "mcp__plugin_render_render__list_workspaces",
+      "mcp__plugin_render_render__get_selected_workspace",
+      "mcp__neon__create_branch"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git branch -D:*)",
+      "Bash(git checkout *-- *)",
+      "Bash(npm publish:*)",
+      "Bash(npm uninstall:*)",
+
+      "Bash(npx prisma migrate reset*)",
+      "Bash(npx prisma db push*)",
+
+      "Bash(gh api *-X*)",
+      "Bash(gh api *--method*)",
+      "Bash(gh api *-f *)",
+      "Bash(gh api *-F *)",
+      "Bash(gh api *--field*)",
+      "Bash(gh api *--raw-field*)",
+      "Bash(gh api *--input*)",
+      "Bash(gh api graphql*)",
+
+      "Bash(rm -rf:*)",
+      "Bash(rm -r *)",
+      "PowerShell(Remove-Item *-Recurse*)",
+      "PowerShell(git *)"
+    ],
+    "deny": [
+      "Bash(git push *--force*)",
+      "Bash(git push *-f *)",
+      "Bash(git push *-f)",
+      "Bash(git push *+*)",
+      "Bash(git clean -f*)",
+      "Bash(git checkout -- .)",
+      "PowerShell(git push *--force*)",
+      "PowerShell(git push *-f *)",
+      "PowerShell(git push *-f)",
+      "PowerShell(git clean -f*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "f=$(node -e 'const j=JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"));console.log((j.tool_input.file_path||\"\").split(String.fromCharCode(92)).join(\"/\"))'); case \"$f\" in */apps/web/*.ts|*/apps/web/*.tsx) app=web ;; */apps/api/*.ts) app=api ;; *) exit 0 ;; esac; out=$(cd \"${f%/apps/$app/*}/apps/$app\" && npx eslint \"$f\" 2>&1) || { echo \"$out\" >&2; exit 2; }",
+            "timeout": 60,
+            "statusMessage": "eslint en el archivo editado…"
+          }
+        ]
+      }
+    ]
+  }
+}
