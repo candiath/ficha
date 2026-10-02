@@ -39,6 +39,16 @@ export function errorHandler(
     return;
   }
 
+  // Un id que no es UUID llegó a una columna uuid (issue #174). No debería
+  // pasar: idParam y IdSchema validan antes. Si pasa, hay un camino sin
+  // validar — se responde lo mismo que idParam (no existe) y se loguea fuerte
+  // para que aparezca, en vez de esconderlo detrás de un 500 genérico.
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2023') {
+    console.error('[ids] id malformado llegó a la base sin validar:', err.message);
+    res.status(404).json({ error: 'No encontrado' });
+    return;
+  }
+
   console.error(err);
   res.status(500).json({ error: 'Error interno del servidor' });
 }

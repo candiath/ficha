@@ -120,4 +120,14 @@ Los schemas están en `apps/api/src/lib/validation.ts` (`OptionalTextSchema`, `O
 
 Esto vale también para las columnas JSON de la evaluación inicial: `jsonFields()` omite la clave del campo que no vino, en vez de completarla con `JsonNull`. Lo contrario —lo que hacía hasta #161— convertía cada PUT parcial en un borrado silencioso de la grilla de posturas.
 
+### Ids: UUIDv7 en columnas `uuid`, validados antes de consultar
+
+Toda PK es `@default(uuid(7)) @db.Uuid` y toda columna que guarda un id lleva `@db.Uuid` (#174). Contra una columna `uuid`, un id con otra forma no devuelve "no encontrado": Prisma tira `P2023`. Por eso el formato se valida antes de llegar al repositorio:
+
+- **En la URL → 404** con el mensaje de la entidad: cada `:param` se registra con `router.param(nombre, idParam('X no encontrado'))` en el archivo que lo declara; los del path de montaje (`:patientId`, `:episodeId`) con `app.param` en `app.ts`. `tests/idParamCoverage.test.ts` rompe el CI si una ruta nueva usa un param sin registrar.
+- **En el body o el query → 400**: `IdSchema` / `OptionalIdSchema`.
+- Red de seguridad: el `errorHandler` responde `P2023` como 404 y lo loguea — si aparece en los logs, hay un camino sin validar.
+
+Una columna nueva que guarde un id lleva `@db.Uuid`, aunque no tenga relación declarada (como `AuditLog.entityId` o `Appointment.seriesId`). Y una migración que cambie el tipo de una columna con datos se revisa a mano: para `text → uuid` Prisma genera `DROP COLUMN` + `ADD COLUMN`, que borra los valores (ver `20261002154935_ids_uuid_nativos`).
+
 Para levantar y verificar la app end-to-end (puertos, seed, gotchas de Windows): skill `verify` en `.claude/skills/verify/SKILL.md`.

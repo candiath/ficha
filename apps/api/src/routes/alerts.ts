@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { IdSchema, requiredText } from '../lib/validation';
 import { refreshAlerts } from '../lib/alertRules';
 import { clinicalAlertRepo, patientRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 const router = Router();
+router.param('id', idParam('Alerta no encontrada'));
 
 const AlertCreateSchema = z.object({
   patientId: IdSchema,

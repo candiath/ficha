@@ -1,7 +1,22 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 
 const prisma = new PrismaClient();
+
+// Ids fijos para que el seed se pueda correr las veces que haga falta: cada
+// upsert encuentra la fila de la corrida anterior. Las columnas de ids son
+// `uuid` (issue #174), así que el nombre legible no puede ser el id: se deriva
+// de él un UUID determinístico (SHA-1 del nombre, con los bits de versión 5 y
+// de variante RFC). `dev-patient-001` da siempre el mismo id, en cualquier
+// máquina.
+function devId(name: string): string {
+  const h = createHash('sha1').update(`ficha-seed:${name}`).digest();
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const hex = h.subarray(0, 16).toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 async function main() {
   // ── Guardia de producción ────────────────────────────────────────────────
@@ -18,10 +33,10 @@ async function main() {
 
   // ── Tenant de desarrollo ─────────────────────────────────────────────────
   const tenant = await prisma.tenant.upsert({
-    where: { id: 'dev-tenant-001' },
+    where: { id: devId('dev-tenant-001') },
     update: {},
     create: {
-      id: 'dev-tenant-001',
+      id: devId('dev-tenant-001'),
       name: 'Clínica Demo RPG',
       slug: 'demo-rpg',
     },
@@ -58,10 +73,10 @@ async function main() {
 
   // ── Paciente de prueba ────────────────────────────────────────────────────
   const patient = await prisma.patient.upsert({
-    where: { id: 'dev-patient-001' },
+    where: { id: devId('dev-patient-001') },
     update: {},
     create: {
-      id: 'dev-patient-001',
+      id: devId('dev-patient-001'),
       tenantId: tenant.id,
       fullName: 'María García',
       phone: '+54 11 1234-5678',
@@ -72,10 +87,10 @@ async function main() {
 
   // ── Episodio clínico del paciente de prueba ───────────────────────────────
   const episode1 = await prisma.clinicalEpisode.upsert({
-    where: { id: 'dev-episode-001' },
+    where: { id: devId('dev-episode-001') },
     update: {},
     create: {
-      id: 'dev-episode-001',
+      id: devId('dev-episode-001'),
       tenantId: tenant.id,
       patientId: patient.id,
       status: 'ACTIVE',
@@ -86,10 +101,10 @@ async function main() {
 
   // ── Evaluación inicial del paciente de prueba ─────────────────────────────
   await prisma.initialEvaluation.upsert({
-    where: { id: 'dev-eval-001' },
+    where: { id: devId('dev-eval-001') },
     update: {},
     create: {
-      id: 'dev-eval-001',
+      id: devId('dev-eval-001'),
       tenantId: tenant.id,
       patientId: patient.id,
       episodeId: episode1.id,
@@ -101,10 +116,10 @@ async function main() {
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
   await prisma.session.upsert({
-    where: { id: 'dev-session-001' },
+    where: { id: devId('dev-session-001') },
     update: {},
     create: {
-      id: 'dev-session-001',
+      id: devId('dev-session-001'),
       tenantId: tenant.id,
       patientId: patient.id,
       userId: user.id,
@@ -121,10 +136,10 @@ async function main() {
   });
 
   await prisma.session.upsert({
-    where: { id: 'dev-session-002' },
+    where: { id: devId('dev-session-002') },
     update: {},
     create: {
-      id: 'dev-session-002',
+      id: devId('dev-session-002'),
       tenantId: tenant.id,
       patientId: patient.id,
       userId: user.id,
@@ -142,10 +157,10 @@ async function main() {
 
   // ── Registros de auditoría de ejemplo ──────────────────────────────────
   await prisma.auditLog.upsert({
-    where: { id: 'dev-audit-001' },
+    where: { id: devId('dev-audit-001') },
     update: {},
     create: {
-      id: 'dev-audit-001',
+      id: devId('dev-audit-001'),
       tenantId: tenant.id,
       patientId: patient.id,
       userId: user.id,
@@ -158,10 +173,10 @@ async function main() {
   });
 
   await prisma.auditLog.upsert({
-    where: { id: 'dev-audit-002' },
+    where: { id: devId('dev-audit-002') },
     update: {},
     create: {
-      id: 'dev-audit-002',
+      id: devId('dev-audit-002'),
       tenantId: tenant.id,
       patientId: patient.id,
       userId: user.id,
@@ -174,15 +189,15 @@ async function main() {
   });
 
   await prisma.auditLog.upsert({
-    where: { id: 'dev-audit-003' },
+    where: { id: devId('dev-audit-003') },
     update: {},
     create: {
-      id: 'dev-audit-003',
+      id: devId('dev-audit-003'),
       tenantId: tenant.id,
       patientId: patient.id,
       userId: user.id,
       entity: 'SESSION',
-      entityId: 'dev-session-001',
+      entityId: devId('dev-session-001'),
       action: 'CREATED',
       description: 'Sesión de tratamiento registrada',
       createdAt: new Date('2026-02-10T10:30:00.000Z'),
@@ -190,15 +205,15 @@ async function main() {
   });
 
   await prisma.auditLog.upsert({
-    where: { id: 'dev-audit-004' },
+    where: { id: devId('dev-audit-004') },
     update: {},
     create: {
-      id: 'dev-audit-004',
+      id: devId('dev-audit-004'),
       tenantId: tenant.id,
       patientId: patient.id,
       userId: user.id,
       entity: 'SESSION',
-      entityId: 'dev-session-002',
+      entityId: devId('dev-session-002'),
       action: 'CREATED',
       description: 'Sesión de tratamiento registrada',
       createdAt: new Date('2026-02-24T10:30:00.000Z'),
@@ -207,10 +222,10 @@ async function main() {
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
   await prisma.clinicalAlert.upsert({
-    where: { id: 'dev-alert-001' },
+    where: { id: devId('dev-alert-001') },
     update: {},
     create: {
-      id: 'dev-alert-001',
+      id: devId('dev-alert-001'),
       tenantId: tenant.id,
       patientId: patient.id,
       type: 'FOLLOW_UP',
@@ -220,10 +235,10 @@ async function main() {
   });
 
   await prisma.clinicalAlert.upsert({
-    where: { id: 'dev-alert-002' },
+    where: { id: devId('dev-alert-002') },
     update: {},
     create: {
-      id: 'dev-alert-002',
+      id: devId('dev-alert-002'),
       tenantId: tenant.id,
       patientId: patient.id,
       type: 'PAYMENT',
@@ -240,10 +255,10 @@ async function main() {
   // ════════════════════════════════════════════════════════════════════════
 
   const p2 = await prisma.patient.upsert({
-    where: { id: 'dev-patient-002' },
+    where: { id: devId('dev-patient-002') },
     update: {},
     create: {
-      id: 'dev-patient-002',
+      id: devId('dev-patient-002'),
       tenantId: tenant.id,
       fullName: 'Javier Rodríguez',
       birthDate: new Date('1980-08-15'),
@@ -259,10 +274,10 @@ async function main() {
 
   // ── Episodio clínico ─────────────────────────────────────────────────────
   const episodeP2 = await prisma.clinicalEpisode.upsert({
-    where: { id: 'dev-episode-p2-001' },
+    where: { id: devId('dev-episode-p2-001') },
     update: {},
     create: {
-      id: 'dev-episode-p2-001',
+      id: devId('dev-episode-p2-001'),
       tenantId: tenant.id,
       patientId: p2.id,
       status: 'ACTIVE',
@@ -273,10 +288,10 @@ async function main() {
 
   // ── Evaluación inicial ───────────────────────────────────────────────────
   await prisma.initialEvaluation.upsert({
-    where: { id: 'dev-eval-002' },
+    where: { id: devId('dev-eval-002') },
     update: {},
     create: {
-      id: 'dev-eval-002',
+      id: devId('dev-eval-002'),
       tenantId: tenant.id,
       patientId: p2.id,
       episodeId: episodeP2.id,
@@ -332,7 +347,7 @@ async function main() {
     where: { patientId: p2.id },
     update: {},
     create: {
-      id: 'dev-consent-002',
+      id: devId('dev-consent-002'),
       tenantId: tenant.id,
       patientId: p2.id,
       signed: true,
@@ -342,10 +357,10 @@ async function main() {
 
   // ── Paquete de sesiones ──────────────────────────────────────────────────
   const pkg2 = await prisma.sessionPackage.upsert({
-    where: { id: 'dev-pkg-p2-001' },
+    where: { id: devId('dev-pkg-p2-001') },
     update: {},
     create: {
-      id: 'dev-pkg-p2-001',
+      id: devId('dev-pkg-p2-001'),
       tenantId: tenant.id,
       patientId: p2.id,
       name: 'Paquete 8 sesiones RPG',
@@ -359,7 +374,7 @@ async function main() {
   // ── 8 Sesiones de tratamiento ────────────────────────────────────────────
   const sessionsP2 = [
     {
-      id: 'dev-session-p2-001',
+      id: devId('dev-session-p2-001'),
       date: '2025-12-05T10:00:00.000Z',
       painBefore: 8,
       painAfter: 5,
@@ -373,7 +388,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: 'dev-session-p2-002',
+      id: devId('dev-session-p2-002'),
       date: '2025-12-12T10:00:00.000Z',
       painBefore: 7,
       painAfter: 4,
@@ -386,7 +401,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: 'dev-session-p2-003',
+      id: devId('dev-session-p2-003'),
       date: '2026-01-09T10:00:00.000Z',
       painBefore: 6,
       painAfter: 3,
@@ -399,7 +414,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: 'dev-session-p2-004',
+      id: devId('dev-session-p2-004'),
       date: '2026-01-16T10:00:00.000Z',
       painBefore: 5,
       painAfter: 2,
@@ -412,7 +427,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: 'dev-session-p2-005',
+      id: devId('dev-session-p2-005'),
       date: '2026-01-23T10:00:00.000Z',
       painBefore: 5,
       painAfter: 5,
@@ -424,7 +439,7 @@ async function main() {
       type: 'NOTE' as const,
     },
     {
-      id: 'dev-session-p2-006',
+      id: devId('dev-session-p2-006'),
       date: '2026-01-30T10:00:00.000Z',
       painBefore: 5,
       painAfter: 2,
@@ -436,7 +451,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: 'dev-session-p2-007',
+      id: devId('dev-session-p2-007'),
       date: '2026-02-06T10:00:00.000Z',
       painBefore: 3,
       painAfter: 1,
@@ -447,7 +462,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: 'dev-session-p2-008',
+      id: devId('dev-session-p2-008'),
       date: '2026-03-06T10:00:00.000Z',
       painBefore: 3,
       painAfter: 1,
@@ -486,14 +501,14 @@ async function main() {
 
   // ── Pagos por sesión (7 pagados, 1 pendiente) ────────────────────────────
   const paymentsP2 = [
-    { id: 'dev-pay-p2-001', sessionId: 'dev-session-p2-001', status: 'PAID',    paidAt: '2025-12-05T11:00:00.000Z', method: 'TRANSFER' },
-    { id: 'dev-pay-p2-002', sessionId: 'dev-session-p2-002', status: 'PAID',    paidAt: '2025-12-12T11:00:00.000Z', method: 'TRANSFER' },
-    { id: 'dev-pay-p2-003', sessionId: 'dev-session-p2-003', status: 'PAID',    paidAt: '2026-01-09T11:00:00.000Z', method: 'CASH' },
-    { id: 'dev-pay-p2-004', sessionId: 'dev-session-p2-004', status: 'PAID',    paidAt: '2026-01-16T11:00:00.000Z', method: 'TRANSFER' },
-    { id: 'dev-pay-p2-005', sessionId: 'dev-session-p2-005', status: 'PAID',    paidAt: '2026-01-23T11:00:00.000Z', method: 'CASH' },
-    { id: 'dev-pay-p2-006', sessionId: 'dev-session-p2-006', status: 'PAID',    paidAt: '2026-01-30T11:00:00.000Z', method: 'TRANSFER' },
-    { id: 'dev-pay-p2-007', sessionId: 'dev-session-p2-007', status: 'PAID',    paidAt: '2026-02-06T11:00:00.000Z', method: 'TRANSFER' },
-    { id: 'dev-pay-p2-008', sessionId: 'dev-session-p2-008', status: 'PENDING', paidAt: null,                       method: null },
+    { id: devId('dev-pay-p2-001'), sessionId: devId('dev-session-p2-001'), status: 'PAID',    paidAt: '2025-12-05T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-002'), sessionId: devId('dev-session-p2-002'), status: 'PAID',    paidAt: '2025-12-12T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-003'), sessionId: devId('dev-session-p2-003'), status: 'PAID',    paidAt: '2026-01-09T11:00:00.000Z', method: 'CASH' },
+    { id: devId('dev-pay-p2-004'), sessionId: devId('dev-session-p2-004'), status: 'PAID',    paidAt: '2026-01-16T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-005'), sessionId: devId('dev-session-p2-005'), status: 'PAID',    paidAt: '2026-01-23T11:00:00.000Z', method: 'CASH' },
+    { id: devId('dev-pay-p2-006'), sessionId: devId('dev-session-p2-006'), status: 'PAID',    paidAt: '2026-01-30T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-007'), sessionId: devId('dev-session-p2-007'), status: 'PAID',    paidAt: '2026-02-06T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-008'), sessionId: devId('dev-session-p2-008'), status: 'PENDING', paidAt: null,                       method: null },
   ] as const;
 
   for (const p of paymentsP2) {
@@ -523,21 +538,21 @@ async function main() {
   //  Escala 3 — 2026-03-06: sum= 9/50 → 18% — Discapacidad moderada (meta casi lograda)
   const scalesP2 = [
     {
-      id: 'dev-scale-p2-001',
+      id: devId('dev-scale-p2-001'),
       appliedAt: '2025-12-05T09:30:00.000Z',
       responses: { q1: 4, q2: 3, q3: 3, q4: 4, q5: 4, q6: 3, q7: 3, q8: 2, q9: 3, q10: 1 },
       score: 60,
       interpretation: 'Discapacidad completa (≥35%)',
     },
     {
-      id: 'dev-scale-p2-002',
+      id: devId('dev-scale-p2-002'),
       appliedAt: '2026-01-30T10:30:00.000Z',
       responses: { q1: 2, q2: 2, q3: 2, q4: 2, q5: 3, q6: 2, q7: 2, q8: 1, q9: 2, q10: 0 },
       score: 36,
       interpretation: 'Discapacidad completa (≥35%)',
     },
     {
-      id: 'dev-scale-p2-003',
+      id: devId('dev-scale-p2-003'),
       appliedAt: '2026-03-06T10:30:00.000Z',
       responses: { q1: 1, q2: 1, q3: 1, q4: 1, q5: 2, q6: 1, q7: 1, q8: 0, q9: 1, q10: 0 },
       score: 18,
@@ -565,21 +580,21 @@ async function main() {
 
   // ── Auditoría ────────────────────────────────────────────────────────────
   const auditLogsP2 = [
-    { id: 'dev-audit-p2-001', entity: 'PATIENT',    entityId: p2.id,                  action: 'CREATED', description: 'Paciente Javier Rodríguez registrado',               date: '2025-12-01T09:00:00.000Z' },
-    { id: 'dev-audit-p2-002', entity: 'CONSENT',    entityId: 'dev-consent-002',       action: 'CREATED', description: 'Consentimiento informado firmado',                    date: '2025-12-05T09:00:00.000Z' },
-    { id: 'dev-audit-p2-003', entity: 'EVALUATION', entityId: 'dev-eval-002',          action: 'CREATED', description: 'Evaluación inicial registrada',                       date: '2025-12-05T09:30:00.000Z' },
-    { id: 'dev-audit-p2-004', entity: 'SESSION',    entityId: 'dev-session-p2-001',    action: 'CREATED', description: 'Sesión registrada — EVA 8→5',                         date: '2025-12-05T11:00:00.000Z' },
-    { id: 'dev-audit-p2-005', entity: 'EVALUATION', entityId: 'dev-scale-p2-001',      action: 'CREATED', description: 'Escala NDI aplicada — score 60%',                     date: '2025-12-05T09:35:00.000Z' },
-    { id: 'dev-audit-p2-006', entity: 'SESSION',    entityId: 'dev-session-p2-002',    action: 'CREATED', description: 'Sesión registrada — EVA 7→4',                         date: '2025-12-12T11:00:00.000Z' },
-    { id: 'dev-audit-p2-007', entity: 'SESSION',    entityId: 'dev-session-p2-003',    action: 'CREATED', description: 'Sesión registrada — EVA 6→3',                         date: '2026-01-09T11:00:00.000Z' },
-    { id: 'dev-audit-p2-008', entity: 'SESSION',    entityId: 'dev-session-p2-004',    action: 'CREATED', description: 'Sesión registrada — EVA 5→2',                         date: '2026-01-16T11:00:00.000Z' },
-    { id: 'dev-audit-p2-009', entity: 'SESSION',    entityId: 'dev-session-p2-005',    action: 'CREATED', description: 'Nota clínica — reagudización por sobrecarga laboral', date: '2026-01-23T11:00:00.000Z' },
-    { id: 'dev-audit-p2-010', entity: 'SESSION',    entityId: 'dev-session-p2-006',    action: 'CREATED', description: 'Sesión cierre ciclo 1 — EVA 5→2',                     date: '2026-01-30T11:00:00.000Z' },
-    { id: 'dev-audit-p2-011', entity: 'EVALUATION', entityId: 'dev-scale-p2-002',      action: 'CREATED', description: 'Escala NDI aplicada — score 36%',                     date: '2026-01-30T10:35:00.000Z' },
-    { id: 'dev-audit-p2-012', entity: 'SESSION',    entityId: 'dev-session-p2-007',    action: 'CREATED', description: 'Sesión inicio ciclo 2 — EVA 3→1',                     date: '2026-02-06T11:00:00.000Z' },
-    { id: 'dev-audit-p2-013', entity: 'SESSION',    entityId: 'dev-session-p2-008',    action: 'CREATED', description: 'Sesión registrada — EVA 3→1',                         date: '2026-03-06T11:00:00.000Z' },
-    { id: 'dev-audit-p2-014', entity: 'EVALUATION', entityId: 'dev-scale-p2-003',      action: 'CREATED', description: 'Escala NDI aplicada — score 18%',                     date: '2026-03-06T10:35:00.000Z' },
-    { id: 'dev-audit-p2-015', entity: 'EVALUATION', entityId: 'dev-eval-002',          action: 'UPDATED', description: 'Mapa de retracciones actualizado con evolución',       date: '2026-01-30T10:00:00.000Z' },
+    { id: devId('dev-audit-p2-001'), entity: 'PATIENT',    entityId: p2.id,                  action: 'CREATED', description: 'Paciente Javier Rodríguez registrado',               date: '2025-12-01T09:00:00.000Z' },
+    { id: devId('dev-audit-p2-002'), entity: 'CONSENT',    entityId: devId('dev-consent-002'),       action: 'CREATED', description: 'Consentimiento informado firmado',                    date: '2025-12-05T09:00:00.000Z' },
+    { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'CREATED', description: 'Evaluación inicial registrada',                       date: '2025-12-05T09:30:00.000Z' },
+    { id: devId('dev-audit-p2-004'), entity: 'SESSION',    entityId: devId('dev-session-p2-001'),    action: 'CREATED', description: 'Sesión registrada — EVA 8→5',                         date: '2025-12-05T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-005'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-001'),      action: 'CREATED', description: 'Escala NDI aplicada — score 60%',                     date: '2025-12-05T09:35:00.000Z' },
+    { id: devId('dev-audit-p2-006'), entity: 'SESSION',    entityId: devId('dev-session-p2-002'),    action: 'CREATED', description: 'Sesión registrada — EVA 7→4',                         date: '2025-12-12T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-007'), entity: 'SESSION',    entityId: devId('dev-session-p2-003'),    action: 'CREATED', description: 'Sesión registrada — EVA 6→3',                         date: '2026-01-09T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-008'), entity: 'SESSION',    entityId: devId('dev-session-p2-004'),    action: 'CREATED', description: 'Sesión registrada — EVA 5→2',                         date: '2026-01-16T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-009'), entity: 'SESSION',    entityId: devId('dev-session-p2-005'),    action: 'CREATED', description: 'Nota clínica — reagudización por sobrecarga laboral', date: '2026-01-23T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-010'), entity: 'SESSION',    entityId: devId('dev-session-p2-006'),    action: 'CREATED', description: 'Sesión cierre ciclo 1 — EVA 5→2',                     date: '2026-01-30T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-011'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-002'),      action: 'CREATED', description: 'Escala NDI aplicada — score 36%',                     date: '2026-01-30T10:35:00.000Z' },
+    { id: devId('dev-audit-p2-012'), entity: 'SESSION',    entityId: devId('dev-session-p2-007'),    action: 'CREATED', description: 'Sesión inicio ciclo 2 — EVA 3→1',                     date: '2026-02-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-013'), entity: 'SESSION',    entityId: devId('dev-session-p2-008'),    action: 'CREATED', description: 'Sesión registrada — EVA 3→1',                         date: '2026-03-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-014'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-003'),      action: 'CREATED', description: 'Escala NDI aplicada — score 18%',                     date: '2026-03-06T10:35:00.000Z' },
+    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'UPDATED', description: 'Mapa de retracciones actualizado con evolución',       date: '2026-01-30T10:00:00.000Z' },
   ] as const;
 
   for (const log of auditLogsP2) {

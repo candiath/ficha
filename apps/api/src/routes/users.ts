@@ -3,12 +3,14 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { EmailSchema, PasswordSchema, requiredText } from '../lib/validation';
 import { userRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Gestión de usuarios de la clínica. Se monta detrás de authenticate +
 // requireRole('ADMIN'): un THERAPIST nunca llega a estos handlers.
 // Las queries viven en userRepo; acá queda el HTTP: validar el body,
 // hashear la contraseña y mapear null a 409/404.
 const router = Router();
+router.param('id', idParam('Usuario no encontrado'));
 
 // Los mismos valores en el alta y en el cambio de rol: un rol que se puede
 // asignar al crear se puede asignar después.

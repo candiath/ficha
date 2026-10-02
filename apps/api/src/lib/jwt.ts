@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { isId } from './validation';
 
 // Payload mínimo: sub (userId) y tenantId. No incluimos email/nombre porque
 // el token vive horas y esos datos pueden cambiar; se leen frescos de la DB
@@ -48,9 +49,12 @@ export function signAccessToken(payload: TokenPayload): string {
 
 export function verifyAccessToken(token: string): VerifiedToken {
   const decoded = jwt.verify(token, getJwtSecret(), { algorithms: [JWT_ALGORITHM] });
+  // `sub` tiene que ser un UUID: va directo a una columna uuid, y un token
+  // emitido antes de #174 con un id del seed viejo (`dev-user-001`) haría
+  // tirar P2023 en vez de responder 401.
   if (
     typeof decoded === 'string' ||
-    typeof decoded.sub !== 'string' ||
+    !isId(decoded.sub) ||
     typeof decoded.tenantId !== 'string' ||
     typeof decoded.iat !== 'number'
   ) {
