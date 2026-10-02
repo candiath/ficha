@@ -92,10 +92,7 @@ export const prismaAppointmentRepository: AppointmentRepository = {
     // después "cancelar la serie" alcance a un turno suelto.
     const seriesId = input.slots.length > 1 ? randomUUID() : null;
 
-    // Los ids se generan acá para poder releer exactamente estas filas
-    // después del createMany, que en Postgres no devuelve las columnas.
     const filas = input.slots.map((slot) => ({
-      id: randomUUID(),
       patientId: input.patientId,
       // El turno queda atribuido a quien lo agenda. Cuando haga falta agendar
       // para otro profesional, esto pasa a venir del body y se valida contra
@@ -114,10 +111,15 @@ export const prismaAppointmentRepository: AppointmentRepository = {
     // CI contra Neon, el bucle se comía el timeout de 5 s de `$transaction` y
     // la serie fallaba entera. El test lo atrapó en CI y no en local, que es
     // exactamente para lo que sirve tener latencia real en el medio.
-    await db.appointment.createMany({ data: filas });
+    //
+    // AndReturn para saber qué ids les tocó y releer exactamente estas filas
+    // con sus relaciones. Los ids los genera Prisma (UUIDv7, #174): antes se
+    // armaban acá con randomUUID() porque createMany no los devuelve, y
+    // quedaban v4 mientras el resto de las tablas es v7.
+    const ids = await db.appointment.createManyAndReturn({ data: filas, select: { id: true } });
 
     const creadas = await db.appointment.findMany({
-      where: { id: { in: filas.map((f) => f.id) } },
+      where: { id: { in: ids.map((f) => f.id) } },
       orderBy: { startsAt: 'asc' },
       select: appointmentSelect,
     });
