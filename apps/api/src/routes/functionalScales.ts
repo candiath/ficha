@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { auditLogRepo, functionalScaleRepo, patientRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Montado en /api/patients/:patientId/scales
 // El scoring ODI/NDI vive acá (dominio puro); las queries en
@@ -8,6 +9,7 @@ import { auditLogRepo, functionalScaleRepo, patientRepo } from '../repositories'
 // patientRepo.exists — antes esta ruta no validaba el paciente en absoluto,
 // a diferencia de episodios/sesiones/paquetes.
 const router = Router({ mergeParams: true });
+router.param('scaleId', idParam('Escala no encontrada'));
 
 // ── Scoring ──────────────────────────────────────────────────────────────────
 

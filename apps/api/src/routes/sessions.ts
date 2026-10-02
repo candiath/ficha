@@ -10,6 +10,7 @@ import {
   patientRepo,
   sessionRepo,
 } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -19,6 +20,7 @@ type SessionParams = { patientId: string; sessionId: string };
 // queda el HTTP: validar el body, exigir que paciente, episodios y paquete
 // sean del tenant, y registrar auditoría.
 const router = Router({ mergeParams: true });
+router.param('sessionId', idParam('Sesión no encontrada'));
 
 // Base SIN defaults: es el que se deriva para el PATCH.
 //

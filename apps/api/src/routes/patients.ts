@@ -7,11 +7,13 @@ import {
   requiredText,
 } from '../lib/validation';
 import { auditLogRepo, patientRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Las queries viven en patientRepo, que aplica la política de borrado lógico
 // (solo pacientes vigentes) en un único lugar; esta ruta queda en HTTP puro:
 // validar el body, mapear null a 404 y registrar auditoría.
 const router = Router();
+router.param('id', idParam('Paciente no encontrado'));
 
 // Los campos opcionales usan los schemas compartidos: un "" del formulario
 // entra como null y el campo ausente no se toca (lib/validation.ts).

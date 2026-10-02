@@ -2,11 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { IdSchema, OptionalTextSchema, requiredText } from '../lib/validation';
 import { packageRepo, patientRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Las queries viven en packageRepo (incluida la regla "no borrar un paquete
 // con sesiones ya usadas"); la ruta queda en HTTP puro: validar el body y
 // mapear el resultado a status codes.
 const router = Router();
+router.param('id', idParam('Paquete no encontrado'));
 
 const PackageCreateSchema = z.object({
   patientId: IdSchema,
