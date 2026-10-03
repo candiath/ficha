@@ -130,4 +130,9 @@ Toda PK es `@default(uuid(7)) @db.Uuid` y toda columna que guarda un id lleva `@
 
 Una columna nueva que guarde un id lleva `@db.Uuid`, aunque no tenga relación declarada (como `AuditLog.entityId` o `Appointment.seriesId`). Y una migración que cambie el tipo de una columna con datos se revisa a mano: para `text → uuid` Prisma genera `DROP COLUMN` + `ADD COLUMN`, que borra los valores (ver `20261002154935_ids_uuid_nativos`).
 
+**Un id identifica, no autoriza.** El acceso lo decide el scope del tenant, nunca saber el id. Dos consecuencias de usar v7:
+
+- **No es un secreto**: tiene ~74 bits de azar (v4 tenía 122) y el resto es reloj. Un link para firmar un consentimiento, compartir una ficha o invitar a un usuario lleva un token aleatorio propio (`randomBytes(32)`, guardado hasheado y con vencimiento), nunca el id de la fila.
+- **Dice cuándo nació la fila**: `uuid_extract_timestamp(id)` lo devuelve. En un paciente eso es aproximadamente su primera consulta, un dato clínico. Hoy solo lo ve personal autenticado de la misma clínica, que ya ve esa fecha. Antes de que un id salga de ahí (una URL pública, un mail, analytics, logs de terceros), hay que decidir si esa fecha puede salir con él.
+
 Para levantar y verificar la app end-to-end (puertos, seed, gotchas de Windows): skill `verify` en `.claude/skills/verify/SKILL.md`.
