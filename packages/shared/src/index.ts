@@ -83,9 +83,9 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
-// Respuesta de POST /api/auth/change-password. Devuelve un token nuevo
-// porque el cambio de contraseña invalida todos los tokens anteriores:
-// sin éste, la propia sesión que hizo el cambio quedaría afuera.
+// Response of POST /api/platform/auth/change-password. The operator is still
+// on a JWT: the change invalidates every earlier token, so a new one comes
+// back. The clinic endpoint answers 204 instead (its session survives).
 export interface ChangePasswordResponse {
   token: string;
 }

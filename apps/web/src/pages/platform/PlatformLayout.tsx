@@ -11,10 +11,13 @@ import { platformAuthApi } from '@/services/platform';
 // operador: otro endpoint y otro lugar donde guardar el token nuevo. Sin
 // esto, la contraseña con la que se creó al operador (una variable de
 // entorno en una línea de shell) quedaba como la única, salvo por curl.
+// The operator is still on a JWT, and changing the password invalidates every
+// earlier token, including this one: store the new token it gets back.
 const operatorSession: PasswordSession = {
-  changePassword: (currentPassword, newPassword) =>
-    platformAuthApi.changePassword(currentPassword, newPassword),
-  setToken: platformApi.setToken,
+  changePassword: async (currentPassword, newPassword) => {
+    const { token } = await platformAuthApi.changePassword(currentPassword, newPassword);
+    platformApi.setToken(token);
+  },
 };
 
 // Layout mínimo del operador: una barra con quién está logueado, cambiar

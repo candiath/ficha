@@ -102,8 +102,11 @@ export interface AuthRepository {
   getCredentials(userId: string): Promise<Credentials | null>;
   /** Registra el último acceso exitoso. */
   touchLastLogin(userId: string): Promise<void>;
-  /** Cambia el hash y estampa passwordChangedAt (invalida tokens previos). */
-  updatePassword(userId: string, passwordHash: string): Promise<void>;
+  /**
+   * Sets the new hash and revokes every open session of the user except
+   * `keepSessionId` (the one making the change), in one transaction.
+   */
+  changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void>;
   /** Telemetría de seguridad: cada intento de login, exitoso o no. */
   recordLoginEvent(input: LoginEventInput): Promise<void>;
   /**

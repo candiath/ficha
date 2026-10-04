@@ -2,7 +2,6 @@ import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authRepo } from '../repositories';
-import { signAccessToken } from '../lib/jwt';
 import {
   createLoginLimiter,
   HASH_SENUELO,
@@ -144,16 +143,12 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
     return;
   }
 
-  // updatePassword estampa passwordChangedAt, que invalida los tokens
-  // emitidos antes del cambio.
+  // Every other session of the user is revoked; the one making the change
+  // stays valid, so the client keeps its token and nothing is returned.
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await authRepo.updatePassword(user.id, passwordHash);
+  await authRepo.changePassword(user.id, passwordHash, req.authSessionId);
 
-  // passwordChangedAt invalida los tokens emitidos antes del cambio; este
-  // token nuevo evita que la sesión que hizo el cambio quede afuera.
-  const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
-
-  res.json({ data: { token } });
+  res.status(204).end();
 });
 
 // POST /api/auth/logout — revokes the session that makes the request. Other

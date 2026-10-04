@@ -116,13 +116,19 @@ export const prismaAuthRepository: AuthRepository = {
     });
   },
 
-  async updatePassword(userId: string, passwordHash: string): Promise<void> {
-    // passwordChangedAt invalida los tokens emitidos antes del cambio:
-    // authenticate compara el iat del token contra esta marca.
-    await prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash, passwordChangedAt: new Date() },
-    });
+  async changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void> {
+    // Changing the password is the panic button against a stolen session:
+    // every other session dies with the old password. Same transaction, so a
+    // failure cannot leave the new password in place with old sessions alive.
+    // password_changed_at is no longer written; its DROP comes in a later
+    // release (destructive migrations take two).
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+      prisma.authSession.updateMany({
+        where: { userId, id: { not: keepSessionId }, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
   },
 
   async recordLoginEvent(input: LoginEventInput): Promise<void> {
