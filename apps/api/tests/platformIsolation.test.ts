@@ -12,11 +12,12 @@ import {
   type TestOperator,
 } from './helpers';
 
-// La frontera entre el operador de plataforma y la app clínica, en las dos
-// direcciones. Un token de operador no abre ninguna ruta de clínica —ni la
-// más inocente— y un token de usuario no abre ninguna de plataforma. Y no
-// alcanza con que hoy nadie lo intente: se prueba también con tokens
-// fabricados con la forma correcta y el secreto equivocado, y al revés.
+// The border between the platform operator and the clinic app, both ways. An
+// operator token opens no clinic route — not even the most harmless — and a
+// clinic session opens no platform route. It is not enough that nobody tries
+// today: forged tokens with the right shape and the wrong secret are tried
+// too. The two kinds cannot overlap: clinic tokens are opaque session ids,
+// operator tokens are JWTs.
 describe('aislamiento operador ↔ clínica', () => {
   let clinic: TestClinic;
   let admin: User;
@@ -52,20 +53,20 @@ describe('aislamiento operador ↔ clínica', () => {
     }
   });
 
-  // Forma de operador, secreto de la clínica: la firma es válida para
-  // authenticate, pero la forma no (sin tenantId). Y para el middleware de
-  // plataforma la firma es inválida. Cae en los dos lados.
-  it('un token de operador firmado con JWT_SECRET no entra en ningún lado', async () => {
+  // An operator-shaped token signed with any other secret: the platform
+  // middleware rejects the signature, and the clinic never accepts a JWT at
+  // all (its tokens are opaque sessions).
+  it('an operator token signed with another secret opens nothing', async () => {
     const forged = signOperatorTestToken(op.operator.id, {
-      secret: process.env.JWT_SECRET as string,
+      secret: 'another-secret-of-at-least-32-characters!',
     });
 
     expect((await request(app).get('/api/platform/tenants').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
     expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
   });
 
-  // Forma de usuario, secreto de plataforma: ídem al revés. Y aunque el
-  // sub sea un usuario real, la clínica lo rechaza por firma.
+  // User shape, platform secret: the platform rejects it by shape (tenantId),
+  // and the clinic because a JWT is not a session token, whatever its sub.
   it('un token de usuario firmado con PLATFORM_JWT_SECRET no entra en ningún lado', async () => {
     const forged = jwt.sign(
       { tenantId: clinic.tenantId },

@@ -1,44 +1,44 @@
 import jwt from 'jsonwebtoken';
-import { JWT_ALGORITHM } from './jwt';
 import { isId } from './validation';
 
-// Tokens del operador de plataforma. Espejo de jwt.ts con dos diferencias
-// que son el punto: otro secreto y otra forma.
+// Platform operator tokens. The operator is the last JWT in the system: the
+// clinic moved to opaque server-side sessions (auth_sessions), and the
+// operator follows in its own module (docs/specs/auth-redesign-map.md,
+// operator-sessions).
 //
-// Otro secreto: un token de operador firmado con PLATFORM_JWT_SECRET no
-// verifica contra JWT_SECRET, así que authenticate lo rechaza por firma
-// antes de mirar un solo claim — y al revés. La separación es
-// criptográfica, no depende de que algún chequeo de claims esté bien.
+// The two never overlap: a clinic session token is 43 random characters that
+// name a row in auth_sessions, not a JWT, so it fails verification here; and
+// an operator JWT matches no session hash, so authenticate rejects it.
 //
-// Otra forma: `kind: 'platform'` y SIN tenantId. Es la segunda capa, y ya
-// existía gratis: verifyAccessToken exige tenantId string, así que aun con
-// el mismo secreto un token de operador no pasaría por el de un usuario.
+// Shape: `kind: 'platform'` and NO tenantId. A token carrying tenantId is a
+// clinic token by definition, whatever signed it.
 
 const PLATFORM_TOKEN_KIND = 'platform';
 
-// Más corto que el de la clínica (12h) y sin heredar JWT_EXPIRES_IN: una
-// sesión de operador es "entro, hago una cosa, salgo", no una jornada de
-// atención. Importa porque los dos tokens viven en el localStorage del mismo
-// origen: un XSS en la app clínica podría leer éste, que es el más poderoso
-// del sistema, y lo único que acota ese daño es cuánto dura.
+// Signed and verified with HS256 only. jsonwebtoken 9 already rejects
+// `alg: none`, and with a symmetric secret there is no public key to lend
+// itself to algorithm confusion — so this closes the whole family in advance
+// rather than plugging an open hole. If this ever moves to asymmetric keys,
+// leaving the algorithm unpinned is exactly the bug that lets someone sign
+// tokens with the public key.
+const JWT_ALGORITHM = 'HS256' as const;
+
+// Short on purpose: an operator session is "log in, do one thing, leave",
+// not a working day. It matters because both tokens live in the same origin's
+// localStorage: an XSS in the clinic app could read this one, the most
+// powerful in the system, and while it cannot be revoked one by one, its
+// lifetime is the only thing that bounds the damage.
 const PLATFORM_JWT_EXPIRES_IN = (process.env.PLATFORM_JWT_EXPIRES_IN ??
   '2h') as jwt.SignOptions['expiresIn'];
 
-// Misma exigencia que getJwtSecret, más una: no puede ser el mismo valor.
-// Si lo fuera, la separación quedaría reducida a la forma del token, y
-// habría que confiar en que ningún chequeo de claims tenga un agujero.
+// Fails loudly if the secret is missing or short: a JWT signed with an empty
+// or weak secret is the same as no authentication.
 export function getPlatformJwtSecret(): string {
   const secret = process.env.PLATFORM_JWT_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error(
       'PLATFORM_JWT_SECRET debe estar definido en .env con al menos 32 caracteres. ' +
         'Generá uno con: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"',
-    );
-  }
-  if (secret === process.env.JWT_SECRET) {
-    throw new Error(
-      'PLATFORM_JWT_SECRET no puede ser igual a JWT_SECRET: un token de operador ' +
-        'debe ser inválido para la API de la clínica por firma, no solo por forma.',
     );
   }
   return secret;

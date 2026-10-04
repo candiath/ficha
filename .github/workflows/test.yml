@@ -9,7 +9,7 @@ on:
   push:
     branches: [dev]
   # A demanda, sobre cualquier rama. No es un lujo: lo que el CI valida depende
-  # de credenciales que viven fuera del repo (CI_DATABASE_URL, CI_JWT_SECRET),
+  # de credenciales que viven fuera del repo (CI_DATABASE_URL),
   # así que un check en verde afirma algo sobre un commit en un momento, no
   # sobre el estado de hoy. Después de rotar una clave hay que poder volver a
   # correrlo sin inventar un push ni depender de que exista un run viejo para
@@ -94,4 +94,3 @@ jobs:
         env:
           # Branch de Neon dedicada a CI — nunca la DB de dev.
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.CI_JWT_SECRET }}

@@ -6,7 +6,6 @@ import { authenticateOperator } from './middlewares/platformAuth';
 import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
-import { getJwtSecret } from './lib/jwt';
 import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
@@ -33,11 +32,8 @@ import usersRouter from './routes/users';
 // importan para dispararle requests con supertest sin abrir sockets.
 const app = express();
 
-// Validar la configuración al armar la app: mejor explotar acá que descubrir
-// en el primer login que JWT_SECRET no estaba definido.
-getJwtSecret();
-// Ídem para el secreto del operador de plataforma — y además tienen que ser
-// distintos (lo verifica la propia función).
+// Validate configuration while building the app: better to blow up here than
+// to find out at the first operator login that the secret was missing.
 getPlatformJwtSecret();
 
 // Detrás de un proxy (Render), la IP real del cliente viene en
@@ -59,7 +55,7 @@ const envOrigins = (process.env.CORS_ORIGIN ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Mismo criterio que getJwtSecret: mejor explotar al arrancar que descubrir
+// Mismo criterio que getPlatformJwtSecret: mejor explotar al arrancar que descubrir
 // en producción que el frontend quedó bloqueado (o cualquier origen, adentro).
 if (IS_PRODUCTION && envOrigins.length === 0) {
   throw new Error(

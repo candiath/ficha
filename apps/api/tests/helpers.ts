@@ -75,23 +75,8 @@ export async function createTestClinic(): Promise<TestClinic> {
 }
 
 interface SignTestTokenOptions {
-  /** Corrimiento del iat en segundos (negativo = emitido en el pasado). */
+  /** Shift of iat in seconds (negative = issued in the past). */
   iatOffsetSeconds?: number;
-}
-
-// Firma tokens con el mismo secreto que la API pero sin pasar por /login:
-// no gasta el presupuesto del rate limiter y permite fabricar tokens con
-// iat en el pasado para probar la invalidación por passwordChangedAt
-// (jsonwebtoken usa el iat del payload como base si se lo pasás).
-export function signTestToken(
-  user: { id: string; tenantId: string },
-  opts: SignTestTokenOptions = {},
-): string {
-  const iat = Math.floor(Date.now() / 1000) + (opts.iatOffsetSeconds ?? 0);
-  return jwt.sign({ tenantId: user.tenantId, iat }, process.env.JWT_SECRET as string, {
-    subject: user.id,
-    expiresIn: '1h',
-  });
 }
 
 interface CreateTestTokenOptions {

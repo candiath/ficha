@@ -1,9 +1,10 @@
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // authenticate runs on every protected route; /api/auth/me mounts it directly
 // and is the simplest probe: if /me answers, authenticate let the request in.
@@ -64,8 +65,13 @@ describe('authenticate middleware', () => {
     expect(res.body).toEqual(INVALID);
   });
 
-  it('rejects a JWT, even one signed with the right secret', async () => {
-    const res = await me(signTestToken(user));
+  // What a client still holding a pre-sessions token would send.
+  it('rejects a JWT', async () => {
+    const jwtToken = jwt.sign({ tenantId: user.tenantId }, 'a-secret-of-at-least-32-characters!!', {
+      subject: user.id,
+      expiresIn: '1h',
+    });
+    const res = await me(jwtToken);
 
     expect(res.status).toBe(401);
     expect(res.body).toEqual(INVALID);
