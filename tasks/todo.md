@@ -9,14 +9,14 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** Add the `AuthSession` model and its migration, and `lib/sessionToken.ts` with `generateSessionToken()` (`randomBytes(32)` base64url) and `hashSessionToken(token)` (SHA-256 → `Buffer`). Nothing uses them yet.
 
 **Acceptance criteria:**
-- [ ] `auth_sessions` exists per the spec's data model (uuid v7 id, `user_id` FK with cascade, `token_hash` bytea unique, `expires_at`, `revoked_at`, `ip`, `user_agent`, index on `user_id`), with no `tenant_id`.
-- [ ] `tenantScopeCoverage.test.ts` still passes without classifying the model.
-- [ ] Unit test: tokens are 43 chars and distinct; the hash is 32 bytes and deterministic; a row inserted with the hash is found by it.
+- [x] `auth_sessions` exists per the spec's data model (uuid v7 id, `user_id` FK with cascade, `token_hash` bytea unique, `expires_at`, `revoked_at`, `ip`, `user_agent`, index on `user_id`), with no `tenant_id`.
+- [x] `tenantScopeCoverage.test.ts` still passes without classifying the model.
+- [x] Unit test: tokens are 43 chars and distinct; the hash is 32 bytes and deterministic; a row inserted with the hash is found by it.
 
 **Verification:**
-- [ ] `npm test -- sessionToken tenantScopeCoverage`
-- [ ] `npm run check`
-- [ ] `npx prisma migrate diff` against the schema shows no drift
+- [x] `npm test -- sessionToken tenantScopeCoverage`
+- [x] `npm run check`
+- [x] `npx prisma migrate diff` against the schema shows no drift
 
 **Dependencies:** None
 
@@ -29,12 +29,12 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** Replace the synchronous `signTestToken(user)` with `await createTestToken(user)` in `tests/helpers.ts` and every suite. For now the helper still signs a JWT, so behavior is unchanged; this only makes the cut-over a one-file change for the tests. The `iatOffsetSeconds` option stays on a separate helper used only by `authenticate.test.ts` and `changePassword.test.ts`, which Task 3 rewrites.
 
 **Acceptance criteria:**
-- [ ] No suite calls `signTestToken` except the two JWT-semantics suites.
-- [ ] Full API suite green with no other change.
+- [x] No suite calls `signTestToken` except the two JWT-semantics suites.
+- [x] Full API suite green with no other change.
 
 **Verification:**
-- [ ] `npm test`
-- [ ] `npm run check`
+- [x] `npm test`
+- [x] `npm run check`
 
 **Dependencies:** None (parallel with Task 1)
 

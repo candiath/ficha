@@ -17,8 +17,8 @@ Replace the clinic JWT with opaque server-side sessions (`auth_sessions`). Deliv
 ## Task List
 
 ### Phase 1: Foundation
-- [ ] Task 1: `auth_sessions` table and token library
-- [ ] Task 2: Async test token helper (mechanical)
+- [x] Task 1: `auth_sessions` table and token library
+- [x] Task 2: Async test token helper (mechanical)
 
 ### Phase 2: Cut-over
 - [ ] Task 3: Login issues sessions; `authenticate` validates them
