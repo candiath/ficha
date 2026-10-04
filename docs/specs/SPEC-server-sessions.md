@@ -63,14 +63,16 @@ model AuthSession {
 
 ### Repository
 
-`authRepository` stays the pre-tenant exception (no `ctx`); it gains:
+`authRepository` stays the pre-tenant exception (no `ctx`); it gains these (and `updatePassword` is replaced by `changePassword`):
 
 ```ts
-createSession(input: { userId: string; ttlMs: number; ip: string | null; userAgent: string | null }): Promise<{ token: string }>;
-findSessionForAuth(tokenHash: Buffer): Promise<SessionAuth | null>; // { sessionId, userId, tenantId, role }
+createSession(input: { userId: string; expiresAt: Date; ip: string | null; userAgent: string | null }): Promise<{ token: string }>;
+findSessionForAuth(token: string): Promise<SessionAuth | null>; // hashes the raw token inside; { sessionId, userId, tenantId, role }
 revokeSession(sessionId: string): Promise<boolean>;
-changePasswordRevokingOthers(userId: string, passwordHash: string, keepSessionId: string): Promise<void>;
+changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void>; // revokes every other session
 ```
+
+Token generation and hashing live in `lib/sessionToken.ts`, together with `getSessionTtlMs()`, which validates `SESSION_TTL_DAYS` (positive whole days, default 7) and runs at startup in `app.ts`: a malformed value fails the deploy instead of every login.
 
 `findSessionForAuth` is the single query that decides access:
 
@@ -137,7 +139,7 @@ Deploying invalidates every existing JWT: everyone logs in once. Acceptable befo
 ```
 apps/api/prisma/schema.prisma                          AuthSession model
 apps/api/prisma/migrations/<ts>_auth_sessions/          generated, reviewed by hand
-apps/api/src/lib/sessionToken.ts                        generateToken(), hashToken()
+apps/api/src/lib/sessionToken.ts                        generateSessionToken(), hashSessionToken(), getSessionTtlMs()
 apps/api/src/repositories/authRepository.ts             port: new methods and DTOs
 apps/api/src/repositories/prisma/prismaAuthRepository.ts
 apps/api/src/repositories/prisma/prismaUserRepository.ts       revoke on deactivate
