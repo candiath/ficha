@@ -130,12 +130,6 @@ Toda PK es `@default(uuid(7)) @db.Uuid` y toda columna que guarda un id lleva `@
 
 Una columna nueva que guarde un id lleva `@db.Uuid`, aunque no tenga relación declarada (como `AuditLog.entityId` o `Appointment.seriesId`). Y una migración que cambie el tipo de una columna con datos se revisa a mano: para `text → uuid` Prisma genera `DROP COLUMN` + `ADD COLUMN`, que borra los valores (ver `20261002154935_ids_uuid_nativos`).
 
-**Un id identifica, no autoriza.** El acceso lo decide el scope del tenant, nunca saber el id: un UUID no es un secreto (RFC 4122: *"should not be used as security capabilities"*), sea v4 o v7. Por eso un acceso sin login —un link para firmar un consentimiento, compartir una ficha, invitar a un usuario— no lleva en la URL el id de ninguna fila, tampoco el de una tabla creada para el link. Va en una **tabla propia del link**:
-
-- La URL lleva un token `randomBytes(32)` en base64url; la tabla guarda solo su `sha256` (`@unique`), así que una base o un backup filtrado no deja links usables.
-- La fila tiene vencimiento, uso único (`usedAt`) y se puede revocar; su `id` es interno y nunca sale.
-- El endpoint público busca por hash **sin `TenantContext`**: es una excepción más al patrón repositorio, que se documenta junto a las otras, y el modelo va en `TENANT_MODELS_FUERA_DEL_GUARD` con su motivo. Responde solo lo necesario para la acción (nunca ids) y lleva su propio rate limit.
-
-Menor: un v7 revela su fecha de creación (`uuid_extract_timestamp`). Mientras los ids no salgan del personal autenticado de la clínica, no expone nada que no vea ya.
+**Un id identifica, no autoriza**: un UUID (v4 o v7) no es un secreto. Un acceso sin login nunca lleva el id de una fila en la URL, sino un token aleatorio propio.
 
 Para levantar y verificar la app end-to-end (puertos, seed, gotchas de Windows): skill `verify` en `.claude/skills/verify/SKILL.md`.
