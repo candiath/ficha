@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 const USERS = '/api/users';
 
@@ -146,7 +146,8 @@ describe('requireRole + /api/users', () => {
       .set('Authorization', `Bearer ${therapistToken}`);
     expect(revoked.status).toBe(401);
 
-    // Reactivarlo le devuelve el acceso con el mismo token.
+    // Reactivating gives back the ability to log in, not the old session:
+    // deactivation revoked it for good.
     const reactivate = await request(app)
       .patch(`${USERS}/${therapist.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -154,10 +155,15 @@ describe('requireRole + /api/users', () => {
 
     expect(reactivate.status).toBe(200);
 
-    const restored = await request(app)
+    const stillRevoked = await request(app)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${therapistToken}`);
-    expect(restored.status).toBe(200);
+    expect(stillRevoked.status).toBe(401);
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: therapist.email, password: TEST_PASSWORD });
+    expect(login.status).toBe(200);
   });
 
   it('un PATCH sin isActive ni role responde 400', async () => {

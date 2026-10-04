@@ -63,12 +63,25 @@ export const prismaUserRepository: UserRepository = {
     // de la última ADMIN se deciden en la misma query que escribe (patrón de
     // patientRepo.update), así un ADMIN no puede tocar usuarios de otro tenant
     // ni dejar a la suya sin nadie, ni por accidente ni por carrera.
-    const { count } = await db.user.updateMany({
-      where: { id, ...whereConservaAdmin(id, input) },
-      data: {
-        ...(input.role !== undefined && { role: input.role }),
-        ...(input.isActive !== undefined && { isActive: input.isActive }),
-      },
+    const count = await db.$transaction(async (tx) => {
+      const { count } = await tx.user.updateMany({
+        where: { id, ...whereConservaAdmin(id, input) },
+        data: {
+          ...(input.role !== undefined && { role: input.role }),
+          ...(input.isActive !== undefined && { isActive: input.isActive }),
+        },
+      });
+      // Deactivating closes the user's sessions in the same transaction, so
+      // reactivating her later does not bring old sessions back. Only after
+      // the scoped write succeeded: that is what proves the user is in this
+      // clinic (auth_sessions has no tenantId of its own to scope by).
+      if (count > 0 && input.isActive === false) {
+        await tx.authSession.updateMany({
+          where: { userId: id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+      return count;
     });
 
     if (count === 0) {

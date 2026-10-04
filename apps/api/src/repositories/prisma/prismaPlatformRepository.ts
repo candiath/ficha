@@ -184,6 +184,15 @@ export const prismaPlatformRepository: PlatformRepository = {
       const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: tenantSelect });
       if (!tenant) return null;
 
+      // Deactivating the clinic closes every session of its users, so
+      // reactivating it later does not bring old sessions back.
+      if (count === 1 && !active) {
+        await tx.authSession.updateMany({
+          where: { user: { tenantId }, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
       if (count === 1) {
         await tx.platformAuditLog.create({
           data: {
@@ -280,6 +289,15 @@ export const prismaPlatformRepository: PlatformRepository = {
         },
       });
       if (count === 0) return { ok: false, reason: 'last_admin' } as const;
+
+      // Deactivating closes the user's sessions in the same transaction, so a
+      // later reactivation does not bring old sessions back.
+      if (input.isActive === false) {
+        await tx.authSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
 
       const user = await tx.user.findFirstOrThrow({ where: { id: userId, tenantId }, select: userSelect });
 

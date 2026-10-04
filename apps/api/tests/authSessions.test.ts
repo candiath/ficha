@@ -4,7 +4,14 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { hashSessionToken } from '../src/lib/sessionToken';
-import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
+import {
+  createTestClinic,
+  createTestOperator,
+  createTestToken,
+  TEST_PASSWORD,
+  type TestClinic,
+  type TestOperator,
+} from './helpers';
 
 // Server-side sessions as seen from login (docs/specs/SPEC-server-sessions.md).
 // Each login spends rate limiter budget, so this suite logs in sparingly.
@@ -107,5 +114,94 @@ describe('logout', () => {
   it('requires a session', async () => {
     const res = await request(app).post('/api/auth/logout');
     expect(res.status).toBe(401);
+  });
+});
+
+// Deactivation revokes sessions on write (docs/specs/SPEC-server-sessions.md).
+// The read-side join already denies a deactivated user; what these tests pin
+// down is that reactivating does NOT bring the old sessions back.
+describe('deactivation revokes sessions', { timeout: 30_000 }, () => {
+  let clinic: TestClinic;
+  let admin: User;
+  let adminToken: string;
+  let op: TestOperator;
+
+  const me = (token: string) =>
+    request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+  const asAdmin = (r: request.Test) => r.set('Authorization', `Bearer ${adminToken}`);
+  const asOperator = (r: request.Test) => r.set('Authorization', `Bearer ${op.token}`);
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    admin = await clinic.createUser({ role: 'ADMIN' });
+    adminToken = await createTestToken(admin);
+    op = await createTestOperator();
+  });
+
+  afterAll(async () => {
+    await op.cleanup();
+    await clinic.cleanup();
+  });
+
+  it('an ADMIN deactivating a user closes her sessions for good', async () => {
+    const target = await clinic.createUser();
+    const token = await createTestToken(target);
+
+    const off = await asAdmin(request(app).patch(`/api/users/${target.id}`)).send({ isActive: false });
+    expect(off.status).toBe(200);
+    expect((await me(token)).status).toBe(401);
+
+    const on = await asAdmin(request(app).patch(`/api/users/${target.id}`)).send({ isActive: true });
+    expect(on.status).toBe(200);
+    expect((await me(token)).status).toBe(401);
+  });
+
+  it('the operator deactivating a user closes her sessions for good', async () => {
+    const target = await clinic.createUser();
+    const token = await createTestToken(target);
+    const path = `/api/platform/tenants/${clinic.tenantId}/users/${target.id}`;
+
+    expect((await asOperator(request(app).patch(path)).send({ isActive: false })).status).toBe(200);
+    expect((await asOperator(request(app).patch(path)).send({ isActive: true })).status).toBe(200);
+
+    expect((await me(token)).status).toBe(401);
+  });
+
+  it('a refused deactivation (the last active ADMIN) revokes nothing', async () => {
+    const path = `/api/platform/tenants/${clinic.tenantId}/users/${admin.id}`;
+
+    const res = await asOperator(request(app).patch(path)).send({ isActive: false });
+
+    expect(res.status).toBe(409);
+    expect((await me(adminToken)).status).toBe(200);
+  });
+
+  it('a role change revokes nothing (role is read fresh on every request)', async () => {
+    const target = await clinic.createUser();
+    const token = await createTestToken(target);
+
+    const res = await asAdmin(request(app).patch(`/api/users/${target.id}`)).send({ role: 'ADMIN' });
+
+    expect(res.status).toBe(200);
+    expect((await me(token)).status).toBe(200);
+  });
+
+  it('deactivating a clinic closes every session of its users for good', async () => {
+    const other = await createTestClinic();
+    try {
+      const a = await other.createUser();
+      const b = await other.createUser();
+      const tokens = [await createTestToken(a), await createTestToken(b)];
+      const path = `/api/platform/tenants/${other.tenantId}`;
+
+      expect((await asOperator(request(app).patch(path)).send({ active: false })).status).toBe(200);
+      expect((await asOperator(request(app).patch(path)).send({ active: true })).status).toBe(200);
+
+      for (const token of tokens) expect((await me(token)).status).toBe(401);
+      // Other clinics are untouched.
+      expect((await me(adminToken)).status).toBe(200);
+    } finally {
+      await other.cleanup();
+    }
   });
 });
