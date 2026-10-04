@@ -156,6 +156,14 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
   res.json({ data: { token } });
 });
 
+// POST /api/auth/logout — revokes the session that makes the request. Other
+// sessions of the same user stay open. A token reused after logout no longer
+// passes authenticate, so a second logout gets the usual 401.
+router.post('/logout', authenticate, async (req, res) => {
+  await authRepo.revokeSession(req.authSessionId);
+  res.status(204).end();
+});
+
 // GET /api/auth/me — usuario autenticado actual.
 // El frontend lo usa al arrancar para validar el token guardado.
 router.get('/me', authenticate, async (req, res) => {

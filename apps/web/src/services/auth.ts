@@ -5,6 +5,8 @@ export const authApi = {
   login: (email: string, password: string) =>
     api.post<LoginResponse>('/api/auth/login', { email, password }),
   me: () => api.get<AuthUser>('/api/auth/me'),
+  // Revokes this session on the server (204).
+  logout: () => api.post<void>('/api/auth/logout', {}),
   // Devuelve un token nuevo: el cambio invalida todos los anteriores.
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<ChangePasswordResponse>('/api/auth/change-password', {

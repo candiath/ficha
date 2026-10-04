@@ -94,6 +94,8 @@ export interface AuthRepository {
    * active — so no route can forget one of the conditions.
    */
   findSessionForAuth(token: string): Promise<SessionAuth | null>;
+  /** Revokes one session. false if it was already revoked or does not exist. */
+  revokeSession(sessionId: string): Promise<boolean>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */

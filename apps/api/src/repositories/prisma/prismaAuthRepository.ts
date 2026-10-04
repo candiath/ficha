@@ -85,6 +85,16 @@ export const prismaAuthRepository: AuthRepository = {
     };
   },
 
+  async revokeSession(sessionId: string): Promise<boolean> {
+    // The condition rides in the write: revoking twice is a no-op, not an
+    // error, and the original revokedAt is kept.
+    const { count } = await prisma.authSession.updateMany({
+      where: { id: sessionId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return count > 0;
+  },
+
   async getPublicProfile(userId: string): Promise<PublicProfile | null> {
     return prisma.user.findUnique({
       where: { id: userId },
