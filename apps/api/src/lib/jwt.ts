@@ -49,9 +49,10 @@ export function signAccessToken(payload: TokenPayload): string {
 
 export function verifyAccessToken(token: string): VerifiedToken {
   const decoded = jwt.verify(token, getJwtSecret(), { algorithms: [JWT_ALGORITHM] });
-  // `sub` tiene que ser un UUID: va directo a una columna uuid, y un token
-  // emitido antes de #174 con un id del seed viejo (`dev-user-001`) haría
-  // tirar P2023 en vez de responder 401.
+  // `sub` como UUID no es una defensa: el token lo firmamos nosotros, y quien
+  // tenga el secreto firma un UUID válido igual. Es para que un token viejo
+  // de development (seed anterior a #174, `dev-user-001`) responda 401 y
+  // mande al login, en vez del 404 que daría P2023 contra la columna uuid.
   if (
     typeof decoded === 'string' ||
     !isId(decoded.sub) ||
