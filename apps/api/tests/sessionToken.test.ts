@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { generateSessionToken, hashSessionToken } from '../src/lib/sessionToken';
+import { generateSessionToken, getSessionTtlMs, hashSessionToken } from '../src/lib/sessionToken';
 import { createTestClinic, type TestClinic } from './helpers';
 
 describe('session tokens', () => {
@@ -17,6 +17,36 @@ describe('session tokens', () => {
     expect(hash).toHaveLength(32);
     expect(hashSessionToken(token).equals(hash)).toBe(true);
     expect(hashSessionToken(generateSessionToken()).equals(hash)).toBe(false);
+  });
+});
+
+describe('getSessionTtlMs', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const original = process.env.SESSION_TTL_DAYS;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.SESSION_TTL_DAYS;
+    else process.env.SESSION_TTL_DAYS = original;
+  });
+
+  it('defaults to 7 days when unset or empty', () => {
+    delete process.env.SESSION_TTL_DAYS;
+    expect(getSessionTtlMs()).toBe(7 * DAY);
+
+    process.env.SESSION_TTL_DAYS = '';
+    expect(getSessionTtlMs()).toBe(7 * DAY);
+  });
+
+  it('accepts a positive whole number of days', () => {
+    process.env.SESSION_TTL_DAYS = '30';
+    expect(getSessionTtlMs()).toBe(30 * DAY);
+  });
+
+  // Each of these would otherwise reach login: NaN (500 on every login) or a
+  // session born expired (login that silently logs out).
+  it.each(['7d', 'siete', '0', '-1', '1.5', ' 7'])('rejects "%s"', (value) => {
+    process.env.SESSION_TTL_DAYS = value;
+    expect(() => getSessionTtlMs()).toThrow(/SESSION_TTL_DAYS/);
   });
 });
 

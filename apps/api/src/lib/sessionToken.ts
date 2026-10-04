@@ -17,3 +17,26 @@ export function generateSessionToken(): string {
 export function hashSessionToken(token: string): Buffer {
   return createHash('sha256').update(token).digest();
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SESSION_TTL_DAYS = 7;
+
+// Absolute lifetime of a session, from SESSION_TTL_DAYS (whole days, default
+// 7). Long because a session can be revoked one by one; idle expiry comes
+// with the session list (my-sessions).
+//
+// Strict on purpose, and called at startup by app.ts: a value like "7d" would
+// otherwise become NaN and make every login a 500, and "0" would hand out
+// sessions that are born expired — login "works" and logs the user out at
+// once, with no error anywhere. Failing here fails the deploy instead, and
+// Render keeps serving the previous one.
+export function getSessionTtlMs(): number {
+  const raw = process.env.SESSION_TTL_DAYS;
+  if (raw === undefined || raw === '') return DEFAULT_SESSION_TTL_DAYS * DAY_MS;
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new Error(
+      `SESSION_TTL_DAYS must be a positive whole number of days, got "${raw}"`,
+    );
+  }
+  return Number(raw) * DAY_MS;
+}

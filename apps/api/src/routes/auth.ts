@@ -9,14 +9,11 @@ import {
   LOGIN_THROTTLED,
   recordLoginEvent,
 } from '../lib/loginGuard';
+import { getSessionTtlMs } from '../lib/sessionToken';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
 
 const router = Router();
-
-// Absolute lifetime of a session. Long because a session can now be revoked
-// one by one; idle expiry comes with the session list (my-sessions).
-const SESSION_TTL_MS = Number(process.env.SESSION_TTL_DAYS ?? 7) * 24 * 60 * 60 * 1000;
 
 // Los frenos (por IP y por cuenta), el hash señuelo y la telemetría de
 // intentos viven en lib/loginGuard: los comparte el login del operador de
@@ -103,7 +100,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const { token } = await authRepo.createSession({
     userId: user.id,
-    expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+    expiresAt: new Date(Date.now() + getSessionTtlMs()),
     ip: req.ip ?? null,
     userAgent: req.get('user-agent') ?? null,
   });

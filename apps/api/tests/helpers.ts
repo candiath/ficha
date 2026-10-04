@@ -74,11 +74,6 @@ export async function createTestClinic(): Promise<TestClinic> {
   return { tenantId: tenant.id, name: tenant.name, slug: tenant.slug, email, createUser, cleanup };
 }
 
-interface SignTestTokenOptions {
-  /** Shift of iat in seconds (negative = issued in the past). */
-  iatOffsetSeconds?: number;
-}
-
 interface CreateTestTokenOptions {
   /** Session lifetime from now, in ms; negative creates an already expired session. */
   ttlMs?: number;
@@ -141,11 +136,10 @@ export async function createTestOperator(
 // probar que el otro middleware lo rechaza.
 export function signOperatorTestToken(
   operatorId: string,
-  opts: SignTestTokenOptions & { secret?: string } = {},
+  opts: { secret?: string } = {},
 ): string {
-  const iat = Math.floor(Date.now() / 1000) + (opts.iatOffsetSeconds ?? 0);
   return jwt.sign(
-    { kind: 'platform', iat },
+    { kind: 'platform' },
     opts.secret ?? (process.env.PLATFORM_JWT_SECRET as string),
     { subject: operatorId, expiresIn: '1h' },
   );

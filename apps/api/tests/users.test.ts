@@ -119,6 +119,8 @@ describe('requireRole + /api/users', () => {
   });
 
   it('un usuario de otra clínica responde 404, como si no existiera', async () => {
+    const outsiderToken = await createTestToken(outsider);
+
     const res = await request(app)
       .patch(`${USERS}/${outsider.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -128,6 +130,10 @@ describe('requireRole + /api/users', () => {
 
     const untouched = await prisma.user.findUnique({ where: { id: outsider.id } });
     expect(untouched?.isActive).toBe(true);
+    // Nor are her sessions: revocation only runs after the tenant-scoped
+    // write actually touched a row.
+    const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${outsiderToken}`);
+    expect(me.status).toBe(200);
   });
 
   it('desactivar a un usuario revoca su acceso en el request siguiente', async () => {
