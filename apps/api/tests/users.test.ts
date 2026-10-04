@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 const USERS = '/api/users';
 
@@ -24,8 +24,8 @@ describe('requireRole + /api/users', () => {
     admin = await clinicA.createUser({ role: 'ADMIN' });
     therapist = await clinicA.createUser();
     outsider = await clinicB.createUser();
-    adminToken = signTestToken(admin);
-    therapistToken = signTestToken(therapist);
+    adminToken = await createTestToken(admin);
+    therapistToken = await createTestToken(therapist);
   });
 
   afterAll(async () => {
@@ -196,7 +196,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     admin = await clinic.createUser({ role: 'ADMIN' });
-    adminToken = signTestToken(admin);
+    adminToken = await createTestToken(admin);
   });
 
   afterAll(async () => {
@@ -205,7 +205,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
 
   it('ascender a ADMIN aplica en el request siguiente, con el mismo token', async () => {
     const colega = await clinic.createUser();
-    const colegaToken = signTestToken(colega);
+    const colegaToken = await createTestToken(colega);
 
     // Antes: THERAPIST, sin acceso a la gestión de usuarios.
     expect((await listUsers(colegaToken)).status).toBe(403);
@@ -225,7 +225,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
 
   it('degradar a una ADMIN cuando queda otra activa aplica al instante', async () => {
     const segunda = await clinic.createUser({ role: 'ADMIN' });
-    const segundaToken = signTestToken(segunda);
+    const segundaToken = await createTestToken(segunda);
     expect((await listUsers(segundaToken)).status).toBe(200);
 
     const res = await patch(adminToken, segunda.id, { role: 'THERAPIST' });
@@ -241,7 +241,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
       const a = await otraClinica.createUser({ role: 'ADMIN' });
       await otraClinica.createUser({ role: 'ADMIN' });
 
-      const res = await patch(signTestToken(a), a.id, { role: 'THERAPIST' });
+      const res = await patch(await createTestToken(a), a.id, { role: 'THERAPIST' });
       expect(res.status).toBe(200);
       expect(res.body.data.role).toBe('THERAPIST');
     } finally {
@@ -282,7 +282,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
     try {
       const a = await otraClinica.createUser({ role: 'ADMIN' });
       const b = await otraClinica.createUser({ role: 'ADMIN' });
-      const tokenA = signTestToken(a);
+      const tokenA = await createTestToken(a);
 
       // Con B activa, A puede desactivarla: A sigue ahí.
       expect((await patch(tokenA, b.id, { isActive: false })).status).toBe(200);

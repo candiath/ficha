@@ -93,6 +93,13 @@ export function signTestToken(
   });
 }
 
+// The bearer token for a clinic user, without going through /login (no rate
+// limiter budget spent). Async because it will create an auth_sessions row
+// once sessions replace the JWT; for now it still signs one.
+export function createTestToken(user: { id: string; tenantId: string }): Promise<string> {
+  return Promise.resolve(signTestToken(user));
+}
+
 // ─── Operador de plataforma ─────────────────────────────────────────────────
 
 export interface TestOperator {

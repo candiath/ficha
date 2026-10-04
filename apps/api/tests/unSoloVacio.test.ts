@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // Hay un solo vacío en la API y es `null`. Un formulario web no tiene null:
 // tiene "". Hasta ahora esa traducción la hacía React, con un `.trim() || null`
@@ -23,7 +23,7 @@ describe('un solo vacío: "" entra como null', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
-    token = signTestToken(user);
+    token = await createTestToken(user);
   });
 
   afterAll(async () => {

@@ -7,7 +7,7 @@ import {
   createTestClinic,
   createTestOperator,
   signOperatorTestToken,
-  signTestToken,
+  createTestToken,
   type TestClinic,
   type TestOperator,
 } from './helpers';
@@ -29,7 +29,7 @@ describe('aislamiento operador ↔ clínica', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     admin = await clinic.createUser({ role: 'ADMIN' });
-    userToken = signTestToken(admin);
+    userToken = await createTestToken(admin);
     op = await createTestOperator();
   });
 

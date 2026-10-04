@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
 
 // El historial de una ficha: quién tocó qué y cuándo. Es la única parte de la
 // app que nadie puede editar ni borrar desde la UI, así que lo que importa es
@@ -25,7 +25,7 @@ describe('historial de auditoría de un paciente', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Auditado' },
       select: { id: true },

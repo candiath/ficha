@@ -2,7 +2,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // La pantalla de Clínica mostraba datos inventados porque Tenant solo tenía
 // nombre y slug. Ahora guarda contacto, CUIT, zona horaria y horario de
@@ -20,8 +20,8 @@ describe('configuración de la clínica', () => {
 
   beforeAll(async () => {
     clinic = await createTestClinic();
-    adminToken = signTestToken(await clinic.createUser({ role: 'ADMIN' }));
-    therapistToken = signTestToken(await clinic.createUser({ role: 'THERAPIST' }));
+    adminToken = await createTestToken(await clinic.createUser({ role: 'ADMIN' }));
+    therapistToken = await createTestToken(await clinic.createUser({ role: 'THERAPIST' }));
   });
 
   afterAll(async () => {
@@ -147,7 +147,7 @@ describe('configuración de la clínica', () => {
   it('cada clínica ve la suya', async () => {
     const otra = await createTestClinic();
     try {
-      const token = signTestToken(await otra.createUser({ role: 'ADMIN' }));
+      const token = await createTestToken(await otra.createUser({ role: 'ADMIN' }));
       const res = await request(app)
         .get('/api/tenant')
         .set('Authorization', `Bearer ${token}`);

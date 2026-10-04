@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // Política de alertas centralizada en los repos: el chequeo de paciente de
 // POST /api/alerts pasa por patientRepo.exists, que además del tenant filtra
@@ -19,7 +19,7 @@ describe('alertas: vigencia del paciente', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     const user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
   });
 

@@ -6,7 +6,7 @@ import { prisma } from '../src/lib/prisma';
 import {
   createTestClinic,
   createTestOperator,
-  signTestToken,
+  createTestToken,
   TEST_PASSWORD,
   waitFor,
   type TestClinic,
@@ -191,7 +191,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
 
     it('desactivar la clínica revoca a todos sus usuarios al instante; reactivar los restaura', async () => {
       const admin = await clinic.createUser({ role: 'ADMIN' });
-      const adminToken = signTestToken(admin);
+      const adminToken = await createTestToken(admin);
       expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`)).status).toBe(200);
 
       const off = await asOperator(request(app).patch(`${PLATFORM}/tenants/${clinic.tenantId}`)).send({
@@ -311,7 +311,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
           role: 'THERAPIST',
         },
       });
-      const fisioToken = signTestToken(fisio);
+      const fisioToken = await createTestToken(fisio);
       expect((await request(app).get('/api/users').set('Authorization', `Bearer ${fisioToken}`)).status).toBe(403);
 
       const res = await asOperator(

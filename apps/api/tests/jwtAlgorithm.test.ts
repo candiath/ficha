@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
-import { signTestToken, createTestClinic, type TestClinic } from './helpers';
+import { createTestToken, createTestClinic, type TestClinic } from './helpers';
 
 // El algoritmo del token está fijado en HS256, al firmar y al verificar.
 //
@@ -31,7 +31,7 @@ describe('el token solo se acepta firmado con HS256', () => {
   it('acepta el token normal', async () => {
     const res = await request(app)
       .get('/api/auth/me')
-      .set('Authorization', `Bearer ${signTestToken(user)}`);
+      .set('Authorization', `Bearer ${await createTestToken(user)}`);
 
     expect(res.status).toBe(200);
   });
