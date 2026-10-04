@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
 import { authenticateOperator } from './middlewares/platformAuth';
 import { errorHandler } from './middlewares/errorHandler';
+import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
 import { getJwtSecret } from './lib/jwt';
 import { getPlatformJwtSecret } from './lib/platformJwt';
@@ -117,6 +118,11 @@ app.use('/api/platform', authenticateOperator, platformRouter);
 // authenticate adjunta req.context = { tenantId, userId, role }, que las rutas
 // le pasan a los repositorios: ellos scopean cada query al tenant.
 app.use('/api', authenticate);
+
+// Los ids que vienen del path de montaje se validan acá: un router.param del
+// router hijo no se dispara para ellos (ver middlewares/idParam.ts).
+app.param('patientId', idParam('Paciente no encontrado'));
+app.param('episodeId', idParam('Episodio no encontrado'));
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', episodesRouter);

@@ -19,8 +19,22 @@ datasource db {
 // Tablas de catálogo global (body_regions) son la única excepción permitida.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Ids: UUIDv7 en columnas `uuid` nativas (issue #174). Toda PK y toda columna
+// que guarda un id lleva @db.Uuid — una FK tiene que tener el mismo tipo que
+// la columna a la que apunta.
+//
+// El tipo nativo es para que la base rechace un id malformado por
+// construcción. El costo: Prisma ya no devuelve "no encontrado" para un id con
+// otra forma, sino P2023. Por eso la API valida el formato antes de consultar
+// (params con 404, body con 400; ver lib/validation.ts y middlewares/idParam.ts).
+//
+// v7 y no v4: ordena por fecha de creación, así que un id dice cuándo nació la
+// fila. Lo genera Prisma, no Postgres: la columna no tiene DEFAULT.
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Tenant {
-  id        String   @id @default(uuid())
+  id        String   @id @default(uuid(7)) @db.Uuid
   name      String
   slug      String   @unique
 
@@ -92,8 +106,8 @@ enum UserRole {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  tenantId     String    @map("tenant_id")
+  id           String    @id @default(uuid(7)) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
   email        String    @unique
   passwordHash String    @map("password_hash")
   name         String?
@@ -134,7 +148,7 @@ model User {
 // uno de usuario el middleware de operador.
 // ─────────────────────────────────────────────────────────────────────────────
 model PlatformOperator {
-  id                String    @id @default(uuid())
+  id                String    @id @default(uuid(7)) @db.Uuid
   email             String    @unique
   passwordHash      String    @map("password_hash")
   name              String?
@@ -169,10 +183,10 @@ enum PlatformAction {
 // TENANT_MODELS_FUERA_DEL_GUARD: la escribe alguien que no tiene tenant, y
 // el tenantId es el objetivo de la acción, no el dueño de la fila.
 model PlatformAuditLog {
-  id           String         @id @default(uuid())
-  operatorId   String?        @map("operator_id")
-  tenantId     String         @map("tenant_id")
-  targetUserId String?        @map("target_user_id")
+  id           String         @id @default(uuid(7)) @db.Uuid
+  operatorId   String?        @map("operator_id") @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  targetUserId String?        @map("target_user_id") @db.Uuid
   action       PlatformAction
   description  String
   createdAt    DateTime       @default(now()) @map("created_at")
@@ -193,7 +207,7 @@ model PlatformAuditLog {
 // paciente (patientId obligatorio); esto sirve para detectar fuerza bruta
 // y rastrear accesos.
 model LoginEvent {
-  id        String   @id @default(uuid())
+  id        String   @id @default(uuid(7)) @db.Uuid
   // Email tal como se intentó (normalizado): en un fallo puede no
   // corresponder a ningún usuario.
   email     String
@@ -202,12 +216,12 @@ model LoginEvent {
   // ninguna clínica ni usuario. Cuando el email sí existe se guardan ambos,
   // y eso permite filtrar los accesos por clínica y seguir el historial de
   // un usuario aunque después cambie su email.
-  tenantId  String?  @map("tenant_id")
-  userId    String?  @map("user_id")
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
   // El login del operador de plataforma registra sus intentos acá mismo —
   // así el freno por cuenta, que cuenta por email, lo cubre sin código
   // aparte— y esta columna dice de quién fue un éxito sin tenant ni usuario.
-  operatorId String? @map("operator_id")
+  operatorId String? @map("operator_id") @db.Uuid
   success   Boolean
   ip        String?
   userAgent String?  @map("user_agent")
@@ -233,8 +247,8 @@ enum Sex {
 }
 
 model Patient {
-  id               String    @id @default(uuid())
-  tenantId         String    @map("tenant_id")
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
   fullName         String    @map("full_name")
   birthDate        DateTime? @map("birth_date") @db.Date
   sex              Sex?
@@ -273,9 +287,9 @@ enum EpisodeStatus {
 }
 
 model ClinicalEpisode {
-  id            String        @id @default(uuid())
-  tenantId      String        @map("tenant_id")
-  patientId     String        @map("patient_id")
+  id            String        @id @default(uuid(7)) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  patientId     String        @map("patient_id") @db.Uuid
   status        EpisodeStatus @default(ACTIVE)
   mainComplaint String?       @map("main_complaint")
   openedAt      DateTime      @default(now()) @map("opened_at")
@@ -296,10 +310,10 @@ model ClinicalEpisode {
 }
 
 model InitialEvaluation {
-  id                      String   @id @default(uuid())
-  tenantId                String   @map("tenant_id")
-  patientId               String   @map("patient_id")
-  episodeId               String?  @unique @map("episode_id")
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  tenantId                String   @map("tenant_id") @db.Uuid
+  patientId               String   @map("patient_id") @db.Uuid
+  episodeId               String?  @unique @map("episode_id") @db.Uuid
   globalPosture           String?  @map("global_posture")
   breathingPattern        String?  @map("breathing_pattern")
   medicalHistory          String?  @map("medical_history")
@@ -331,8 +345,8 @@ model InitialEvaluation {
 }
 
 model EvaluationPhoto {
-  id                  String   @id @default(uuid())
-  initialEvaluationId String   @map("initial_evaluation_id")
+  id                  String   @id @default(uuid(7)) @db.Uuid
+  initialEvaluationId String   @map("initial_evaluation_id") @db.Uuid
   storageKey          String   @map("storage_key")
   caption             String?
   takenAt             DateTime? @map("taken_at")
@@ -350,10 +364,10 @@ enum SessionType {
 }
 
 model Session {
-  id               String      @id @default(uuid())
-  tenantId         String      @map("tenant_id")
-  patientId        String      @map("patient_id")
-  userId           String      @map("user_id")
+  id               String      @id @default(uuid(7)) @db.Uuid
+  tenantId         String      @map("tenant_id") @db.Uuid
+  patientId        String      @map("patient_id") @db.Uuid
+  userId           String      @map("user_id") @db.Uuid
   sessionType      SessionType @default(SESSION) @map("session_type")
   sessionDate      DateTime    @map("session_date")
   preSesionState   String?     @map("pre_session_state")
@@ -392,8 +406,8 @@ model Session {
 // episodio agrupa todas las sesiones que trabajaron ese motivo.
 // ─────────────────────────────────────────────────────────────────────────────
 model SessionEpisode {
-  sessionId String @map("session_id")
-  episodeId String @map("episode_id")
+  sessionId String @map("session_id") @db.Uuid
+  episodeId String @map("episode_id") @db.Uuid
 
   session Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   episode ClinicalEpisode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
@@ -404,8 +418,8 @@ model SessionEpisode {
 }
 
 model SessionPhoto {
-  id         String    @id @default(uuid())
-  sessionId  String    @map("session_id")
+  id         String    @id @default(uuid(7)) @db.Uuid
+  sessionId  String    @map("session_id") @db.Uuid
   storageKey String    @map("storage_key")
   caption    String?
   takenAt    DateTime? @map("taken_at")
@@ -431,9 +445,9 @@ enum PaymentMethod {
 // El precio individual se fija al crear el paquete.
 // Las sesiones debitan del paquete usando packageId en Payment.
 model SessionPackage {
-  id              String   @id @default(uuid())
-  tenantId        String   @map("tenant_id")
-  patientId       String   @map("patient_id")
+  id              String   @id @default(uuid(7)) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  patientId       String   @map("patient_id") @db.Uuid
   name            String
   totalSessions   Int      @map("total_sessions")
   pricePerSession Decimal  @map("price_per_session") @db.Decimal(10, 2)
@@ -453,11 +467,11 @@ model SessionPackage {
 // Un cobro por sesión. Se crea junto con la sesión (status PENDING).
 // discount y finalAmount permiten descuentos granulares.
 model Payment {
-  id          String         @id @default(uuid())
-  tenantId    String         @map("tenant_id")
-  patientId   String         @map("patient_id")
-  sessionId   String         @unique @map("session_id")
-  packageId   String?        @map("package_id")
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  patientId   String         @map("patient_id") @db.Uuid
+  sessionId   String         @unique @map("session_id") @db.Uuid
+  packageId   String?        @map("package_id") @db.Uuid
 
   baseAmount  Decimal        @map("base_amount") @db.Decimal(10, 2)
   discount    Decimal        @default(0) @db.Decimal(10, 2)
@@ -486,9 +500,9 @@ model Payment {
 // Consentimiento informado: un paciente firma (o no) antes de iniciar tratamiento.
 // ─────────────────────────────────────────────────────────────────────────────
 model InformedConsent {
-  id        String    @id @default(uuid())
-  tenantId  String    @map("tenant_id")
-  patientId String    @unique @map("patient_id")
+  id        String    @id @default(uuid(7)) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  patientId String    @unique @map("patient_id") @db.Uuid
   signed    Boolean   @default(false)
   signedAt  DateTime? @map("signed_at")
   revokedAt DateTime? @map("revoked_at")
@@ -520,12 +534,12 @@ enum AuditEntity {
 }
 
 model AuditLog {
-  id          String      @id @default(uuid())
-  tenantId    String      @map("tenant_id")
-  patientId   String      @map("patient_id")
-  userId      String?     @map("user_id")
+  id          String      @id @default(uuid(7)) @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  patientId   String      @map("patient_id") @db.Uuid
+  userId      String?     @map("user_id") @db.Uuid
   entity      AuditEntity
-  entityId    String      @map("entity_id")
+  entityId    String      @map("entity_id") @db.Uuid
   action      AuditAction
   description String
   createdAt   DateTime    @default(now()) @map("created_at")
@@ -553,9 +567,9 @@ enum AlertType {
 }
 
 model ClinicalAlert {
-  id        String    @id @default(uuid())
-  tenantId  String    @map("tenant_id")
-  patientId String    @map("patient_id")
+  id        String    @id @default(uuid(7)) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  patientId String    @map("patient_id") @db.Uuid
   type      AlertType
   message   String
   isRead    Boolean   @default(false) @map("is_read")
@@ -583,10 +597,10 @@ enum ScaleType {
 }
 
 model FunctionalScale {
-  id             String    @id @default(uuid())
-  tenantId       String    @map("tenant_id")
-  patientId      String    @map("patient_id")
-  episodeId      String?   @map("episode_id")
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  patientId      String    @map("patient_id") @db.Uuid
+  episodeId      String?   @map("episode_id") @db.Uuid
   scaleType      ScaleType @map("scale_type")
   responses      Json
   score          Int
@@ -630,25 +644,25 @@ enum AppointmentStatus {
 }
 
 model Appointment {
-  id        String @id @default(uuid())
-  tenantId  String @map("tenant_id")
-  patientId String @map("patient_id")
+  id        String @id @default(uuid(7)) @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+  patientId String @map("patient_id") @db.Uuid
   // Qué profesional atiende. Hoy todos ven todo, pero el turno es de alguien.
-  userId    String @map("user_id")
+  userId    String @map("user_id") @db.Uuid
   // Por qué motivo. Opcional: se puede agendar antes de abrir el episodio.
-  episodeId String? @map("episode_id")
+  episodeId String? @map("episode_id") @db.Uuid
 
   // La sesión que produjo este turno, si el paciente vino y se registró.
   // @unique: una sesión sale de un turno como mucho, así que marcar el mismo
   // turno como cumplido dos veces no puede duplicar la sesión.
-  sessionId String? @unique @map("session_id")
+  sessionId String? @unique @map("session_id") @db.Uuid
 
   // Los turnos recurrentes se materializan como filas independientes que
   // comparten este id. Cada una se mueve o se cancela sola, y además existe
   // "cancelar los que quedan de la serie" — el caso de un tratamiento de diez
   // sesiones que se suspende en la tercera. Sin tabla aparte: no hay nada que
   // guardar sobre la serie salvo que sus turnos son la misma.
-  seriesId String? @map("series_id")
+  seriesId String? @map("series_id") @db.Uuid
 
   startsAt    DateTime          @map("starts_at")
   endsAt      DateTime          @map("ends_at")

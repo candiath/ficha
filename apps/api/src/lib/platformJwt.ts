@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { JWT_ALGORITHM } from './jwt';
+import { isId } from './validation';
 
 // Tokens del operador de plataforma. Espejo de jwt.ts con dos diferencias
 // que son el punto: otro secreto y otra forma.
@@ -60,7 +61,8 @@ export function verifyOperatorToken(token: string): VerifiedOperatorToken {
   const decoded = jwt.verify(token, getPlatformJwtSecret(), { algorithms: [JWT_ALGORITHM] });
   if (
     typeof decoded === 'string' ||
-    typeof decoded.sub !== 'string' ||
+    // UUID, como en verifyAccessToken: va directo a una columna uuid.
+    !isId(decoded.sub) ||
     typeof decoded.iat !== 'number' ||
     decoded.kind !== PLATFORM_TOKEN_KIND ||
     // Un token con tenantId es de usuario de clínica, venga firmado como venga.

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { SLUG_PATTERN, slugify } from '@ficha/shared';
 import { EmailSchema, OptionalTextSchema, PasswordSchema, requiredText } from '../lib/validation';
+import { idParam } from '../middlewares/idParam';
 
 // Rutas del operador de plataforma (issue #153). Se montan detrás de
 // authenticateOperator y FUERA de authenticate: acá no hay TenantContext, y
@@ -11,6 +12,8 @@ import { EmailSchema, OptionalTextSchema, PasswordSchema, requiredText } from '.
 // Tocan clínicas y lo administrativo de sus usuarios; nada clínico entra ni
 // sale por acá, y platformRepository es quien lo garantiza.
 const router = Router();
+router.param('tenantId', idParam('Clínica no encontrada'));
+router.param('userId', idParam('Usuario no encontrado'));
 
 const CreateTenantSchema = z.object({
   name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),

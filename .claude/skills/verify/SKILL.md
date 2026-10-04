@@ -18,7 +18,8 @@ description: Cómo levantar y verificar Ficha (API Express + web Vite) end-to-en
 - Login: `POST /api/auth/login` con `{"email","password"}` → `{ data: { token, user } }`.
 - Rutas protegidas: cualquier `/api/*` (salvo `/api/auth/*` y `/health`) exige `Authorization: Bearer <token>`; sin token → 401 `{"error":"No autenticado"}`.
 - Operador de plataforma: `POST /api/platform/auth/login` → token propio; `GET /api/platform/tenants`. Ese token da 401 en cualquier `/api/*` de la clínica, y viceversa. UI en `/platform/login`.
-- Datos demo útiles: paciente `dev-patient-001`, episodio `dev-episode-001`.
+- Datos demo útiles: pacientes "María García" y "Javier Rodríguez" (historia completa). Los ids son UUID (#174): el seed los deriva del nombre legible con `devId('dev-patient-001')`, así que son fijos entre corridas; el seed imprime los de los episodios al terminar, o se sacan de `GET /api/patients`.
+- Un id malformado en la URL da 404 con el mensaje de la entidad; en el body, 400.
 
 ## Gotchas
 

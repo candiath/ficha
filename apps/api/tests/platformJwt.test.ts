@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getPlatformJwtSecret, signOperatorToken, verifyOperatorToken } from '../src/lib/platformJwt';
@@ -5,6 +6,12 @@ import { signAccessToken, verifyAccessToken } from '../src/lib/jwt';
 
 // Unit tests del secreto y la forma del token de operador, sin DB.
 const ORIGINAL = { ...process.env };
+
+// UUIDs y no ids de juguete: los verificadores exigen que `sub` lo sea (#174),
+// y estos tests tienen que fallar por firma o por forma, no por eso.
+const OP = randomUUID();
+const USER = randomUUID();
+const TENANT = randomUUID();
 
 afterEach(() => {
   process.env.JWT_SECRET = ORIGINAL.JWT_SECRET;
@@ -31,16 +38,16 @@ describe('getPlatformJwtSecret', () => {
 
 describe('forma del token de operador', () => {
   it('lleva kind=platform y no lleva tenantId', () => {
-    const token = signOperatorToken('op-1');
+    const token = signOperatorToken(OP);
     const decoded = verifyOperatorToken(token);
-    expect(decoded.sub).toBe('op-1');
+    expect(decoded.sub).toBe(OP);
     expect(typeof decoded.iat).toBe('number');
   });
 
   // Con secretos distintos, el otro verificador lo rechaza por firma.
   it('el verificador de la clínica lo rechaza, y al revés', () => {
-    expect(() => verifyAccessToken(signOperatorToken('op-1'))).toThrow();
-    expect(() => verifyOperatorToken(signAccessToken({ sub: 'u-1', tenantId: 't-1' }))).toThrow();
+    expect(() => verifyAccessToken(signOperatorToken(OP))).toThrow();
+    expect(() => verifyOperatorToken(signAccessToken({ sub: USER, tenantId: TENANT }))).toThrow();
   });
 
   // Y aun con el MISMO secreto, la forma ya lo rechazaría: el verificador de
@@ -52,14 +59,14 @@ describe('forma del token de operador', () => {
     const operatorShapedWithClinicSecret = jwt.sign(
       { kind: 'platform' },
       process.env.JWT_SECRET as string,
-      { subject: 'op-1', expiresIn: '1h' },
+      { subject: OP, expiresIn: '1h' },
     );
     expect(() => verifyAccessToken(operatorShapedWithClinicSecret)).toThrow(/formato/);
 
     const userShapedWithPlatformSecret = jwt.sign(
-      { tenantId: 't-1' },
+      { tenantId: TENANT },
       process.env.PLATFORM_JWT_SECRET as string,
-      { subject: 'u-1', expiresIn: '1h' },
+      { subject: USER, expiresIn: '1h' },
     );
     expect(() => verifyOperatorToken(userShapedWithPlatformSecret)).toThrow(/formato/);
   });

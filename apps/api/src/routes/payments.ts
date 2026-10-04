@@ -7,11 +7,13 @@ import {
   OptionalTextSchema,
 } from '../lib/validation';
 import { auditLogRepo, paymentRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Las queries, la derivación del paciente desde la sesión, el cálculo de
 // finalAmount y la unicidad pago-por-sesión viven en paymentRepo; acá queda
 // el HTTP: validar el body, resolver paidAt y mapear reasons a status codes.
 const router = Router();
+router.param('id', idParam('Pago no encontrado'));
 
 // Sin patientId: el paciente se deriva de la sesión. Aceptarlo del body
 // permitía crear pagos apuntando a pacientes de otro tenant (y el GET,
