@@ -29,13 +29,13 @@ Replace the clinic JWT with opaque server-side sessions (`auth_sessions`). Deliv
 - [ ] Review with Nath before continuing
 
 ### Phase 3: Revocation paths
-- [ ] Task 4: Logout revokes the current session
-- [ ] Task 5: Change password keeps the current session (`204`)
-- [ ] Task 6: Deactivating a user or a clinic revokes their sessions
+- [x] Task 4: Logout revokes the current session
+- [x] Task 5: Change password keeps the current session (`204`)
+- [x] Task 6: Deactivating a user or a clinic revokes their sessions
 
 ### Checkpoint B: after Tasks 4–6
-- [ ] All spec tests listed under Testing Strategy pass
-- [ ] Manual: two browsers logged in as the same user; change the password in one, the other is sent to login; logout in one leaves the other alive
+- [x] All spec tests listed under Testing Strategy pass
+- [x] Manual: two browsers logged in as the same user; change the password in one, the other is sent to login; logout in one leaves the other alive
 
 ### Phase 4: Removal
 - [ ] Task 7: Remove the clinic JWT and `JWT_SECRET`

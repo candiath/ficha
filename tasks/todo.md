@@ -72,13 +72,13 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** `POST /api/auth/logout` (authenticated) revokes `req.authSessionId` with a conditioned `updateMany` and answers `204`. The web's `logout` calls it and clears the token whatever the outcome.
 
 **Acceptance criteria:**
-- [ ] After logout the same token gives `401`; a second logout with it gives `401`, not `500`.
-- [ ] Another session of the same user keeps working.
-- [ ] Web test: logout calls the endpoint and clears the token even when the call fails.
+- [x] After logout the same token gives `401`; a second logout with it gives `401`, not `500`.
+- [x] Another session of the same user keeps working.
+- [x] Web test: logout calls the endpoint and clears the token even when the call fails.
 
 **Verification:**
-- [ ] `npm test -- authSessions` · `npm test -w apps/web -- AuthContext`
-- [ ] `npm run check`
+- [x] `npm test -- authSessions` · `npm test -w apps/web -- AuthContext`
+- [x] `npm run check`
 
 **Dependencies:** Task 3
 
@@ -91,13 +91,13 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** `change-password` updates the hash and revokes every other session of the user in one transaction, keeping `req.authSessionId`; it answers `204`. `ChangePasswordDialog` stops calling `setToken`. It also stops stamping `password_changed_at`.
 
 **Acceptance criteria:**
-- [ ] The session that made the change keeps working; another session of the same user gets `401`.
-- [ ] Wrong current password still answers `400` and revokes nothing.
-- [ ] Web test: the dialog closes with success and the stored token is unchanged.
+- [x] The session that made the change keeps working; another session of the same user gets `401`.
+- [x] Wrong current password still answers `400` and revokes nothing.
+- [x] Web test: the dialog closes with success and the stored token is unchanged.
 
 **Verification:**
-- [ ] `npm test -- changePassword` · `npm test -w apps/web -- ChangePasswordDialog`
-- [ ] `npm run check`
+- [x] `npm test -- changePassword` · `npm test -w apps/web -- ChangePasswordDialog`
+- [x] `npm run check`
 
 **Dependencies:** Task 3 (parallel with Task 4)
 
@@ -110,13 +110,13 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** Inside their existing transactions, the user update with `isActive: false` (`prismaUserRepository`, `prismaPlatformRepository`) and the tenant deactivation (`prismaPlatformRepository`) revoke the open sessions involved.
 
 **Acceptance criteria:**
-- [ ] Deactivate a user via the ADMIN route and via the platform route → `401`; reactivate → the old token is still `401`.
-- [ ] Deactivate a clinic → its users' tokens `401`; reactivate → still `401`.
-- [ ] A failed deactivation (e.g. last active ADMIN) revokes nothing.
+- [x] Deactivate a user via the ADMIN route and via the platform route → `401`; reactivate → the old token is still `401`.
+- [x] Deactivate a clinic → its users' tokens `401`; reactivate → still `401`.
+- [x] A failed deactivation (e.g. last active ADMIN) revokes nothing.
 
 **Verification:**
-- [ ] `npm test -- users platform authSessions`
-- [ ] `npm run check`
+- [x] `npm test -- users platform authSessions`
+- [x] `npm run check`
 
 **Dependencies:** Task 3 (parallel with Tasks 4–5)
 
@@ -126,8 +126,8 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 
 ## Checkpoint B: after Tasks 4–6
 
-- [ ] Every test in the spec's Testing Strategy passes
-- [ ] Manual: two browsers, same user — change the password in one, the other goes to login; logout in one leaves the other alive
+- [x] Every test in the spec's Testing Strategy passes
+- [x] Manual: two browsers, same user — change the password in one, the other goes to login; logout in one leaves the other alive
 
 ## Task 7: Remove the clinic JWT and `JWT_SECRET`
 
