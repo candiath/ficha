@@ -101,8 +101,10 @@ Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()
 
 ## Convenciones
 
-- Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, mensajes en español con prefijo convencional (`fix(web): ...`, `test(web): ...`).
-- UI y mensajes de error de la API en español.
+- Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, con prefijo convencional (`fix(web): ...`, `test(web): ...`).
+- **Language (since 2026-10-04): everything new is written in English** — identifiers, comments, test names, commit messages, PR and issue text, and documentation (including specs and new sections of this file).
+  - **Exception: what users read stays in Spanish** — UI text and API error messages (`{"error":"No autenticado"}`).
+  - Existing Spanish code and docs are not translated in bulk; translate a piece when it is touched for another reason.
 - La API envuelve respuestas en `{ data: ... }`; todo `/api/*` salvo `/api/auth/*` y `/health` exige `Authorization: Bearer <token>` (401 → `{"error":"No autenticado"}`).
 - CI (`.github/workflows/test.yml`): jobs paralelos para API (con migraciones) y web.
 
