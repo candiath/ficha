@@ -128,9 +128,40 @@ model User {
   loginEvents  LoginEvent[]
   appointments Appointment[]
   platformAuditLogs PlatformAuditLog[]
+  authSessions AuthSession[]
 
   @@index([tenantId])
   @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Login sessions (docs/specs/SPEC-server-sessions.md). Named AuthSession
+// because Session is the clinical therapy session.
+//
+// The client holds an opaque random token; only its SHA-256 is stored, so a
+// leaked table or backup yields no usable session. Access is decided on every
+// request by joining to users and tenants (active user, active clinic), not by
+// this row alone: revoking here is for closing one session, the join is the
+// safety net for any write path that forgets to revoke.
+//
+// No tenantId column: the owner is the user and the tenant comes from the
+// join. A copied tenantId could drift from users.tenant_id.
+// ─────────────────────────────────────────────────────────────────────────────
+model AuthSession {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash Bytes     @unique @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  // Captured at login for the session list: they cannot be backfilled later.
+  ip        String?
+  userAgent String?   @map("user_agent")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
