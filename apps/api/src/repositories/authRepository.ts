@@ -31,13 +31,20 @@ export interface LoginUser {
   tenantActive: boolean;
 }
 
-// Para authenticate: lo justo para armar req.context y validar el token.
-// passwordChangedAt queda como Date (se compara contra el iat en segundos).
-export interface AuthUser {
-  id: string;
+// What authenticate needs from a valid session: enough to build req.context,
+// plus the session id for the routes that act on the current session.
+export interface SessionAuth {
+  sessionId: string;
+  userId: string;
   tenantId: string;
   role: UserRole;
-  passwordChangedAt: Date | null;
+}
+
+export interface CreateSessionInput {
+  userId: string;
+  expiresAt: Date;
+  ip: string | null;
+  userAgent: string | null;
 }
 
 export interface PublicProfile {
@@ -77,11 +84,16 @@ export interface AuthRepository {
   /** Para el login. Incluye inactivos: la ruta decide el mensaje único. */
   findByEmailForLogin(email: string): Promise<LoginUser | null>;
   /**
-   * Para authenticate: solo usuarios activos de clínicas activas (null
-   * revoca el acceso). Que la clínica esté desactivada se decide acá y no
-   * en el middleware para que ninguna ruta pueda olvidarse de mirarlo.
+   * Opens a session and returns its raw token. The token leaves this method
+   * once, for the login response; only its hash is stored.
    */
-  findForAuth(userId: string): Promise<AuthUser | null>;
+  createSession(input: CreateSessionInput): Promise<{ token: string }>;
+  /**
+   * For authenticate: the session behind a raw token, or null. One query
+   * decides everything — session unrevoked and unexpired, user active, clinic
+   * active — so no route can forget one of the conditions.
+   */
+  findSessionForAuth(token: string): Promise<SessionAuth | null>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */

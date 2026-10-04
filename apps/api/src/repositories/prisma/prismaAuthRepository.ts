@@ -1,12 +1,14 @@
 import { prisma } from '../../lib/prisma';
+import { generateSessionToken, hashSessionToken } from '../../lib/sessionToken';
 import type {
   AuthRepository,
-  AuthUser,
+  CreateSessionInput,
   Credentials,
   LoginAttempt,
   LoginEventInput,
   LoginUser,
   PublicProfile,
+  SessionAuth,
 } from '../authRepository';
 
 // Usa el prisma base a conciencia: estas queries corren ANTES de que exista
@@ -47,13 +49,40 @@ export const prismaAuthRepository: AuthRepository = {
     };
   },
 
-  async findForAuth(userId: string): Promise<AuthUser | null> {
-    // La clínica desactivada revoca a todos sus usuarios de golpe, en el
-    // request siguiente: es la misma mecánica que isActive, un nivel arriba.
-    return prisma.user.findFirst({
-      where: { id: userId, isActive: true, tenant: { deactivatedAt: null } },
-      select: { id: true, tenantId: true, role: true, passwordChangedAt: true },
+  async createSession(input: CreateSessionInput): Promise<{ token: string }> {
+    const token = generateSessionToken();
+    await prisma.authSession.create({
+      data: {
+        userId: input.userId,
+        tokenHash: hashSessionToken(token),
+        expiresAt: input.expiresAt,
+        ip: input.ip,
+        userAgent: input.userAgent,
+      },
     });
+    return { token };
+  },
+
+  async findSessionForAuth(token: string): Promise<SessionAuth | null> {
+    // The join to users and tenants is the safety net: a deactivated user or
+    // clinic is denied here even if some write path forgot to revoke the
+    // session. Role and tenant are read fresh, never copied into the session.
+    const row = await prisma.authSession.findFirst({
+      where: {
+        tokenHash: hashSessionToken(token),
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+        user: { isActive: true, tenant: { deactivatedAt: null } },
+      },
+      select: { id: true, user: { select: { id: true, tenantId: true, role: true } } },
+    });
+    if (!row) return null;
+    return {
+      sessionId: row.id,
+      userId: row.user.id,
+      tenantId: row.user.tenantId,
+      role: row.user.role,
+    };
   },
 
   async getPublicProfile(userId: string): Promise<PublicProfile | null> {

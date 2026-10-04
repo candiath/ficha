@@ -167,15 +167,6 @@ describe('ids UUID', () => {
     });
   });
 
-  // Un token emitido con un id del seed viejo (antes de #174) está bien
-  // firmado pero su `sub` no puede estar en la base. Tiene que ser 401 —la
-  // web desloguea con eso— y no un error de la consulta.
-  it('un token con sub que no es UUID es una sesión inválida', async () => {
-    const viejo = await createTestToken({ id: 'dev-user-001', tenantId: clinic.tenantId });
-    const res = await request(app).get('/api/patients').set('Authorization', `Bearer ${viejo}`);
-    expect(res.status).toBe(401);
-  });
-
   // La red de seguridad: si algún camino sin validar llega a la base con un
   // id malformado, el errorHandler responde 404 en vez de 500.
   it('errorHandler: P2023 es 404, no 500', () => {

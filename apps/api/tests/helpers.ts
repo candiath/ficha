@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import type { PlatformOperator, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
+import { generateSessionToken, hashSessionToken } from '../src/lib/sessionToken';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -93,11 +94,27 @@ export function signTestToken(
   });
 }
 
-// The bearer token for a clinic user, without going through /login (no rate
-// limiter budget spent). Async because it will create an auth_sessions row
-// once sessions replace the JWT; for now it still signs one.
-export function createTestToken(user: { id: string; tenantId: string }): Promise<string> {
-  return Promise.resolve(signTestToken(user));
+interface CreateTestTokenOptions {
+  /** Session lifetime from now, in ms; negative creates an already expired session. */
+  ttlMs?: number;
+}
+
+// The bearer token for a clinic user: inserts an auth_sessions row directly,
+// without going through /login (no rate limiter budget spent). The session is
+// deleted with the user by the clinic's cleanup (ON DELETE CASCADE).
+export async function createTestToken(
+  user: { id: string },
+  opts: CreateTestTokenOptions = {},
+): Promise<string> {
+  const token = generateSessionToken();
+  await prisma.authSession.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashSessionToken(token),
+      expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
+    },
+  });
+  return token;
 }
 
 // ─── Operador de plataforma ─────────────────────────────────────────────────
