@@ -38,10 +38,10 @@ Replace the clinic JWT with opaque server-side sessions (`auth_sessions`). Deliv
 - [x] Manual: two browsers logged in as the same user; change the password in one, the other is sent to login; logout in one leaves the other alive
 
 ### Phase 4: Removal
-- [ ] Task 7: Remove the clinic JWT and `JWT_SECRET`
+- [x] Task 7: Remove the clinic JWT and `JWT_SECRET`
 
 ### Checkpoint C: complete
-- [ ] Spec success criteria met; `CLAUDE.md` updated
+- [x] Spec success criteria met; `CLAUDE.md` updated
 - [ ] PR open against `dev`; CI green
 - [ ] After merge and deploy: remove `JWT_SECRET` from both Render services and the `CI_JWT_SECRET` GitHub secret (manual)
 

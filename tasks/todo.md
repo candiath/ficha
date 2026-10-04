@@ -134,12 +134,12 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** Delete `lib/jwt.ts`; move `JWT_ALGORITHM` into `platformJwt.ts`; the platform secret check becomes a plain length check; drop `JWT_SECRET` from the `app.ts` startup check, `.env.example`, `tests/setup.ts` and the CI workflow; trim `jwtAlgorithm.test.ts` to the platform half; remove the leftover `signTestToken`. Update `CLAUDE.md` (authRepository exception, per-environment secrets). File the follow-up issue for `DROP password_changed_at`.
 
 **Acceptance criteria:**
-- [ ] `grep -r JWT_SECRET` finds only `PLATFORM_JWT_SECRET`.
-- [ ] The API starts and the full suite passes with `JWT_SECRET` unset.
-- [ ] `platformIsolation.test.ts` passes: a clinic session token is rejected by `/api/platform/*`, an operator JWT by `/api/*`.
+- [x] `grep -r JWT_SECRET` finds only `PLATFORM_JWT_SECRET`.
+- [x] The API starts and the full suite passes with `JWT_SECRET` unset.
+- [x] `platformIsolation.test.ts` passes: a clinic session token is rejected by `/api/platform/*`, an operator JWT by `/api/*`.
 
 **Verification:**
-- [ ] `npm test` · `npm test -w apps/web` · `npm run check`
+- [x] `npm test` · `npm test -w apps/web` · `npm run check`
 - [ ] CI green on the PR (the workflow change is called out in the description)
 
 **Dependencies:** Tasks 4, 5, 6
@@ -150,6 +150,6 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 
 ## Checkpoint C: complete
 
-- [ ] Spec success criteria met
+- [x] Spec success criteria met
 - [ ] PR against `dev` open, CI green
 - [ ] After deploy: remove `JWT_SECRET` from both Render services and `CI_JWT_SECRET` from GitHub secrets
