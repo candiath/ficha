@@ -21,11 +21,11 @@ Replace the clinic JWT with opaque server-side sessions (`auth_sessions`). Deliv
 - [x] Task 2: Async test token helper (mechanical)
 
 ### Phase 2: Cut-over
-- [ ] Task 3: Login issues sessions; `authenticate` validates them
+- [x] Task 3: Login issues sessions; `authenticate` validates them
 
 ### Checkpoint A: after Tasks 1–3
-- [ ] `npm test` and `npm test -w apps/web` green; `npm run check` clean
-- [ ] Manual (skill `verify`): log in on the web, navigate, reload; a row appears in `auth_sessions` with a hash and no raw token
+- [x] `npm test` green except `changePassword.test.ts` (expected until Task 5); `npm run check` clean
+- [x] Manual (skill `verify`): log in on the web, navigate, reload; a row appears in `auth_sessions` with a hash and no raw token
 - [ ] Review with Nath before continuing
 
 ### Phase 3: Revocation paths

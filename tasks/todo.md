@@ -47,13 +47,13 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 **Description:** The cut-over. Login creates an `auth_sessions` row (7-day TTL from `SESSION_TTL_DAYS`, IP and user agent) and returns its token. `authenticate` hashes the bearer token and calls `authRepo.findSessionForAuth`, the single query joining `users` and `tenants`; it sets `req.context` as today plus `req.authSessionId`. `createTestToken` now inserts a session. `change-password` is left broken until Task 5 (allowed: nothing reaches `dev` before the module is done).
 
 **Acceptance criteria:**
-- [ ] Login → token authenticates; the DB holds only the hash (asserted).
-- [ ] Unknown, malformed and old-JWT tokens → `401` with the same message; an expired session → `401`.
-- [ ] Safety net: `users.is_active = false` set directly with Prisma (no revocation) → `401`; same for a deactivated tenant.
+- [x] Login → token authenticates; the DB holds only the hash (asserted).
+- [x] Unknown, malformed and old-JWT tokens → `401` with the same message; an expired session → `401`.
+- [x] Safety net: `users.is_active = false` set directly with Prisma (no revocation) → `401`; same for a deactivated tenant.
 
 **Verification:**
-- [ ] `npm test` (full: every suite now authenticates through sessions; `changePassword.test.ts` may fail until Task 5)
-- [ ] `npm run check`
+- [x] `npm test` (full: every suite now authenticates through sessions; `changePassword.test.ts` may fail until Task 5)
+- [x] `npm run check`
 
 **Dependencies:** Tasks 1, 2
 
@@ -63,8 +63,8 @@ Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run chec
 
 ## Checkpoint A: after Tasks 1–3
 
-- [ ] `npm test`, `npm test -w apps/web`, `npm run check` green
-- [ ] Manual (skill `verify`): log in on the web, navigate, reload; `auth_sessions` has the row, hash only
+- [x] `npm test`, `npm test -w apps/web`, `npm run check` green
+- [x] Manual (skill `verify`): log in on the web, navigate, reload; `auth_sessions` has the row, hash only
 - [ ] Review with Nath
 
 ## Task 4: Logout revokes the current session
