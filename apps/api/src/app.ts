@@ -7,7 +7,6 @@ import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
 import { getPlatformJwtSecret } from './lib/platformJwt';
-import { getSessionTtlMs } from './lib/sessionToken';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
 import appointmentsRouter from './routes/appointments';
@@ -36,7 +35,6 @@ const app = express();
 // Validate configuration while building the app: better to blow up here than
 // to find out at the first login that a setting was missing or malformed.
 getPlatformJwtSecret();
-getSessionTtlMs();
 
 // Detrás de un proxy (Render), la IP real del cliente viene en
 // X-Forwarded-For; sin esto el rate limiter vería la IP del proxy

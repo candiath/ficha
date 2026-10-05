@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -20,6 +21,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [trustDevice, setTrustDevice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,7 +41,7 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, trustDevice);
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo iniciar sesión');
@@ -86,6 +88,21 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+              </div>
+
+              {/* Opt-in trusted device (docs/specs/SPEC-my-sessions.md): longer
+                  session here, so it must stay unchecked by default. */}
+              <div className="space-y-1">
+                <Label className="flex items-center gap-2 font-normal cursor-pointer">
+                  <Checkbox
+                    checked={trustDevice}
+                    onCheckedChange={(checked) => setTrustDevice(checked === true)}
+                  />
+                  Mantener la sesión iniciada en este dispositivo
+                </Label>
+                <p className="text-xs text-muted-foreground pl-6">
+                  No la marques en computadoras compartidas.
+                </p>
               </div>
 
               {error && (

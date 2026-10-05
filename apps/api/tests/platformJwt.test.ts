@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getPlatformJwtSecret, signOperatorToken, verifyOperatorToken } from '../src/lib/platformJwt';
-import { generateSessionToken } from '../src/lib/sessionToken';
+import { generateAuthSessionToken } from '../src/lib/authSessionToken';
 
 // Unit tests of the operator token's secret and shape, without a DB.
 const ORIGINAL = { ...process.env };
@@ -36,7 +36,7 @@ describe('operator token shape', () => {
   });
 
   it('a clinic session token is not an operator token', () => {
-    expect(() => verifyOperatorToken(generateSessionToken())).toThrow();
+    expect(() => verifyOperatorToken(generateAuthSessionToken())).toThrow();
   });
 
   // Even with the platform's own valid signature, a token shaped like a clinic

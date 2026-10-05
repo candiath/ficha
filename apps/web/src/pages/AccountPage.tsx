@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, Mail, ShieldCheck, User, UserCog } from 'lucide-react';
 import ChangePasswordDialog from '@/components/account/ChangePasswordDialog';
+import ConnectedDevicesCard from '@/components/account/ConnectedDevicesCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -101,7 +102,7 @@ export default function AccountPage() {
                 <div>
                   <p className="text-sm font-medium">Contraseña</p>
                   <p className="text-xs text-muted-foreground">
-                    Cambiarla cierra tus sesiones en otros dispositivos
+                    Cambiarla desconecta tus otros dispositivos
                   </p>
                 </div>
               </div>
@@ -122,6 +123,8 @@ export default function AccountPage() {
             </div>
           </CardContent>
         </Card>
+
+        <ConnectedDevicesCard />
 
         <p className="text-xs text-muted-foreground">
           La edición de perfil estará disponible próximamente.

@@ -9,11 +9,15 @@ import {
   LOGIN_THROTTLED,
   recordLoginEvent,
 } from '../lib/loginGuard';
-import { getSessionTtlMs } from '../lib/sessionToken';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
+import { idParam } from '../middlewares/idParam';
+import type { RevokeOtherAuthSessionsResponse, AuthSessionDTO } from '@ficha/shared';
 
 const router = Router();
+router.param('authSessionId', idParam('Dispositivo no encontrado'));
+
+type AuthSessionParams = { authSessionId: string };
 
 // Los frenos (por IP y por cuenta), el hash señuelo y la telemetría de
 // intentos viven en lib/loginGuard: los comparte el login del operador de
@@ -23,6 +27,9 @@ const loginLimiter = createLoginLimiter();
 const LoginSchema = z.object({
   email: EmailSchema,
   password: z.string().min(1),
+  // "Mantener la sesión iniciada en este dispositivo": the trusted profile
+  // (lib/authSessionPolicy.ts). Absent means a normal session.
+  trustDevice: z.boolean().optional(),
 });
 
 // Cambiar la contraseña pide la actual, así que también es blanco de
@@ -57,7 +64,7 @@ function recordAttempt(
 
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res) => {
-  const { email, password } = LoginSchema.parse(req.body);
+  const { email, password, trustDevice } = LoginSchema.parse(req.body);
 
   // Antes de buscar el usuario y de bcrypt: un intento frenado no cuesta
   // trabajo ni deja rastro (ver isAccountThrottled).
@@ -98,9 +105,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     .touchLastLogin(user.id)
     .catch((err) => console.error('[auth] lastLoginAt', err));
 
-  const { token } = await authRepo.createSession({
+  const { token } = await authRepo.createAuthSession({
     userId: user.id,
-    expiresAt: new Date(Date.now() + getSessionTtlMs()),
+    trusted: trustDevice ?? false,
     ip: req.ip ?? null,
     userAgent: req.get('user-agent') ?? null,
   });
@@ -152,7 +159,47 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
 // sessions of the same user stay open. A token reused after logout no longer
 // passes authenticate, so a second logout gets the usual 401.
 router.post('/logout', authenticate, async (req, res) => {
-  await authRepo.revokeSession(req.authSessionId);
+  await authRepo.revokeAuthSession(req.authSessionId);
+  res.status(204).end();
+});
+
+// ── The user's own sessions (docs/specs/SPEC-my-sessions.md) ────────────────
+// Only ever her own: the repository scopes every read and write by userId,
+// and someone else's session id gets the same 404 as a nonexistent one.
+
+// GET /api/auth/devices — her live sessions, the current one marked.
+router.get('/devices', authenticate, async (req, res) => {
+  const sessions = await authRepo.listAuthSessions(req.context.userId);
+  const data: AuthSessionDTO[] = sessions.map((s) => ({ ...s, current: s.id === req.authSessionId }));
+  res.json({ data });
+});
+
+// POST /api/auth/devices/revoke-others — closes all her sessions but this one.
+router.post('/devices/revoke-others', authenticate, async (req, res) => {
+  const revoked = await authRepo.revokeOtherAuthSessions(req.context.userId, req.authSessionId);
+  const data: RevokeOtherAuthSessionsResponse = { revoked };
+  res.json({ data });
+});
+
+// DELETE /api/auth/devices/:authSessionId — closes one of her sessions. The
+// current one is allowed: it is a logout.
+router.delete<AuthSessionParams>('/devices/:authSessionId', authenticate, async (req, res) => {
+  const closed = await authRepo.revokeUserAuthSession(req.context.userId, req.params.authSessionId);
+  if (!closed) {
+    res.status(404).json({ error: 'Dispositivo no encontrado' });
+    return;
+  }
+  res.status(204).end();
+});
+
+// POST /api/auth/devices/:authSessionId/untrust — moves one of her trusted
+// sessions to the normal profile, without closing it.
+router.post<AuthSessionParams>('/devices/:authSessionId/untrust', authenticate, async (req, res) => {
+  const demoted = await authRepo.untrustUserAuthSession(req.context.userId, req.params.authSessionId);
+  if (!demoted) {
+    res.status(404).json({ error: 'Dispositivo no encontrado' });
+    return;
+  }
   res.status(204).end();
 });
 

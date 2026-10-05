@@ -66,15 +66,15 @@ model AuthSession {
 `authRepository` stays the pre-tenant exception (no `ctx`); it gains these (and `updatePassword` is replaced by `changePassword`):
 
 ```ts
-createSession(input: { userId: string; expiresAt: Date; ip: string | null; userAgent: string | null }): Promise<{ token: string }>;
-findSessionForAuth(token: string): Promise<SessionAuth | null>; // hashes the raw token inside; { sessionId, userId, tenantId, role }
-revokeSession(sessionId: string): Promise<boolean>;
+createAuthSession(input: { userId: string; expiresAt: Date; ip: string | null; userAgent: string | null }): Promise<{ token: string }>;
+findValidAuthSession(token: string): Promise<ValidAuthSession | null>; // hashes the raw token inside; { sessionId, userId, tenantId, role }
+revokeAuthSession(sessionId: string): Promise<boolean>;
 changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void>; // revokes every other session
 ```
 
-Token generation and hashing live in `lib/sessionToken.ts`, together with `getSessionTtlMs()`, which validates `SESSION_TTL_DAYS` (positive whole days, default 7) and runs at startup in `app.ts`: a malformed value fails the deploy instead of every login.
+Token generation and hashing live in `lib/authSessionToken.ts`. *(Superseded by `my-sessions`: the session lifetime is now the policy in `lib/authSessionPolicy.ts`; `getSessionTtlMs()` and `SESSION_TTL_DAYS` are gone.)*
 
-`findSessionForAuth` is the single query that decides access:
+`findValidAuthSession` is the single query that decides access:
 
 ```ts
 await prisma.authSession.findFirst({
@@ -91,7 +91,7 @@ await prisma.authSession.findFirst({
 Writes carry their condition in the `where` (repository convention):
 
 ```ts
-// revokeSession: revoking twice is a no-op, not an error.
+// revokeAuthSession: revoking twice is a no-op, not an error.
 const { count } = await prisma.authSession.updateMany({
   where: { id: sessionId, revokedAt: null },
   data: { revokedAt: new Date() },
@@ -113,10 +113,10 @@ Write-side revocation keeps the table truthful, makes "close this session" possi
 
 | Route | Change |
 |---|---|
-| `POST /api/auth/login` | Creates the session (absolute TTL `SESSION_TTL_DAYS`, default 7). Response shape unchanged: `{ data: { token, user } }`. |
+| `POST /api/auth/login` | Creates the session (lifetime: see `SPEC-my-sessions.md`). Response shape unchanged: `{ data: { token, user } }`. |
 | `POST /api/auth/logout` | **New.** Authenticated; revokes the current session; `204`. |
 | `POST /api/auth/change-password` | One transaction: new hash + revoke all sessions of the user except `req.authSessionId`. Responds `204`; no new token (the current session stays valid). |
-| `authenticate` middleware | Hashes the bearer token, calls `findSessionForAuth`; `null` → `401 {"error":"Sesión expirada o inválida"}` (same message for every failure). Sets `req.context = { tenantId, userId, role }` as today, plus `req.authSessionId` (typed in `types/express.d.ts`). The session id stays out of `TenantContext` because repositories never need it; only the auth routes do. |
+| `authenticate` middleware | Hashes the bearer token, calls `findValidAuthSession`; `null` → `401 {"error":"Sesión expirada o inválida"}` (same message for every failure). Sets `req.context = { tenantId, userId, role }` as today, plus `req.authSessionId` (typed in `types/express.d.ts`). The session id stays out of `TenantContext` because repositories never need it; only the auth routes do. |
 
 ### Web
 
@@ -139,7 +139,7 @@ Deploying invalidates every existing JWT: everyone logs in once. Acceptable befo
 ```
 apps/api/prisma/schema.prisma                          AuthSession model
 apps/api/prisma/migrations/<ts>_auth_sessions/          generated, reviewed by hand
-apps/api/src/lib/sessionToken.ts                        generateSessionToken(), hashSessionToken(), getSessionTtlMs()
+apps/api/src/lib/authSessionToken.ts                        generateAuthSessionToken(), hashAuthSessionToken(), getSessionTtlMs()
 apps/api/src/repositories/authRepository.ts             port: new methods and DTOs
 apps/api/src/repositories/prisma/prismaAuthRepository.ts
 apps/api/src/repositories/prisma/prismaUserRepository.ts       revoke on deactivate
