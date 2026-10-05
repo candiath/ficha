@@ -1,158 +1,67 @@
-# Tasks: my-sessions
+# Tasks: admin-revocation
 
-Plan: [`tasks/plan.md`](plan.md) · Spec: [`docs/specs/SPEC-my-sessions.md`](../docs/specs/SPEC-my-sessions.md)
+Plan: [`tasks/plan.md`](plan.md) · Spec: [`docs/specs/SPEC-admin-revocation.md`](../docs/specs/SPEC-admin-revocation.md)
 
-Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps/web` · `npm run check` (pre-commit hook). Migrations from `apps/api`: `prisma migrate diff` → `migration.sql`, then `prisma migrate deploy` and `prisma generate`.
+Commands: `npm test` (API, Neon development branch, ~7 min) · `npm test -w apps/web` · `npm run check` (pre-commit hook). Migrations from `apps/api`: `prisma migrate diff` → `migration.sql`, then `prisma migrate deploy` and `prisma generate`.
 
-## Task 1: Session policy module and the two new columns
+## Task 1: ADMIN disconnects a user's devices
 
-**Description:** Add `last_used_at` (`NOT NULL DEFAULT now()`) and `trusted` (`DEFAULT false`) to `auth_sessions`. Create `lib/authSessionPolicy.ts` with the normal/trusted idle and absolute timeouts, the cap (3) and the throttle (5 min); remove `getSessionTtlMs()` and its startup call. `createAuthSession` takes `trusted` and computes `expires_at` from the policy (login still always creates normal sessions until Task 3). `createTestToken` gains `{ trusted, ttlMs, lastUsedAt }`.
+**Description:** `userRepository.disconnectDevices(ctx, userId)`: in one transaction, tenant-scoped user lookup, then revoke her unrevoked `auth_sessions` → `'disconnected' | 'not_found'`. Route `POST /api/users/:id/disconnect-devices` (behind the existing ADMIN guard): `204`, `404 Usuario no encontrado`, `400` for herself. Web: `usersApi.disconnectDevices`, a **Desconectar dispositivos** button on each active user other than yourself in `UsersCard`, with the spec's confirmation dialog and a toast.
 
 **Acceptance criteria:**
-- [x] Migration applied to development; no drift between schema and DB.
-- [x] A login creates a normal session expiring in 12 h (the 7-day assertion in `authSessions.test.ts` updated).
-- [x] `SESSION_TTL_DAYS` no longer read anywhere.
+- [ ] The target's tokens get `401`; she can log in again; the ADMIN's and a colleague's sessions are untouched.
+- [ ] Another clinic's user → `404`, her sessions keep working; herself → `400`; a THERAPIST → `403`. The `204` has no body.
+- [ ] The button shows only for other active users, confirms, and calls the endpoint.
 
 **Verification:**
-- [x] `npx vitest run sessionToken authSessions` · `npm run check`
+- [ ] `npx vitest run disconnectDevices users` (API) · `npx vitest run UsersCard` (web) · `npm run check`
 
 **Dependencies:** None
 
-**Files likely touched:** `apps/api/prisma/schema.prisma`, new migration, `apps/api/src/lib/authSessionPolicy.ts` (new), `apps/api/src/lib/authSessionToken.ts`, `apps/api/src/app.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `apps/api/src/routes/auth.ts`, `apps/api/tests/{helpers.ts,authSessionToken.test.ts,authSessions.test.ts}`
+**Files likely touched:** `apps/api/src/repositories/{userRepository.ts,prisma/prismaUserRepository.ts}`, `apps/api/src/routes/users.ts`, `apps/api/tests/disconnectDevices.test.ts` (new), `apps/web/src/services/users.ts`, `apps/web/src/components/clinic/UsersCard.tsx`, `apps/web/tests/UsersCard.test.tsx`
 
 **Estimated scope:** Medium
 
-## Task 2: Idle expiry and throttled last use
+## Task 2: Operator disconnects a user's devices, audited
 
-**Description:** `findValidAuthSession` adds the idle condition as an `OR` by profile and returns `lastUsedAt`. `authenticate` fires a conditioned `updateMany` (`lastUsedAt < now - 5 min`) after a successful lookup, logging failures.
-
-**Acceptance criteria:**
-- [x] Normal session idle > 1 h → `401`; trusted session idle 2 h → `200`; trusted idle > 7 days → `401`.
-- [x] Two requests within 5 minutes write `last_used_at` once; a stale value is refreshed.
-
-**Verification:**
-- [x] `npx vitest run authenticate mySessions` · `npm run check`
-
-**Dependencies:** Task 1
-
-**Files likely touched:** `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `apps/api/src/middlewares/auth.ts`, `apps/api/tests/myDevices.test.ts` (new)
-
-**Estimated scope:** Small
-
-## Task 3: Trusted login with a per-user cap
-
-**Description:** `LoginSchema` accepts `trustDevice` (optional boolean; shared `LoginInput` updated). `createAuthSession` with `trusted: true` creates a 30-day session and, in the same transaction, demotes trusted sessions beyond the newest 3 (`trusted = false`, `expires_at = least(expires_at, now + 12 h)`).
+**Description:** `PlatformAction.USER_DEVICES_DISCONNECTED` (migration). `platformRepository.disconnectUserDevices(op, tenantId, userId)`: in one transaction, lookup `{ id: userId, tenantId }`, revoke, audit row "Desconectó los dispositivos de <email>". Route `POST /api/platform/tenants/:tenantId/users/:userId/disconnect-devices`: `204` or `404`. Web: `platformApi` call and the same button and dialog in `PlatformTenantDetailPage`.
 
 **Acceptance criteria:**
-- [x] `trustDevice: true` → trusted session, 30-day expiry; absent or `false` → normal, 12 h.
-- [x] A 4th trusted login demotes exactly the oldest trusted session; it keeps working as normal; the other three stay trusted.
-- [x] Non-boolean `trustDevice` → `400`.
+- [ ] The target's tokens get `401`; exactly one `USER_DEVICES_DISCONNECTED` audit row with operator and target.
+- [ ] Wrong tenant → `404`, no audit row, sessions untouched.
+- [ ] The platform page shows the action and calls the endpoint.
 
 **Verification:**
-- [x] `npx vitest run mySessions authSessions login` · `npm run check`
+- [ ] `npx vitest run disconnectDevices platform` (API) · `npx vitest run PlatformTenantDetailPage` (web) · `npm run check`
 
-**Dependencies:** Task 1
+**Dependencies:** None (parallel with Task 1)
 
-**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `packages/shared/src/index.ts`, `apps/api/tests/myDevices.test.ts`
+**Files likely touched:** `apps/api/prisma/schema.prisma` + migration, `apps/api/src/repositories/{platformRepository.ts,prisma/prismaPlatformRepository.ts}`, `apps/api/src/routes/platform.ts`, `apps/api/tests/disconnectDevices.test.ts`, `apps/web/src/services/platform.ts`, `apps/web/src/pages/platform/PlatformTenantDetailPage.tsx`, `apps/web/tests/PlatformTenantDetailPage.test.tsx`
 
 **Estimated scope:** Medium
 
-## Task 4: List, close, close others, untrust
+## Checkpoint A
 
-**Description:** Repository methods `listAuthSessions`, `revokeUserAuthSession`, `revokeOtherAuthSessions`, `untrustUserAuthSession` (all filtered by `userId` in the same query). Routes `GET /api/auth/devices`, `DELETE /api/auth/devices/:authSessionId`, `POST /api/auth/devices/revoke-others`, `POST /api/auth/devices/:authSessionId/untrust`; `router.param('authSessionId', idParam('Dispositivo no encontrado'))`. `AuthSessionDTO` in `packages/shared`.
+- [ ] Full API and web suites green locally; `npm run check` clean
+- [ ] Manual (skill `verify`): ADMIN and operator each disconnect a therapist logged in via API; her token `401`; the platform audit log shows the operator's action
 
-**Acceptance criteria:**
-- [x] The list has only the user's active sessions, most recently used first, current marked, no `tokenHash`.
-- [x] Closing another session → its token `401`, current works; the current one → `401`; someone else's (same clinic and another clinic) → `404` and it keeps working.
-- [x] Revoke-others → others `401`, current works, `{ revoked: n }`.
-- [x] Untrust demotes; someone else's or a normal session → `404`.
+## Task 3: Docs
 
-**Verification:**
-- [x] `npx vitest run mySessions idParamCoverage` · `npm run check`
-
-**Dependencies:** Tasks 2, 3
-
-**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `packages/shared/src/index.ts`, `apps/api/tests/myDevices.test.ts`
-
-**Estimated scope:** Medium
-
-## Checkpoint A: API complete
-
-- [x] Full API suite green locally (`npm test`); `npm run check` clean
-- [x] Review with Nath
-
-## Task 5: User agent parser
-
-**Description:** `apps/web/src/lib/userAgent.ts`: `describeUserAgent(ua: string | null): string` → "Chrome en Windows", "Safari en iPhone", … or "Navegador desconocido". Order matters (Edge and Opera before Chrome; Chrome before Safari).
+**Description:** `CLAUDE.md` (operator capabilities list gains "disconnect a user's devices"; ADMIN can too), verify skill (where the buttons are).
 
 **Acceptance criteria:**
-- [x] Table-driven test with real UA strings for each browser × system in the spec, plus null and garbage.
+- [ ] Both documents mention the action and its audit (operator) / pending audit (#186, ADMIN).
 
 **Verification:**
-- [x] `npx vitest run userAgent` (web) · `npm run check`
+- [ ] `npm run check`
 
-**Dependencies:** None
+**Dependencies:** Tasks 1–2
 
-**Files likely touched:** `apps/web/src/lib/userAgent.ts`, `apps/web/tests/userAgent.test.ts`
+**Files likely touched:** `CLAUDE.md`, `.claude/skills/verify/SKILL.md`
 
 **Estimated scope:** Small
 
-## Task 6: "Dispositivos conectados" card on Mi cuenta
+## Checkpoint B: complete
 
-**Description:** `authApi` gains `listSessions`, `closeSession`, `closeOtherSessions`, `untrustSession`. `ActiveSessionsCard` renders the list (device label, IP, activity, start, "De confianza" badge, current first as "Esta sesión") with **Cerrar** / **Cerrar sesión** / **Dejar de confiar** and **Cerrar las demás**; actions invalidate the query; closing the current one calls the normal `logout`.
-
-**Acceptance criteria:**
-- [x] Rows, badge and per-row actions render from a mocked list.
-- [x] Each button calls the right endpoint; **Cerrar sesión** runs `logout`.
-- [x] "Cerrar las demás" only with more than one session.
-
-**Verification:**
-- [x] `npx vitest run ActiveSessionsCard` (web) · `npm run check`
-
-**Dependencies:** Tasks 4, 5
-
-**Files likely touched:** `apps/web/src/services/auth.ts`, `apps/web/src/components/account/ActiveSessionsCard.tsx` (new), `apps/web/src/pages/AccountPage.tsx`, `apps/web/tests/ActiveSessionsCard.test.tsx`
-
-**Estimated scope:** Medium
-
-## Task 7: "Mantener la sesión iniciada" on the login
-
-**Description:** A checkbox on `LoginPage`, unchecked by default, hint "No la marques en computadoras compartidas"; `login` sends `trustDevice`.
-
-**Acceptance criteria:**
-- [x] Unchecked → request without `trustDevice: true`; checked → `trustDevice: true`.
-
-**Verification:**
-- [x] `npm test -w apps/web` · `npm run check`
-
-**Dependencies:** Task 3
-
-**Files likely touched:** `apps/web/src/pages/LoginPage.tsx`, `apps/web/src/contexts/AuthContext.tsx`, `apps/web/src/services/auth.ts`, a web test
-
-**Estimated scope:** Small
-
-## Checkpoint B: end to end
-
-- [x] Web suite green
-- [x] Manual (skill `verify`): two logins (one trusted) visible in the card with badge and device; untrust, close the other, close all others; log out from the card
-
-## Task 8: CLAUDE.md, `.env.example`, verify skill
-
-**Description:** Document the session policy (two profiles, cap, throttle) next to the sessions paragraph in `CLAUDE.md`; remove `SESSION_TTL_DAYS` from `.env.example`; mention the card and the trusted checkbox in the verify skill.
-
-**Acceptance criteria:**
-- [x] No reference to `SESSION_TTL_DAYS` left outside archived docs.
-
-**Verification:**
-- [x] `grep -r SESSION_TTL_DAYS` · `npm run check`
-
-**Dependencies:** Tasks 1–7
-
-**Files likely touched:** `CLAUDE.md`, `apps/api/.env.example`, `.claude/skills/verify/SKILL.md`
-
-**Estimated scope:** Small
-
-## Checkpoint C: complete
-
-- [x] Spec success criteria met
-- [ ] Full API and web suites green locally; PR against `dev` open, CI green
+- [ ] Spec success criteria met
+- [ ] PR against `dev` open, CI green

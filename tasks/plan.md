@@ -1,60 +1,39 @@
-# Implementation Plan: my-sessions
+# Implementation Plan: admin-revocation
 
-Spec: [`docs/specs/SPEC-my-sessions.md`](../docs/specs/SPEC-my-sessions.md) (approved 2026-10-04). Module 2 of the [authentication redesign](../docs/specs/auth-redesign-map.md). Previous module's plan: [`docs/specs/PLAN-server-sessions.md`](../docs/specs/PLAN-server-sessions.md). Task checklist: [`tasks/todo.md`](todo.md).
+Spec: [`docs/specs/SPEC-admin-revocation.md`](../docs/specs/SPEC-admin-revocation.md) (approved 2026-10-05). Module 3 of the [authentication redesign](../docs/specs/auth-redesign-map.md). Previous plans: [`PLAN-server-sessions.md`](../docs/specs/PLAN-server-sessions.md), [`PLAN-my-sessions.md`](../docs/specs/PLAN-my-sessions.md). Task checklist: [`tasks/todo.md`](todo.md).
 
 ## Overview
 
-Session lifetime policy (normal vs trusted, idle + absolute), the throttled `last_used_at`, and the "Dispositivos conectados" screen. One PR against `dev` (`feat/my-sessions`), one commit per task. Nothing reaches `dev` until the module is done: intermediate commits may leave tests red, but each passes the pre-commit hook and the full API suite runs locally before the push.
+ADMIN and platform operator can disconnect every device of a user without deactivating her. Small module: one PR against `dev` (`feat/admin-revocation`), one commit per task, full local API suite before the push.
 
 ## Architecture Decisions
 
-- **API first, then web.** Tasks 1–4 finish the whole API contract (testable with supertest); tasks 5–7 build the web on top of it. The contract is the spec's `AuthSessionDTO` and routes, so the web tasks do not wait on API details.
-- **Policy in one module.** `lib/authSessionPolicy.ts` holds every timeout, the cap and the throttle, and replaces `getSessionTtlMs()` / `SESSION_TTL_DAYS`. Repository and middleware import from it; nothing else hardcodes a duration.
-- **Read side stays one query.** The idle rule joins `findValidAuthSession` as an `OR` by profile; the last-use refresh is a separate fire-and-forget conditioned write, never part of the decision.
-- **Test helper grows options.** `createTestToken(user, { trusted, ttlMs, lastUsedAt })` lets tests place sessions anywhere on the timeline without waiting.
-- **`sessionId` route param** registered with `router.param` in `routes/auth.ts`, as `idParamCoverage.test.ts` requires.
+- **Vertical slices by actor.** The ADMIN path (route, repository, UsersCard) and the operator path (route, repository, audit, tenant detail page) are independent; each slice is API + web together.
+- **Scoping by the user lookup.** `auth_sessions` has no `tenantId`; the tenant-scoped (ADMIN) or tenant-explicit (operator) user lookup in the same transaction is what proves the user belongs to that clinic — the same mechanism deactivation already uses.
+- **Enum migration first** (`USER_DEVICES_DISCONNECTED`), in the operator task: `ALTER TYPE ... ADD VALUE` is additive and safe.
 
 ## Task List
 
-### Phase 1: Policy and validation (API)
-- [x] Task 1: Session policy module and the two new columns
-- [x] Task 2: Idle expiry and throttled last use
+- [ ] Task 1: ADMIN disconnects a user's devices (API + Usuarios card)
+- [ ] Task 2: Operator disconnects a user's devices, audited (API + tenant detail page)
 
-### Phase 2: Trusted devices and the session list (API)
-- [x] Task 3: Trusted login with a per-user cap
-- [x] Task 4: List, close, close others, untrust
+### Checkpoint A
+- [ ] Full API suite and web suite green locally; `npm run check` clean
+- [ ] Manual (skill `verify`): as ADMIN, disconnect a therapist logged in via API → her token `401`, she logs in again; as operator, same, and the audit log shows it
 
-### Checkpoint A: API complete
-- [x] Every API test in the spec's Testing Strategy passes; full API suite green locally (501/501)
-- [x] `npm run check` clean
-- [x] Review with Nath
+- [ ] Task 3: Docs (CLAUDE.md, verify skill)
 
-### Phase 3: Web
-- [x] Task 5: User agent parser
-- [x] Task 6: "Dispositivos conectados" card on Mi cuenta
-- [x] Task 7: "Mantener la sesión iniciada" on the login
-
-### Checkpoint B: end to end
-- [x] Web suite green
-- [x] Manual (skill `verify`): log in twice (one trusted), see both in the card with the right badge and device; untrust, close the other, close all others; log out from the card
-
-### Phase 4: Docs
-- [x] Task 8: CLAUDE.md, `.env.example`, verify skill
-
-### Checkpoint C: complete
-- [x] Spec success criteria met
-- [ ] Full API and web suites green locally; PR against `dev` open, CI green
+### Checkpoint B: complete
+- [ ] Spec success criteria met; PR against `dev` open, CI green
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Existing sessions (7-day, no `last_used_at`) on deploy | Low | Migration defaults `last_used_at` to now and `trusted` to false: they become normal sessions and die within the hour. No real users. |
-| The idle `OR` makes the auth query slower | Low | Same row fetched by the unique `token_hash` index; the `OR` filters one row. |
-| Fire-and-forget refresh fails silently | Low | Logged on failure; worst case a session idles out early. Throttle test pins the behavior. |
-| Cap race: two trusted logins at once exceed 3 | Low | Demotion runs in the login transaction and keeps "newest 3 trusted"; a race can leave 4 until the next trusted login. Acceptable. |
-| UA parser mislabels a browser | Low | Coarse labels, table-driven tests with real UA strings, raw string still available. |
+| An ADMIN disconnects a user of another clinic | High | Tenant-scoped lookup in the same transaction; test asserts `404` and that her sessions keep working |
+| The response leaks how many devices she had | Low | `204` with no body; test asserts it |
+| Two clinics' users with the same id race | — | Ids are UUIDs; not applicable |
 
 ## Open Questions
 
-None. Spec decisions 1–6 approved.
+None.
