@@ -1,5 +1,6 @@
 import type { PaymentMethod, PaymentStatus, SessionType } from '@prisma/client';
 import type { TenantContext } from './types';
+import type { AuditBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -81,12 +82,21 @@ export interface PaymentRepository {
    * calcula finalAmount e impone un pago por sesión (unique de sessionId,
    * con el catch de P2002 adentro para la carrera).
    */
-  create(ctx: TenantContext, input: PaymentCreateInput): Promise<PaymentCreateResult>;
+  create(
+    ctx: TenantContext,
+    input: PaymentCreateInput,
+    audit: AuditBuilder<PaymentDTO>,
+  ): Promise<PaymentCreateResult>;
   /**
    * Recalcula finalAmount con los montos nuevos o los existentes, y rechaza
    * la combinación que lo dejaría negativo. El chequeo vive acá y no en el
    * schema de la ruta porque el PATCH es parcial: mandar solo `discount`
    * puede pasar el monto base guardado, que Zod no conoce.
    */
-  update(ctx: TenantContext, id: string, input: PaymentUpdateInput): Promise<PaymentUpdateResult>;
+  update(
+    ctx: TenantContext,
+    id: string,
+    input: PaymentUpdateInput,
+    audit: AuditBuilder<PaymentDTO>,
+  ): Promise<PaymentUpdateResult>;
 }

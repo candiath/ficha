@@ -12,6 +12,8 @@ import type {
   PaymentUpdateInput,
   PaymentUpdateResult,
 } from '../paymentRepository';
+import type { AuditBuilder } from '../auditLogRepository';
+import { recordAudit } from './recordAudit';
 
 // Días máximos de antigüedad para considerar vigente el último precio base.
 // Cambiar acá cuando se quiera hacer configurable.
@@ -103,7 +105,11 @@ export const prismaPaymentRepository: PaymentRepository = {
     };
   },
 
-  async create(ctx: TenantContext, input: PaymentCreateInput): Promise<PaymentCreateResult> {
+  async create(
+    ctx: TenantContext,
+    input: PaymentCreateInput,
+    audit: AuditBuilder<PaymentDTO>,
+  ): Promise<PaymentCreateResult> {
     const db = forTenant(ctx);
 
     // El paciente se deriva de la sesión: la sesión debe ser del tenant.
@@ -137,21 +143,30 @@ export const prismaPaymentRepository: PaymentRepository = {
     // nada que cobrar, el cobro nace eximido y no como deuda.
     const { finalAmount, status } = settle(input.baseAmount, input.discount);
 
+    // The audit row goes in the same transaction as the write (#188). The
+    // duplicate is caught outside it: a unique violation aborts the
+    // transaction, so it cannot be handled inside the callback.
     try {
-      const row = await db.payment.create({
-        data: {
-          patientId: session.patientId,
-          sessionId: input.sessionId,
-          packageId: input.packageId ?? null,
-          baseAmount: input.baseAmount,
-          discount: input.discount,
-          finalAmount,
-          status,
-          notes: input.notes ?? null,
-        },
-        select: paymentSelect,
+      const payment = await db.$transaction(async (tx) => {
+        const row = await tx.payment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            patientId: session.patientId,
+            sessionId: input.sessionId,
+            packageId: input.packageId ?? null,
+            baseAmount: input.baseAmount,
+            discount: input.discount,
+            finalAmount,
+            status,
+            notes: input.notes ?? null,
+          },
+          select: paymentSelect,
+        });
+        const created = toDTO(row);
+        await recordAudit(tx, ctx, audit(created));
+        return created;
       });
-      return { ok: true, payment: toDTO(row) };
+      return { ok: true, payment };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         return { ok: false, reason: 'duplicate' };
@@ -164,6 +179,7 @@ export const prismaPaymentRepository: PaymentRepository = {
     ctx: TenantContext,
     id: string,
     input: PaymentUpdateInput,
+    audit: AuditBuilder<PaymentDTO>,
   ): Promise<PaymentUpdateResult> {
     const db = forTenant(ctx);
 
@@ -201,20 +217,26 @@ export const prismaPaymentRepository: PaymentRepository = {
     // lo manda está diciendo qué quiere.
     const { finalAmount, status } = settle(newBase, newDiscount, existing.status);
 
-    const row = await db.payment.update({
-      where: { id },
-      data: {
-        ...(input.baseAmount !== undefined && { baseAmount: input.baseAmount }),
-        ...(input.discount !== undefined && { discount: input.discount }),
-        finalAmount,
-        status: input.status ?? status,
-        ...(input.method !== undefined && { method: input.method }),
-        ...(input.paidAt !== undefined && { paidAt: input.paidAt }),
-        ...(input.packageId !== undefined && { packageId: input.packageId }),
-        ...(input.notes !== undefined && { notes: input.notes }),
-      },
-      select: paymentSelect,
+    // The audit row goes in the same transaction as the write (#188).
+    const payment = await db.$transaction(async (tx) => {
+      const row = await tx.payment.update({
+        where: { id, tenantId: ctx.tenantId },
+        data: {
+          ...(input.baseAmount !== undefined && { baseAmount: input.baseAmount }),
+          ...(input.discount !== undefined && { discount: input.discount }),
+          finalAmount,
+          status: input.status ?? status,
+          ...(input.method !== undefined && { method: input.method }),
+          ...(input.paidAt !== undefined && { paidAt: input.paidAt }),
+          ...(input.packageId !== undefined && { packageId: input.packageId }),
+          ...(input.notes !== undefined && { notes: input.notes }),
+        },
+        select: paymentSelect,
+      });
+      const updated = toDTO(row);
+      await recordAudit(tx, ctx, audit(updated));
+      return updated;
     });
-    return { ok: true, payment: toDTO(row) };
+    return { ok: true, payment };
   },
 };
