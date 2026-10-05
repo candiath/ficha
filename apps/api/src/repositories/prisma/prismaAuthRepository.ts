@@ -1,5 +1,10 @@
 import { prisma } from '../../lib/prisma';
-import { sessionProfile } from '../../lib/sessionPolicy';
+import {
+  LAST_USED_THROTTLE_MS,
+  NORMAL_SESSION,
+  sessionProfile,
+  TRUSTED_SESSION,
+} from '../../lib/sessionPolicy';
 import { generateSessionToken, hashSessionToken } from '../../lib/sessionToken';
 import type {
   AuthRepository,
@@ -69,14 +74,24 @@ export const prismaAuthRepository: AuthRepository = {
     // The join to users and tenants is the safety net: a deactivated user or
     // clinic is denied here even if some write path forgot to revoke the
     // session. Role and tenant are read fresh, never copied into the session.
+    // Idle expiry rides in the same query, with each profile's own timeout.
+    const now = Date.now();
     const row = await prisma.authSession.findFirst({
       where: {
         tokenHash: hashSessionToken(token),
         revokedAt: null,
-        expiresAt: { gt: new Date() },
+        expiresAt: { gt: new Date(now) },
         user: { isActive: true, tenant: { deactivatedAt: null } },
+        OR: [
+          { trusted: false, lastUsedAt: { gt: new Date(now - NORMAL_SESSION.idleMs) } },
+          { trusted: true, lastUsedAt: { gt: new Date(now - TRUSTED_SESSION.idleMs) } },
+        ],
       },
-      select: { id: true, user: { select: { id: true, tenantId: true, role: true } } },
+      select: {
+        id: true,
+        lastUsedAt: true,
+        user: { select: { id: true, tenantId: true, role: true } },
+      },
     });
     if (!row) return null;
     return {
@@ -84,7 +99,17 @@ export const prismaAuthRepository: AuthRepository = {
       userId: row.user.id,
       tenantId: row.user.tenantId,
       role: row.user.role,
+      lastUsedAt: row.lastUsedAt,
     };
+  },
+
+  async touchSession(sessionId: string): Promise<void> {
+    // Conditioned write: concurrent requests on a stale session all match at
+    // most once, and a session touched a moment ago is left alone.
+    await prisma.authSession.updateMany({
+      where: { id: sessionId, lastUsedAt: { lt: new Date(Date.now() - LAST_USED_THROTTLE_MS) } },
+      data: { lastUsedAt: new Date() },
+    });
   },
 
   async revokeSession(sessionId: string): Promise<boolean> {

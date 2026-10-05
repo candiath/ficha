@@ -38,6 +38,8 @@ export interface SessionAuth {
   userId: string;
   tenantId: string;
   role: UserRole;
+  // For authenticate to decide whether last use is worth refreshing.
+  lastUsedAt: Date;
 }
 
 export interface CreateSessionInput {
@@ -97,6 +99,8 @@ export interface AuthRepository {
   findSessionForAuth(token: string): Promise<SessionAuth | null>;
   /** Revokes one session. false if it was already revoked or does not exist. */
   revokeSession(sessionId: string): Promise<boolean>;
+  /** Marks the session as used now, unless it was within the throttle window. */
+  touchSession(sessionId: string): Promise<void>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */
