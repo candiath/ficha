@@ -9,7 +9,6 @@ import {
   LOGIN_THROTTLED,
   recordLoginEvent,
 } from '../lib/loginGuard';
-import { getSessionTtlMs } from '../lib/sessionToken';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
 
@@ -100,7 +99,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const { token } = await authRepo.createSession({
     userId: user.id,
-    expiresAt: new Date(Date.now() + getSessionTtlMs()),
+    trusted: false,
     ip: req.ip ?? null,
     userAgent: req.get('user-agent') ?? null,
   });

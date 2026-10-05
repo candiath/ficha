@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { sessionProfile } from '../../lib/sessionPolicy';
 import { generateSessionToken, hashSessionToken } from '../../lib/sessionToken';
 import type {
   AuthRepository,
@@ -55,7 +56,8 @@ export const prismaAuthRepository: AuthRepository = {
       data: {
         userId: input.userId,
         tokenHash: hashSessionToken(token),
-        expiresAt: input.expiresAt,
+        trusted: input.trusted,
+        expiresAt: new Date(Date.now() + sessionProfile(input.trusted).absoluteMs),
         ip: input.ip,
         userAgent: input.userAgent,
       },

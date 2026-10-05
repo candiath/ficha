@@ -154,6 +154,12 @@ model AuthSession {
   createdAt DateTime  @default(now()) @map("created_at")
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
+  // Refreshed by authenticate at most once every few minutes; drives idle
+  // expiry and the "last activity" of the session list.
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  // "Mantener la sesión iniciada en este dispositivo": longer timeouts,
+  // capped per user (lib/sessionPolicy.ts).
+  trusted   Boolean   @default(false)
   // Captured at login for the session list: they cannot be backfilled later.
   ip        String?
   userAgent String?   @map("user_agent")

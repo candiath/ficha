@@ -16,7 +16,7 @@ import {
 // Server-side sessions as seen from login (docs/specs/SPEC-server-sessions.md).
 // Each login spends rate limiter budget, so this suite logs in sparingly.
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 
 describe('login sessions', () => {
   let clinic: TestClinic;
@@ -57,11 +57,13 @@ describe('login sessions', () => {
     expect(JSON.stringify(session)).not.toContain(token);
   });
 
+  // A plain login is a normal session (lib/sessionPolicy.ts): 12 h absolute.
   it('records the expiry, IP and user agent of the login', async () => {
     const session = await prisma.authSession.findFirstOrThrow({ where: { userId: user.id } });
 
     const ttl = session.expiresAt.getTime() - session.createdAt.getTime();
-    expect(Math.abs(ttl - SEVEN_DAYS_MS)).toBeLessThan(60_000);
+    expect(Math.abs(ttl - TWELVE_HOURS_MS)).toBeLessThan(60_000);
+    expect(session.trusted).toBe(false);
     expect(session.revokedAt).toBeNull();
     expect(session.userAgent).toBe('session-test-agent/1.0');
     expect(session.ip).toBeTruthy();

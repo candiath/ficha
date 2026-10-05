@@ -42,7 +42,8 @@ export interface SessionAuth {
 
 export interface CreateSessionInput {
   userId: string;
-  expiresAt: Date;
+  // Profile from lib/sessionPolicy.ts; the expiry is derived from it.
+  trusted: boolean;
   ip: string | null;
   userAgent: string | null;
 }

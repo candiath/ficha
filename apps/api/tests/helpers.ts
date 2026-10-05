@@ -75,8 +75,12 @@ export async function createTestClinic(): Promise<TestClinic> {
 }
 
 interface CreateTestTokenOptions {
-  /** Session lifetime from now, in ms; negative creates an already expired session. */
+  /** Absolute lifetime from now, in ms; negative creates an already expired session. */
   ttlMs?: number;
+  /** Trusted-device profile (longer idle timeout). */
+  trusted?: boolean;
+  /** When the session was last used; in the past to test idle expiry. */
+  lastUsedAt?: Date;
 }
 
 // The bearer token for a clinic user: inserts an auth_sessions row directly,
@@ -92,6 +96,8 @@ export async function createTestToken(
       userId: user.id,
       tokenHash: hashSessionToken(token),
       expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
+      trusted: opts.trusted ?? false,
+      ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
     },
   });
   return token;
