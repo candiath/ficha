@@ -21,7 +21,7 @@ ADMIN and platform operator can disconnect every device of a user without deacti
 - [ ] Full API suite and web suite green locally; `npm run check` clean
 - [ ] Manual (skill `verify`): as ADMIN, disconnect a therapist logged in via API → her token `401`, she logs in again; as operator, same, and the audit log shows it
 
-- [ ] Task 3: Docs (CLAUDE.md, verify skill)
+- [x] Task 3: Docs (CLAUDE.md, verify skill)
 
 ### Checkpoint B: complete
 - [ ] Spec success criteria met; PR against `dev` open, CI green
