@@ -14,7 +14,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   // true mientras se valida el token guardado contra /me al arrancar.
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  // trustDevice: "Mantener la sesión iniciada en este dispositivo".
+  login: (email: string, password: string, trustDevice?: boolean) => Promise<void>;
   logout: () => void;
   // Vuelve a pedir /me. Para cuando el perfil cambió del lado del servidor
   // en esta misma sesión: una ADMIN que se cambia el rol a sí misma dejaría
@@ -61,8 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { token, user: loggedUser } = await authApi.login(email, password);
+  const login = useCallback(async (email: string, password: string, trustDevice = false) => {
+    const { token, user: loggedUser } = await authApi.login(email, password, trustDevice);
     setToken(token);
     setUser(loggedUser);
   }, []);
