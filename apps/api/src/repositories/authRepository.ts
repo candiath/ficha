@@ -1,4 +1,5 @@
 import type { UserRole } from '@prisma/client';
+import type { SessionDTO } from '@ficha/shared';
 
 // Repositorio PRE-TENANT: acá no hay TenantContext porque estas lecturas son
 // las que lo CONSTRUYEN — login y authenticate corren antes de conocer el
@@ -41,6 +42,9 @@ export interface SessionAuth {
   // For authenticate to decide whether last use is worth refreshing.
   lastUsedAt: Date;
 }
+
+// A session as the user's own list shows it; the route adds `current`.
+export type SessionSummary = Omit<SessionDTO, 'current'>;
 
 export interface CreateSessionInput {
   userId: string;
@@ -101,6 +105,20 @@ export interface AuthRepository {
   revokeSession(sessionId: string): Promise<boolean>;
   /** Marks the session as used now, unless it was within the throttle window. */
   touchSession(sessionId: string): Promise<void>;
+
+  // ── The user's own sessions (my-sessions) ─────────────────────────────────
+  // Scoped by an explicit userId in the same query that reads or writes:
+  // auth_sessions has no tenantId, and the owner is the user. Someone else's
+  // session id behaves exactly like a nonexistent one.
+
+  /** Live sessions (not revoked, expired or idle), most recently used first; at most 50. */
+  listActiveSessions(userId: string): Promise<SessionSummary[]>;
+  /** false if the session is not hers, does not exist or is already closed. */
+  revokeUserSession(userId: string, sessionId: string): Promise<boolean>;
+  /** Closes every live session of the user but one; returns how many. */
+  revokeOtherSessions(userId: string, keepSessionId: string): Promise<number>;
+  /** Demotes one of her live trusted sessions to normal; false otherwise. */
+  untrustUserSession(userId: string, sessionId: string): Promise<boolean>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */

@@ -17,6 +17,7 @@ import type {
   LoginUser,
   PublicProfile,
   SessionAuth,
+  SessionSummary,
 } from '../authRepository';
 
 // Usa el prisma base a conciencia: estas queries corren ANTES de que exista
@@ -34,14 +35,43 @@ const publicProfileSelect = {
   tenant: { select: { name: true, slug: true } },
 } as const;
 
-// Trusted sessions that still count against the cap: not revoked, not past
-// their absolute or idle timeout.
-function liveTrustedWhere(now: Date): Prisma.AuthSessionWhereInput {
+// A session that still grants access: not revoked, not past its absolute
+// timeout, not past its profile's idle timeout. One definition for
+// authenticate and for the user's list, so they can never disagree.
+function liveSessionWhere(now: Date): Prisma.AuthSessionWhereInput {
   return {
-    trusted: true,
     revokedAt: null,
     expiresAt: { gt: now },
-    lastUsedAt: { gt: new Date(now.getTime() - TRUSTED_SESSION.idleMs) },
+    OR: [
+      { trusted: false, lastUsedAt: { gt: new Date(now.getTime() - NORMAL_SESSION.idleMs) } },
+      { trusted: true, lastUsedAt: { gt: new Date(now.getTime() - TRUSTED_SESSION.idleMs) } },
+    ],
+  };
+}
+
+// Trusted sessions that still count against the cap.
+function liveTrustedWhere(now: Date): Prisma.AuthSessionWhereInput {
+  return { ...liveSessionWhere(now), trusted: true };
+}
+
+const LIST_LIMIT = 50;
+
+const sessionSummarySelect = {
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+  expiresAt: true,
+  trusted: true,
+  ip: true,
+  userAgent: true,
+} as const;
+
+function toSessionSummary(row: Prisma.AuthSessionGetPayload<{ select: typeof sessionSummarySelect }>): SessionSummary {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    lastUsedAt: row.lastUsedAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
   };
 }
 
@@ -128,17 +158,11 @@ export const prismaAuthRepository: AuthRepository = {
     // clinic is denied here even if some write path forgot to revoke the
     // session. Role and tenant are read fresh, never copied into the session.
     // Idle expiry rides in the same query, with each profile's own timeout.
-    const now = Date.now();
     const row = await prisma.authSession.findFirst({
       where: {
+        ...liveSessionWhere(new Date()),
         tokenHash: hashSessionToken(token),
-        revokedAt: null,
-        expiresAt: { gt: new Date(now) },
         user: { isActive: true, tenant: { deactivatedAt: null } },
-        OR: [
-          { trusted: false, lastUsedAt: { gt: new Date(now - NORMAL_SESSION.idleMs) } },
-          { trusted: true, lastUsedAt: { gt: new Date(now - TRUSTED_SESSION.idleMs) } },
-        ],
       },
       select: {
         id: true,
@@ -154,6 +178,45 @@ export const prismaAuthRepository: AuthRepository = {
       role: row.user.role,
       lastUsedAt: row.lastUsedAt,
     };
+  },
+
+  async listActiveSessions(userId: string): Promise<SessionSummary[]> {
+    const rows = await prisma.authSession.findMany({
+      where: { userId, ...liveSessionWhere(new Date()) },
+      orderBy: { lastUsedAt: 'desc' },
+      take: LIST_LIMIT,
+      select: sessionSummarySelect,
+    });
+    return rows.map(toSessionSummary);
+  },
+
+  async revokeUserSession(userId: string, sessionId: string): Promise<boolean> {
+    const { count } = await prisma.authSession.updateMany({
+      where: { id: sessionId, userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return count > 0;
+  },
+
+  async revokeOtherSessions(userId: string, keepSessionId: string): Promise<number> {
+    const { count } = await prisma.authSession.updateMany({
+      where: { userId, id: { not: keepSessionId }, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return count;
+  },
+
+  async untrustUserSession(userId: string, sessionId: string): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      // Ownership and "is a live trusted session" decided in the lookup; the
+      // demotion itself re-checks trusted in its own where.
+      const own = await tx.authSession.findFirst({
+        where: { id: sessionId, userId, ...liveTrustedWhere(new Date()) },
+        select: { id: true },
+      });
+      if (!own) return false;
+      return (await demoteSessions(tx, [own.id])) > 0;
+    });
   },
 
   async touchSession(sessionId: string): Promise<void> {

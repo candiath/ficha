@@ -77,6 +77,27 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
+// One of the user's active sessions, as GET /api/auth/sessions lists them
+// (docs/specs/SPEC-my-sessions.md). Only the user herself ever sees these.
+export interface SessionDTO {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  // "Mantener la sesión iniciada en este dispositivo".
+  trusted: boolean;
+  ip: string | null;
+  // Raw User-Agent; the web turns it into "Chrome en Windows" and the like.
+  userAgent: string | null;
+  // The session making this request.
+  current: boolean;
+}
+
+// POST /api/auth/sessions/revoke-others.
+export interface RevokeOthersResponse {
+  revoked: number;
+}
+
 // Payload de POST /api/auth/change-password.
 export interface ChangePasswordInput {
   currentPassword: string;

@@ -188,3 +188,134 @@ describe('trusted login', () => {
     expect((await me(existing[0])).status).toBe(200);
   });
 });
+
+describe('my sessions', () => {
+  let clinic: TestClinic;
+  let other: TestClinic;
+  let user: User;
+  let colleague: User;
+  let outsider: User;
+
+  const as = (token: string, r: request.Test) => r.set('Authorization', `Bearer ${token}`);
+  const list = (token: string) => as(token, request(app).get('/api/auth/sessions'));
+  const close = (token: string, id: string) =>
+    as(token, request(app).delete(`/api/auth/sessions/${id}`));
+  const untrust = (token: string, id: string) =>
+    as(token, request(app).post(`/api/auth/sessions/${id}/untrust`));
+  const idOf = async (token: string) =>
+    (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(token) } })).id;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    other = await createTestClinic();
+    user = await clinic.createUser();
+    colleague = await clinic.createUser();
+    outsider = await other.createUser();
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+    await other.cleanup();
+  });
+
+  it('lists only her live sessions, most recently used first, the current one marked', async () => {
+    const owner = await clinic.createUser();
+    const current = await createTestToken(owner);
+    const older = await createTestToken(owner, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs, lastUsedAt: ago(2 * HOUR) });
+    const revoked = await createTestToken(owner);
+    await prisma.authSession.update({ where: { id: await idOf(revoked) }, data: { revokedAt: new Date() } });
+    await createTestToken(owner, { ttlMs: -MINUTE }); // expired
+    await createTestToken(owner, { lastUsedAt: ago(NORMAL_SESSION.idleMs + MINUTE) }); // idle
+    await createTestToken(colleague); // someone else's
+
+    const res = await list(current);
+
+    expect(res.status).toBe(200);
+    const sessions = res.body.data as Array<Record<string, unknown>>;
+    expect(sessions.map((s) => s.id)).toEqual([await idOf(current), await idOf(older)]);
+    expect(sessions[0]).toMatchObject({ current: true, trusted: false });
+    expect(sessions[1]).toMatchObject({ current: false, trusted: true });
+    expect(Object.keys(sessions[0]).sort()).toEqual(
+      ['createdAt', 'current', 'expiresAt', 'id', 'ip', 'lastUsedAt', 'trusted', 'userAgent'].sort(),
+    );
+  });
+
+  it('closes another of her sessions; the current one keeps working', async () => {
+    const current = await createTestToken(user);
+    const laptop = await createTestToken(user);
+
+    expect((await close(current, await idOf(laptop))).status).toBe(204);
+
+    expect((await me(laptop)).status).toBe(401);
+    expect((await me(current)).status).toBe(200);
+  });
+
+  it('closing the current session logs her out', async () => {
+    const current = await createTestToken(user);
+
+    expect((await close(current, await idOf(current))).status).toBe(204);
+    expect((await me(current)).status).toBe(401);
+  });
+
+  it('cannot close a colleague\'s session nor one in another clinic: 404, and they keep working', async () => {
+    const mine = await createTestToken(user);
+    const colleagues = await createTestToken(colleague);
+    const outsiders = await createTestToken(outsider);
+
+    for (const target of [colleagues, outsiders]) {
+      const res = await close(mine, await idOf(target));
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Sesión no encontrada' });
+      expect((await me(target)).status).toBe(200);
+    }
+  });
+
+  it('a malformed or unknown session id is a 404', async () => {
+    const mine = await createTestToken(user);
+    expect((await close(mine, 'not-a-uuid')).status).toBe(404);
+    expect((await close(mine, '0199b2f0-0000-7000-8000-000000000000')).status).toBe(404);
+  });
+
+  it('closes every other session of hers and nobody else\'s', async () => {
+    const owner = await clinic.createUser();
+    const current = await createTestToken(owner);
+    const others = [await createTestToken(owner), await createTestToken(owner, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs })];
+    const colleagues = await createTestToken(colleague);
+
+    const res = await as(current, request(app).post('/api/auth/sessions/revoke-others'));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ data: { revoked: 2 } });
+    for (const token of others) expect((await me(token)).status).toBe(401);
+    expect((await me(current)).status).toBe(200);
+    expect((await me(colleagues)).status).toBe(200);
+  });
+
+  it('untrusts one of her trusted sessions without closing it', async () => {
+    const current = await createTestToken(user);
+    const phone = await createTestToken(user, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs });
+
+    expect((await untrust(current, await idOf(phone))).status).toBe(204);
+
+    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(phone) } });
+    expect(row.trusted).toBe(false);
+    expect(row.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + NORMAL_SESSION.absoluteMs + MINUTE);
+    expect((await me(phone)).status).toBe(200);
+  });
+
+  it('untrusting a normal session or someone else\'s trusted one is a 404', async () => {
+    const current = await createTestToken(user);
+    const normal = await createTestToken(user);
+    const colleaguesTrusted = await createTestToken(colleague, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs });
+
+    expect((await untrust(current, await idOf(normal))).status).toBe(404);
+    expect((await untrust(current, await idOf(colleaguesTrusted))).status).toBe(404);
+    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(colleaguesTrusted) } });
+    expect(row.trusted).toBe(true);
+  });
+
+  it('every session route requires a session', async () => {
+    expect((await request(app).get('/api/auth/sessions')).status).toBe(401);
+    expect((await request(app).post('/api/auth/sessions/revoke-others')).status).toBe(401);
+  });
+});
