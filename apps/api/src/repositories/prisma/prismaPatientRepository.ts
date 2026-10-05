@@ -1,5 +1,7 @@
 import { forTenant } from '../../lib/tenantScope';
+import type { AuditBuilder, AuditEntry } from '../auditLogRepository';
 import type { TenantContext } from '../types';
+import { recordAudit } from './recordAudit';
 import type {
   PatientCreateInput,
   PatientDTO,
@@ -79,37 +81,63 @@ export const prismaPatientRepository: PatientRepository = {
     return row !== null;
   },
 
-  async create(ctx: TenantContext, input: PatientCreateInput): Promise<PatientDTO> {
+  // Every write below records its audit row in the same transaction (#188).
+
+  async create(
+    ctx: TenantContext,
+    input: PatientCreateInput,
+    audit: AuditBuilder<PatientDTO>,
+  ): Promise<PatientDTO> {
     const db = forTenant(ctx);
-    const row = await db.patient.create({ data: input, select: patientSelect });
-    return toDTO(row);
+    return db.$transaction(async (tx) => {
+      const row = await tx.patient.create({
+        data: { ...input, tenantId: ctx.tenantId },
+        select: patientSelect,
+      });
+      const patient = toDTO(row);
+      await recordAudit(tx, ctx, audit(patient));
+      return patient;
+    });
   },
 
   async update(
     ctx: TenantContext,
     id: string,
     input: PatientUpdateInput,
+    audit: AuditBuilder<PatientDTO>,
   ): Promise<PatientDTO | null> {
     const db = forTenant(ctx);
-    // updateMany y no update: el where con deletedAt hace que existencia,
-    // pertenencia y vigencia se decidan en la misma query que escribe
-    // (count 0 = no había paciente vigente), sin ventana entre chequeo y update.
-    const { count } = await db.patient.updateMany({
-      where: { id, deletedAt: null },
-      data: input,
+    return db.$transaction(async (tx) => {
+      // updateMany y no update: el where con deletedAt hace que existencia,
+      // pertenencia y vigencia se decidan en la misma query que escribe
+      // (count 0 = no había paciente vigente), sin ventana entre chequeo y update.
+      const { count } = await tx.patient.updateMany({
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
+        data: input,
+      });
+      if (count === 0) return null;
+      const row = await tx.patient.findFirstOrThrow({
+        where: { id, tenantId: ctx.tenantId },
+        select: patientSelect,
+      });
+      const patient = toDTO(row);
+      await recordAudit(tx, ctx, audit(patient));
+      return patient;
     });
-    if (count === 0) return null;
-    return getById(ctx, id);
   },
 
-  async softDelete(ctx: TenantContext, id: string): Promise<boolean> {
+  async softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean> {
     const db = forTenant(ctx);
-    // El deletedAt: null del where hace el borrado idempotente hacia afuera:
-    // borrar dos veces da 404 la segunda, no re-marca la fila.
-    const { count } = await db.patient.updateMany({
-      where: { id, deletedAt: null },
-      data: { deletedAt: new Date() },
+    return db.$transaction(async (tx) => {
+      // El deletedAt: null del where hace el borrado idempotente hacia afuera:
+      // borrar dos veces da 404 la segunda, no re-marca la fila.
+      const { count } = await tx.patient.updateMany({
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+      if (count === 0) return false;
+      await recordAudit(tx, ctx, audit);
+      return true;
     });
-    return count > 0;
   },
 };

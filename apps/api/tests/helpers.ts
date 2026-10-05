@@ -172,3 +172,27 @@ export async function waitFor<T>(
     await sleep(intervalMs);
   }
 }
+
+// ─── Audit entries for direct repository calls ──────────────────────────────
+// Audited repository writes take their audit entry as an argument (#188);
+// tests that call them directly pass one of these.
+
+export function patientAudit(action: 'CREATED' | 'UPDATED') {
+  return (p: { id: string }) => ({
+    patientId: p.id,
+    entity: 'PATIENT' as const,
+    entityId: p.id,
+    action,
+    description: `test: patient ${action.toLowerCase()}`,
+  });
+}
+
+export function patientDeleteAudit(patientId: string) {
+  return {
+    patientId,
+    entity: 'PATIENT' as const,
+    entityId: patientId,
+    action: 'DELETED' as const,
+    description: 'test: patient deleted',
+  };
+}
