@@ -44,12 +44,12 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** `LoginSchema` accepts `trustDevice` (optional boolean; shared `LoginInput` updated). `createSession` with `trusted: true` creates a 30-day session and, in the same transaction, demotes trusted sessions beyond the newest 3 (`trusted = false`, `expires_at = least(expires_at, now + 12 h)`).
 
 **Acceptance criteria:**
-- [ ] `trustDevice: true` → trusted session, 30-day expiry; absent or `false` → normal, 12 h.
-- [ ] A 4th trusted login demotes exactly the oldest trusted session; it keeps working as normal; the other three stay trusted.
-- [ ] Non-boolean `trustDevice` → `400`.
+- [x] `trustDevice: true` → trusted session, 30-day expiry; absent or `false` → normal, 12 h.
+- [x] A 4th trusted login demotes exactly the oldest trusted session; it keeps working as normal; the other three stay trusted.
+- [x] Non-boolean `trustDevice` → `400`.
 
 **Verification:**
-- [ ] `npx vitest run mySessions authSessions login` · `npm run check`
+- [x] `npx vitest run mySessions authSessions login` · `npm run check`
 
 **Dependencies:** Task 1
 
@@ -62,13 +62,13 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** Repository methods `listActiveSessions`, `revokeUserSession`, `revokeOtherSessions`, `untrustUserSession` (all filtered by `userId` in the same query). Routes `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:sessionId`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/sessions/:sessionId/untrust`; `router.param('sessionId', idParam('Sesión no encontrada'))`. `SessionDTO` in `packages/shared`.
 
 **Acceptance criteria:**
-- [ ] The list has only the user's active sessions, most recently used first, current marked, no `tokenHash`.
-- [ ] Closing another session → its token `401`, current works; the current one → `401`; someone else's (same clinic and another clinic) → `404` and it keeps working.
-- [ ] Revoke-others → others `401`, current works, `{ revoked: n }`.
-- [ ] Untrust demotes; someone else's or a normal session → `404`.
+- [x] The list has only the user's active sessions, most recently used first, current marked, no `tokenHash`.
+- [x] Closing another session → its token `401`, current works; the current one → `401`; someone else's (same clinic and another clinic) → `404` and it keeps working.
+- [x] Revoke-others → others `401`, current works, `{ revoked: n }`.
+- [x] Untrust demotes; someone else's or a normal session → `404`.
 
 **Verification:**
-- [ ] `npx vitest run mySessions idParamCoverage` · `npm run check`
+- [x] `npx vitest run mySessions idParamCoverage` · `npm run check`
 
 **Dependencies:** Tasks 2, 3
 
@@ -78,7 +78,7 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 ## Checkpoint A: API complete
 
-- [ ] Full API suite green locally (`npm test`); `npm run check` clean
+- [x] Full API suite green locally (`npm test`); `npm run check` clean
 - [ ] Review with Nath
 
 ## Task 5: User agent parser

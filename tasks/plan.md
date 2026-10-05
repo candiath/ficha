@@ -21,12 +21,12 @@ Session lifetime policy (normal vs trusted, idle + absolute), the throttled `las
 - [x] Task 2: Idle expiry and throttled last use
 
 ### Phase 2: Trusted devices and the session list (API)
-- [ ] Task 3: Trusted login with a per-user cap
-- [ ] Task 4: List, close, close others, untrust
+- [x] Task 3: Trusted login with a per-user cap
+- [x] Task 4: List, close, close others, untrust
 
 ### Checkpoint A: API complete
-- [ ] Every API test in the spec's Testing Strategy passes; full API suite green locally
-- [ ] `npm run check` clean
+- [x] Every API test in the spec's Testing Strategy passes; full API suite green locally (501/501)
+- [x] `npm run check` clean
 - [ ] Review with Nath
 
 ### Phase 3: Web
