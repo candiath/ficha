@@ -79,7 +79,7 @@ jobs:
     steps:
       - name: Sin cambios de código
         if: needs.changes.outputs.code != 'true'
-        run: echo "Docs-only change: nothing to lint or test."
+        run: echo 'Docs-only change, nothing to lint or test.'
 
       - uses: actions/checkout@v5
         if: needs.changes.outputs.code == 'true'
@@ -116,7 +116,7 @@ jobs:
     steps:
       - name: Sin cambios que afecten a la API
         if: needs.changes.outputs.api != 'true'
-        run: echo "No API-relevant change: integration tests skipped."
+        run: echo 'No API-relevant change, integration tests skipped.'
 
       - uses: actions/checkout@v5
         if: needs.changes.outputs.api == 'true'
