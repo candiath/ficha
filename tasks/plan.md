@@ -1,61 +1,60 @@
-# Implementation Plan: server-sessions
+# Implementation Plan: my-sessions
 
-Spec: [`docs/specs/SPEC-server-sessions.md`](../docs/specs/SPEC-server-sessions.md) (approved 2026-10-04). Module 1 of the [authentication redesign](../docs/specs/auth-redesign-map.md). Task checklist: [`tasks/todo.md`](todo.md).
+Spec: [`docs/specs/SPEC-my-sessions.md`](../docs/specs/SPEC-my-sessions.md) (approved 2026-10-04). Module 2 of the [authentication redesign](../docs/specs/auth-redesign-map.md). Previous module's plan: [`docs/specs/PLAN-server-sessions.md`](../docs/specs/PLAN-server-sessions.md). Task checklist: [`tasks/todo.md`](todo.md).
 
 ## Overview
 
-Replace the clinic JWT with opaque server-side sessions (`auth_sessions`). Delivered as one PR against `dev` (`feat/server-sessions`), one commit per task. Nothing reaches `dev` until the whole module is done, so intermediate commits may leave tests red or the app broken; each commit still passes the pre-commit hook (lint + typecheck), and the PR as a whole must be green.
+Session lifetime policy (normal vs trusted, idle + absolute), the throttled `last_used_at`, and the "Sesiones activas" screen. One PR against `dev` (`feat/my-sessions`), one commit per task. Nothing reaches `dev` until the module is done: intermediate commits may leave tests red, but each passes the pre-commit hook and the full API suite runs locally before the push.
 
 ## Architecture Decisions
 
-- **Cut-over in one task, prepared by two.** Login and `authenticate` must switch together, so that task is the largest. Two tasks before it shrink it: the table and token library land first (no behavior change), and the 34 test suites move to an async token helper while it still returns a JWT. At cut-over only the helper's body changes, not 34 files.
-- **No interim behavior.** Since intermediate commits need not work, `change-password` goes straight from the JWT version to its final form in Task 5; between Tasks 3 and 5 it is simply broken.
-- **`req.authSessionId`, not `req.context.sessionId`.** `TenantContext` is what repositories receive; they never need the session id. Only the auth routes do.
-- **IP and user agent come from the same source as `login_events`** (`req.ip` with `trust proxy`, `req.get('user-agent')`), reusing the loginGuard approach.
-- **`password_changed_at` is left in place.** It stops being read at cut-over (Task 3) and stops being written in Task 5; its `DROP` goes in a later release (destructive migrations take two releases). A follow-up issue tracks it.
+- **API first, then web.** Tasks 1–4 finish the whole API contract (testable with supertest); tasks 5–7 build the web on top of it. The contract is the spec's `SessionDTO` and routes, so the web tasks do not wait on API details.
+- **Policy in one module.** `lib/sessionPolicy.ts` holds every timeout, the cap and the throttle, and replaces `getSessionTtlMs()` / `SESSION_TTL_DAYS`. Repository and middleware import from it; nothing else hardcodes a duration.
+- **Read side stays one query.** The idle rule joins `findSessionForAuth` as an `OR` by profile; the last-use refresh is a separate fire-and-forget conditioned write, never part of the decision.
+- **Test helper grows options.** `createTestToken(user, { trusted, ttlMs, lastUsedAt })` lets tests place sessions anywhere on the timeline without waiting.
+- **`sessionId` route param** registered with `router.param` in `routes/auth.ts`, as `idParamCoverage.test.ts` requires.
 
 ## Task List
 
-### Phase 1: Foundation
-- [x] Task 1: `auth_sessions` table and token library
-- [x] Task 2: Async test token helper (mechanical)
+### Phase 1: Policy and validation (API)
+- [ ] Task 1: Session policy module and the two new columns
+- [ ] Task 2: Idle expiry and throttled last use
 
-### Phase 2: Cut-over
-- [x] Task 3: Login issues sessions; `authenticate` validates them
+### Phase 2: Trusted devices and the session list (API)
+- [ ] Task 3: Trusted login with a per-user cap
+- [ ] Task 4: List, close, close others, untrust
 
-### Checkpoint A: after Tasks 1–3
-- [x] `npm test` green except `changePassword.test.ts` (expected until Task 5); `npm run check` clean
-- [x] Manual (skill `verify`): log in on the web, navigate, reload; a row appears in `auth_sessions` with a hash and no raw token
-- [ ] Review with Nath before continuing
+### Checkpoint A: API complete
+- [ ] Every API test in the spec's Testing Strategy passes; full API suite green locally
+- [ ] `npm run check` clean
+- [ ] Review with Nath
 
-### Phase 3: Revocation paths
-- [x] Task 4: Logout revokes the current session
-- [x] Task 5: Change password keeps the current session (`204`)
-- [x] Task 6: Deactivating a user or a clinic revokes their sessions
+### Phase 3: Web
+- [ ] Task 5: User agent parser
+- [ ] Task 6: "Sesiones activas" card on Mi cuenta
+- [ ] Task 7: "Mantener la sesión iniciada" on the login
 
-### Checkpoint B: after Tasks 4–6
-- [x] All spec tests listed under Testing Strategy pass
-- [x] Manual: two browsers logged in as the same user; change the password in one, the other is sent to login; logout in one leaves the other alive
+### Checkpoint B: end to end
+- [ ] Web suite green
+- [ ] Manual (skill `verify`): log in twice (one trusted), see both in the card with the right badge and device; untrust, close the other, close all others; log out from the card
 
-### Phase 4: Removal
-- [x] Task 7: Remove the clinic JWT and `JWT_SECRET`
+### Phase 4: Docs
+- [ ] Task 8: CLAUDE.md, `.env.example`, verify skill
 
 ### Checkpoint C: complete
-- [x] Spec success criteria met; `CLAUDE.md` updated
-- [ ] PR open against `dev`; CI green
-- [ ] After merge and deploy: remove `JWT_SECRET` from both Render services and the `CI_JWT_SECRET` GitHub secret (manual)
+- [ ] Spec success criteria met
+- [ ] Full API and web suites green locally; PR against `dev` open, CI green
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Cut-over breaks every suite at once | High | Task 2 isolates the mechanical helper migration; Task 3 changes only the helper body for existing suites |
-| Login gains a DB write; CI against Neon already runs ~1 s per login | Med | One `INSERT` in the same round trip budget; watch the login-heavy suites' timeouts in Task 3 |
-| A write path that cuts access forgets to revoke | Med | The read-side join denies access anyway; Task 6 has a test that deactivates without revoking |
-| `Bytes` (`bytea`) handling for `token_hash` in Prisma | Low | Task 1 unit-tests hash round-trip and the unique lookup |
-| Deploy logs everyone out | Low | Accepted: production has no real users |
-| Task 7 edits the CI workflow (spec: "ask first") | Low | Change is limited to removing `JWT_SECRET`; called out in the PR |
+| Existing sessions (7-day, no `last_used_at`) on deploy | Low | Migration defaults `last_used_at` to now and `trusted` to false: they become normal sessions and die within the hour. No real users. |
+| The idle `OR` makes the auth query slower | Low | Same row fetched by the unique `token_hash` index; the `OR` filters one row. |
+| Fire-and-forget refresh fails silently | Low | Logged on failure; worst case a session idles out early. Throttle test pins the behavior. |
+| Cap race: two trusted logins at once exceed 3 | Low | Demotion runs in the login transaction and keeps "newest 3 trusted"; a race can leave 4 until the next trusted login. Acceptable. |
+| UA parser mislabels a browser | Low | Coarse labels, table-driven tests with real UA strings, raw string still available. |
 
 ## Open Questions
 
-None blocking. Follow-ups to file during the work: `DROP password_changed_at` (next release).
+None. Spec decisions 1–6 approved.
