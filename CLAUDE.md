@@ -27,7 +27,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` | `localhost:5173` |
 | DB (branch de Neon) | `production` | `staging` | `development` |
 
-CI usa una cuarta branch, `ci`, **vacía a propósito**: `migrate deploy` la reconstruye en cada corrida, y los logs del CI son públicos.
+CI usa una cuarta branch, `ci`, que arrancó **vacía a propósito** (los logs del CI son públicos). It persists between runs: `migrate deploy` applies only new migrations, and interrupted runs leave fictitious test rows behind (see `docs/infra.md`).
 
 Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platform operator's; clinic users have no secret: their sessions are server-side rows in `auth_sessions`, see below). Los desplegados corren con `NODE_ENV=production`, que bloquea el seed y exige `CORS_ORIGIN`.
 
@@ -35,7 +35,7 @@ Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platf
 
 - PRs de feature contra `dev`. Release: PR `dev` → `main` con **merge commit**, no squash. Dejar pasar tiempo entre mergear a `dev` y promover: ese intervalo es todo el valor de testing.
 - **No activar `strict` ("require branches to be up to date") en el ruleset**: produce un deadlock en cada release. Un hotfix directo sobre `main` hay que bajarlo a `dev` a mano.
-- El CI no corre en push a `main` porque el PR de release ya testeó el mismo árbol. Si `main` empieza a recibir cambios por otro canal, hay que volver a sumarlo.
+- El CI no corre en push a `main` porque el PR de release ya testeó el mismo árbol. Si `main` empieza a recibir cambios por otro canal, hay que volver a sumarlo. **Nor on push to `dev`** (same reason: the PR tested the merge); and on PRs it skips what the change cannot affect — docs-only PRs run no tests, web-only PRs skip the API tests (`changes` job in `test.yml`). The full API suite runs locally before every push.
 - Los PRs borran su rama al mergearse (`delete_branch_on_merge`). `dev` y `main` sobreviven solo porque el ruleset tiene la regla `deletion`: no sacarla.
 - **Migraciones**: se generan en local con `npm run db:migrate` y se commitean con el código. Render corre `npm run migrate:prod` en el build de cada servicio; si falla, sigue sirviendo el deploy anterior. Van por `DIRECT_DATABASE_URL` (sin pooler; con pooler fallan con `P1002`).
 - **Migraciones destructivas en dos releases**: primero se deja de leer la columna; el `DROP` va en un release posterior.

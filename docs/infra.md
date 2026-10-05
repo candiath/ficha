@@ -25,7 +25,9 @@ Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia 
 
 Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci`) y su propia `CI_DATABASE_URL` (secret de GitHub).
 
-Esa branch se creó desde `production` y después se le borró el esquema, así que arranca **vacía**: `migrate deploy` la reconstruye desde la primera migración en cada corrida, lo que de paso verifica que la cadena entera aplica sobre una base limpia. Vacía a propósito y no por descuido — los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
+Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
+
+*Correction (2026-10-05):* this paragraph used to say that `migrate deploy` rebuilds the branch from the first migration on every run. It does not: the branch persists, and `migrate deploy` only applies the migrations it has not seen yet (checked in Neon: the 32 migrations were applied one by one since 2026-09-03). So CI verifies that each new migration applies on top of the previous state, not that the whole chain applies on an empty database. And it is no longer empty of rows either: interrupted runs leave orphaned test clinics behind (8 on 2026-10-05). They are fictitious test data, so the public logs expose nothing real.
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
 
@@ -41,7 +43,11 @@ Los PRs de feature van contra `dev`, nunca contra `main`. La promoción a produc
 
 **El ruleset tiene `strict_required_status_checks_policy` en `false` a propósito** — no es un olvido. Con `strict` en `true` ("require branches to be up to date"), cada release deja un merge commit que vive solo en `main`, así que `dev` queda permanentemente "desactualizada" y GitHub exige un *Update branch*; ese botón hace un push directo a `dev`, que el mismo ruleset rechaza por no tener checks corridos todavía. Deadlock en cada release. Y no se pierde nada: como todo llega a `main` a través de `dev`, `dev` nunca puede estar atrasada en código. La contracara es que si alguna vez se hace un hotfix directo sobre `main`, hay que bajarlo a `dev` a mano — GitHub ya no avisa.
 
-Como el árbol que testea el PR de release es idéntico al merge commit que aterriza en `main` (nadie más mueve `main`), el CI **no corre de nuevo al mergear a `main`**: el trigger de `push` cubre solo `dev`. Si en el futuro `main` empezara a recibir cambios por otro canal, esa suposición deja de valer y habría que volver a sumarla.
+Como el árbol que testea el PR de release es idéntico al merge commit que aterriza en `main` (nadie más mueve `main`), el CI **no corre de nuevo al mergear a `main`**. Si en el futuro `main` empezara a recibir cambios por otro canal, esa suposición deja de valer y habría que volver a sumarla.
+
+**Since 2026-10-05 it does not run on push to `dev` either**, for the same reason: the PR already tested the merge of its branch into `dev`, and running again on the merge took half of the CI time (each run is ~15–20 min: the GitHub runners are far from Neon's São Paulo region and the API tests run serially). The one case it covered — two PRs that pass separately but break together — is caught by the release PR to `main` before production. The full suite also runs locally before every push.
+
+**And it only runs what a PR can affect.** A `changes` job classifies the changed files: a docs-only PR (`docs/`, `tasks/`, `.claude/`, `.notes/`, `*.md`) runs no tests; a web-only PR (`apps/web/`) skips the API integration tests. Release PRs to `main` and manual runs always run everything. The `test` and `test-web` jobs still run and report success when they have nothing to do — they are required checks, and a job skipped as a whole never reports, which would block the merge.
 
 El repo borra la rama de un PR al mergearlo (`delete_branch_on_merge`, desde el 30/09/2026), lo que hace que GitHub reapunte solo los PRs apilados encima. `dev` y `main` se salvan porque el ruleset *Wait for tests to pass* incluye la regla `deletion`: si se la saca, mergear el PR de release borraría `dev`.
 
