@@ -2,10 +2,14 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
-import { createTestClinic, signTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
+import { prisma } from '../src/lib/prisma';
+import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 const CHANGE = '/api/auth/change-password';
 const NEW_PASSWORD = 'clave-nueva-456';
+
+const me = (token: string) =>
+  request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
 
 describe('POST /api/auth/change-password', () => {
   let clinic: TestClinic;
@@ -15,14 +19,14 @@ describe('POST /api/auth/change-password', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
   });
 
   afterAll(async () => {
     await clinic.cleanup();
   });
 
-  it('sin token responde 401 (exige sesión además de la contraseña actual)', async () => {
+  it('requires a session on top of the current password', async () => {
     const res = await request(app)
       .post(CHANGE)
       .send({ currentPassword: TEST_PASSWORD, newPassword: NEW_PASSWORD });
@@ -30,19 +34,22 @@ describe('POST /api/auth/change-password', () => {
     expect(res.status).toBe(401);
   });
 
-  it('con la contraseña actual incorrecta responde 400, no 401', async () => {
-    // 400 a propósito: ante un 401 fuera del login el cliente web borra el
-    // token y cierra la sesión, y un typo en la contraseña no amerita eso.
+  it('answers 400, not 401, to a wrong current password, and revokes nothing', async () => {
+    // 400 on purpose: on a 401 outside login the web client drops the token
+    // and logs out, and a typo in the current password does not deserve that.
+    const otherDevice = await createTestToken(user);
+
     const res = await request(app)
       .post(CHANGE)
       .set('Authorization', `Bearer ${token}`)
-      .send({ currentPassword: 'no-es-esta', newPassword: NEW_PASSWORD });
+      .send({ currentPassword: 'not-this-one', newPassword: NEW_PASSWORD });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'La contraseña actual es incorrecta' });
+    expect((await me(otherDevice)).status).toBe(200);
   });
 
-  it('rechaza que la contraseña nueva sea igual a la actual', async () => {
+  it('rejects a new password equal to the current one', async () => {
     const res = await request(app)
       .post(CHANGE)
       .set('Authorization', `Bearer ${token}`)
@@ -51,7 +58,7 @@ describe('POST /api/auth/change-password', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rechaza una contraseña nueva de menos de 8 caracteres', async () => {
+  it('rejects a new password shorter than 8 characters', async () => {
     const res = await request(app)
       .post(CHANGE)
       .set('Authorization', `Bearer ${token}`)
@@ -60,36 +67,28 @@ describe('POST /api/auth/change-password', () => {
     expect(res.status).toBe(400);
   });
 
-  it('el cambio exitoso rota el token e invalida las sesiones anteriores', async () => {
-    // Usuario propio para no afectar las credenciales de los otros tests.
+  it('keeps the session that made the change and revokes every other one', async () => {
+    // A user of its own, so the other tests keep their credentials.
     const victim = await clinic.createUser();
-    // Sesión "vieja en otro dispositivo": un token emitido segundos antes
-    // del cambio (la resolución de iat es en segundos, por eso el -5).
-    const oldDeviceToken = signTestToken(victim, { iatOffsetSeconds: -5 });
+    const current = await createTestToken(victim);
+    const otherDevice = await createTestToken(victim);
 
     const res = await request(app)
       .post(CHANGE)
-      .set('Authorization', `Bearer ${signTestToken(victim)}`)
+      .set('Authorization', `Bearer ${current}`)
       .send({ currentPassword: TEST_PASSWORD, newPassword: NEW_PASSWORD });
 
-    expect(res.status).toBe(200);
-    const newToken = res.body.data.token;
-    expect(newToken).toBeTruthy();
-    expect(Object.keys(res.body.data)).toEqual(['token']);
+    expect(res.status).toBe(204);
+    expect(res.text).toBe('');
 
-    // La sesión vieja quedó revocada; la nueva (el token devuelto) funciona.
-    const oldSession = await request(app)
-      .get('/api/auth/me')
-      .set('Authorization', `Bearer ${oldDeviceToken}`);
-    expect(oldSession.status).toBe(401);
+    expect((await me(current)).status).toBe(200);
+    expect((await me(otherDevice)).status).toBe(401);
 
-    const newSession = await request(app)
-      .get('/api/auth/me')
-      .set('Authorization', `Bearer ${newToken}`);
-    expect(newSession.status).toBe(200);
-    expect(newSession.body.data.id).toBe(victim.id);
+    // password_changed_at is no longer stamped (sessions replaced it).
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: victim.id } });
+    expect(row.passwordChangedAt).toBeNull();
 
-    // Y el login refleja el cambio: la nueva entra, la vieja ya no.
+    // And login reflects the change: the new password works, the old one not.
     const loginNew = await request(app)
       .post('/api/auth/login')
       .send({ email: victim.email, password: NEW_PASSWORD });

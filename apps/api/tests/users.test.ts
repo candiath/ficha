@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 const USERS = '/api/users';
 
@@ -24,8 +24,8 @@ describe('requireRole + /api/users', () => {
     admin = await clinicA.createUser({ role: 'ADMIN' });
     therapist = await clinicA.createUser();
     outsider = await clinicB.createUser();
-    adminToken = signTestToken(admin);
-    therapistToken = signTestToken(therapist);
+    adminToken = await createTestToken(admin);
+    therapistToken = await createTestToken(therapist);
   });
 
   afterAll(async () => {
@@ -119,6 +119,8 @@ describe('requireRole + /api/users', () => {
   });
 
   it('un usuario de otra clínica responde 404, como si no existiera', async () => {
+    const outsiderToken = await createTestToken(outsider);
+
     const res = await request(app)
       .patch(`${USERS}/${outsider.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -128,6 +130,10 @@ describe('requireRole + /api/users', () => {
 
     const untouched = await prisma.user.findUnique({ where: { id: outsider.id } });
     expect(untouched?.isActive).toBe(true);
+    // Nor are her sessions: revocation only runs after the tenant-scoped
+    // write actually touched a row.
+    const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${outsiderToken}`);
+    expect(me.status).toBe(200);
   });
 
   it('desactivar a un usuario revoca su acceso en el request siguiente', async () => {
@@ -146,7 +152,8 @@ describe('requireRole + /api/users', () => {
       .set('Authorization', `Bearer ${therapistToken}`);
     expect(revoked.status).toBe(401);
 
-    // Reactivarlo le devuelve el acceso con el mismo token.
+    // Reactivating gives back the ability to log in, not the old session:
+    // deactivation revoked it for good.
     const reactivate = await request(app)
       .patch(`${USERS}/${therapist.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -154,10 +161,15 @@ describe('requireRole + /api/users', () => {
 
     expect(reactivate.status).toBe(200);
 
-    const restored = await request(app)
+    const stillRevoked = await request(app)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${therapistToken}`);
-    expect(restored.status).toBe(200);
+    expect(stillRevoked.status).toBe(401);
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: therapist.email, password: TEST_PASSWORD });
+    expect(login.status).toBe(200);
   });
 
   it('un PATCH sin isActive ni role responde 400', async () => {
@@ -196,7 +208,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     admin = await clinic.createUser({ role: 'ADMIN' });
-    adminToken = signTestToken(admin);
+    adminToken = await createTestToken(admin);
   });
 
   afterAll(async () => {
@@ -205,7 +217,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
 
   it('ascender a ADMIN aplica en el request siguiente, con el mismo token', async () => {
     const colega = await clinic.createUser();
-    const colegaToken = signTestToken(colega);
+    const colegaToken = await createTestToken(colega);
 
     // Antes: THERAPIST, sin acceso a la gestión de usuarios.
     expect((await listUsers(colegaToken)).status).toBe(403);
@@ -225,7 +237,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
 
   it('degradar a una ADMIN cuando queda otra activa aplica al instante', async () => {
     const segunda = await clinic.createUser({ role: 'ADMIN' });
-    const segundaToken = signTestToken(segunda);
+    const segundaToken = await createTestToken(segunda);
     expect((await listUsers(segundaToken)).status).toBe(200);
 
     const res = await patch(adminToken, segunda.id, { role: 'THERAPIST' });
@@ -241,7 +253,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
       const a = await otraClinica.createUser({ role: 'ADMIN' });
       await otraClinica.createUser({ role: 'ADMIN' });
 
-      const res = await patch(signTestToken(a), a.id, { role: 'THERAPIST' });
+      const res = await patch(await createTestToken(a), a.id, { role: 'THERAPIST' });
       expect(res.status).toBe(200);
       expect(res.body.data.role).toBe('THERAPIST');
     } finally {
@@ -282,7 +294,7 @@ describe('PATCH /api/users/:id — cambio de rol', () => {
     try {
       const a = await otraClinica.createUser({ role: 'ADMIN' });
       const b = await otraClinica.createUser({ role: 'ADMIN' });
-      const tokenA = signTestToken(a);
+      const tokenA = await createTestToken(a);
 
       // Con B activa, A puede desactivarla: A sigue ahí.
       expect((await patch(tokenA, b.id, { isActive: false })).status).toBe(200);

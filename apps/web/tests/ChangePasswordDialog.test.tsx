@@ -5,9 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ChangePasswordDialog from '@/components/account/ChangePasswordDialog';
 import { authApi } from '@/services/auth';
 
-// Se mockea solo la capa HTTP: el form, la validación de zod, la mutación
-// de react-query y el setToken contra localStorage corren de verdad —
-// son exactamente lo que estos tests quieren cubrir.
+// Only the HTTP layer is mocked: the form, the zod validation and the
+// react-query mutation run for real — they are what these tests cover.
 vi.mock('@/services/auth', () => ({
   authApi: { changePassword: vi.fn() },
 }));
@@ -101,9 +100,9 @@ describe('validación (sin tocar la API)', () => {
 });
 
 describe('flujo exitoso', () => {
-  it('llama a la API, guarda el token nuevo y cierra', async () => {
-    changePassword.mockResolvedValue({ token: 'token-nuevo' });
-    localStorage.setItem('ficha_token', 'token-viejo');
+  it('calls the API, keeps the current session token and closes', async () => {
+    changePassword.mockResolvedValue(undefined);
+    localStorage.setItem('ficha_token', 'session-token');
     const { onClose } = renderDialog();
     const user = await fillForm({
       current: 'actual-123',
@@ -115,9 +114,8 @@ describe('flujo exitoso', () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(changePassword).toHaveBeenCalledWith('actual-123', 'nueva-segura-1');
-    // El cambio invalidó el token viejo: si no se guardara el nuevo, el
-    // próximo request desloguearía al usuario.
-    expect(localStorage.getItem('ficha_token')).toBe('token-nuevo');
+    // The session that made the change survives it: the token is untouched.
+    expect(localStorage.getItem('ficha_token')).toBe('session-token');
     expect(toast.success).toHaveBeenCalledWith('Contraseña actualizada');
   });
 
@@ -189,14 +187,12 @@ describe('higiene del formulario', () => {
   });
 });
 
-// El mismo diálogo sirve a la sesión del operador de plataforma inyectando
-// contra qué endpoint se manda y dónde va el token nuevo. Lo que importa
-// probar es que no se cruce nada: el token de la clínica queda intacto y el
-// de plataforma es el que se actualiza.
+// The same dialog serves the platform operator by injecting the call. What
+// matters is that nothing crosses over: the injected session is the one
+// called, and the clinic's token stays untouched.
 describe('con otra sesión inyectada', () => {
-  it('usa el changePassword y el setToken de esa sesión, no los de la clínica', async () => {
-    const otraChangePassword = vi.fn().mockResolvedValue({ token: 'token-plataforma-nuevo' });
-    const otraSetToken = vi.fn();
+  it('uses that session\'s changePassword, not the clinic\'s', async () => {
+    const otraChangePassword = vi.fn().mockResolvedValue(undefined);
     localStorage.setItem('ficha_token', 'token-clinica');
     const onClose = vi.fn();
     const queryClient = new QueryClient({
@@ -207,7 +203,7 @@ describe('con otra sesión inyectada', () => {
         <ChangePasswordDialog
           open
           onClose={onClose}
-          session={{ changePassword: otraChangePassword, setToken: otraSetToken }}
+          session={{ changePassword: otraChangePassword }}
         />
       </QueryClientProvider>
     );
@@ -221,7 +217,6 @@ describe('con otra sesión inyectada', () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(otraChangePassword).toHaveBeenCalledWith('actual-123', 'nueva-segura-1');
-    expect(otraSetToken).toHaveBeenCalledWith('token-plataforma-nuevo');
     expect(changePassword).not.toHaveBeenCalled();
     expect(localStorage.getItem('ficha_token')).toBe('token-clinica');
   });

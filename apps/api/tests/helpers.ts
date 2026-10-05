@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import type { PlatformOperator, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
+import { generateSessionToken, hashSessionToken } from '../src/lib/sessionToken';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -73,24 +74,27 @@ export async function createTestClinic(): Promise<TestClinic> {
   return { tenantId: tenant.id, name: tenant.name, slug: tenant.slug, email, createUser, cleanup };
 }
 
-interface SignTestTokenOptions {
-  /** Corrimiento del iat en segundos (negativo = emitido en el pasado). */
-  iatOffsetSeconds?: number;
+interface CreateTestTokenOptions {
+  /** Session lifetime from now, in ms; negative creates an already expired session. */
+  ttlMs?: number;
 }
 
-// Firma tokens con el mismo secreto que la API pero sin pasar por /login:
-// no gasta el presupuesto del rate limiter y permite fabricar tokens con
-// iat en el pasado para probar la invalidación por passwordChangedAt
-// (jsonwebtoken usa el iat del payload como base si se lo pasás).
-export function signTestToken(
-  user: { id: string; tenantId: string },
-  opts: SignTestTokenOptions = {},
-): string {
-  const iat = Math.floor(Date.now() / 1000) + (opts.iatOffsetSeconds ?? 0);
-  return jwt.sign({ tenantId: user.tenantId, iat }, process.env.JWT_SECRET as string, {
-    subject: user.id,
-    expiresIn: '1h',
+// The bearer token for a clinic user: inserts an auth_sessions row directly,
+// without going through /login (no rate limiter budget spent). The session is
+// deleted with the user by the clinic's cleanup (ON DELETE CASCADE).
+export async function createTestToken(
+  user: { id: string },
+  opts: CreateTestTokenOptions = {},
+): Promise<string> {
+  const token = generateSessionToken();
+  await prisma.authSession.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashSessionToken(token),
+      expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
+    },
   });
+  return token;
 }
 
 // ─── Operador de plataforma ─────────────────────────────────────────────────
@@ -132,11 +136,10 @@ export async function createTestOperator(
 // probar que el otro middleware lo rechaza.
 export function signOperatorTestToken(
   operatorId: string,
-  opts: SignTestTokenOptions & { secret?: string } = {},
+  opts: { secret?: string } = {},
 ): string {
-  const iat = Math.floor(Date.now() / 1000) + (opts.iatOffsetSeconds ?? 0);
   return jwt.sign(
-    { kind: 'platform', iat },
+    { kind: 'platform' },
     opts.secret ?? (process.env.PLATFORM_JWT_SECRET as string),
     { subject: operatorId, expiresIn: '1h' },
   );

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // Los filtros de la query venían casteados (`req.query.status as PaymentStatus`)
 // en vez de validados. Un valor inválido llegaba crudo al where de Prisma, que
@@ -22,7 +22,7 @@ describe('filtros de query validados', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
   });
 
   afterAll(async () => {

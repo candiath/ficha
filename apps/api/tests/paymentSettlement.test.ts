@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { settle } from '../src/lib/paymentSettlement';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // Un cobro de monto cero no es una deuda: si el descuento cancela el costo
 // entero, o la sesión se dio sin cargo, no hay nada que cobrar. Dejarlo en
@@ -57,7 +57,7 @@ describe('cobros de monto cero, de punta a punta', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Bonificado' },
       select: { id: true },

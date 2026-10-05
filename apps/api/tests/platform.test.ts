@@ -6,7 +6,7 @@ import { prisma } from '../src/lib/prisma';
 import {
   createTestClinic,
   createTestOperator,
-  signTestToken,
+  createTestToken,
   TEST_PASSWORD,
   waitFor,
   type TestClinic,
@@ -189,9 +189,9 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       expect(res.status).toBe(400);
     });
 
-    it('desactivar la clínica revoca a todos sus usuarios al instante; reactivar los restaura', async () => {
+    it('desactivar la clínica revoca a todos sus usuarios al instante; reactivarla les devuelve el login, no las sesiones', async () => {
       const admin = await clinic.createUser({ role: 'ADMIN' });
-      const adminToken = signTestToken(admin);
+      const adminToken = await createTestToken(admin);
       expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`)).status).toBe(200);
 
       const off = await asOperator(request(app).patch(`${PLATFORM}/tenants/${clinic.tenantId}`)).send({
@@ -222,7 +222,13 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       });
       expect(on.status).toBe(200);
       expect(on.body.data.deactivatedAt).toBeNull();
-      expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`)).status).toBe(200);
+      // The old session stays revoked; logging in works again.
+      expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`)).status).toBe(401);
+      const relogin = await request(app)
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', `10.1.0.${nextIp++}`)
+        .send({ email: admin.email, password: TEST_PASSWORD });
+      expect(relogin.status).toBe(200);
 
       const audit = await asOperator(request(app).get(`${PLATFORM}/tenants/${clinic.tenantId}/audit-log`));
       const acciones = audit.body.data.map((a: { action: string }) => a.action);
@@ -311,7 +317,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
           role: 'THERAPIST',
         },
       });
-      const fisioToken = signTestToken(fisio);
+      const fisioToken = await createTestToken(fisio);
       expect((await request(app).get('/api/users').set('Authorization', `Bearer ${fisioToken}`)).status).toBe(403);
 
       const res = await asOperator(

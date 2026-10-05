@@ -29,7 +29,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 
 CI usa una cuarta branch, `ci`, **vacía a propósito**: `migrate deploy` la reconstruye en cada corrida, y los logs del CI son públicos.
 
-Cada entorno tiene su propia branch y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET` (distintos entre sí: la API no arranca si son iguales). Los desplegados corren con `NODE_ENV=production`, que bloquea el seed y exige `CORS_ORIGIN`.
+Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platform operator's; clinic users have no secret: their sessions are server-side rows in `auth_sessions`, see below). Los desplegados corren con `NODE_ENV=production`, que bloquea el seed y exige `CORS_ORIGIN`.
 
 ### Reglas
 
@@ -65,7 +65,7 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 
 Tres excepciones documentadas:
 
-- **`authRepository` no recibe `ctx`**: sus lecturas son las que lo construyen (login y `authenticate`), así que corren antes de que exista un tenant.
+- **`authRepository` no recibe `ctx`**: sus lecturas son las que lo construyen (login y `authenticate`), así que corren antes de que exista un tenant. **Sessions live here too** (`docs/specs/SPEC-server-sessions.md`): login creates an `auth_sessions` row and returns an opaque token (only its SHA-256 is stored); `authenticate` accepts it only if one query finds the session unrevoked and unexpired *and* the user and clinic active. Every write that cuts access (logout, password change, deactivating a user or a clinic) also revokes the sessions involved, in the same transaction — the join is the safety net, the revocation is what keeps a reactivation from bringing old sessions back. `auth_sessions` has no `tenantId` (the owner is the user), so it needs no guard classification.
 - **`tenantRepository` filtra a mano por `id: ctx.tenantId`**: `Tenant` no está —ni debe estar— en `TENANT_SCOPED_MODELS`, porque el guard filtra inyectando una columna `tenantId` y en esa tabla el tenant *es* el `id`. Ponerla en la lista haría que buscara `tenants.tenant_id`, que no existe.
 - **`platformRepository` recibe el `tenantId` como argumento explícito** en cada operación, en vez de un `ctx`: es la capa del operador de plataforma (abajo), la única que elige el tenant a mano. Usa el `prisma` base y solo toca `tenants`, lo administrativo de `users` y `platform_audit_logs`.
 
@@ -75,7 +75,7 @@ Hubo otra —`techniqueRepository`— pero los catálogos de técnicas se elimin
 
 ### Operador de plataforma
 
-Quien crea clínicas y les nombra su primera ADMIN (issue #153). **No es un tercer valor de `UserRole`**: es la tabla `platform_operators`, con su propio login (`/api/platform/auth/*`), su propio secreto (`PLATFORM_JWT_SECRET`, obligatorio y distinto de `JWT_SECRET`) y sus propias rutas (`/api/platform/*`), montadas en `app.ts` **antes** de `authenticate` y por lo tanto fuera de él y de `forTenant`. Un token de operador es inválido para la API clínica por firma (otro secreto) y por forma (sin `tenantId`); uno de usuario, inválido para la plataforma por lo mismo al revés. `tests/platformIsolation.test.ts` prueba las dos direcciones con tokens fabricados.
+Quien crea clínicas y les nombra su primera ADMIN (issue #153). **No es un tercer valor de `UserRole`**: es la tabla `platform_operators`, con su propio login (`/api/platform/auth/*`), su propio secreto (`PLATFORM_JWT_SECRET`, obligatorio) y sus propias rutas (`/api/platform/*`), montadas en `app.ts` **antes** de `authenticate` y por lo tanto fuera de él y de `forTenant`. The operator is still on a JWT (it moves to sessions in the `operator-sessions` module); the two kinds of token cannot overlap: an operator JWT matches no clinic session, and a clinic session token is not a JWT. `tests/platformIsolation.test.ts` prueba las dos direcciones con tokens fabricados.
 
 Lo que puede: listar y crear clínicas, desactivarlas (`tenants.deactivated_at`: todos sus usuarios reciben 401 en el request siguiente, porque `findForAuth` lo exige null), crear el ADMIN de una clínica y cambiar rol o estado de sus usuarios —con la misma regla de "la clínica conserva una ADMIN activa" que aplica `userRepository` (`whereConservaAdmin`)—. Lo que no puede: nada clínico. Cada acción deja una fila en `platform_audit_logs` **en la misma transacción**.
 

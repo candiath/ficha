@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // GET /api/sessions es la vista de "todas las sesiones" de la clínica: sin un
 // paciente en la URL, con el nombre de cada uno y el motivo de cada episodio.
@@ -28,7 +28,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     clinic = await createTestClinic();
     clinicB = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
 
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Global' },

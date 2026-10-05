@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // Consentimiento era la única ruta bajo /api/patients/:patientId que no
 // pasaba por patientRepo.exists(). El patientId de la URL entraba directo a
@@ -28,8 +28,8 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
     const user = await clinic.createUser();
     const otherUser = await otherClinic.createUser();
 
-    token = signTestToken(user);
-    otherToken = signTestToken(otherUser);
+    token = await createTestToken(user);
+    otherToken = await createTestToken(otherUser);
     ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
     otherCtx = {
       tenantId: otherClinic.tenantId,

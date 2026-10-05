@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
 
 // El CRUD de pacientes por HTTP, camino por camino. patientRepository.test.ts
 // fija la política de vigencia (qué se ve y qué no después de un borrado);
@@ -21,7 +21,7 @@ describe('CRUD de pacientes por HTTP', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
-    token = signTestToken(user);
+    token = await createTestToken(user);
   });
 
   afterAll(async () => {

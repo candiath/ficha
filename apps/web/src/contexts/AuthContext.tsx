@@ -67,7 +67,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(loggedUser);
   }, []);
 
+  // Revokes the session on the server, then forgets it locally whatever the
+  // outcome: a failed request (offline, API down, session already gone) must
+  // not leave the user logged in on this device. Clearing does not wait for
+  // the request, so logging out feels instant.
   const logout = useCallback(() => {
+    if (getToken()) {
+      authApi.logout().catch(() => {});
+    }
     setToken(null);
     setUser(null);
   }, []);

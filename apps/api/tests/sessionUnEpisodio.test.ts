@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // El pivote sesión↔episodio es M:N en la base, pero la API acepta un episodio
 // como máximo: una sesión aborda un único motivo de consulta.
@@ -27,7 +27,7 @@ describe('Una sesión aborda un único episodio', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
     patient = await patientRepo.create(ctx, { fullName: 'Paciente un episodio' });
 

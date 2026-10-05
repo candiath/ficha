@@ -17,31 +17,31 @@ Replace the clinic JWT with opaque server-side sessions (`auth_sessions`). Deliv
 ## Task List
 
 ### Phase 1: Foundation
-- [ ] Task 1: `auth_sessions` table and token library
-- [ ] Task 2: Async test token helper (mechanical)
+- [x] Task 1: `auth_sessions` table and token library
+- [x] Task 2: Async test token helper (mechanical)
 
 ### Phase 2: Cut-over
-- [ ] Task 3: Login issues sessions; `authenticate` validates them
+- [x] Task 3: Login issues sessions; `authenticate` validates them
 
 ### Checkpoint A: after Tasks 1–3
-- [ ] `npm test` and `npm test -w apps/web` green; `npm run check` clean
-- [ ] Manual (skill `verify`): log in on the web, navigate, reload; a row appears in `auth_sessions` with a hash and no raw token
+- [x] `npm test` green except `changePassword.test.ts` (expected until Task 5); `npm run check` clean
+- [x] Manual (skill `verify`): log in on the web, navigate, reload; a row appears in `auth_sessions` with a hash and no raw token
 - [ ] Review with Nath before continuing
 
 ### Phase 3: Revocation paths
-- [ ] Task 4: Logout revokes the current session
-- [ ] Task 5: Change password keeps the current session (`204`)
-- [ ] Task 6: Deactivating a user or a clinic revokes their sessions
+- [x] Task 4: Logout revokes the current session
+- [x] Task 5: Change password keeps the current session (`204`)
+- [x] Task 6: Deactivating a user or a clinic revokes their sessions
 
 ### Checkpoint B: after Tasks 4–6
-- [ ] All spec tests listed under Testing Strategy pass
-- [ ] Manual: two browsers logged in as the same user; change the password in one, the other is sent to login; logout in one leaves the other alive
+- [x] All spec tests listed under Testing Strategy pass
+- [x] Manual: two browsers logged in as the same user; change the password in one, the other is sent to login; logout in one leaves the other alive
 
 ### Phase 4: Removal
-- [ ] Task 7: Remove the clinic JWT and `JWT_SECRET`
+- [x] Task 7: Remove the clinic JWT and `JWT_SECRET`
 
 ### Checkpoint C: complete
-- [ ] Spec success criteria met; `CLAUDE.md` updated
+- [x] Spec success criteria met; `CLAUDE.md` updated
 - [ ] PR open against `dev`; CI green
 - [ ] After merge and deploy: remove `JWT_SECRET` from both Render services and the `CI_JWT_SECRET` GitHub secret (manual)
 

@@ -11,7 +11,8 @@ description: Cómo levantar y verificar Ficha (API Express + web Vite) end-to-en
 - API: `npm run dev:api` (puerto 3001, ts-node-dev). Esperar a que `curl http://localhost:3001/health` devuelva `{"status":"ok"}`.
 - Web: `npm run dev:web` (Vite). Build de producción: `npm run build:web`.
 - Seed idempotente: `npm run db:seed` (usuario demo `admin@ficha.dev` / `password123`; operador de plataforma `operador@ficha.dev` / `password123`).
-- La API exige `PLATFORM_JWT_SECRET` además de `JWT_SECRET` (y distintos): sin él no arranca.
+- La API exige `PLATFORM_JWT_SECRET` (al menos 32 caracteres): sin él no arranca. `JWT_SECRET` ya no se usa: las sesiones de la clínica viven en `auth_sessions` (token opaco de 43 caracteres) y se pueden ver con SQL.
+- Levantar API y web desde el panel de preview: `.claude/launch.json` (local, gitignored) con `npm run dev:api` (3001) y `npm run dev:web` (5173).
 
 ## Flujos que valen la pena
 

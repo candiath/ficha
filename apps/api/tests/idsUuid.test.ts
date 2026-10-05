@@ -9,7 +9,7 @@ import { errorHandler } from '../src/middlewares/errorHandler';
 import {
   createTestClinic,
   createTestOperator,
-  signTestToken,
+  createTestToken,
   sleep,
   type TestClinic,
   type TestOperator,
@@ -35,7 +35,7 @@ describe('ids UUID', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     admin = await clinic.createUser({ role: 'ADMIN' });
-    token = signTestToken(admin);
+    token = await createTestToken(admin);
     operator = await createTestOperator();
 
     const res = await auth(request(app).post('/api/patients')).send({ fullName: 'Paciente UUID' });
@@ -165,15 +165,6 @@ describe('ids UUID', () => {
       const res = await auth(request(app).get(`/api/payments?patientId=${MALFORMADO}`));
       expect(res.status).toBe(400);
     });
-  });
-
-  // Un token emitido con un id del seed viejo (antes de #174) está bien
-  // firmado pero su `sub` no puede estar en la base. Tiene que ser 401 —la
-  // web desloguea con eso— y no un error de la consulta.
-  it('un token con sub que no es UUID es una sesión inválida', async () => {
-    const viejo = signTestToken({ id: 'dev-user-001', tenantId: clinic.tenantId });
-    const res = await request(app).get('/api/patients').set('Authorization', `Bearer ${viejo}`);
-    expect(res.status).toBe(401);
   });
 
   // La red de seguridad: si algún camino sin validar llega a la base con un

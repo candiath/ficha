@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // Stats del dashboard: además de los conteos, lo que se prueba es que las
 // agregaciones (count/groupBy/findMany) queden acotadas al tenant del token.
@@ -45,7 +45,7 @@ describe('GET /api/dashboard/stats', () => {
     clinicA = await createTestClinic();
     clinicB = await createTestClinic();
     userA = await clinicA.createUser();
-    tokenA = signTestToken(userA);
+    tokenA = await createTestToken(userA);
 
     async function createPatient(
       tenantId: string,
@@ -270,7 +270,7 @@ describe('GET /api/dashboard/stats', () => {
 
     const resB = await request(app)
       .get('/api/dashboard/stats')
-      .set('Authorization', `Bearer ${signTestToken(await clinicB.createUser())}`);
+      .set('Authorization', `Bearer ${await createTestToken(await clinicB.createUser())}`);
 
     expect(resB.status).toBe(200);
     expect(resB.body.data.activePatients).toBe(1);

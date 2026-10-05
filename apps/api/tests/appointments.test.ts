@@ -7,7 +7,7 @@ import { prisma } from '../src/lib/prisma';
 import { addClinicDays, instantToClinicTime } from '../src/lib/clinicTime';
 import {
   createTestClinic,
-  signTestToken,
+  createTestToken,
   sleep,
   waitFor,
   type TestClinic,
@@ -33,7 +33,7 @@ describe('turnos', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Turnos' },
       select: { id: true },
@@ -437,7 +437,7 @@ describe('turnos', () => {
     const otra = await createTestClinic();
     try {
       const otroUser = await otra.createUser();
-      const otroToken = signTestToken(otroUser);
+      const otroToken = await createTestToken(otroUser);
       const otroPaciente = await prisma.patient.create({
         data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
         select: { id: true },

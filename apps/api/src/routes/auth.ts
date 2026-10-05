@@ -2,7 +2,6 @@ import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authRepo } from '../repositories';
-import { signAccessToken } from '../lib/jwt';
 import {
   createLoginLimiter,
   HASH_SENUELO,
@@ -10,6 +9,7 @@ import {
   LOGIN_THROTTLED,
   recordLoginEvent,
 } from '../lib/loginGuard';
+import { getSessionTtlMs } from '../lib/sessionToken';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
 
@@ -98,7 +98,12 @@ router.post('/login', loginLimiter, async (req, res) => {
     .touchLastLogin(user.id)
     .catch((err) => console.error('[auth] lastLoginAt', err));
 
-  const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
+  const { token } = await authRepo.createSession({
+    userId: user.id,
+    expiresAt: new Date(Date.now() + getSessionTtlMs()),
+    ip: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
 
   res.json({
     data: {
@@ -135,16 +140,20 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
     return;
   }
 
-  // updatePassword estampa passwordChangedAt, que invalida los tokens
-  // emitidos antes del cambio.
+  // Every other session of the user is revoked; the one making the change
+  // stays valid, so the client keeps its token and nothing is returned.
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await authRepo.updatePassword(user.id, passwordHash);
+  await authRepo.changePassword(user.id, passwordHash, req.authSessionId);
 
-  // passwordChangedAt invalida los tokens emitidos antes del cambio; este
-  // token nuevo evita que la sesión que hizo el cambio quede afuera.
-  const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
+  res.status(204).end();
+});
 
-  res.json({ data: { token } });
+// POST /api/auth/logout — revokes the session that makes the request. Other
+// sessions of the same user stay open. A token reused after logout no longer
+// passes authenticate, so a second logout gets the usual 401.
+router.post('/logout', authenticate, async (req, res) => {
+  await authRepo.revokeSession(req.authSessionId);
+  res.status(204).end();
 });
 
 // GET /api/auth/me — usuario autenticado actual.
