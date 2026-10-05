@@ -33,7 +33,10 @@ export type AuditBuilder<T> = (result: T) => AuditEntry;
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
+// Read-only on purpose (#188): there is no standalone create. Audit rows are
+// written by the repository of each audited write, with the same transaction
+// client (prisma/recordAudit.ts), so a route cannot go back to recording an
+// action separately — and losing the row when that second write fails.
 export interface AuditLogRepository {
   listByPatient(ctx: TenantContext, patientId: string): Promise<AuditLogDTO[]>;
-  create(ctx: TenantContext, data: AuditLogCreateDTO): Promise<AuditLogDTO>;
 }
