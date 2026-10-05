@@ -281,6 +281,10 @@ describe('my sessions', () => {
     const current = await createTestToken(owner);
     const others = [await createTestToken(owner), await createTestToken(owner, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs })];
     const colleagues = await createTestToken(colleague);
+    // Dead ones the list does not show: not counted (found in manual testing:
+    // the toast said 3 with 2 devices on screen).
+    await createTestToken(owner, { ttlMs: -MINUTE });
+    await createTestToken(owner, { lastUsedAt: ago(NORMAL_SESSION.idleMs + MINUTE) });
 
     const res = await as(current, request(app).post('/api/auth/devices/revoke-others'));
 

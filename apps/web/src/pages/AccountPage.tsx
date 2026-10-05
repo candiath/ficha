@@ -102,7 +102,7 @@ export default function AccountPage() {
                 <div>
                   <p className="text-sm font-medium">Contraseña</p>
                   <p className="text-xs text-muted-foreground">
-                    Cambiarla cierra tus sesiones en otros dispositivos
+                    Cambiarla desconecta tus otros dispositivos
                   </p>
                 </div>
               </div>

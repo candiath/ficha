@@ -199,8 +199,10 @@ export const prismaAuthRepository: AuthRepository = {
   },
 
   async revokeOtherAuthSessions(userId: string, keepSessionId: string): Promise<number> {
+    // Only live sessions: the count must match what her list showed. Expired
+    // or idle ones are already dead and stay as they are.
     const { count } = await prisma.authSession.updateMany({
-      where: { userId, id: { not: keepSessionId }, revokedAt: null },
+      where: { userId, id: { not: keepSessionId }, ...liveAuthSessionWhere(new Date()) },
       data: { revokedAt: new Date() },
     });
     return count;
