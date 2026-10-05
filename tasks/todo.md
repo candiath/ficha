@@ -141,10 +141,10 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** Document the session policy (two profiles, cap, throttle) next to the sessions paragraph in `CLAUDE.md`; remove `SESSION_TTL_DAYS` from `.env.example`; mention the card and the trusted checkbox in the verify skill.
 
 **Acceptance criteria:**
-- [ ] No reference to `SESSION_TTL_DAYS` left outside archived docs.
+- [x] No reference to `SESSION_TTL_DAYS` left outside archived docs.
 
 **Verification:**
-- [ ] `grep -r SESSION_TTL_DAYS` · `npm run check`
+- [x] `grep -r SESSION_TTL_DAYS` · `npm run check`
 
 **Dependencies:** Tasks 1–7
 
@@ -154,5 +154,5 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 ## Checkpoint C: complete
 
-- [ ] Spec success criteria met
+- [x] Spec success criteria met
 - [ ] Full API and web suites green locally; PR against `dev` open, CI green

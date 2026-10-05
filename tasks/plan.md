@@ -39,10 +39,10 @@ Session lifetime policy (normal vs trusted, idle + absolute), the throttled `las
 - [x] Manual (skill `verify`): log in twice (one trusted), see both in the card with the right badge and device; untrust, close the other, close all others; log out from the card
 
 ### Phase 4: Docs
-- [ ] Task 8: CLAUDE.md, `.env.example`, verify skill
+- [x] Task 8: CLAUDE.md, `.env.example`, verify skill
 
 ### Checkpoint C: complete
-- [ ] Spec success criteria met
+- [x] Spec success criteria met
 - [ ] Full API and web suites green locally; PR against `dev` open, CI green
 
 ## Risks and Mitigations
