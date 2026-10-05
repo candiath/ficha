@@ -328,6 +328,35 @@ export const prismaPlatformRepository: PlatformRepository = {
     });
   },
 
+  async disconnectUserDevices(op: OperatorContext, tenantId: string, userId: string): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      // auth_sessions has no tenantId: the { id, tenantId } lookup in the same
+      // transaction is what proves the user is in the clinic the operator named.
+      const user = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { id: true, email: true },
+      });
+      if (!user) return false;
+
+      await tx.authSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      // Audited even when she had no open session: the operator did act,
+      // and the row does not say how many devices there were.
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: op.operatorId,
+          tenantId,
+          targetUserId: user.id,
+          action: 'USER_DEVICES_DISCONNECTED',
+          description: `Desconectó los dispositivos de ${user.email}`,
+        },
+      });
+      return true;
+    });
+  },
+
   // ─── Auditoría ─────────────────────────────────────────────────────────────
 
   async listAuditLog(tenantId: string): Promise<PlatformAuditLogDTO[] | null> {

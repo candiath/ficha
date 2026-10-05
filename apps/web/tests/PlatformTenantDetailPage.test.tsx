@@ -25,6 +25,7 @@ vi.mock('@/services/platform', () => ({
     users: vi.fn(),
     createAdmin: vi.fn(),
     updateUser: vi.fn(),
+    disconnectUserDevices: vi.fn(),
     auditLog: vi.fn(),
   },
 }));
@@ -41,6 +42,7 @@ const auditLog = vi.mocked(platformTenantsApi.auditLog);
 const updateUser = vi.mocked(platformTenantsApi.updateUser);
 const setActive = vi.mocked(platformTenantsApi.setActive);
 const createAdmin = vi.mocked(platformTenantsApi.createAdmin);
+const disconnectUserDevices = vi.mocked(platformTenantsApi.disconnectUserDevices);
 
 const NORTE: PlatformTenant = {
   id: 't1',
@@ -275,5 +277,52 @@ describe('PlatformTenantDetailPage', () => {
       }),
     );
     expect(toast.success).toHaveBeenCalledWith('nueva@norte.test ya puede entrar como ADMIN');
+  });
+});
+
+describe('PlatformTenantDetailPage: disconnect devices', () => {
+  const disconnectButton = { name: 'Desconectar dispositivos' };
+
+  it('is offered on active users only', async () => {
+    users.mockResolvedValue([ADMIN, { ...FISIO, isActive: false }]);
+    renderAt();
+
+    expect((await fila('Ana Admin')).getByRole('button', disconnectButton)).toBeEnabled();
+    expect((await fila('Fede Fisio')).queryByRole('button', disconnectButton)).not.toBeInTheDocument();
+  });
+
+  it('confirms, calls the API with tenant and user, and refreshes the audit log', async () => {
+    disconnectUserDevices.mockResolvedValue(undefined);
+    renderAt();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Fede Fisio')).getByRole('button', disconnectButton));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('¿Desconectar los dispositivos de Fede Fisio?');
+    expect(disconnectUserDevices).not.toHaveBeenCalled();
+    const auditCallsBefore = auditLog.mock.calls.length;
+
+    await user.click(within(dialog).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(disconnectUserDevices).toHaveBeenCalledWith('t1', 'u-fisio'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Dispositivos desconectados'));
+    await waitFor(() => expect(auditLog.mock.calls.length).toBeGreaterThan(auditCallsBefore));
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('labels the new audit action', async () => {
+    auditLog.mockResolvedValue([
+      {
+        ...AUDIT[0],
+        id: 'a2',
+        action: 'USER_DEVICES_DISCONNECTED',
+        targetUserId: 'u-fisio',
+        description: 'Desconectó los dispositivos de fisio@norte.test',
+      },
+    ]);
+    renderAt();
+
+    expect(await screen.findByText('Dispositivos desconectados')).toBeInTheDocument();
+    expect(screen.queryByText('USER_DEVICES_DISCONNECTED')).not.toBeInTheDocument();
   });
 });

@@ -277,7 +277,8 @@ export type PlatformAction =
   | 'TENANT_REACTIVATED'
   | 'ADMIN_CREATED'
   | 'USER_ROLE_CHANGED'
-  | 'USER_ACTIVE_CHANGED';
+  | 'USER_ACTIVE_CHANGED'
+  | 'USER_DEVICES_DISCONNECTED';
 
 export interface PlatformAuditEntry {
   id: string;

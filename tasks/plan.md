@@ -15,7 +15,7 @@ ADMIN and platform operator can disconnect every device of a user without deacti
 ## Task List
 
 - [x] Task 1: ADMIN disconnects a user's devices (API + Usuarios card)
-- [ ] Task 2: Operator disconnects a user's devices, audited (API + tenant detail page)
+- [x] Task 2: Operator disconnects a user's devices, audited (API + tenant detail page)
 
 ### Checkpoint A
 - [ ] Full API suite and web suite green locally; `npm run check` clean
