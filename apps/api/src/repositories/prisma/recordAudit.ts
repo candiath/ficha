@@ -12,6 +12,6 @@ export async function recordAudit(
   entry: AuditEntry,
 ): Promise<void> {
   await tx.auditLog.create({
-    data: { ...entry, tenantId: ctx.tenantId, userId: ctx.userId ?? null },
+    data: { ...entry, tenantId: ctx.tenantId, userId: ctx.userId },
   });
 }
