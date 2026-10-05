@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { auditLogRepo, functionalScaleRepo, patientRepo } from '../repositories';
+import { functionalScaleRepo, patientRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 
 // Montado en /api/patients/:patientId/scales
@@ -108,27 +108,26 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
       ? scoreOswestry(responses)
       : scoreNDI(responses);
 
-  const scale = await functionalScaleRepo.create(req.context, req.params.patientId, {
-    scaleType: body.scaleType,
-    responses,
-    score,
-    interpretation,
-    ...(body.appliedAt ? { appliedAt: new Date(body.appliedAt) } : {}),
-  });
-
-  res.status(201).json({ data: scale });
-
-  // Fire-and-forget como en el resto de las rutas: un fallo al auditar no
-  // debe demorar ni frustrar la respuesta.
-  auditLogRepo
-    .create(req.context, {
+  const scale = await functionalScaleRepo.create(
+    req.context,
+    req.params.patientId,
+    {
+      scaleType: body.scaleType,
+      responses,
+      score,
+      interpretation,
+      ...(body.appliedAt ? { appliedAt: new Date(body.appliedAt) } : {}),
+    },
+    (s) => ({
       patientId: req.params.patientId,
       entity: 'EVALUATION',
-      entityId: scale.id,
+      entityId: s.id,
       action: 'CREATED',
       description: `Escala ${body.scaleType} aplicada — score ${score}%`,
-    })
-    .catch((err) => console.error('[audit]', err));
+    }),
+  );
+
+  res.status(201).json({ data: scale });
 });
 
 // DELETE /api/patients/:patientId/scales/:scaleId
