@@ -92,4 +92,27 @@ router.patch('/:id', async (req, res) => {
   res.json({ data: result.user });
 });
 
+// POST /api/users/:id/disconnect-devices — closes every session of a user of
+// the clinic without deactivating her (lost phone, a session left open
+// somewhere). 204 with no body: how many devices she had is not the ADMIN's
+// business. Not audited yet: ADMIN actions on users are #186.
+router.post('/:id/disconnect-devices', async (req, res) => {
+  // Her own devices are managed from Mi cuenta, where she can keep the
+  // current one; this route would also log her out of the request itself.
+  if (req.params.id === req.context.userId) {
+    res.status(400).json({ error: 'Para desconectar tus propios dispositivos usá Mi cuenta' });
+    return;
+  }
+
+  const result = await userRepo.disconnectDevices(req.context, req.params.id);
+
+  // Nonexistent or from another clinic: same 404, without revealing which.
+  if (result === 'not_found') {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return;
+  }
+
+  res.status(204).send();
+});
+
 export default router;

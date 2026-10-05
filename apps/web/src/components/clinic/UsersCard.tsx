@@ -42,13 +42,13 @@ function formatLastLogin(iso: string | null): string {
 
 // Un cambio que le quita acceso o permisos a alguien pide confirmación; uno
 // que se los da, no. Desactivar y degradar son reversibles, pero al instante:
-// authenticate lee rol y estado de la DB en cada request.
-interface PendingChange {
+// authenticate lee rol y estado de la DB en cada request. Disconnecting her
+// devices closes every session she has open, so it is confirmed too.
+type PendingChange = {
   user: TenantUser;
-  input: UpdateUserInput;
   title: string;
   description: string;
-}
+} & ({ kind: 'update'; input: UpdateUserInput } | { kind: 'disconnect' });
 
 /**
  * Usuarios de la clínica: alta, rol y estado. Solo se monta para ADMIN —
@@ -84,6 +84,36 @@ export default function UsersCard() {
     },
   });
 
+  const disconnectMutation = useMutation({
+    mutationFn: (id: string) => usersApi.disconnectDevices(id),
+    onSuccess: () => {
+      toast.success('Dispositivos desconectados');
+      setPending(null);
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'No se pudieron desconectar los dispositivos');
+      setPending(null);
+    },
+  });
+
+  const busy = mutation.isPending || disconnectMutation.isPending;
+
+  function confirmPending() {
+    if (!pending) return;
+    if (pending.kind === 'disconnect') disconnectMutation.mutate(pending.user.id);
+    else mutation.mutate({ id: pending.user.id, input: pending.input });
+  }
+
+  function onDisconnect(u: TenantUser) {
+    setPending({
+      kind: 'disconnect',
+      user: u,
+      title: `¿Desconectar los dispositivos de ${u.name ?? u.email}?`,
+      description:
+        'Se cierra su sesión en todos los dispositivos. Su cuenta sigue activa: puede volver a ingresar con su contraseña.',
+    });
+  }
+
   function onRoleChange(u: TenantUser, role: UserRole) {
     if (role === u.role) return;
     if (role === 'ADMIN') {
@@ -91,6 +121,7 @@ export default function UsersCard() {
       return;
     }
     setPending({
+      kind: 'update',
       user: u,
       input: { role },
       title: `¿Quitarle el rol de administración a ${u.name ?? u.email}?`,
@@ -107,6 +138,7 @@ export default function UsersCard() {
       return;
     }
     setPending({
+      kind: 'update',
       user: u,
       input: { isActive: false },
       title: `¿Desactivar a ${u.name ?? u.email}?`,
@@ -168,7 +200,7 @@ export default function UsersCard() {
                       items={ROLE_LABELS}
                       value={u.role}
                       onValueChange={(v) => v !== null && onRoleChange(u, v as UserRole)}
-                      disabled={mutation.isPending}
+                      disabled={busy}
                     >
                       <SelectTrigger size="sm" aria-label={`Rol de ${u.name ?? u.email}`}>
                         <SelectValue />
@@ -187,11 +219,24 @@ export default function UsersCard() {
                       variant="outline"
                       size="sm"
                       onClick={() => onToggleActive(u)}
-                      disabled={esYo || mutation.isPending}
+                      disabled={esYo || busy}
                       title={esYo ? 'No podés desactivar tu propia cuenta' : undefined}
                     >
                       {u.isActive ? 'Desactivar' : 'Reactivar'}
                     </Button>
+                    {/* Not on her own row (she does it from Mi cuenta, where
+                        she can keep this device) nor on an inactive user,
+                        whose sessions deactivation already closed. */}
+                    {!esYo && u.isActive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onDisconnect(u)}
+                        disabled={busy}
+                      >
+                        Desconectar dispositivos
+                      </Button>
+                    )}
                   </div>
                 </li>
               );
@@ -212,18 +257,16 @@ export default function UsersCard() {
             <Button
               variant="outline"
               onClick={() => setPending(null)}
-              disabled={mutation.isPending}
+              disabled={busy}
             >
               Cancelar
             </Button>
             <Button
               variant="destructive"
-              onClick={() =>
-                pending && mutation.mutate({ id: pending.user.id, input: pending.input })
-              }
-              disabled={mutation.isPending}
+              onClick={confirmPending}
+              disabled={busy}
             >
-              {mutation.isPending ? 'Guardando...' : 'Confirmar'}
+              {busy ? 'Guardando...' : 'Confirmar'}
             </Button>
           </DialogFooter>
         </DialogContent>
