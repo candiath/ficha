@@ -2,6 +2,8 @@
 
 Module 2 of the [authentication redesign](auth-redesign-map.md). Builds on [`server-sessions`](SPEC-server-sessions.md) (#182). Issue #177.
 
+> **Naming:** in the UI these are *dispositivos*; in code, `AuthSession`. "Sesión" alone is the clinical session (see `CLAUDE.md`).
+
 ## Objective
 
 A clinic user sees where her account is logged in and closes any of those sessions, so a session left open on a shared or lost device can be ended without changing the password or asking an ADMIN.
@@ -140,10 +142,10 @@ Displayed as "Chrome en Windows", "Safari en iPhone", etc. A small parser in the
 
 - **Login:** a checkbox "Mantener la sesión iniciada en este dispositivo", unchecked by default, with a one-line hint: "No la marques en computadoras compartidas".
 - **"Dispositivos conectados" card** on *Mi cuenta*, below *Seguridad*:
-  - One row per session: device label, IP, "Activa ahora" (used in the last 5 minutes) or "Última actividad hace X", "Iniciada el …", and a "De confianza" badge when trusted.
-  - The current session first, marked "Esta sesión".
-  - Actions per row: **Cerrar** (the current one: **Cerrar sesión**, the normal logout) and, on trusted sessions, **Dejar de confiar**.
-  - **Cerrar las demás** above the list when there is more than one session.
+  - One row per session: device label, IP, "Activo ahora" (used in the last 5 minutes) or "Última actividad hace X", "Iniciada el …", and a "De confianza" badge when trusted.
+  - The current session first, marked "Este dispositivo".
+  - Actions per row: **Desconectar** (the current one: **Cerrar sesión**, the normal logout) and, on trusted sessions, **Dejar de confiar**.
+  - **Desconectar los demás** above the list when there is more than one session. It only revokes live sessions, so its count matches what the list showed.
   - Actions invalidate the list query; no confirmation dialogs (every action is undone by logging in again).
 
 ## Project Structure
@@ -202,6 +204,6 @@ Web: the user agent parser on a table of real UA strings; the login sends `trust
 1. **Policy values** as in the table: normal 1 h idle / 12 h absolute; trusted 7 days idle / 30 days absolute.
 2. **Exceeding the cap of 3** demotes the oldest trusted session instead of revoking it.
 3. **`last_used_at`** is written at most once every 5 minutes per session.
-4. **"Cerrar las demás"** is included.
+4. **"Desconectar los demás"** is included.
 5. **In-house user agent parser**, no dependency.
 6. **Policy as code constants** in `lib/authSessionPolicy.ts`; `SESSION_TTL_DAYS` is removed.

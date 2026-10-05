@@ -72,7 +72,7 @@ revokeAuthSession(sessionId: string): Promise<boolean>;
 changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void>; // revokes every other session
 ```
 
-Token generation and hashing live in `lib/authSessionToken.ts`, together with `getSessionTtlMs()`, which validates `SESSION_TTL_DAYS` (positive whole days, default 7) and runs at startup in `app.ts`: a malformed value fails the deploy instead of every login.
+Token generation and hashing live in `lib/authSessionToken.ts`. *(Superseded by `my-sessions`: the session lifetime is now the policy in `lib/authSessionPolicy.ts`; `getSessionTtlMs()` and `SESSION_TTL_DAYS` are gone.)*
 
 `findValidAuthSession` is the single query that decides access:
 
@@ -113,7 +113,7 @@ Write-side revocation keeps the table truthful, makes "close this session" possi
 
 | Route | Change |
 |---|---|
-| `POST /api/auth/login` | Creates the session (absolute TTL `SESSION_TTL_DAYS`, default 7). Response shape unchanged: `{ data: { token, user } }`. |
+| `POST /api/auth/login` | Creates the session (lifetime: see `SPEC-my-sessions.md`). Response shape unchanged: `{ data: { token, user } }`. |
 | `POST /api/auth/logout` | **New.** Authenticated; revokes the current session; `204`. |
 | `POST /api/auth/change-password` | One transaction: new hash + revoke all sessions of the user except `req.authSessionId`. Responds `204`; no new token (the current session stays valid). |
 | `authenticate` middleware | Hashes the bearer token, calls `findValidAuthSession`; `null` → `401 {"error":"Sesión expirada o inválida"}` (same message for every failure). Sets `req.context = { tenantId, userId, role }` as today, plus `req.authSessionId` (typed in `types/express.d.ts`). The session id stays out of `TenantContext` because repositories never need it; only the auth routes do. |
