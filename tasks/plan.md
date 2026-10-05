@@ -27,16 +27,16 @@ Session lifetime policy (normal vs trusted, idle + absolute), the throttled `las
 ### Checkpoint A: API complete
 - [x] Every API test in the spec's Testing Strategy passes; full API suite green locally (501/501)
 - [x] `npm run check` clean
-- [ ] Review with Nath
+- [x] Review with Nath
 
 ### Phase 3: Web
-- [ ] Task 5: User agent parser
-- [ ] Task 6: "Dispositivos conectados" card on Mi cuenta
-- [ ] Task 7: "Mantener la sesión iniciada" on the login
+- [x] Task 5: User agent parser
+- [x] Task 6: "Dispositivos conectados" card on Mi cuenta
+- [x] Task 7: "Mantener la sesión iniciada" on the login
 
 ### Checkpoint B: end to end
-- [ ] Web suite green
-- [ ] Manual (skill `verify`): log in twice (one trusted), see both in the card with the right badge and device; untrust, close the other, close all others; log out from the card
+- [x] Web suite green
+- [x] Manual (skill `verify`): log in twice (one trusted), see both in the card with the right badge and device; untrust, close the other, close all others; log out from the card
 
 ### Phase 4: Docs
 - [ ] Task 8: CLAUDE.md, `.env.example`, verify skill

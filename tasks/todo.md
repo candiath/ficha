@@ -79,17 +79,17 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 ## Checkpoint A: API complete
 
 - [x] Full API suite green locally (`npm test`); `npm run check` clean
-- [ ] Review with Nath
+- [x] Review with Nath
 
 ## Task 5: User agent parser
 
 **Description:** `apps/web/src/lib/userAgent.ts`: `describeUserAgent(ua: string | null): string` → "Chrome en Windows", "Safari en iPhone", … or "Navegador desconocido". Order matters (Edge and Opera before Chrome; Chrome before Safari).
 
 **Acceptance criteria:**
-- [ ] Table-driven test with real UA strings for each browser × system in the spec, plus null and garbage.
+- [x] Table-driven test with real UA strings for each browser × system in the spec, plus null and garbage.
 
 **Verification:**
-- [ ] `npx vitest run userAgent` (web) · `npm run check`
+- [x] `npx vitest run userAgent` (web) · `npm run check`
 
 **Dependencies:** None
 
@@ -102,12 +102,12 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** `authApi` gains `listSessions`, `closeSession`, `closeOtherSessions`, `untrustSession`. `ActiveSessionsCard` renders the list (device label, IP, activity, start, "De confianza" badge, current first as "Esta sesión") with **Cerrar** / **Cerrar sesión** / **Dejar de confiar** and **Cerrar las demás**; actions invalidate the query; closing the current one calls the normal `logout`.
 
 **Acceptance criteria:**
-- [ ] Rows, badge and per-row actions render from a mocked list.
-- [ ] Each button calls the right endpoint; **Cerrar sesión** runs `logout`.
-- [ ] "Cerrar las demás" only with more than one session.
+- [x] Rows, badge and per-row actions render from a mocked list.
+- [x] Each button calls the right endpoint; **Cerrar sesión** runs `logout`.
+- [x] "Cerrar las demás" only with more than one session.
 
 **Verification:**
-- [ ] `npx vitest run ActiveSessionsCard` (web) · `npm run check`
+- [x] `npx vitest run ActiveSessionsCard` (web) · `npm run check`
 
 **Dependencies:** Tasks 4, 5
 
@@ -120,10 +120,10 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** A checkbox on `LoginPage`, unchecked by default, hint "No la marques en computadoras compartidas"; `login` sends `trustDevice`.
 
 **Acceptance criteria:**
-- [ ] Unchecked → request without `trustDevice: true`; checked → `trustDevice: true`.
+- [x] Unchecked → request without `trustDevice: true`; checked → `trustDevice: true`.
 
 **Verification:**
-- [ ] `npm test -w apps/web` · `npm run check`
+- [x] `npm test -w apps/web` · `npm run check`
 
 **Dependencies:** Task 3
 
@@ -133,8 +133,8 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 ## Checkpoint B: end to end
 
-- [ ] Web suite green
-- [ ] Manual (skill `verify`): two logins (one trusted) visible in the card with badge and device; untrust, close the other, close all others; log out from the card
+- [x] Web suite green
+- [x] Manual (skill `verify`): two logins (one trusted) visible in the card with badge and device; untrust, close the other, close all others; log out from the card
 
 ## Task 8: CLAUDE.md, `.env.example`, verify skill
 
