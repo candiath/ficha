@@ -1,155 +1,158 @@
-# Tasks: server-sessions
+# Tasks: my-sessions
 
-Plan: [`tasks/plan.md`](plan.md) · Spec: [`docs/specs/SPEC-server-sessions.md`](../docs/specs/SPEC-server-sessions.md)
+Plan: [`tasks/plan.md`](plan.md) · Spec: [`docs/specs/SPEC-my-sessions.md`](../docs/specs/SPEC-my-sessions.md)
 
-Commands: `npm test` (API, hits Neon) · `npm test -w apps/web` · `npm run check` (lint + typecheck, also the pre-commit hook) · `npm run db:migrate` (development branch only).
+Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps/web` · `npm run check` (pre-commit hook). Migrations from `apps/api`: `prisma migrate diff` → `migration.sql`, then `prisma migrate deploy` and `prisma generate`.
 
-## Task 1: `auth_sessions` table and token library
+## Task 1: Session policy module and the two new columns
 
-**Description:** Add the `AuthSession` model and its migration, and `lib/sessionToken.ts` with `generateSessionToken()` (`randomBytes(32)` base64url) and `hashSessionToken(token)` (SHA-256 → `Buffer`). Nothing uses them yet.
+**Description:** Add `last_used_at` (`NOT NULL DEFAULT now()`) and `trusted` (`DEFAULT false`) to `auth_sessions`. Create `lib/sessionPolicy.ts` with the normal/trusted idle and absolute timeouts, the cap (3) and the throttle (5 min); remove `getSessionTtlMs()` and its startup call. `createSession` takes `trusted` and computes `expires_at` from the policy (login still always creates normal sessions until Task 3). `createTestToken` gains `{ trusted, ttlMs, lastUsedAt }`.
 
 **Acceptance criteria:**
-- [x] `auth_sessions` exists per the spec's data model (uuid v7 id, `user_id` FK with cascade, `token_hash` bytea unique, `expires_at`, `revoked_at`, `ip`, `user_agent`, index on `user_id`), with no `tenant_id`.
-- [x] `tenantScopeCoverage.test.ts` still passes without classifying the model.
-- [x] Unit test: tokens are 43 chars and distinct; the hash is 32 bytes and deterministic; a row inserted with the hash is found by it.
+- [ ] Migration applied to development; no drift between schema and DB.
+- [ ] A login creates a normal session expiring in 12 h (the 7-day assertion in `authSessions.test.ts` updated).
+- [ ] `SESSION_TTL_DAYS` no longer read anywhere.
 
 **Verification:**
-- [x] `npm test -- sessionToken tenantScopeCoverage`
-- [x] `npm run check`
-- [x] `npx prisma migrate diff` against the schema shows no drift
+- [ ] `npx vitest run sessionToken authSessions` · `npm run check`
 
 **Dependencies:** None
 
-**Files likely touched:** `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/<ts>_auth_sessions/migration.sql`, `apps/api/src/lib/sessionToken.ts`, `apps/api/tests/sessionToken.test.ts`
+**Files likely touched:** `apps/api/prisma/schema.prisma`, new migration, `apps/api/src/lib/sessionPolicy.ts` (new), `apps/api/src/lib/sessionToken.ts`, `apps/api/src/app.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `apps/api/src/routes/auth.ts`, `apps/api/tests/{helpers.ts,sessionToken.test.ts,authSessions.test.ts}`
+
+**Estimated scope:** Medium
+
+## Task 2: Idle expiry and throttled last use
+
+**Description:** `findSessionForAuth` adds the idle condition as an `OR` by profile and returns `lastUsedAt`. `authenticate` fires a conditioned `updateMany` (`lastUsedAt < now - 5 min`) after a successful lookup, logging failures.
+
+**Acceptance criteria:**
+- [ ] Normal session idle > 1 h → `401`; trusted session idle 2 h → `200`; trusted idle > 7 days → `401`.
+- [ ] Two requests within 5 minutes write `last_used_at` once; a stale value is refreshed.
+
+**Verification:**
+- [ ] `npx vitest run authenticate mySessions` · `npm run check`
+
+**Dependencies:** Task 1
+
+**Files likely touched:** `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `apps/api/src/middlewares/auth.ts`, `apps/api/tests/mySessions.test.ts` (new)
 
 **Estimated scope:** Small
 
-## Task 2: Async test token helper (mechanical)
+## Task 3: Trusted login with a per-user cap
 
-**Description:** Replace the synchronous `signTestToken(user)` with `await createTestToken(user)` in `tests/helpers.ts` and every suite. For now the helper still signs a JWT, so behavior is unchanged; this only makes the cut-over a one-file change for the tests. The `iatOffsetSeconds` option stays on a separate helper used only by `authenticate.test.ts` and `changePassword.test.ts`, which Task 3 rewrites.
-
-**Acceptance criteria:**
-- [x] No suite calls `signTestToken` except the two JWT-semantics suites.
-- [x] Full API suite green with no other change.
-
-**Verification:**
-- [x] `npm test`
-- [x] `npm run check`
-
-**Dependencies:** None (parallel with Task 1)
-
-**Files likely touched:** `apps/api/tests/helpers.ts` and ~33 suites (one-line `await` edits; the only task allowed past ~5 files, because the edit is mechanical)
-
-**Estimated scope:** Medium (many files, trivial edits)
-
-## Task 3: Login issues sessions; `authenticate` validates them
-
-**Description:** The cut-over. Login creates an `auth_sessions` row (7-day TTL from `SESSION_TTL_DAYS`, IP and user agent) and returns its token. `authenticate` hashes the bearer token and calls `authRepo.findSessionForAuth`, the single query joining `users` and `tenants`; it sets `req.context` as today plus `req.authSessionId`. `createTestToken` now inserts a session. `change-password` is left broken until Task 5 (allowed: nothing reaches `dev` before the module is done).
+**Description:** `LoginSchema` accepts `trustDevice` (optional boolean; shared `LoginInput` updated). `createSession` with `trusted: true` creates a 30-day session and, in the same transaction, demotes trusted sessions beyond the newest 3 (`trusted = false`, `expires_at = least(expires_at, now + 12 h)`).
 
 **Acceptance criteria:**
-- [x] Login → token authenticates; the DB holds only the hash (asserted).
-- [x] Unknown, malformed and old-JWT tokens → `401` with the same message; an expired session → `401`.
-- [x] Safety net: `users.is_active = false` set directly with Prisma (no revocation) → `401`; same for a deactivated tenant.
+- [ ] `trustDevice: true` → trusted session, 30-day expiry; absent or `false` → normal, 12 h.
+- [ ] A 4th trusted login demotes exactly the oldest trusted session; it keeps working as normal; the other three stay trusted.
+- [ ] Non-boolean `trustDevice` → `400`.
 
 **Verification:**
-- [x] `npm test` (full: every suite now authenticates through sessions; `changePassword.test.ts` may fail until Task 5)
-- [x] `npm run check`
+- [ ] `npx vitest run mySessions authSessions login` · `npm run check`
 
-**Dependencies:** Tasks 1, 2
+**Dependencies:** Task 1
 
-**Files likely touched:** `apps/api/src/repositories/authRepository.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/middlewares/auth.ts`, `apps/api/src/routes/auth.ts`, `apps/api/src/types/express.d.ts`, `apps/api/tests/helpers.ts`, `apps/api/tests/authenticate.test.ts`, new `apps/api/tests/authSessions.test.ts`
+**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `packages/shared/src/index.ts`, `apps/api/tests/mySessions.test.ts`
 
-**Estimated scope:** Large — kept whole because login and `authenticate` must switch together; Tasks 1–2 already removed what could be split off.
+**Estimated scope:** Medium
 
-## Checkpoint A: after Tasks 1–3
+## Task 4: List, close, close others, untrust
 
-- [x] `npm test`, `npm test -w apps/web`, `npm run check` green
-- [x] Manual (skill `verify`): log in on the web, navigate, reload; `auth_sessions` has the row, hash only
+**Description:** Repository methods `listActiveSessions`, `revokeUserSession`, `revokeOtherSessions`, `untrustUserSession` (all filtered by `userId` in the same query). Routes `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:sessionId`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/sessions/:sessionId/untrust`; `router.param('sessionId', idParam('Sesión no encontrada'))`. `SessionDTO` in `packages/shared`.
+
+**Acceptance criteria:**
+- [ ] The list has only the user's active sessions, most recently used first, current marked, no `tokenHash`.
+- [ ] Closing another session → its token `401`, current works; the current one → `401`; someone else's (same clinic and another clinic) → `404` and it keeps working.
+- [ ] Revoke-others → others `401`, current works, `{ revoked: n }`.
+- [ ] Untrust demotes; someone else's or a normal session → `404`.
+
+**Verification:**
+- [ ] `npx vitest run mySessions idParamCoverage` · `npm run check`
+
+**Dependencies:** Tasks 2, 3
+
+**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `packages/shared/src/index.ts`, `apps/api/tests/mySessions.test.ts`
+
+**Estimated scope:** Medium
+
+## Checkpoint A: API complete
+
+- [ ] Full API suite green locally (`npm test`); `npm run check` clean
 - [ ] Review with Nath
 
-## Task 4: Logout revokes the current session
+## Task 5: User agent parser
 
-**Description:** `POST /api/auth/logout` (authenticated) revokes `req.authSessionId` with a conditioned `updateMany` and answers `204`. The web's `logout` calls it and clears the token whatever the outcome.
+**Description:** `apps/web/src/lib/userAgent.ts`: `describeUserAgent(ua: string | null): string` → "Chrome en Windows", "Safari en iPhone", … or "Navegador desconocido". Order matters (Edge and Opera before Chrome; Chrome before Safari).
 
 **Acceptance criteria:**
-- [x] After logout the same token gives `401`; a second logout with it gives `401`, not `500`.
-- [x] Another session of the same user keeps working.
-- [x] Web test: logout calls the endpoint and clears the token even when the call fails.
+- [ ] Table-driven test with real UA strings for each browser × system in the spec, plus null and garbage.
 
 **Verification:**
-- [x] `npm test -- authSessions` · `npm test -w apps/web -- AuthContext`
-- [x] `npm run check`
+- [ ] `npx vitest run userAgent` (web) · `npm run check`
+
+**Dependencies:** None
+
+**Files likely touched:** `apps/web/src/lib/userAgent.ts`, `apps/web/tests/userAgent.test.ts`
+
+**Estimated scope:** Small
+
+## Task 6: "Sesiones activas" card on Mi cuenta
+
+**Description:** `authApi` gains `listSessions`, `closeSession`, `closeOtherSessions`, `untrustSession`. `ActiveSessionsCard` renders the list (device label, IP, activity, start, "De confianza" badge, current first as "Esta sesión") with **Cerrar** / **Cerrar sesión** / **Dejar de confiar** and **Cerrar las demás**; actions invalidate the query; closing the current one calls the normal `logout`.
+
+**Acceptance criteria:**
+- [ ] Rows, badge and per-row actions render from a mocked list.
+- [ ] Each button calls the right endpoint; **Cerrar sesión** runs `logout`.
+- [ ] "Cerrar las demás" only with more than one session.
+
+**Verification:**
+- [ ] `npx vitest run ActiveSessionsCard` (web) · `npm run check`
+
+**Dependencies:** Tasks 4, 5
+
+**Files likely touched:** `apps/web/src/services/auth.ts`, `apps/web/src/components/account/ActiveSessionsCard.tsx` (new), `apps/web/src/pages/AccountPage.tsx`, `apps/web/tests/ActiveSessionsCard.test.tsx`
+
+**Estimated scope:** Medium
+
+## Task 7: "Mantener la sesión iniciada" on the login
+
+**Description:** A checkbox on `LoginPage`, unchecked by default, hint "No la marques en computadoras compartidas"; `login` sends `trustDevice`.
+
+**Acceptance criteria:**
+- [ ] Unchecked → request without `trustDevice: true`; checked → `trustDevice: true`.
+
+**Verification:**
+- [ ] `npm test -w apps/web` · `npm run check`
 
 **Dependencies:** Task 3
 
-**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/authRepository.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/web/src/contexts/AuthContext.tsx`, tests
+**Files likely touched:** `apps/web/src/pages/LoginPage.tsx`, `apps/web/src/contexts/AuthContext.tsx`, `apps/web/src/services/auth.ts`, a web test
 
-**Estimated scope:** Medium
+**Estimated scope:** Small
 
-## Task 5: Change password keeps the current session (`204`)
+## Checkpoint B: end to end
 
-**Description:** `change-password` updates the hash and revokes every other session of the user in one transaction, keeping `req.authSessionId`; it answers `204`. `ChangePasswordDialog` stops calling `setToken`. It also stops stamping `password_changed_at`.
+- [ ] Web suite green
+- [ ] Manual (skill `verify`): two logins (one trusted) visible in the card with badge and device; untrust, close the other, close all others; log out from the card
 
-**Acceptance criteria:**
-- [x] The session that made the change keeps working; another session of the same user gets `401`.
-- [x] Wrong current password still answers `400` and revokes nothing.
-- [x] Web test: the dialog closes with success and the stored token is unchanged.
+## Task 8: CLAUDE.md, `.env.example`, verify skill
 
-**Verification:**
-- [x] `npm test -- changePassword` · `npm test -w apps/web -- ChangePasswordDialog`
-- [x] `npm run check`
-
-**Dependencies:** Task 3 (parallel with Task 4)
-
-**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/authRepository.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/web/src/components/account/ChangePasswordDialog.tsx`, tests
-
-**Estimated scope:** Medium
-
-## Task 6: Deactivating a user or a clinic revokes their sessions
-
-**Description:** Inside their existing transactions, the user update with `isActive: false` (`prismaUserRepository`, `prismaPlatformRepository`) and the tenant deactivation (`prismaPlatformRepository`) revoke the open sessions involved.
+**Description:** Document the session policy (two profiles, cap, throttle) next to the sessions paragraph in `CLAUDE.md`; remove `SESSION_TTL_DAYS` from `.env.example`; mention the card and the trusted checkbox in the verify skill.
 
 **Acceptance criteria:**
-- [x] Deactivate a user via the ADMIN route and via the platform route → `401`; reactivate → the old token is still `401`.
-- [x] Deactivate a clinic → its users' tokens `401`; reactivate → still `401`.
-- [x] A failed deactivation (e.g. last active ADMIN) revokes nothing.
+- [ ] No reference to `SESSION_TTL_DAYS` left outside archived docs.
 
 **Verification:**
-- [x] `npm test -- users platform authSessions`
-- [x] `npm run check`
+- [ ] `grep -r SESSION_TTL_DAYS` · `npm run check`
 
-**Dependencies:** Task 3 (parallel with Tasks 4–5)
+**Dependencies:** Tasks 1–7
 
-**Files likely touched:** `apps/api/src/repositories/prisma/prismaUserRepository.ts`, `apps/api/src/repositories/prisma/prismaPlatformRepository.ts`, tests
+**Files likely touched:** `CLAUDE.md`, `apps/api/.env.example`, `.claude/skills/verify/SKILL.md`
 
-**Estimated scope:** Medium
-
-## Checkpoint B: after Tasks 4–6
-
-- [x] Every test in the spec's Testing Strategy passes
-- [x] Manual: two browsers, same user — change the password in one, the other goes to login; logout in one leaves the other alive
-
-## Task 7: Remove the clinic JWT and `JWT_SECRET`
-
-**Description:** Delete `lib/jwt.ts`; move `JWT_ALGORITHM` into `platformJwt.ts`; the platform secret check becomes a plain length check; drop `JWT_SECRET` from the `app.ts` startup check, `.env.example`, `tests/setup.ts` and the CI workflow; trim `jwtAlgorithm.test.ts` to the platform half; remove the leftover `signTestToken`. Update `CLAUDE.md` (authRepository exception, per-environment secrets). File the follow-up issue for `DROP password_changed_at`.
-
-**Acceptance criteria:**
-- [x] `grep -r JWT_SECRET` finds only `PLATFORM_JWT_SECRET`.
-- [x] The API starts and the full suite passes with `JWT_SECRET` unset.
-- [x] `platformIsolation.test.ts` passes: a clinic session token is rejected by `/api/platform/*`, an operator JWT by `/api/*`.
-
-**Verification:**
-- [x] `npm test` · `npm test -w apps/web` · `npm run check`
-- [ ] CI green on the PR (the workflow change is called out in the description)
-
-**Dependencies:** Tasks 4, 5, 6
-
-**Files likely touched:** `apps/api/src/lib/jwt.ts` (deleted), `apps/api/src/lib/platformJwt.ts`, `apps/api/src/app.ts`, `apps/api/.env.example`, `apps/api/tests/setup.ts`, `apps/api/tests/jwtAlgorithm.test.ts`, `apps/api/tests/helpers.ts`, `.github/workflows/test.yml`, `CLAUDE.md`
-
-**Estimated scope:** Medium (many files, small deletions)
+**Estimated scope:** Small
 
 ## Checkpoint C: complete
 
-- [x] Spec success criteria met
-- [ ] PR against `dev` open, CI green
-- [ ] After deploy: remove `JWT_SECRET` from both Render services and `CI_JWT_SECRET` from GitHub secrets
+- [ ] Spec success criteria met
+- [ ] Full API and web suites green locally; PR against `dev` open, CI green
