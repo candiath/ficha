@@ -17,8 +17,8 @@ Session lifetime policy (normal vs trusted, idle + absolute), the throttled `las
 ## Task List
 
 ### Phase 1: Policy and validation (API)
-- [ ] Task 1: Session policy module and the two new columns
-- [ ] Task 2: Idle expiry and throttled last use
+- [x] Task 1: Session policy module and the two new columns
+- [x] Task 2: Idle expiry and throttled last use
 
 ### Phase 2: Trusted devices and the session list (API)
 - [ ] Task 3: Trusted login with a per-user cap

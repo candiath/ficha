@@ -9,12 +9,12 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** Add `last_used_at` (`NOT NULL DEFAULT now()`) and `trusted` (`DEFAULT false`) to `auth_sessions`. Create `lib/sessionPolicy.ts` with the normal/trusted idle and absolute timeouts, the cap (3) and the throttle (5 min); remove `getSessionTtlMs()` and its startup call. `createSession` takes `trusted` and computes `expires_at` from the policy (login still always creates normal sessions until Task 3). `createTestToken` gains `{ trusted, ttlMs, lastUsedAt }`.
 
 **Acceptance criteria:**
-- [ ] Migration applied to development; no drift between schema and DB.
-- [ ] A login creates a normal session expiring in 12 h (the 7-day assertion in `authSessions.test.ts` updated).
-- [ ] `SESSION_TTL_DAYS` no longer read anywhere.
+- [x] Migration applied to development; no drift between schema and DB.
+- [x] A login creates a normal session expiring in 12 h (the 7-day assertion in `authSessions.test.ts` updated).
+- [x] `SESSION_TTL_DAYS` no longer read anywhere.
 
 **Verification:**
-- [ ] `npx vitest run sessionToken authSessions` · `npm run check`
+- [x] `npx vitest run sessionToken authSessions` · `npm run check`
 
 **Dependencies:** None
 
@@ -27,11 +27,11 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 **Description:** `findSessionForAuth` adds the idle condition as an `OR` by profile and returns `lastUsedAt`. `authenticate` fires a conditioned `updateMany` (`lastUsedAt < now - 5 min`) after a successful lookup, logging failures.
 
 **Acceptance criteria:**
-- [ ] Normal session idle > 1 h → `401`; trusted session idle 2 h → `200`; trusted idle > 7 days → `401`.
-- [ ] Two requests within 5 minutes write `last_used_at` once; a stale value is refreshed.
+- [x] Normal session idle > 1 h → `401`; trusted session idle 2 h → `200`; trusted idle > 7 days → `401`.
+- [x] Two requests within 5 minutes write `last_used_at` once; a stale value is refreshed.
 
 **Verification:**
-- [ ] `npx vitest run authenticate mySessions` · `npm run check`
+- [x] `npx vitest run authenticate mySessions` · `npm run check`
 
 **Dependencies:** Task 1
 
