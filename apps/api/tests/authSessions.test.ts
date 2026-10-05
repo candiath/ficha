@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { hashSessionToken } from '../src/lib/sessionToken';
+import { hashAuthSessionToken } from '../src/lib/authSessionToken';
 import {
   createTestClinic,
   createTestOperator,
@@ -52,12 +52,12 @@ describe('login sessions', () => {
 
     expect(sessions).toHaveLength(1);
     const [session] = sessions;
-    expect(session.tokenHash.equals(hashSessionToken(token))).toBe(true);
+    expect(session.tokenHash.equals(hashAuthSessionToken(token))).toBe(true);
     // The raw token appears in no column of the row.
     expect(JSON.stringify(session)).not.toContain(token);
   });
 
-  // A plain login is a normal session (lib/sessionPolicy.ts): 12 h absolute.
+  // A plain login is a normal session (lib/authSessionPolicy.ts): 12 h absolute.
   it('records the expiry, IP and user agent of the login', async () => {
     const session = await prisma.authSession.findFirstOrThrow({ where: { userId: user.id } });
 
@@ -99,7 +99,7 @@ describe('logout', () => {
     expect((await me(otherDevice)).status).toBe(200);
 
     const revoked = await prisma.authSession.findUniqueOrThrow({
-      where: { tokenHash: hashSessionToken(current) },
+      where: { tokenHash: hashAuthSessionToken(current) },
     });
     expect(revoked.revokedAt).not.toBeNull();
   });

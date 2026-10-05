@@ -42,7 +42,7 @@ Migrations: `prisma migrate diff` + `migrate deploy` from `apps/api` (`migrate d
 | How it starts | default login | login with "Mantener la sesión iniciada en este dispositivo" checked |
 | Per user | unlimited | at most 3 |
 
-The values live as constants in `apps/api/src/lib/sessionPolicy.ts` (versioned policy, not deployment config). `SESSION_TTL_DAYS` from `server-sessions` is removed.
+The values live as constants in `apps/api/src/lib/authSessionPolicy.ts` (versioned policy, not deployment config). `SESSION_TTL_DAYS` from `server-sessions` is removed.
 
 A "device" is really a session in one browser: there is no device fingerprint. Clearing browser data or switching browsers starts a new session; the cap counts trusted sessions, not machines.
 
@@ -59,7 +59,7 @@ Existing rows (all from `server-sessions`, 7-day absolute) become normal session
 
 ### Validation (read side)
 
-`findSessionForAuth` keeps deciding everything in one query; the idle condition depends on the profile:
+`findValidAuthSession` keeps deciding everything in one query; the idle condition depends on the profile:
 
 ```ts
 where: {
@@ -98,15 +98,15 @@ Fire-and-forget (logged on failure, never fails the request), like `touchLastLog
 Still `authRepository` (it owns sessions). New and changed methods, all scoped by an explicit `userId` — the same "filter by hand" exception as `tenantRepository`, since `auth_sessions` has no `tenantId`:
 
 ```ts
-createSession(input: { userId; trusted: boolean; ip; userAgent }): Promise<{ token: string }>; // expiry from the policy; enforces the cap in the same transaction
-listActiveSessions(userId: string): Promise<SessionDTO[]>;   // unrevoked, unexpired, not idle; most recently used first; capped at 50
-revokeUserSession(userId: string, sessionId: string): Promise<boolean>;      // condition in the where: id AND userId AND revokedAt null
-revokeOtherSessions(userId: string, keepSessionId: string): Promise<number>;
-untrustUserSession(userId: string, sessionId: string): Promise<boolean>;     // id AND userId AND trusted AND revokedAt null
+createAuthSession(input: { userId; trusted: boolean; ip; userAgent }): Promise<{ token: string }>; // expiry from the policy; enforces the cap in the same transaction
+listAuthSessions(userId: string): Promise<AuthSessionDTO[]>;   // unrevoked, unexpired, not idle; most recently used first; capped at 50
+revokeUserAuthSession(userId: string, sessionId: string): Promise<boolean>;      // condition in the where: id AND userId AND revokedAt null
+revokeOtherAuthSessions(userId: string, keepSessionId: string): Promise<number>;
+untrustUserAuthSession(userId: string, sessionId: string): Promise<boolean>;     // id AND userId AND trusted AND revokedAt null
 ```
 
 ```ts
-interface SessionDTO {
+interface AuthSessionDTO {
   id: string;
   createdAt: string;   // ISO
   lastUsedAt: string;  // ISO
@@ -127,10 +127,10 @@ All behind `authenticate`; ids validated with `idParam` (UUID or 404).
 | Route | Behavior |
 |---|---|
 | `POST /api/auth/login` | Accepts `trustDevice` (optional boolean). |
-| `GET /api/auth/sessions` | The user's active sessions, `current` marked. |
-| `DELETE /api/auth/sessions/:sessionId` | Revokes one of the user's sessions → `204`. Someone else's or unknown → `404 {"error":"Sesión no encontrada"}`. Closing the current one equals logout. |
-| `POST /api/auth/sessions/:sessionId/untrust` | Demotes one of the user's trusted sessions → `204`; not hers, unknown or not trusted → `404`. |
-| `POST /api/auth/sessions/revoke-others` | Revokes every session of the user except the current one → `200 { data: { revoked: n } }`. |
+| `GET /api/auth/devices` | The user's active sessions, `current` marked. |
+| `DELETE /api/auth/devices/:authSessionId` | Revokes one of the user's sessions → `204`. Someone else's or unknown → `404 {"error":"Dispositivo no encontrado"}`. Closing the current one equals logout. |
+| `POST /api/auth/devices/:authSessionId/untrust` | Demotes one of the user's trusted sessions → `204`; not hers, unknown or not trusted → `404`. |
+| `POST /api/auth/devices/revoke-others` | Revokes every session of the user except the current one → `200 { data: { revoked: n } }`. |
 
 ### User agent
 
@@ -139,7 +139,7 @@ Displayed as "Chrome en Windows", "Safari en iPhone", etc. A small parser in the
 ### Web
 
 - **Login:** a checkbox "Mantener la sesión iniciada en este dispositivo", unchecked by default, with a one-line hint: "No la marques en computadoras compartidas".
-- **"Sesiones activas" card** on *Mi cuenta*, below *Seguridad*:
+- **"Dispositivos conectados" card** on *Mi cuenta*, below *Seguridad*:
   - One row per session: device label, IP, "Activa ahora" (used in the last 5 minutes) or "Última actividad hace X", "Iniciada el …", and a "De confianza" badge when trusted.
   - The current session first, marked "Esta sesión".
   - Actions per row: **Cerrar** (the current one: **Cerrar sesión**, the normal logout) and, on trusted sessions, **Dejar de confiar**.
@@ -150,13 +150,13 @@ Displayed as "Chrome en Windows", "Safari en iPhone", etc. A small parser in the
 
 ```
 apps/api/prisma/schema.prisma + migrations/<ts>_auth_sessions_last_used_trusted/
-apps/api/src/lib/sessionPolicy.ts                new: timeouts, cap, throttle (replaces getSessionTtlMs)
-apps/api/src/repositories/authRepository.ts      + methods, SessionDTO
+apps/api/src/lib/authSessionPolicy.ts                new: timeouts, cap, throttle (replaces getSessionTtlMs)
+apps/api/src/repositories/authRepository.ts      + methods, AuthSessionDTO
 apps/api/src/repositories/prisma/prismaAuthRepository.ts
 apps/api/src/middlewares/auth.ts                 throttled last-use refresh
 apps/api/src/routes/auth.ts                      trustDevice + session routes
-apps/api/tests/mySessions.test.ts                new
-packages/shared/src/index.ts                     SessionDTO, LoginInput.trustDevice
+apps/api/tests/myDevices.test.ts                new
+packages/shared/src/index.ts                     AuthSessionDTO, LoginInput.trustDevice
 apps/web/src/lib/userAgent.ts                    new
 apps/web/src/services/auth.ts                    sessions calls, trustDevice
 apps/web/src/pages/LoginPage.tsx                 checkbox
@@ -171,7 +171,7 @@ New code in English; user-facing strings in Spanish. Repository conventions from
 
 ## Testing Strategy
 
-API (`mySessions.test.ts`, against the development branch):
+API (`myDevices.test.ts`, against the development branch):
 
 - **Policy:** a normal login expires in 12 h, a trusted one in 30 days. A normal session idle for more than 1 h → `401`; a trusted one idle for 2 h still works, idle for more than 7 days → `401` (timestamps set directly in the DB).
 - **Cap:** a 4th trusted login demotes the oldest trusted session (it becomes normal with expiry ≤ 12 h), and the other three stay trusted.
@@ -185,7 +185,7 @@ Web: the user agent parser on a table of real UA strings; the login sends `trust
 
 ## Boundaries
 
-- **Always:** filter by `userId` in the same query that reads or writes; the idle condition inside `findSessionForAuth`; the cap enforced in the same transaction as the login that exceeds it.
+- **Always:** filter by `userId` in the same query that reads or writes; the idle condition inside `findValidAuthSession`; the cap enforced in the same transaction as the login that exceeds it.
 - **Ask first:** adding a UA-parsing dependency; changing the policy values once approved; showing anything about other users' sessions.
 - **Never:** expose `token_hash`; let an ADMIN or the operator list someone else's sessions (`admin-revocation` only revokes all); a trusted absolute timeout above 30 days.
 
@@ -204,4 +204,4 @@ Web: the user agent parser on a table of real UA strings; the login sends `trust
 3. **`last_used_at`** is written at most once every 5 minutes per session.
 4. **"Cerrar las demás"** is included.
 5. **In-house user agent parser**, no dependency.
-6. **Policy as code constants** in `lib/sessionPolicy.ts`; `SESSION_TTL_DAYS` is removed.
+6. **Policy as code constants** in `lib/authSessionPolicy.ts`; `SESSION_TTL_DAYS` is removed.

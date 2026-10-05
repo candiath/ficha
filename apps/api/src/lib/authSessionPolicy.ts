@@ -13,20 +13,20 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-export interface SessionProfile {
+export interface AuthSessionProfile {
   idleMs: number;
   absoluteMs: number;
 }
 
 // Default: short, so a session on a shared computer dies on its own within
 // the hour. 12 h absolute covers a working day.
-export const NORMAL_SESSION: SessionProfile = { idleMs: 1 * HOUR, absoluteMs: 12 * HOUR };
+export const NORMAL_SESSION: AuthSessionProfile = { idleMs: 1 * HOUR, absoluteMs: 12 * HOUR };
 
 // "Mantener la sesión iniciada en este dispositivo", chosen at login for the
 // user's own devices.
-export const TRUSTED_SESSION: SessionProfile = { idleMs: 7 * DAY, absoluteMs: 30 * DAY };
+export const TRUSTED_SESSION: AuthSessionProfile = { idleMs: 7 * DAY, absoluteMs: 30 * DAY };
 
-export function sessionProfile(trusted: boolean): SessionProfile {
+export function authSessionProfile(trusted: boolean): AuthSessionProfile {
   return trusted ? TRUSTED_SESSION : NORMAL_SESSION;
 }
 

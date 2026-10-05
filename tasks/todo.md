@@ -6,7 +6,7 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 ## Task 1: Session policy module and the two new columns
 
-**Description:** Add `last_used_at` (`NOT NULL DEFAULT now()`) and `trusted` (`DEFAULT false`) to `auth_sessions`. Create `lib/sessionPolicy.ts` with the normal/trusted idle and absolute timeouts, the cap (3) and the throttle (5 min); remove `getSessionTtlMs()` and its startup call. `createSession` takes `trusted` and computes `expires_at` from the policy (login still always creates normal sessions until Task 3). `createTestToken` gains `{ trusted, ttlMs, lastUsedAt }`.
+**Description:** Add `last_used_at` (`NOT NULL DEFAULT now()`) and `trusted` (`DEFAULT false`) to `auth_sessions`. Create `lib/authSessionPolicy.ts` with the normal/trusted idle and absolute timeouts, the cap (3) and the throttle (5 min); remove `getSessionTtlMs()` and its startup call. `createAuthSession` takes `trusted` and computes `expires_at` from the policy (login still always creates normal sessions until Task 3). `createTestToken` gains `{ trusted, ttlMs, lastUsedAt }`.
 
 **Acceptance criteria:**
 - [x] Migration applied to development; no drift between schema and DB.
@@ -18,13 +18,13 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 **Dependencies:** None
 
-**Files likely touched:** `apps/api/prisma/schema.prisma`, new migration, `apps/api/src/lib/sessionPolicy.ts` (new), `apps/api/src/lib/sessionToken.ts`, `apps/api/src/app.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `apps/api/src/routes/auth.ts`, `apps/api/tests/{helpers.ts,sessionToken.test.ts,authSessions.test.ts}`
+**Files likely touched:** `apps/api/prisma/schema.prisma`, new migration, `apps/api/src/lib/authSessionPolicy.ts` (new), `apps/api/src/lib/authSessionToken.ts`, `apps/api/src/app.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `apps/api/src/routes/auth.ts`, `apps/api/tests/{helpers.ts,authSessionToken.test.ts,authSessions.test.ts}`
 
 **Estimated scope:** Medium
 
 ## Task 2: Idle expiry and throttled last use
 
-**Description:** `findSessionForAuth` adds the idle condition as an `OR` by profile and returns `lastUsedAt`. `authenticate` fires a conditioned `updateMany` (`lastUsedAt < now - 5 min`) after a successful lookup, logging failures.
+**Description:** `findValidAuthSession` adds the idle condition as an `OR` by profile and returns `lastUsedAt`. `authenticate` fires a conditioned `updateMany` (`lastUsedAt < now - 5 min`) after a successful lookup, logging failures.
 
 **Acceptance criteria:**
 - [x] Normal session idle > 1 h → `401`; trusted session idle 2 h → `200`; trusted idle > 7 days → `401`.
@@ -35,13 +35,13 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 **Dependencies:** Task 1
 
-**Files likely touched:** `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `apps/api/src/middlewares/auth.ts`, `apps/api/tests/mySessions.test.ts` (new)
+**Files likely touched:** `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `apps/api/src/middlewares/auth.ts`, `apps/api/tests/myDevices.test.ts` (new)
 
 **Estimated scope:** Small
 
 ## Task 3: Trusted login with a per-user cap
 
-**Description:** `LoginSchema` accepts `trustDevice` (optional boolean; shared `LoginInput` updated). `createSession` with `trusted: true` creates a 30-day session and, in the same transaction, demotes trusted sessions beyond the newest 3 (`trusted = false`, `expires_at = least(expires_at, now + 12 h)`).
+**Description:** `LoginSchema` accepts `trustDevice` (optional boolean; shared `LoginInput` updated). `createAuthSession` with `trusted: true` creates a 30-day session and, in the same transaction, demotes trusted sessions beyond the newest 3 (`trusted = false`, `expires_at = least(expires_at, now + 12 h)`).
 
 **Acceptance criteria:**
 - [x] `trustDevice: true` → trusted session, 30-day expiry; absent or `false` → normal, 12 h.
@@ -53,13 +53,13 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 **Dependencies:** Task 1
 
-**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `packages/shared/src/index.ts`, `apps/api/tests/mySessions.test.ts`
+**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/prisma/prismaAuthRepository.ts`, `apps/api/src/repositories/authRepository.ts`, `packages/shared/src/index.ts`, `apps/api/tests/myDevices.test.ts`
 
 **Estimated scope:** Medium
 
 ## Task 4: List, close, close others, untrust
 
-**Description:** Repository methods `listActiveSessions`, `revokeUserSession`, `revokeOtherSessions`, `untrustUserSession` (all filtered by `userId` in the same query). Routes `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:sessionId`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/sessions/:sessionId/untrust`; `router.param('sessionId', idParam('Sesión no encontrada'))`. `SessionDTO` in `packages/shared`.
+**Description:** Repository methods `listAuthSessions`, `revokeUserAuthSession`, `revokeOtherAuthSessions`, `untrustUserAuthSession` (all filtered by `userId` in the same query). Routes `GET /api/auth/devices`, `DELETE /api/auth/devices/:authSessionId`, `POST /api/auth/devices/revoke-others`, `POST /api/auth/devices/:authSessionId/untrust`; `router.param('authSessionId', idParam('Dispositivo no encontrado'))`. `AuthSessionDTO` in `packages/shared`.
 
 **Acceptance criteria:**
 - [x] The list has only the user's active sessions, most recently used first, current marked, no `tokenHash`.
@@ -72,7 +72,7 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 **Dependencies:** Tasks 2, 3
 
-**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `packages/shared/src/index.ts`, `apps/api/tests/mySessions.test.ts`
+**Files likely touched:** `apps/api/src/routes/auth.ts`, `apps/api/src/repositories/{authRepository.ts,prisma/prismaAuthRepository.ts}`, `packages/shared/src/index.ts`, `apps/api/tests/myDevices.test.ts`
 
 **Estimated scope:** Medium
 
@@ -97,7 +97,7 @@ Commands: `npm test` (API, Neon development branch, ~6 min) · `npm test -w apps
 
 **Estimated scope:** Small
 
-## Task 6: "Sesiones activas" card on Mi cuenta
+## Task 6: "Dispositivos conectados" card on Mi cuenta
 
 **Description:** `authApi` gains `listSessions`, `closeSession`, `closeOtherSessions`, `untrustSession`. `ActiveSessionsCard` renders the list (device label, IP, activity, start, "De confianza" badge, current first as "Esta sesión") with **Cerrar** / **Cerrar sesión** / **Dejar de confiar** and **Cerrar las demás**; actions invalidate the query; closing the current one calls the normal `logout`.
 

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import type { PlatformOperator, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { generateSessionToken, hashSessionToken } from '../src/lib/sessionToken';
+import { generateAuthSessionToken, hashAuthSessionToken } from '../src/lib/authSessionToken';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -90,11 +90,11 @@ export async function createTestToken(
   user: { id: string },
   opts: CreateTestTokenOptions = {},
 ): Promise<string> {
-  const token = generateSessionToken();
+  const token = generateAuthSessionToken();
   await prisma.authSession.create({
     data: {
       userId: user.id,
-      tokenHash: hashSessionToken(token),
+      tokenHash: hashAuthSessionToken(token),
       expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
       trusted: opts.trusted ?? false,
       ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),

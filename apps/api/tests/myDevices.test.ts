@@ -8,8 +8,8 @@ import {
   NORMAL_SESSION,
   TRUSTED_SESSION,
   TRUSTED_SESSIONS_PER_USER,
-} from '../src/lib/sessionPolicy';
-import { hashSessionToken } from '../src/lib/sessionToken';
+} from '../src/lib/authSessionPolicy';
+import { hashAuthSessionToken } from '../src/lib/authSessionToken';
 import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 // Session lifetime and the session list (docs/specs/SPEC-my-sessions.md).
@@ -24,7 +24,7 @@ const me = (token: string) =>
   request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
 
 const lastUsedAt = async (token: string) =>
-  (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(token) } }))
+  (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(token) } }))
     .lastUsedAt;
 
 describe('idle expiry', () => {
@@ -132,7 +132,7 @@ describe('trusted login', () => {
       .send({ email: user.email, password: TEST_PASSWORD, ...body });
 
   const sessionOf = (token: string) =>
-    prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(token) } });
+    prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(token) } });
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -197,13 +197,13 @@ describe('my sessions', () => {
   let outsider: User;
 
   const as = (token: string, r: request.Test) => r.set('Authorization', `Bearer ${token}`);
-  const list = (token: string) => as(token, request(app).get('/api/auth/sessions'));
+  const list = (token: string) => as(token, request(app).get('/api/auth/devices'));
   const close = (token: string, id: string) =>
-    as(token, request(app).delete(`/api/auth/sessions/${id}`));
+    as(token, request(app).delete(`/api/auth/devices/${id}`));
   const untrust = (token: string, id: string) =>
-    as(token, request(app).post(`/api/auth/sessions/${id}/untrust`));
+    as(token, request(app).post(`/api/auth/devices/${id}/untrust`));
   const idOf = async (token: string) =>
-    (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(token) } })).id;
+    (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(token) } })).id;
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -265,7 +265,7 @@ describe('my sessions', () => {
     for (const target of [colleagues, outsiders]) {
       const res = await close(mine, await idOf(target));
       expect(res.status).toBe(404);
-      expect(res.body).toEqual({ error: 'Sesión no encontrada' });
+      expect(res.body).toEqual({ error: 'Dispositivo no encontrado' });
       expect((await me(target)).status).toBe(200);
     }
   });
@@ -282,7 +282,7 @@ describe('my sessions', () => {
     const others = [await createTestToken(owner), await createTestToken(owner, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs })];
     const colleagues = await createTestToken(colleague);
 
-    const res = await as(current, request(app).post('/api/auth/sessions/revoke-others'));
+    const res = await as(current, request(app).post('/api/auth/devices/revoke-others'));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ data: { revoked: 2 } });
@@ -297,7 +297,7 @@ describe('my sessions', () => {
 
     expect((await untrust(current, await idOf(phone))).status).toBe(204);
 
-    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(phone) } });
+    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(phone) } });
     expect(row.trusted).toBe(false);
     expect(row.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + NORMAL_SESSION.absoluteMs + MINUTE);
     expect((await me(phone)).status).toBe(200);
@@ -310,12 +310,12 @@ describe('my sessions', () => {
 
     expect((await untrust(current, await idOf(normal))).status).toBe(404);
     expect((await untrust(current, await idOf(colleaguesTrusted))).status).toBe(404);
-    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(colleaguesTrusted) } });
+    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(colleaguesTrusted) } });
     expect(row.trusted).toBe(true);
   });
 
   it('every session route requires a session', async () => {
-    expect((await request(app).get('/api/auth/sessions')).status).toBe(401);
-    expect((await request(app).post('/api/auth/sessions/revoke-others')).status).toBe(401);
+    expect((await request(app).get('/api/auth/devices')).status).toBe(401);
+    expect((await request(app).post('/api/auth/devices/revoke-others')).status).toBe(401);
   });
 });

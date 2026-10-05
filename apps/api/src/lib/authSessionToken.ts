@@ -10,11 +10,11 @@ import { createHash, randomBytes } from 'node:crypto';
 // A plain hash is enough (no bcrypt/salt): those defend low-entropy secrets
 // like passwords against guessing, and 256 random bits cannot be guessed.
 
-export function generateSessionToken(): string {
+export function generateAuthSessionToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export function hashSessionToken(token: string): Buffer {
+export function hashAuthSessionToken(token: string): Buffer {
   return createHash('sha256').update(token).digest();
 }
 

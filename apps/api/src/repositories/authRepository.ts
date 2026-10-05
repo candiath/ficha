@@ -1,5 +1,5 @@
 import type { UserRole } from '@prisma/client';
-import type { SessionDTO } from '@ficha/shared';
+import type { AuthSessionDTO } from '@ficha/shared';
 
 // Repositorio PRE-TENANT: acá no hay TenantContext porque estas lecturas son
 // las que lo CONSTRUYEN — login y authenticate corren antes de conocer el
@@ -34,8 +34,8 @@ export interface LoginUser {
 
 // What authenticate needs from a valid session: enough to build req.context,
 // plus the session id for the routes that act on the current session.
-export interface SessionAuth {
-  sessionId: string;
+export interface ValidAuthSession {
+  authSessionId: string;
   userId: string;
   tenantId: string;
   role: UserRole;
@@ -44,11 +44,11 @@ export interface SessionAuth {
 }
 
 // A session as the user's own list shows it; the route adds `current`.
-export type SessionSummary = Omit<SessionDTO, 'current'>;
+export type AuthSessionSummary = Omit<AuthSessionDTO, 'current'>;
 
-export interface CreateSessionInput {
+export interface CreateAuthSessionInput {
   userId: string;
-  // Profile from lib/sessionPolicy.ts; the expiry is derived from it.
+  // Profile from lib/authSessionPolicy.ts; the expiry is derived from it.
   trusted: boolean;
   ip: string | null;
   userAgent: string | null;
@@ -94,17 +94,17 @@ export interface AuthRepository {
    * Opens a session and returns its raw token. The token leaves this method
    * once, for the login response; only its hash is stored.
    */
-  createSession(input: CreateSessionInput): Promise<{ token: string }>;
+  createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }>;
   /**
    * For authenticate: the session behind a raw token, or null. One query
    * decides everything — session unrevoked and unexpired, user active, clinic
    * active — so no route can forget one of the conditions.
    */
-  findSessionForAuth(token: string): Promise<SessionAuth | null>;
+  findValidAuthSession(token: string): Promise<ValidAuthSession | null>;
   /** Revokes one session. false if it was already revoked or does not exist. */
-  revokeSession(sessionId: string): Promise<boolean>;
+  revokeAuthSession(authSessionId: string): Promise<boolean>;
   /** Marks the session as used now, unless it was within the throttle window. */
-  touchSession(sessionId: string): Promise<void>;
+  touchAuthSession(authSessionId: string): Promise<void>;
 
   // ── The user's own sessions (my-sessions) ─────────────────────────────────
   // Scoped by an explicit userId in the same query that reads or writes:
@@ -112,13 +112,13 @@ export interface AuthRepository {
   // session id behaves exactly like a nonexistent one.
 
   /** Live sessions (not revoked, expired or idle), most recently used first; at most 50. */
-  listActiveSessions(userId: string): Promise<SessionSummary[]>;
+  listAuthSessions(userId: string): Promise<AuthSessionSummary[]>;
   /** false if the session is not hers, does not exist or is already closed. */
-  revokeUserSession(userId: string, sessionId: string): Promise<boolean>;
+  revokeUserAuthSession(userId: string, authSessionId: string): Promise<boolean>;
   /** Closes every live session of the user but one; returns how many. */
-  revokeOtherSessions(userId: string, keepSessionId: string): Promise<number>;
+  revokeOtherAuthSessions(userId: string, keepSessionId: string): Promise<number>;
   /** Demotes one of her live trusted sessions to normal; false otherwise. */
-  untrustUserSession(userId: string, sessionId: string): Promise<boolean>;
+  untrustUserAuthSession(userId: string, authSessionId: string): Promise<boolean>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */

@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { LAST_USED_THROTTLE_MS } from '../lib/sessionPolicy';
+import { LAST_USED_THROTTLE_MS } from '../lib/authSessionPolicy';
 import { authRepo } from '../repositories';
 
 // Validates the session token from the Authorization header and attaches
@@ -23,7 +23,7 @@ export async function authenticate(
     return;
   }
 
-  const session = await authRepo.findSessionForAuth(header.slice('Bearer '.length));
+  const session = await authRepo.findValidAuthSession(header.slice('Bearer '.length));
 
   // Same message for every failure (unknown token, expired, revoked, user or
   // clinic deactivated): telling them apart would leak account state.
@@ -38,11 +38,11 @@ export async function authenticate(
   // idle out a few minutes early, never a failed request.
   if (Date.now() - session.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS) {
     authRepo
-      .touchSession(session.sessionId)
+      .touchAuthSession(session.authSessionId)
       .catch((err) => console.error('[auth] lastUsedAt', err));
   }
 
   req.context = { tenantId: session.tenantId, userId: session.userId, role: session.role };
-  req.authSessionId = session.sessionId;
+  req.authSessionId = session.authSessionId;
   next();
 }

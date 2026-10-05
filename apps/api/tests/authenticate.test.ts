@@ -99,7 +99,7 @@ describe('authenticate middleware', () => {
 
   // The safety net: these change users/tenants directly, without revoking any
   // session, the way a future write path that forgets to revoke would. The
-  // join in findSessionForAuth must deny access anyway.
+  // join in findValidAuthSession must deny access anyway.
 
   it('rejects a live session of a deactivated user', async () => {
     const target = await clinic.createUser();

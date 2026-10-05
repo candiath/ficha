@@ -77,9 +77,9 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
-// One of the user's active sessions, as GET /api/auth/sessions lists them
+// One of the user's active sessions, as GET /api/auth/devices lists them
 // (docs/specs/SPEC-my-sessions.md). Only the user herself ever sees these.
-export interface SessionDTO {
+export interface AuthSessionDTO {
   id: string;
   createdAt: string;
   lastUsedAt: string;
@@ -93,8 +93,8 @@ export interface SessionDTO {
   current: boolean;
 }
 
-// POST /api/auth/sessions/revoke-others.
-export interface RevokeOthersResponse {
+// POST /api/auth/devices/revoke-others.
+export interface RevokeOtherAuthSessionsResponse {
   revoked: number;
 }
 

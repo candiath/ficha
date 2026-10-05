@@ -3,21 +3,21 @@ import type { Prisma } from '@prisma/client';
 import {
   LAST_USED_THROTTLE_MS,
   NORMAL_SESSION,
-  sessionProfile,
+  authSessionProfile,
   TRUSTED_SESSION,
   TRUSTED_SESSIONS_PER_USER,
-} from '../../lib/sessionPolicy';
-import { generateSessionToken, hashSessionToken } from '../../lib/sessionToken';
+} from '../../lib/authSessionPolicy';
+import { generateAuthSessionToken, hashAuthSessionToken } from '../../lib/authSessionToken';
 import type {
   AuthRepository,
-  CreateSessionInput,
+  CreateAuthSessionInput,
   Credentials,
   LoginAttempt,
   LoginEventInput,
   LoginUser,
   PublicProfile,
-  SessionAuth,
-  SessionSummary,
+  ValidAuthSession,
+  AuthSessionSummary,
 } from '../authRepository';
 
 // Usa el prisma base a conciencia: estas queries corren ANTES de que exista
@@ -38,7 +38,7 @@ const publicProfileSelect = {
 // A session that still grants access: not revoked, not past its absolute
 // timeout, not past its profile's idle timeout. One definition for
 // authenticate and for the user's list, so they can never disagree.
-function liveSessionWhere(now: Date): Prisma.AuthSessionWhereInput {
+function liveAuthSessionWhere(now: Date): Prisma.AuthSessionWhereInput {
   return {
     revokedAt: null,
     expiresAt: { gt: now },
@@ -50,13 +50,13 @@ function liveSessionWhere(now: Date): Prisma.AuthSessionWhereInput {
 }
 
 // Trusted sessions that still count against the cap.
-function liveTrustedWhere(now: Date): Prisma.AuthSessionWhereInput {
-  return { ...liveSessionWhere(now), trusted: true };
+function liveTrustedAuthSessionWhere(now: Date): Prisma.AuthSessionWhereInput {
+  return { ...liveAuthSessionWhere(now), trusted: true };
 }
 
 const LIST_LIMIT = 50;
 
-const sessionSummarySelect = {
+const authSessionSummarySelect = {
   id: true,
   createdAt: true,
   lastUsedAt: true,
@@ -66,7 +66,7 @@ const sessionSummarySelect = {
   userAgent: true,
 } as const;
 
-function toSessionSummary(row: Prisma.AuthSessionGetPayload<{ select: typeof sessionSummarySelect }>): SessionSummary {
+function toAuthSessionSummary(row: Prisma.AuthSessionGetPayload<{ select: typeof authSessionSummarySelect }>): AuthSessionSummary {
   return {
     ...row,
     createdAt: row.createdAt.toISOString(),
@@ -78,7 +78,7 @@ function toSessionSummary(row: Prisma.AuthSessionGetPayload<{ select: typeof ses
 // Demoting moves a trusted session to the normal profile without closing it:
 // it keeps working, but under the normal timeouts — its absolute expiry is
 // pulled in to at most NORMAL_SESSION.absoluteMs from now (never extended).
-async function demoteSessions(tx: Prisma.TransactionClient, ids: string[]): Promise<number> {
+async function demoteAuthSessions(tx: Prisma.TransactionClient, ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   const cap = new Date(Date.now() + NORMAL_SESSION.absoluteMs);
   const [shortened, kept] = await Promise.all([
@@ -117,13 +117,13 @@ export const prismaAuthRepository: AuthRepository = {
     };
   },
 
-  async createSession(input: CreateSessionInput): Promise<{ token: string }> {
-    const token = generateSessionToken();
+  async createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }> {
+    const token = generateAuthSessionToken();
     const data = {
       userId: input.userId,
-      tokenHash: hashSessionToken(token),
+      tokenHash: hashAuthSessionToken(token),
       trusted: input.trusted,
-      expiresAt: new Date(Date.now() + sessionProfile(input.trusted).absoluteMs),
+      expiresAt: new Date(Date.now() + authSessionProfile(input.trusted).absoluteMs),
       ip: input.ip,
       userAgent: input.userAgent,
     };
@@ -140,12 +140,12 @@ export const prismaAuthRepository: AuthRepository = {
     await prisma.$transaction(async (tx) => {
       await tx.authSession.create({ data });
       const beyondCap = await tx.authSession.findMany({
-        where: { userId: input.userId, ...liveTrustedWhere(new Date()) },
+        where: { userId: input.userId, ...liveTrustedAuthSessionWhere(new Date()) },
         orderBy: { createdAt: 'desc' },
         skip: TRUSTED_SESSIONS_PER_USER,
         select: { id: true },
       });
-      await demoteSessions(
+      await demoteAuthSessions(
         tx,
         beyondCap.map((s) => s.id),
       );
@@ -153,15 +153,15 @@ export const prismaAuthRepository: AuthRepository = {
     return { token };
   },
 
-  async findSessionForAuth(token: string): Promise<SessionAuth | null> {
+  async findValidAuthSession(token: string): Promise<ValidAuthSession | null> {
     // The join to users and tenants is the safety net: a deactivated user or
     // clinic is denied here even if some write path forgot to revoke the
     // session. Role and tenant are read fresh, never copied into the session.
     // Idle expiry rides in the same query, with each profile's own timeout.
     const row = await prisma.authSession.findFirst({
       where: {
-        ...liveSessionWhere(new Date()),
-        tokenHash: hashSessionToken(token),
+        ...liveAuthSessionWhere(new Date()),
+        tokenHash: hashAuthSessionToken(token),
         user: { isActive: true, tenant: { deactivatedAt: null } },
       },
       select: {
@@ -172,7 +172,7 @@ export const prismaAuthRepository: AuthRepository = {
     });
     if (!row) return null;
     return {
-      sessionId: row.id,
+      authSessionId: row.id,
       userId: row.user.id,
       tenantId: row.user.tenantId,
       role: row.user.role,
@@ -180,25 +180,25 @@ export const prismaAuthRepository: AuthRepository = {
     };
   },
 
-  async listActiveSessions(userId: string): Promise<SessionSummary[]> {
+  async listAuthSessions(userId: string): Promise<AuthSessionSummary[]> {
     const rows = await prisma.authSession.findMany({
-      where: { userId, ...liveSessionWhere(new Date()) },
+      where: { userId, ...liveAuthSessionWhere(new Date()) },
       orderBy: { lastUsedAt: 'desc' },
       take: LIST_LIMIT,
-      select: sessionSummarySelect,
+      select: authSessionSummarySelect,
     });
-    return rows.map(toSessionSummary);
+    return rows.map(toAuthSessionSummary);
   },
 
-  async revokeUserSession(userId: string, sessionId: string): Promise<boolean> {
+  async revokeUserAuthSession(userId: string, authSessionId: string): Promise<boolean> {
     const { count } = await prisma.authSession.updateMany({
-      where: { id: sessionId, userId, revokedAt: null },
+      where: { id: authSessionId, userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
     return count > 0;
   },
 
-  async revokeOtherSessions(userId: string, keepSessionId: string): Promise<number> {
+  async revokeOtherAuthSessions(userId: string, keepSessionId: string): Promise<number> {
     const { count } = await prisma.authSession.updateMany({
       where: { userId, id: { not: keepSessionId }, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -206,33 +206,33 @@ export const prismaAuthRepository: AuthRepository = {
     return count;
   },
 
-  async untrustUserSession(userId: string, sessionId: string): Promise<boolean> {
+  async untrustUserAuthSession(userId: string, authSessionId: string): Promise<boolean> {
     return prisma.$transaction(async (tx) => {
       // Ownership and "is a live trusted session" decided in the lookup; the
       // demotion itself re-checks trusted in its own where.
       const own = await tx.authSession.findFirst({
-        where: { id: sessionId, userId, ...liveTrustedWhere(new Date()) },
+        where: { id: authSessionId, userId, ...liveTrustedAuthSessionWhere(new Date()) },
         select: { id: true },
       });
       if (!own) return false;
-      return (await demoteSessions(tx, [own.id])) > 0;
+      return (await demoteAuthSessions(tx, [own.id])) > 0;
     });
   },
 
-  async touchSession(sessionId: string): Promise<void> {
+  async touchAuthSession(authSessionId: string): Promise<void> {
     // Conditioned write: concurrent requests on a stale session all match at
     // most once, and a session touched a moment ago is left alone.
     await prisma.authSession.updateMany({
-      where: { id: sessionId, lastUsedAt: { lt: new Date(Date.now() - LAST_USED_THROTTLE_MS) } },
+      where: { id: authSessionId, lastUsedAt: { lt: new Date(Date.now() - LAST_USED_THROTTLE_MS) } },
       data: { lastUsedAt: new Date() },
     });
   },
 
-  async revokeSession(sessionId: string): Promise<boolean> {
+  async revokeAuthSession(authSessionId: string): Promise<boolean> {
     // The condition rides in the write: revoking twice is a no-op, not an
     // error, and the original revokedAt is kept.
     const { count } = await prisma.authSession.updateMany({
-      where: { id: sessionId, revokedAt: null },
+      where: { id: authSessionId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
     return count > 0;
