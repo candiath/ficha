@@ -62,6 +62,7 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 - **Las escrituras condicionadas llevan la condición en el `where` del write** (`updateMany`/`deleteMany` + count, o `update` con campos no únicos en el where y `P2025` → `null`): existencia, pertenencia y vigencia se deciden en la misma query que escribe, sin ventana entre chequeo y escritura.
 - Los DTOs no exponen `tenantId`; fechas como ISO string y `Decimal` como `number`.
 - Zod y la semántica HTTP se quedan en la ruta; la política de datos (borrado lógico, "global o del tenant", "no borrar un paquete usado") vive en el repositorio.
+- **Audited writes record their audit row in the same transaction** (#188): the repository method takes an `audit` argument (an `AuditBuilder<T>`, built from the write's result, or an `AuditEntry` for deletes) and writes it with `recordAudit(tx, ctx, entry)` using the write's own transaction client. If either fails, both roll back. `auditLogRepository` is read-only — there is no standalone `create`, so a route cannot record an action separately (and lose the row when that second write fails). The route still writes the wording of the entry. `tests/auditTransactional.test.ts` forces the audit insert to fail and checks the action rolled back.
 
 Tres excepciones documentadas:
 

@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { consentRepo, patientRepo } from '../repositories';
-import { auditLogRepo } from '../repositories';
 
 type Params = { patientId: string };
 
@@ -34,17 +33,13 @@ router.post<Params>('/', async (req, res) => {
     return;
   }
 
-  const data = await consentRepo.sign(req.context, req.params.patientId);
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: req.params.patientId,
-      entity: 'CONSENT',
-      entityId: data.id,
-      action: 'CREATED',
-      description: 'Consentimiento informado firmado',
-    })
-    .catch((err) => console.error('[audit]', err));
+  const data = await consentRepo.sign(req.context, req.params.patientId, (c) => ({
+    patientId: req.params.patientId,
+    entity: 'CONSENT',
+    entityId: c.id,
+    action: 'CREATED',
+    description: 'Consentimiento informado firmado',
+  }));
 
   res.status(201).json({ data });
 });
@@ -59,22 +54,18 @@ router.delete<Params>('/', async (req, res) => {
   // null = el paciente existe pero nunca firmó: no hay nada que revocar.
   // Antes el update sin fila tiraba P2025 y el error handler lo convertía
   // en un 500.
-  const data = await consentRepo.revoke(req.context, req.params.patientId);
+  const data = await consentRepo.revoke(req.context, req.params.patientId, (c) => ({
+    patientId: req.params.patientId,
+    entity: 'CONSENT',
+    entityId: c.id,
+    action: 'UPDATED',
+    description: 'Consentimiento informado revocado',
+  }));
 
   if (!data) {
     res.status(404).json({ error: 'Consentimiento no encontrado' });
     return;
   }
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: req.params.patientId,
-      entity: 'CONSENT',
-      entityId: data.id,
-      action: 'UPDATED',
-      description: 'Consentimiento informado revocado',
-    })
-    .catch((err) => console.error('[audit]', err));
 
   res.json({ data });
 });

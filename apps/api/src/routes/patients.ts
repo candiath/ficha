@@ -6,7 +6,7 @@ import {
   optionalEnum,
   requiredText,
 } from '../lib/validation';
-import { auditLogRepo, patientRepo } from '../repositories';
+import { patientRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 
 // Las queries viven en patientRepo, que aplica la política de borrado lógico
@@ -53,17 +53,13 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = PatientCreateSchema.parse(req.body);
 
-  const patient = await patientRepo.create(req.context, body);
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: patient.id,
-      entity: 'PATIENT',
-      entityId: patient.id,
-      action: 'CREATED',
-      description: `Paciente registrado en el sistema`,
-    })
-    .catch((err) => console.error('[audit]', err));
+  const patient = await patientRepo.create(req.context, body, (p) => ({
+    patientId: p.id,
+    entity: 'PATIENT',
+    entityId: p.id,
+    action: 'CREATED',
+    description: 'Paciente registrado en el sistema',
+  }));
 
   res.status(201).json({ data: patient });
 });
@@ -74,22 +70,18 @@ router.patch('/:id', async (req, res) => {
 
   // null = no existe, es de otro tenant o está borrado: mismo 404 en los
   // tres casos, sin revelar cuál fue.
-  const patient = await patientRepo.update(req.context, req.params.id, body);
+  const patient = await patientRepo.update(req.context, req.params.id, body, (p) => ({
+    patientId: p.id,
+    entity: 'PATIENT',
+    entityId: p.id,
+    action: 'UPDATED',
+    description: 'Ficha del paciente actualizada',
+  }));
 
   if (!patient) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: patient.id,
-      entity: 'PATIENT',
-      entityId: patient.id,
-      action: 'UPDATED',
-      description: 'Ficha del paciente actualizada',
-    })
-    .catch((err) => console.error('[audit]', err));
 
   res.json({ data: patient });
 });
@@ -98,22 +90,18 @@ router.patch('/:id', async (req, res) => {
 // Borrado lógico: se marca deletedAt en vez de eliminar la fila, para no
 // perder historia clínica ni romper las FKs de sesiones, pagos y auditoría.
 router.delete('/:id', async (req, res) => {
-  const deleted = await patientRepo.softDelete(req.context, req.params.id);
+  const deleted = await patientRepo.softDelete(req.context, req.params.id, {
+    patientId: req.params.id,
+    entity: 'PATIENT',
+    entityId: req.params.id,
+    action: 'DELETED',
+    description: 'Paciente eliminado (borrado lógico)',
+  });
 
   if (!deleted) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: req.params.id,
-      entity: 'PATIENT',
-      entityId: req.params.id,
-      action: 'DELETED',
-      description: 'Paciente eliminado (borrado lógico)',
-    })
-    .catch((err) => console.error('[audit]', err));
 
   res.status(204).send();
 });

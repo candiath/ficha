@@ -1,5 +1,6 @@
 import type { Sex } from '@prisma/client';
 import type { TenantContext } from './types';
+import type { AuditBuilder, AuditEntry } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -62,9 +63,14 @@ export interface PatientRepository {
   getById(ctx: TenantContext, id: string): Promise<PatientDTO | null>;
   /** true si el paciente existe, es del tenant y no está borrado. */
   exists(ctx: TenantContext, id: string): Promise<boolean>;
-  create(ctx: TenantContext, input: PatientCreateInput): Promise<PatientDTO>;
+  create(ctx: TenantContext, input: PatientCreateInput, audit: AuditBuilder<PatientDTO>): Promise<PatientDTO>;
   /** null si el paciente no existe, es de otro tenant o está borrado. */
-  update(ctx: TenantContext, id: string, input: PatientUpdateInput): Promise<PatientDTO | null>;
+  update(
+    ctx: TenantContext,
+    id: string,
+    input: PatientUpdateInput,
+    audit: AuditBuilder<PatientDTO>,
+  ): Promise<PatientDTO | null>;
   /** Borrado lógico. false si no había paciente vigente que borrar. */
-  softDelete(ctx: TenantContext, id: string): Promise<boolean>;
+  softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;
 }
