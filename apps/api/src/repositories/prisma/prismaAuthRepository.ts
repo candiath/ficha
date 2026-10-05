@@ -1,9 +1,11 @@
 import { prisma } from '../../lib/prisma';
+import type { Prisma } from '@prisma/client';
 import {
   LAST_USED_THROTTLE_MS,
   NORMAL_SESSION,
   sessionProfile,
   TRUSTED_SESSION,
+  TRUSTED_SESSIONS_PER_USER,
 } from '../../lib/sessionPolicy';
 import { generateSessionToken, hashSessionToken } from '../../lib/sessionToken';
 import type {
@@ -32,6 +34,36 @@ const publicProfileSelect = {
   tenant: { select: { name: true, slug: true } },
 } as const;
 
+// Trusted sessions that still count against the cap: not revoked, not past
+// their absolute or idle timeout.
+function liveTrustedWhere(now: Date): Prisma.AuthSessionWhereInput {
+  return {
+    trusted: true,
+    revokedAt: null,
+    expiresAt: { gt: now },
+    lastUsedAt: { gt: new Date(now.getTime() - TRUSTED_SESSION.idleMs) },
+  };
+}
+
+// Demoting moves a trusted session to the normal profile without closing it:
+// it keeps working, but under the normal timeouts — its absolute expiry is
+// pulled in to at most NORMAL_SESSION.absoluteMs from now (never extended).
+async function demoteSessions(tx: Prisma.TransactionClient, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const cap = new Date(Date.now() + NORMAL_SESSION.absoluteMs);
+  const [shortened, kept] = await Promise.all([
+    tx.authSession.updateMany({
+      where: { id: { in: ids }, trusted: true, expiresAt: { gt: cap } },
+      data: { trusted: false, expiresAt: cap },
+    }),
+    tx.authSession.updateMany({
+      where: { id: { in: ids }, trusted: true, expiresAt: { lte: cap } },
+      data: { trusted: false },
+    }),
+  ]);
+  return shortened.count + kept.count;
+}
+
 export const prismaAuthRepository: AuthRepository = {
   async findByEmailForLogin(email: string): Promise<LoginUser | null> {
     const row = await prisma.user.findUnique({
@@ -57,15 +89,36 @@ export const prismaAuthRepository: AuthRepository = {
 
   async createSession(input: CreateSessionInput): Promise<{ token: string }> {
     const token = generateSessionToken();
-    await prisma.authSession.create({
-      data: {
-        userId: input.userId,
-        tokenHash: hashSessionToken(token),
-        trusted: input.trusted,
-        expiresAt: new Date(Date.now() + sessionProfile(input.trusted).absoluteMs),
-        ip: input.ip,
-        userAgent: input.userAgent,
-      },
+    const data = {
+      userId: input.userId,
+      tokenHash: hashSessionToken(token),
+      trusted: input.trusted,
+      expiresAt: new Date(Date.now() + sessionProfile(input.trusted).absoluteMs),
+      ip: input.ip,
+      userAgent: input.userAgent,
+    };
+
+    if (!input.trusted) {
+      await prisma.authSession.create({ data });
+      return { token };
+    }
+
+    // A trusted login enforces the cap in the same transaction: the newest
+    // TRUSTED_SESSIONS_PER_USER live trusted sessions stay, older ones are
+    // demoted to normal (not closed). Two simultaneous trusted logins can
+    // leave one too many until the next one; acceptable.
+    await prisma.$transaction(async (tx) => {
+      await tx.authSession.create({ data });
+      const beyondCap = await tx.authSession.findMany({
+        where: { userId: input.userId, ...liveTrustedWhere(new Date()) },
+        orderBy: { createdAt: 'desc' },
+        skip: TRUSTED_SESSIONS_PER_USER,
+        select: { id: true },
+      });
+      await demoteSessions(
+        tx,
+        beyondCap.map((s) => s.id),
+      );
     });
     return { token };
   },

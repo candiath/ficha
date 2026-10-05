@@ -22,6 +22,9 @@ const loginLimiter = createLoginLimiter();
 const LoginSchema = z.object({
   email: EmailSchema,
   password: z.string().min(1),
+  // "Mantener la sesión iniciada en este dispositivo": the trusted profile
+  // (lib/sessionPolicy.ts). Absent means a normal session.
+  trustDevice: z.boolean().optional(),
 });
 
 // Cambiar la contraseña pide la actual, así que también es blanco de
@@ -56,7 +59,7 @@ function recordAttempt(
 
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res) => {
-  const { email, password } = LoginSchema.parse(req.body);
+  const { email, password, trustDevice } = LoginSchema.parse(req.body);
 
   // Antes de buscar el usuario y de bcrypt: un intento frenado no cuesta
   // trabajo ni deja rastro (ver isAccountThrottled).
@@ -99,7 +102,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const { token } = await authRepo.createSession({
     userId: user.id,
-    trusted: false,
+    trusted: trustDevice ?? false,
     ip: req.ip ?? null,
     userAgent: req.get('user-agent') ?? null,
   });

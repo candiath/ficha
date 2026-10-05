@@ -3,9 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { LAST_USED_THROTTLE_MS, NORMAL_SESSION, TRUSTED_SESSION } from '../src/lib/sessionPolicy';
+import {
+  LAST_USED_THROTTLE_MS,
+  NORMAL_SESSION,
+  TRUSTED_SESSION,
+  TRUSTED_SESSIONS_PER_USER,
+} from '../src/lib/sessionPolicy';
 import { hashSessionToken } from '../src/lib/sessionToken';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 // Session lifetime and the session list (docs/specs/SPEC-my-sessions.md).
 // Sessions are placed on the timeline directly in the DB (lastUsedAt, ttlMs)
@@ -111,5 +116,75 @@ describe('last use refresh', () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect((await lastUsedAt(token)).getTime()).toBe(recent.getTime());
+  });
+});
+
+describe('trusted login', () => {
+  let clinic: TestClinic;
+  let user: User;
+  // Each login from its own address: the per-IP limiter stays out of the way.
+  let nextIp = 1;
+
+  const login = (body: Record<string, unknown>) =>
+    request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', `10.2.0.${nextIp++}`)
+      .send({ email: user.email, password: TEST_PASSWORD, ...body });
+
+  const sessionOf = (token: string) =>
+    prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashSessionToken(token) } });
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    user = await clinic.createUser();
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+  });
+
+  it('trustDevice: true creates a trusted session with the long absolute timeout', async () => {
+    const res = await login({ trustDevice: true });
+    expect(res.status).toBe(200);
+
+    const session = await sessionOf(res.body.data.token as string);
+    expect(session.trusted).toBe(true);
+    const ttl = session.expiresAt.getTime() - session.createdAt.getTime();
+    expect(Math.abs(ttl - TRUSTED_SESSION.absoluteMs)).toBeLessThan(MINUTE);
+  });
+
+  it('trustDevice: false creates a normal session', async () => {
+    const res = await login({ trustDevice: false });
+    expect(res.status).toBe(200);
+    expect((await sessionOf(res.body.data.token as string)).trusted).toBe(false);
+  });
+
+  it('a non-boolean trustDevice is rejected', async () => {
+    const res = await login({ trustDevice: 'yes' });
+    expect(res.status).toBe(400);
+  });
+
+  it(`a trusted login beyond ${TRUSTED_SESSIONS_PER_USER} demotes the oldest trusted session, without closing it`, async () => {
+    const other = await clinic.createUser();
+    const existing: string[] = [];
+    for (let i = 0; i < TRUSTED_SESSIONS_PER_USER; i++) {
+      existing.push(await createTestToken(other, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs }));
+    }
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', `10.2.0.${nextIp++}`)
+      .send({ email: other.email, password: TEST_PASSWORD, trustDevice: true });
+    expect(res.status).toBe(200);
+
+    const [oldest, ...rest] = await Promise.all(existing.map(sessionOf));
+    expect(oldest.trusted).toBe(false);
+    expect(oldest.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + NORMAL_SESSION.absoluteMs + MINUTE);
+    expect(oldest.revokedAt).toBeNull();
+    for (const session of rest) expect(session.trusted).toBe(true);
+    expect((await sessionOf(res.body.data.token as string)).trusted).toBe(true);
+
+    // Demoted, not closed: it still works, now under the normal profile.
+    expect((await me(existing[0])).status).toBe(200);
   });
 });
