@@ -14,6 +14,11 @@ on:
   # correrlo sin inventar un push ni depender de que exista un run viejo para
   # re-ejecutar.
   workflow_dispatch:
+    inputs:
+      reset_ci_db:
+        description: "Rebuild the ci database from scratch (migrate reset) before the tests, as release PRs do"
+        type: boolean
+        default: false
 
 # Si llegan pushes seguidos al mismo PR, cancela la corrida vieja: los tests
 # van contra una DB compartida (branch de CI en Neon) y no tiene sentido
@@ -139,7 +144,7 @@ jobs:
         if: needs.changes.outputs.api == 'true'
         run: npm run build -w packages/shared
 
-      # Release PRs only: rebuild the ci database from an empty schema, so the
+      # Release PRs (or a manual run with reset_ci_db): rebuild the ci database from an empty schema, so the
       # whole migration chain is proven to apply from scratch (what a brand
       # new environment does) before it reaches production. It also clears the
       # test rows that interrupted runs leave behind. Feature PRs skip it to
@@ -151,8 +156,8 @@ jobs:
       # ever gets @test.ficha.local accounts. No config to keep in sync, and
       # if CI_DATABASE_URL is ever pointed somewhere else by mistake, this
       # fails instead of wiping it.
-      - name: Comprobar que la base es la de CI (solo release)
-        if: needs.changes.outputs.api == 'true' && github.base_ref == 'main'
+      - name: Comprobar que la base es la de CI (release o manual)
+        if: needs.changes.outputs.api == 'true' && (github.base_ref == 'main' || inputs.reset_ci_db)
         run: |
           url="${DATABASE_URL/-pooler/}"
           non_test=0
@@ -171,8 +176,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
-      - name: Reconstruir la base de CI desde cero (solo release)
-        if: needs.changes.outputs.api == 'true' && github.base_ref == 'main'
+      - name: Reconstruir la base de CI desde cero (release o manual)
+        if: needs.changes.outputs.api == 'true' && (github.base_ref == 'main' || inputs.reset_ci_db)
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
           npx prisma migrate reset --force --skip-seed
