@@ -40,6 +40,7 @@ const ACTION_LABELS: Record<PlatformAction, string> = {
   ADMIN_CREATED: 'ADMIN creada',
   USER_ROLE_CHANGED: 'Cambio de rol',
   USER_ACTIVE_CHANGED: 'Cambio de estado',
+  USER_DEVICES_DISCONNECTED: 'Dispositivos desconectados',
 };
 
 function formatDateTime(iso: string | null): string {
@@ -132,7 +133,30 @@ export default function PlatformTenantDetailPage() {
     },
   });
 
-  const busy = setActive.isPending || updateUser.isPending;
+  const disconnectDevices = useMutation({
+    mutationFn: (userId: string) => platformTenantsApi.disconnectUserDevices(tenantId, userId),
+    onSuccess: () => {
+      // The audit log gains a row; the user list does not change.
+      queryClient.invalidateQueries({ queryKey: platformKeys.audit(tenantId) });
+      toast.success('Dispositivos desconectados');
+      setPending(null);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudieron desconectar los dispositivos');
+      setPending(null);
+    },
+  });
+
+  const busy = setActive.isPending || updateUser.isPending || disconnectDevices.isPending;
+
+  function onDisconnect(u: PlatformUser) {
+    setPending({
+      title: `¿Desconectar los dispositivos de ${u.name ?? u.email}?`,
+      description:
+        'Se cierra su sesión en todos los dispositivos. Su cuenta sigue activa: puede volver a ingresar con su contraseña.',
+      run: () => disconnectDevices.mutate(u.id),
+    });
+  }
 
   function onRoleChange(u: PlatformUser, role: UserRole) {
     if (role === u.role) return;
@@ -296,6 +320,17 @@ export default function PlatformTenantDetailPage() {
                     >
                       {u.isActive ? 'Desactivar' : 'Reactivar'}
                     </Button>
+                    {/* An inactive user has no sessions: deactivation closed them. */}
+                    {u.isActive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onDisconnect(u)}
+                        disabled={busy}
+                      >
+                        Desconectar dispositivos
+                      </Button>
+                    )}
                   </div>
                 </li>
               ))}

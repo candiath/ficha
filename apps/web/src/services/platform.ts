@@ -43,6 +43,12 @@ export const platformTenantsApi = {
     platformApi.post<PlatformUser>(`/api/platform/tenants/${tenantId}/users`, data),
   updateUser: (tenantId: string, userId: string, data: UpdateUserInput) =>
     platformApi.patch<PlatformUser>(`/api/platform/tenants/${tenantId}/users/${userId}`, data),
+  // 204 without a count, like the clinic's own route.
+  disconnectUserDevices: (tenantId: string, userId: string) =>
+    platformApi.post<void>(
+      `/api/platform/tenants/${tenantId}/users/${userId}/disconnect-devices`,
+      {},
+    ),
   auditLog: (tenantId: string) =>
     platformApi.get<PlatformAuditEntry[]>(`/api/platform/tenants/${tenantId}/audit-log`),
 };

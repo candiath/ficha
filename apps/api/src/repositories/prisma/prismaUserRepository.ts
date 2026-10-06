@@ -94,4 +94,23 @@ export const prismaUserRepository: UserRepository = {
     const row = await db.user.findFirstOrThrow({ where: { id }, select: tenantUserSelect });
     return { ok: true, user: toDTO(row) };
   },
+
+  async disconnectDevices(ctx: TenantContext, id: string): Promise<'disconnected' | 'not_found'> {
+    const db = forTenant(ctx);
+    return db.$transaction(async (tx) => {
+      // auth_sessions has no tenantId to scope by: the tenant-scoped lookup
+      // in the same transaction is what proves the user is in this clinic,
+      // as in deactivation above.
+      const user = await tx.user.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!user) return 'not_found';
+      await tx.authSession.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return 'disconnected';
+    });
+  },
 };

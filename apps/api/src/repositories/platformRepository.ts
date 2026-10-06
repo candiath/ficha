@@ -122,6 +122,12 @@ export interface PlatformRepository {
    * `not_found` cubre clínica inexistente y usuario que no es de ella.
    */
   updateTenantUser(op: OperatorContext, tenantId: string, userId: string, input: UserUpdateInput): Promise<UserUpdateResult>;
+  /**
+   * Revokes every open AuthSession of a user of the clinic, without
+   * deactivating her, and audits it (SPEC-admin-revocation). false if the
+   * clinic does not exist or the user is not in it.
+   */
+  disconnectUserDevices(op: OperatorContext, tenantId: string, userId: string): Promise<boolean>;
 
   /**
    * Acciones sobre una clínica, de la más reciente a la más vieja. null si

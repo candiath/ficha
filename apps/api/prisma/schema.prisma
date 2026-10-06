@@ -208,6 +208,7 @@ enum PlatformAction {
   ADMIN_CREATED
   USER_ROLE_CHANGED
   USER_ACTIVE_CHANGED
+  USER_DEVICES_DISCONNECTED
 }
 
 // Cada acción del operador, con el operador como actor. Tabla propia y no

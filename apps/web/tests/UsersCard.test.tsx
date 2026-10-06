@@ -10,7 +10,7 @@ import { usersApi } from '@/services/users';
 // confirmación y la mutación de react-query corren de verdad.
 vi.mock('@/services/users', () => ({
   userKeys: { list: ['users'] },
-  usersApi: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
+  usersApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), disconnectDevices: vi.fn() },
 }));
 
 const refresh = vi.fn().mockResolvedValue(undefined);
@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 
 const list = vi.mocked(usersApi.list);
 const update = vi.mocked(usersApi.update);
+const disconnectDevices = vi.mocked(usersApi.disconnectDevices);
 
 const YO: TenantUser = {
   id: 'u-yo',
@@ -170,5 +171,66 @@ describe('UsersCard', () => {
     // Sin esto el AuthContext seguiría diciendo ADMIN y la tarjeta seguiría
     // visible, con la próxima acción respondiendo 403.
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+});
+
+describe('UsersCard: disconnect devices', () => {
+  const disconnectButton = { name: 'Desconectar dispositivos' };
+
+  it('is offered on other active users only', async () => {
+    const INACTIVA: TenantUser = {
+      ...COLEGA,
+      id: 'u-inactiva',
+      name: 'Ex Colega',
+      email: 'ex@clinica.test',
+      isActive: false,
+    };
+    list.mockResolvedValue([YO, COLEGA, INACTIVA]);
+    renderCard();
+
+    expect((await fila('Colega Fisio')).getByRole('button', disconnectButton)).toBeEnabled();
+    expect((await fila('Yo Admin')).queryByRole('button', disconnectButton)).not.toBeInTheDocument();
+    expect((await fila('Ex Colega')).queryByRole('button', disconnectButton)).not.toBeInTheDocument();
+  });
+
+  it('confirms, calls the API and says so', async () => {
+    disconnectDevices.mockResolvedValue(undefined);
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', disconnectButton));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('¿Desconectar los dispositivos de Colega Fisio?');
+    expect(dialog).toHaveTextContent('Su cuenta sigue activa');
+    expect(disconnectDevices).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(disconnectDevices).toHaveBeenCalledWith('u-colega'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Dispositivos desconectados'));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('cancelling does not call the API', async () => {
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', disconnectButton));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancelar' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(disconnectDevices).not.toHaveBeenCalled();
+  });
+
+  it('shows the server message on failure', async () => {
+    disconnectDevices.mockRejectedValue(new Error('Usuario no encontrado'));
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', disconnectButton));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Usuario no encontrado'));
   });
 });
