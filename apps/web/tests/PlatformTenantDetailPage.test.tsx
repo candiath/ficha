@@ -26,6 +26,7 @@ vi.mock('@/services/platform', () => ({
     createAdmin: vi.fn(),
     updateUser: vi.fn(),
     disconnectUserDevices: vi.fn(),
+    createUserPasswordReset: vi.fn(),
     auditLog: vi.fn(),
   },
 }));
@@ -43,6 +44,7 @@ const updateUser = vi.mocked(platformTenantsApi.updateUser);
 const setActive = vi.mocked(platformTenantsApi.setActive);
 const createAdmin = vi.mocked(platformTenantsApi.createAdmin);
 const disconnectUserDevices = vi.mocked(platformTenantsApi.disconnectUserDevices);
+const createUserPasswordReset = vi.mocked(platformTenantsApi.createUserPasswordReset);
 
 const NORTE: PlatformTenant = {
   id: 't1',
@@ -327,5 +329,68 @@ describe('PlatformTenantDetailPage: disconnect devices', () => {
 
     expect(await screen.findByText('Dispositivos desconectados')).toBeInTheDocument();
     expect(screen.queryByText('USER_DEVICES_DISCONNECTED')).not.toBeInTheDocument();
+  });
+});
+
+describe('PlatformTenantDetailPage: password reset', () => {
+  const resetButton = { name: 'Restablecer contraseña' };
+
+  it('is offered on active users only', async () => {
+    users.mockResolvedValue([ADMIN, { ...FISIO, isActive: false }]);
+    renderAt();
+
+    expect((await fila('Ana Admin')).getByRole('button', resetButton)).toBeEnabled();
+    expect((await fila('Fede Fisio')).queryByRole('button', resetButton)).not.toBeInTheDocument();
+  });
+
+  it('confirms, calls the API with tenant and user, shows the link and refreshes list and audit log', async () => {
+    createUserPasswordReset.mockResolvedValue({
+      token: 'tok_op',
+      expiresAt: '2026-10-07T15:00:00.000Z',
+    });
+    renderAt();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Ana Admin')).getByRole('button', resetButton));
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent('¿Restablecer la contraseña de Ana Admin?');
+    expect(createUserPasswordReset).not.toHaveBeenCalled();
+    const usersCallsBefore = users.mock.calls.length;
+    const auditCallsBefore = auditLog.mock.calls.length;
+
+    await user.click(within(confirm).getByRole('button', { name: 'Confirmar' }));
+
+    expect(createUserPasswordReset).toHaveBeenCalledWith('t1', 'u-admin');
+    const shown = await screen.findByRole('dialog', { name: 'Enlace para Ana Admin' });
+    expect(within(shown).getByRole('textbox')).toHaveValue(
+      `${window.location.origin}/restablecer-contrasena#tok_op`,
+    );
+    await waitFor(() => expect(users.mock.calls.length).toBeGreaterThan(usersCallsBefore));
+    await waitFor(() => expect(auditLog.mock.calls.length).toBeGreaterThan(auditCallsBefore));
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('marks a user with a pending reset', async () => {
+    users.mockResolvedValue([ADMIN, { ...FISIO, passwordResetExpiresAt: '2026-10-07T15:00:00.000Z' }]);
+    renderAt();
+
+    expect((await fila('Fede Fisio')).getByText(/^Restablecimiento pendiente · vence /)).toBeInTheDocument();
+    expect((await fila('Ana Admin')).queryByText(/Restablecimiento pendiente/)).not.toBeInTheDocument();
+  });
+
+  it('labels the audit action', async () => {
+    auditLog.mockResolvedValue([
+      {
+        ...AUDIT[0],
+        id: 'a3',
+        action: 'PASSWORD_RESET_LINK_CREATED',
+        targetUserId: 'u-fisio',
+        description: 'Generó un enlace para restablecer la contraseña de fisio@norte.test',
+      },
+    ]);
+    renderAt();
+
+    expect(await screen.findByText('Enlace para restablecer contraseña')).toBeInTheDocument();
+    expect(screen.queryByText('PASSWORD_RESET_LINK_CREATED')).not.toBeInTheDocument();
   });
 });

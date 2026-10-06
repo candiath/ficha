@@ -1,6 +1,7 @@
 import { platformApi } from '@/lib/api';
 import type {
   ChangePasswordResponse,
+  PasswordResetLink,
   PlatformAdminCreateInput,
   PlatformAuditEntry,
   PlatformLoginResponse,
@@ -47,6 +48,11 @@ export const platformTenantsApi = {
   disconnectUserDevices: (tenantId: string, userId: string) =>
     platformApi.post<void>(
       `/api/platform/tenants/${tenantId}/users/${userId}/disconnect-devices`,
+      {},
+    ),
+  createUserPasswordReset: (tenantId: string, userId: string) =>
+    platformApi.post<PasswordResetLink>(
+      `/api/platform/tenants/${tenantId}/users/${userId}/password-reset`,
       {},
     ),
   auditLog: (tenantId: string) =>

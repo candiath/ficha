@@ -3,7 +3,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ShieldPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import type { PlatformAction, PlatformUser, UpdateUserInput, UserRole } from '@ficha/shared';
+import type {
+  PasswordResetLink,
+  PlatformAction,
+  PlatformUser,
+  UpdateUserInput,
+  UserRole,
+} from '@ficha/shared';
+import {
+  PasswordResetLinkDialog,
+  PendingResetBadge,
+} from '@/components/clinic/PasswordResetDialogs';
 import TenantStatus from '@/components/platform/TenantStatus';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ROLE_LABELS } from '@/lib/labels';
+import { passwordResetConfirmation } from '@/lib/passwordReset';
 import { cn } from '@/lib/utils';
 import { platformKeys, platformTenantsApi } from '@/services/platform';
 
@@ -68,6 +79,9 @@ export default function PlatformTenantDetailPage() {
   const queryClient = useQueryClient();
   const [createAdminOpen, setCreateAdminOpen] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
+  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink } | null>(
+    null,
+  );
 
   // La lista trae todo lo que hace falta de la clínica; una ruta de detalle
   // no agregaría campos, solo un request.
@@ -148,7 +162,33 @@ export default function PlatformTenantDetailPage() {
     },
   });
 
-  const busy = setActive.isPending || updateUser.isPending || disconnectDevices.isPending;
+  const resetPassword = useMutation({
+    mutationFn: (u: PlatformUser) => platformTenantsApi.createUserPasswordReset(tenantId, u.id),
+    onSuccess: (link, u) => {
+      // The user list gains the pending badge, the audit log a row.
+      queryClient.invalidateQueries({ queryKey: platformKeys.users(tenantId) });
+      queryClient.invalidateQueries({ queryKey: platformKeys.audit(tenantId) });
+      setPending(null);
+      setResetLink({ name: u.name ?? u.email, link });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo generar el enlace');
+      setPending(null);
+    },
+  });
+
+  const busy =
+    setActive.isPending ||
+    updateUser.isPending ||
+    disconnectDevices.isPending ||
+    resetPassword.isPending;
+
+  function onResetPassword(u: PlatformUser) {
+    setPending({
+      ...passwordResetConfirmation(u.name ?? u.email),
+      run: () => resetPassword.mutate(u),
+    });
+  }
 
   function onDisconnect(u: PlatformUser) {
     setPending({
@@ -282,20 +322,21 @@ export default function PlatformTenantDetailPage() {
                   )}
                 >
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium truncate">{u.name ?? u.email}</p>
                       {!u.isActive && (
                         <Badge variant="outline" className="text-xs">
                           Inactivo
                         </Badge>
                       )}
+                      <PendingResetBadge expiresAt={u.passwordResetExpiresAt} />
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                     <p className="text-xs text-muted-foreground">
                       Último acceso: {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : 'nunca'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <Select
                       items={ROLE_LABELS}
                       value={u.role}
@@ -321,16 +362,27 @@ export default function PlatformTenantDetailPage() {
                     >
                       {u.isActive ? 'Desactivar' : 'Reactivar'}
                     </Button>
-                    {/* An inactive user has no sessions: deactivation closed them. */}
+                    {/* An inactive user has no sessions (deactivation closed
+                        them) and gets no reset link (409). */}
                     {u.isActive && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onDisconnect(u)}
-                        disabled={busy}
-                      >
-                        Desconectar dispositivos
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onDisconnect(u)}
+                          disabled={busy}
+                        >
+                          Desconectar dispositivos
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onResetPassword(u)}
+                          disabled={busy}
+                        >
+                          Restablecer contraseña
+                        </Button>
+                      </>
                     )}
                   </div>
                 </li>
@@ -365,6 +417,12 @@ export default function PlatformTenantDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <PasswordResetLinkDialog
+        link={resetLink?.link ?? null}
+        name={resetLink?.name ?? ''}
+        onClose={() => setResetLink(null)}
+      />
 
       <CreateAdminDialog
         tenantId={tenantId}
