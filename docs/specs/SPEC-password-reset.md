@@ -1,6 +1,6 @@
 # Spec: password-reset
 
-> **DRAFT, awaiting approval.** Written 2026-10-05; every open question was answered the same day (see *Decisions*).
+> **Approved 2026-10-05.** Decisions below; plan in `tasks/plan.md`.
 
 Module 4 of the [authentication redesign](auth-redesign-map.md). Builds on [`server-sessions`](SPEC-server-sessions.md); sits next to [`admin-revocation`](SPEC-admin-revocation.md). Issue #177.
 
