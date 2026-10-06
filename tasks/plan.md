@@ -9,7 +9,7 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 ## Architecture Decisions
 
 - **API first, by risk.** The security-critical part — generation (revoke, disable, invalidate) and consumption (one conditioned transaction) — is built and tested before any UI. The web slices consume a finished, tested API.
-- **One token generator for both secrets.** `lib/authSessionToken.ts` becomes a generic opaque-token module (`randomBytes(32)` base64url, SHA-256 hash), used by `AuthSession` and by reset links; no second implementation of the same thing.
+- **One token generator for both secrets.** `lib/authSessionToken.ts` becomes the generic `lib/opaqueToken.ts` (`randomBytes(32)` base64url, SHA-256 hash), used by `AuthSession` and by reset links; no second implementation of the same thing.
 - **Ownership.** Generation lives with each actor's repository (`userRepository` for the ADMIN, tenant-scoped; `platformRepository` for the operator, explicit `tenantId`) and shares one Prisma helper for the writes; consumption lives in `authRepository`, which runs before any tenant context exists.
 - **Disabling the password** replaces the hash with a bcrypt hash of random bytes (cost 10), so login timing does not reveal a pending reset.
 - **The evidence columns** (`created_by_*`, `created_ip/user_agent`, `used_ip/user_agent`) are written from day one; audit rows that read them are #186.
@@ -17,26 +17,26 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 ## Task List
 
 ### Phase 1: Core API
-- [ ] Task 1: Reset-link table and ADMIN generation
-- [ ] Task 2: Public check and reset
+- [x] Task 1: Reset-link table and ADMIN generation
+- [x] Task 2: Public check and reset
 
 ### Checkpoint A: the flow works through the API
-- [ ] Generate as ADMIN → old sessions and password dead → check → reset → login with the new password; full API suite green
+- [x] Generate as ADMIN → old sessions and password dead → check → reset → login with the new password; full API suite green
 
 ### Phase 2: Remaining API
-- [ ] Task 3: Operator generation, audited
-- [ ] Task 4: Pending reset in the user lists
+- [x] Task 3: Operator generation, audited
+- [x] Task 4: Pending reset in the user lists
 
 ### Phase 3: Web
-- [ ] Task 5: Generate action, link dialog and pending badge (Usuarios and platform page)
-- [ ] Task 6: Public page `/restablecer-contrasena` and the message on `/login`
+- [x] Task 5: Generate action, link dialog and pending badge (Usuarios and platform page)
+- [x] Task 6: Public page `/restablecer-contrasena` and the message on `/login`
 
 ### Checkpoint B: end to end
 - [ ] Full API and web suites green; `npm run check` clean
 - [ ] Manual (skill `verify`): ADMIN generates a link for a therapist logged in elsewhere → her session dies; the link opens in a private window, sets the password, lands on `/login`, she logs in; the link fails a second time; the badge appears and disappears
 
 ### Phase 4: Docs
-- [ ] Task 7: `CLAUDE.md` and verify skill
+- [x] Task 7: `CLAUDE.md` and verify skill
 
 ### Checkpoint C: complete
 - [ ] Spec success criteria met; PR against `dev` open, CI green

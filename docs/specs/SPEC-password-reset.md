@@ -45,7 +45,7 @@ The four network columns exist for one reason (decision 4): to leave evidence if
 
 No `tenant_id` (the owner is the user, as in `auth_sessions`): classified outside the guard like `AuthSession` and checked by `tenantScopeCoverage.test.ts` only if it gains one. Lives in `authRepository` (the token is consumed before any tenant context exists) plus one method each in `userRepository` (ADMIN) and `platformRepository` (operator) to generate it.
 
-The token: `randomBytes(32)` base64url, the same generator as `AuthSession` (`lib/authSessionToken.ts`, generalized). A link is valid if its hash matches a row that is unused, not invalidated and not expired, **and** the user and her clinic are active — decided in one query, like `authenticate`.
+The token: `randomBytes(32)` base64url, the same generator as `AuthSession` (`lib/opaqueToken.ts`). A link is valid if its hash matches a row that is unused, not invalidated and not expired, **and** the user and her clinic are active — decided in one query, like `authenticate`.
 
 ### Disabling the current password
 

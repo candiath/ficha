@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { SLUG_PATTERN, slugify } from '@ficha/shared';
 import { EmailSchema, OptionalTextSchema, PasswordSchema, requiredText } from '../lib/validation';
+import { disabledPasswordHash } from '../lib/passwordReset';
 import { idParam } from '../middlewares/idParam';
 
 // Rutas del operador de plataforma (issue #153). Se montan detrás de
@@ -163,6 +164,34 @@ router.post('/tenants/:tenantId/users/:userId/disconnect-devices', async (req, r
   }
 
   res.status(204).send();
+});
+
+// POST /api/platform/tenants/:tenantId/users/:userId/password-reset — the
+// operator's counterpart of POST /api/users/:id/password-reset, audited. The
+// raw token leaves the API only in this response.
+router.post('/tenants/:tenantId/users/:userId/password-reset', async (req, res) => {
+  const result = await platformRepo.createUserPasswordReset(
+    req.operator,
+    req.params.tenantId,
+    req.params.userId,
+    {
+      disabledPasswordHash: await disabledPasswordHash(),
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    },
+  );
+
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+    } else {
+      res.status(409).json({ error: 'El usuario está desactivado' });
+    }
+    return;
+  }
+
+  res.set('Cache-Control', 'no-store');
+  res.status(201).json({ data: { token: result.token, expiresAt: result.expiresAt } });
 });
 
 // GET /api/platform/tenants/:tenantId/audit-log

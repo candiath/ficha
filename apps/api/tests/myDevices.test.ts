@@ -9,7 +9,7 @@ import {
   TRUSTED_SESSION,
   TRUSTED_SESSIONS_PER_USER,
 } from '../src/lib/authSessionPolicy';
-import { hashAuthSessionToken } from '../src/lib/authSessionToken';
+import { hashOpaqueToken } from '../src/lib/opaqueToken';
 import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 // Session lifetime and the session list (docs/specs/SPEC-my-sessions.md).
@@ -24,7 +24,7 @@ const me = (token: string) =>
   request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
 
 const lastUsedAt = async (token: string) =>
-  (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(token) } }))
+  (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashOpaqueToken(token) } }))
     .lastUsedAt;
 
 describe('idle expiry', () => {
@@ -132,7 +132,7 @@ describe('trusted login', () => {
       .send({ email: user.email, password: TEST_PASSWORD, ...body });
 
   const sessionOf = (token: string) =>
-    prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(token) } });
+    prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashOpaqueToken(token) } });
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -203,7 +203,7 @@ describe('my sessions', () => {
   const untrust = (token: string, id: string) =>
     as(token, request(app).post(`/api/auth/devices/${id}/untrust`));
   const idOf = async (token: string) =>
-    (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(token) } })).id;
+    (await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashOpaqueToken(token) } })).id;
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -301,7 +301,7 @@ describe('my sessions', () => {
 
     expect((await untrust(current, await idOf(phone))).status).toBe(204);
 
-    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(phone) } });
+    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashOpaqueToken(phone) } });
     expect(row.trusted).toBe(false);
     expect(row.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + NORMAL_SESSION.absoluteMs + MINUTE);
     expect((await me(phone)).status).toBe(200);
@@ -314,7 +314,7 @@ describe('my sessions', () => {
 
     expect((await untrust(current, await idOf(normal))).status).toBe(404);
     expect((await untrust(current, await idOf(colleaguesTrusted))).status).toBe(404);
-    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashAuthSessionToken(colleaguesTrusted) } });
+    const row = await prisma.authSession.findUniqueOrThrow({ where: { tokenHash: hashOpaqueToken(colleaguesTrusted) } });
     expect(row.trusted).toBe(true);
   });
 

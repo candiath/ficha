@@ -10,7 +10,13 @@ import { usersApi } from '@/services/users';
 // confirmación y la mutación de react-query corren de verdad.
 vi.mock('@/services/users', () => ({
   userKeys: { list: ['users'] },
-  usersApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), disconnectDevices: vi.fn() },
+  usersApi: {
+    list: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    disconnectDevices: vi.fn(),
+    createPasswordReset: vi.fn(),
+  },
 }));
 
 const refresh = vi.fn().mockResolvedValue(undefined);
@@ -30,6 +36,9 @@ import { toast } from 'sonner';
 const list = vi.mocked(usersApi.list);
 const update = vi.mocked(usersApi.update);
 const disconnectDevices = vi.mocked(usersApi.disconnectDevices);
+const createPasswordReset = vi.mocked(usersApi.createPasswordReset);
+
+const LINK = { token: 'tok_abc', expiresAt: '2026-10-07T15:00:00.000Z' };
 
 const YO: TenantUser = {
   id: 'u-yo',
@@ -38,6 +47,7 @@ const YO: TenantUser = {
   role: 'ADMIN',
   isActive: true,
   lastLoginAt: null,
+  passwordResetExpiresAt: null,
 };
 
 const COLEGA: TenantUser = {
@@ -47,6 +57,7 @@ const COLEGA: TenantUser = {
   role: 'THERAPIST',
   isActive: true,
   lastLoginAt: '2026-09-10T12:00:00.000Z',
+  passwordResetExpiresAt: null,
 };
 
 function renderCard() {
@@ -232,5 +243,87 @@ describe('UsersCard: disconnect devices', () => {
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirmar' }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Usuario no encontrado'));
+  });
+});
+
+describe('UsersCard: password reset', () => {
+  const resetButton = { name: 'Restablecer contraseña' };
+
+  it('is offered on other active users only', async () => {
+    const INACTIVA: TenantUser = {
+      ...COLEGA,
+      id: 'u-inactiva',
+      name: 'Ex Colega',
+      email: 'ex@clinica.test',
+      isActive: false,
+    };
+    list.mockResolvedValue([YO, COLEGA, INACTIVA]);
+    renderCard();
+
+    expect((await fila('Colega Fisio')).getByRole('button', resetButton)).toBeEnabled();
+    expect((await fila('Yo Admin')).queryByRole('button', resetButton)).not.toBeInTheDocument();
+    expect((await fila('Ex Colega')).queryByRole('button', resetButton)).not.toBeInTheDocument();
+  });
+
+  it('states the effects, then shows the link once with its expiry, and copies it', async () => {
+    createPasswordReset.mockResolvedValue(LINK);
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', resetButton));
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent('¿Restablecer la contraseña de Colega Fisio?');
+    expect(confirm).toHaveTextContent('su contraseña actual deja de funcionar ya');
+    expect(createPasswordReset).not.toHaveBeenCalled();
+    const listCallsBefore = list.mock.calls.length;
+
+    await user.click(within(confirm).getByRole('button', { name: 'Confirmar' }));
+
+    expect(createPasswordReset).toHaveBeenCalledWith('u-colega');
+    const shown = await screen.findByRole('dialog', { name: 'Enlace para Colega Fisio' });
+    const url = `${window.location.origin}/restablecer-contrasena#tok_abc`;
+    expect(within(shown).getByRole('textbox')).toHaveValue(url);
+    expect(shown).toHaveTextContent('sirve una sola vez');
+    await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(listCallsBefore));
+
+    await user.click(within(shown).getByRole('button', { name: 'Copiar' }));
+    expect(await navigator.clipboard.readText()).toBe(url);
+    expect(toast.success).toHaveBeenCalledWith('Enlace copiado');
+
+    await user.click(within(shown).getByRole('button', { name: 'Listo' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByDisplayValue(url)).not.toBeInTheDocument();
+  });
+
+  it('cancelling does not call the API', async () => {
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', resetButton));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancelar' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(createPasswordReset).not.toHaveBeenCalled();
+  });
+
+  it('shows the server message on failure, and no link', async () => {
+    createPasswordReset.mockRejectedValue(new Error('El usuario está desactivado'));
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', resetButton));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('El usuario está desactivado'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('marks a user with a pending reset', async () => {
+    list.mockResolvedValue([YO, { ...COLEGA, passwordResetExpiresAt: LINK.expiresAt }]);
+    renderCard();
+
+    const colega = await fila('Colega Fisio');
+    expect(colega.getByText(/^Restablecimiento pendiente · vence /)).toBeInTheDocument();
+    expect((await fila('Yo Admin')).queryByText(/Restablecimiento pendiente/)).not.toBeInTheDocument();
   });
 });

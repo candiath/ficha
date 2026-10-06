@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -31,7 +31,10 @@ export default function LoginPage() {
 
   // ProtectedRoute guarda acá la ruta que el usuario intentó visitar,
   // para volver a ella después de loguearse.
-  const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
+  const state = location.state as { from?: string; notice?: string } | null;
+  const from = state?.from ?? '/dashboard';
+  // Set by another page that sends her here, e.g. after a password reset.
+  const notice = state?.notice;
 
   // Ya logueado (p. ej. navegó a /login manualmente): directo a la app.
   if (!isLoading && user) return <Navigate to={from} replace />;
@@ -64,6 +67,13 @@ export default function LoginPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {notice && !error && (
+                <div role="status" className="flex items-center gap-2 text-sm text-primary">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  {notice}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input

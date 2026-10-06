@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { hashAuthSessionToken } from '../src/lib/authSessionToken';
+import { hashOpaqueToken } from '../src/lib/opaqueToken';
 import {
   createTestClinic,
   createTestOperator,
@@ -52,7 +52,7 @@ describe('login sessions', () => {
 
     expect(sessions).toHaveLength(1);
     const [session] = sessions;
-    expect(session.tokenHash.equals(hashAuthSessionToken(token))).toBe(true);
+    expect(session.tokenHash.equals(hashOpaqueToken(token))).toBe(true);
     // The raw token appears in no column of the row.
     expect(JSON.stringify(session)).not.toContain(token);
   });
@@ -99,7 +99,7 @@ describe('logout', () => {
     expect((await me(otherDevice)).status).toBe(200);
 
     const revoked = await prisma.authSession.findUniqueOrThrow({
-      where: { tokenHash: hashAuthSessionToken(current) },
+      where: { tokenHash: hashOpaqueToken(current) },
     });
     expect(revoked.revokedAt).not.toBeNull();
   });

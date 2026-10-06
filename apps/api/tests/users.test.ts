@@ -67,6 +67,7 @@ describe('requireRole + /api/users', () => {
       'isActive',
       'lastLoginAt',
       'name',
+      'passwordResetExpiresAt',
       'role',
     ]);
   });

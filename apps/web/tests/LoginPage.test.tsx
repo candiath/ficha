@@ -51,3 +51,33 @@ describe('LoginPage: trusted device', () => {
     await waitFor(() => expect(login).toHaveBeenCalledWith('ana@example.com', 'secreta-123', true));
   });
 });
+
+describe('LoginPage: notice from another page', () => {
+  it('shows the message it was sent with, until a login error replaces it', async () => {
+    login.mockRejectedValue(new Error('Email o contraseña incorrectos'));
+    render(
+      <MemoryRouter
+        initialEntries={[
+          { pathname: '/login', state: { notice: 'Listo, ya podés ingresar con tu contraseña nueva' } },
+        ]}
+      >
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Listo, ya podés ingresar con tu contraseña nueva',
+    );
+
+    await fillAndSubmit(false);
+
+    expect(await screen.findByText('Email o contraseña incorrectos')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing without one', () => {
+    renderLogin();
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
