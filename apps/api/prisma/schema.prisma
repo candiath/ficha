@@ -129,6 +129,8 @@ model User {
   appointments Appointment[]
   platformAuditLogs PlatformAuditLog[]
   authSessions AuthSession[]
+  passwordResetTokens  PasswordResetToken[] @relation("PasswordResetTokenUser")
+  passwordResetsIssued PasswordResetToken[] @relation("PasswordResetTokenIssuer")
 
   @@index([tenantId])
   @@map("users")
@@ -170,6 +172,42 @@ model AuthSession {
   @@map("auth_sessions")
 }
 
+// Single-use password reset links (docs/specs/SPEC-password-reset.md). An
+// ADMIN or the platform operator generates one; generating it already
+// revokes the user's sessions and disables her password, and using it sets
+// the new one. Like auth_sessions, only sha256(token) is stored and there is
+// no tenantId: the owner is the user.
+//
+// The created_by_* and network columns are evidence, not mechanics: they let
+// the audit (#186) show who generated each link and from where it was
+// generated and used — an ADMIN opening the link herself to impersonate a
+// therapist leaves the same IP and browser on both sides. They exist only at
+// that moment, so they are captured now even though nothing reads them yet.
+model PasswordResetToken {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenHash     Bytes     @unique @map("token_hash")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  // A newer link, or the password changing some other way, retires it.
+  invalidatedAt DateTime? @map("invalidated_at")
+
+  createdByUserId     String? @map("created_by_user_id") @db.Uuid
+  createdByOperatorId String? @map("created_by_operator_id") @db.Uuid
+  createdIp           String? @map("created_ip")
+  createdUserAgent    String? @map("created_user_agent")
+  usedIp              String? @map("used_ip")
+  usedUserAgent       String? @map("used_user_agent")
+
+  user              User              @relation("PasswordResetTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser     User?             @relation("PasswordResetTokenIssuer", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByOperator PlatformOperator? @relation(fields: [createdByOperatorId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Operador de plataforma (issue #153): quien crea clínicas y les delega su
 // primer ADMIN. Mantiene la plataforma; no es personal de salud de ninguna
@@ -197,6 +235,7 @@ model PlatformOperator {
 
   auditLogs   PlatformAuditLog[]
   loginEvents LoginEvent[]
+  passwordResetsIssued PasswordResetToken[]
 
   @@map("platform_operators")
 }

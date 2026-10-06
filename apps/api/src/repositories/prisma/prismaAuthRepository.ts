@@ -7,7 +7,7 @@ import {
   TRUSTED_SESSION,
   TRUSTED_SESSIONS_PER_USER,
 } from '../../lib/authSessionPolicy';
-import { generateAuthSessionToken, hashAuthSessionToken } from '../../lib/authSessionToken';
+import { generateOpaqueToken, hashOpaqueToken } from '../../lib/opaqueToken';
 import type {
   AuthRepository,
   CreateAuthSessionInput,
@@ -118,10 +118,10 @@ export const prismaAuthRepository: AuthRepository = {
   },
 
   async createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }> {
-    const token = generateAuthSessionToken();
+    const token = generateOpaqueToken();
     const data = {
       userId: input.userId,
-      tokenHash: hashAuthSessionToken(token),
+      tokenHash: hashOpaqueToken(token),
       trusted: input.trusted,
       expiresAt: new Date(Date.now() + authSessionProfile(input.trusted).absoluteMs),
       ip: input.ip,
@@ -161,7 +161,7 @@ export const prismaAuthRepository: AuthRepository = {
     const row = await prisma.authSession.findFirst({
       where: {
         ...liveAuthSessionWhere(new Date()),
-        tokenHash: hashAuthSessionToken(token),
+        tokenHash: hashOpaqueToken(token),
         user: { isActive: true, tenant: { deactivatedAt: null } },
       },
       select: {

@@ -6,18 +6,18 @@ Commands: `npm test` (API, Neon development branch, ~8 min) · `npm test -w apps
 
 ## Task 1: Reset-link table and ADMIN generation
 
-**Description:** Model `PasswordResetToken` (`password_reset_tokens`, spec *Data*) and its migration; generalize `lib/authSessionToken.ts` into an opaque-token module used by both. `userRepository.createPasswordReset(ctx, userId, { ip, userAgent })` → `{ ok: true, token, expiresAt } | { ok: false, reason: 'not_found' | 'inactive' }`: in one transaction, tenant-scoped lookup, invalidate her unused links, insert the new one (hash, 24 h, `created_by_user_id`, IP, user agent), replace her password hash with a bcrypt hash of random bytes, revoke her sessions. Route `POST /api/users/:id/password-reset`: `201 { data: { token, expiresAt } }` with `Cache-Control: no-store`; `404`, `409` inactive, `400` herself.
+**Description:** Model `PasswordResetToken` (`password_reset_tokens`, spec *Data*) and its migration; generalize `lib/authSessionToken.ts` into `lib/opaqueToken.ts`, used by both. `userRepository.createPasswordReset(ctx, userId, { ip, userAgent })` → `{ ok: true, token, expiresAt } | { ok: false, reason: 'not_found' | 'inactive' }`: in one transaction, tenant-scoped lookup, invalidate her unused links, insert the new one (hash, 24 h, `created_by_user_id`, IP, user agent), replace her password hash with a bcrypt hash of random bytes, revoke her sessions. Route `POST /api/users/:id/password-reset`: `201 { data: { token, expiresAt } }` with `Cache-Control: no-store`; `404`, `409` inactive, `400` herself.
 
 **Acceptance criteria:**
 - [ ] After generation the user's tokens get `401` and her old password fails at login with the standard `401`; an earlier unused link is invalidated.
 - [ ] Another clinic's user → `404` and nothing changes (sessions, hash, links); inactive → `409`, nothing changes; herself → `400`; another ADMIN → `201`; a THERAPIST → `403`.
 - [ ] Only the SHA-256 is stored; the row has the generator, IP and user agent; the stored password hash is a valid bcrypt hash.
 
-**Verification:** `npx vitest run passwordReset authSessionToken` · `npm run check`
+**Verification:** `npx vitest run passwordReset opaqueToken` · `npm run check`
 
 **Dependencies:** None
 
-**Files likely touched:** `apps/api/prisma/schema.prisma` + migration, `apps/api/src/lib/authSessionToken.ts` (generalized), `apps/api/src/repositories/{userRepository.ts,prisma/prismaUserRepository.ts}`, a shared Prisma helper for the generation writes, `apps/api/src/routes/users.ts`, `apps/api/tests/passwordReset.test.ts` (new)
+**Files likely touched:** `apps/api/prisma/schema.prisma` + migration, `apps/api/src/lib/opaqueToken.ts` (was `authSessionToken.ts`), `apps/api/src/repositories/{userRepository.ts,prisma/prismaUserRepository.ts}`, a shared Prisma helper for the generation writes, `apps/api/src/routes/users.ts`, `apps/api/tests/passwordReset.test.ts` (new)
 
 **Estimated scope:** Medium
 
