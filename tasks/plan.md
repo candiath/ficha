@@ -29,7 +29,7 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 
 ### Phase 3: Web
 - [x] Task 5: Generate action, link dialog and pending badge (Usuarios and platform page)
-- [ ] Task 6: Public page `/restablecer-contrasena` and the message on `/login`
+- [x] Task 6: Public page `/restablecer-contrasena` and the message on `/login`
 
 ### Checkpoint B: end to end
 - [ ] Full API and web suites green; `npm run check` clean

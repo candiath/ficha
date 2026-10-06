@@ -14,6 +14,7 @@ import LoginPage from '@/pages/LoginPage'
 import PatientDetailPage from '@/pages/PatientDetailPage'
 import PatientsPage from '@/pages/PatientsPage'
 import PaymentsPage from '@/pages/PaymentsPage'
+import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import SessionsPage from '@/pages/SessionsPage'
 import AlertsPage from '@/pages/AlertsPage'
 
@@ -93,6 +94,8 @@ export default function App() {
       <Routes>
       <Route index element={<LandingPage />} />
       <Route path="login" element={<LoginPage />} />
+      {/* Public, like /login: whoever opens a reset link has no session. */}
+      <Route path="restablecer-contrasena" element={<ResetPasswordPage />} />
       {import.meta.env.DEV && LabPage && (
         <Route path="lab" element={<Suspense fallback={null}><LabPage /></Suspense>} />
       )}
