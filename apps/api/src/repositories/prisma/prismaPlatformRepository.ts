@@ -20,7 +20,11 @@ import type {
   PlatformTenantDTO,
   PlatformUserDTO,
 } from '../platformRepository';
-import { issuePasswordReset } from './passwordResetLinks';
+import {
+  issuePasswordReset,
+  pendingPasswordResetExpiry,
+  pendingPasswordResetSelect,
+} from './passwordResetLinks';
 import { whereConservaAdmin } from './userRules';
 
 // Usa el prisma base a conciencia, como authRepository: no hay TenantContext
@@ -62,12 +66,17 @@ const userSelect = {
   role: true,
   isActive: true,
   lastLoginAt: true,
-} as const;
+  ...pendingPasswordResetSelect,
+} satisfies Prisma.UserSelect;
 
 type UserRow = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
-function toUserDTO(row: UserRow): PlatformUserDTO {
-  return { ...row, lastLoginAt: row.lastLoginAt?.toISOString() ?? null };
+function toUserDTO({ passwordResetTokens, ...row }: UserRow): PlatformUserDTO {
+  return {
+    ...row,
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    passwordResetExpiresAt: pendingPasswordResetExpiry({ isActive: row.isActive, passwordResetTokens }),
+  };
 }
 
 const auditSelect = {

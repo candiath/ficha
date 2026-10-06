@@ -273,6 +273,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
         'isActive',
         'lastLoginAt',
         'name',
+        'passwordResetExpiresAt',
         'role',
       ]);
 
@@ -397,7 +398,15 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThan(0);
       for (const u of res.body.data) {
-        expect(Object.keys(u).sort()).toEqual(['email', 'id', 'isActive', 'lastLoginAt', 'name', 'role']);
+        expect(Object.keys(u).sort()).toEqual([
+          'email',
+          'id',
+          'isActive',
+          'lastLoginAt',
+          'name',
+          'passwordResetExpiresAt',
+          'role',
+        ]);
       }
     });
   });

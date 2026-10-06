@@ -12,6 +12,8 @@ export interface TenantUserDTO {
   role: UserRole;
   isActive: boolean;
   lastLoginAt: string | null;
+  // Expiry of her usable reset link; null if there is none (SPEC-password-reset).
+  passwordResetExpiresAt: string | null;
 }
 
 // El hash llega ya calculado: el costo de bcrypt es una decisión de la ruta

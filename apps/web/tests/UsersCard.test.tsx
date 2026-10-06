@@ -38,6 +38,7 @@ const YO: TenantUser = {
   role: 'ADMIN',
   isActive: true,
   lastLoginAt: null,
+  passwordResetExpiresAt: null,
 };
 
 const COLEGA: TenantUser = {
@@ -47,6 +48,7 @@ const COLEGA: TenantUser = {
   role: 'THERAPIST',
   isActive: true,
   lastLoginAt: '2026-09-10T12:00:00.000Z',
+  passwordResetExpiresAt: null,
 };
 
 function renderCard() {

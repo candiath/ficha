@@ -10,7 +10,11 @@ import type {
   UserUpdateInput,
   UserUpdateResult,
 } from '../userRepository';
-import { issuePasswordReset } from './passwordResetLinks';
+import {
+  issuePasswordReset,
+  pendingPasswordResetExpiry,
+  pendingPasswordResetSelect,
+} from './passwordResetLinks';
 import { whereConservaAdmin } from './userRules';
 
 const tenantUserSelect = {
@@ -20,19 +24,17 @@ const tenantUserSelect = {
   role: true,
   isActive: true,
   lastLoginAt: true,
-} as const;
+  ...pendingPasswordResetSelect,
+} satisfies Prisma.UserSelect;
 
-type UserRow = {
-  id: string;
-  email: string;
-  name: string | null;
-  role: TenantUserDTO['role'];
-  isActive: boolean;
-  lastLoginAt: Date | null;
-};
+type UserRow = Prisma.UserGetPayload<{ select: typeof tenantUserSelect }>;
 
-function toDTO(row: UserRow): TenantUserDTO {
-  return { ...row, lastLoginAt: row.lastLoginAt?.toISOString() ?? null };
+function toDTO({ passwordResetTokens, ...row }: UserRow): TenantUserDTO {
+  return {
+    ...row,
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    passwordResetExpiresAt: pendingPasswordResetExpiry({ isActive: row.isActive, passwordResetTokens }),
+  };
 }
 
 export const prismaUserRepository: UserRepository = {

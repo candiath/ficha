@@ -60,6 +60,7 @@ const ADMIN: PlatformUser = {
   role: 'ADMIN',
   isActive: true,
   lastLoginAt: '2026-09-10T12:00:00.000Z',
+  passwordResetExpiresAt: null,
 };
 
 const FISIO: PlatformUser = {
@@ -69,6 +70,7 @@ const FISIO: PlatformUser = {
   role: 'THERAPIST',
   isActive: true,
   lastLoginAt: null,
+  passwordResetExpiresAt: null,
 };
 
 const AUDIT: PlatformAuditEntry[] = [
@@ -252,6 +254,7 @@ describe('PlatformTenantDetailPage', () => {
       role: 'ADMIN',
       isActive: true,
       lastLoginAt: null,
+      passwordResetExpiresAt: null,
     });
     renderAt();
 

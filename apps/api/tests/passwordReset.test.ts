@@ -502,6 +502,93 @@ describe('using a reset link', () => {
   });
 });
 
+describe('pending reset in the user lists', () => {
+  let clinic: TestClinic;
+  let op: TestOperator;
+  let adminToken: string;
+
+  const generate = async (userId: string) =>
+    (
+      await request(app)
+        .post(`/api/users/${userId}/password-reset`)
+        .set('Authorization', `Bearer ${adminToken}`)
+    ).body.data as { token: string; expiresAt: string };
+
+  const pendingInClinicList = async (userId: string) => {
+    const res = await request(app).get('/api/users').set('Authorization', `Bearer ${adminToken}`);
+    return res.body.data.find((u: { id: string }) => u.id === userId).passwordResetExpiresAt;
+  };
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    op = await createTestOperator();
+    adminToken = await createTestToken(await clinic.createUser({ role: 'ADMIN' }));
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+    await op.cleanup();
+  });
+
+  it('shows the expiry of her usable link, in both lists, and never the token', async () => {
+    const therapist = await clinic.createUser();
+    const link = await generate(therapist.id);
+
+    expect(await pendingInClinicList(therapist.id)).toBe(link.expiresAt);
+    const res = await request(app)
+      .get(`/api/platform/tenants/${clinic.tenantId}/users`)
+      .set('Authorization', `Bearer ${op.token}`);
+    const row = res.body.data.find((u: { id: string }) => u.id === therapist.id);
+    expect(row.passwordResetExpiresAt).toBe(link.expiresAt);
+    expect(JSON.stringify(res.body)).not.toContain(link.token);
+  });
+
+  it('is null for a user who never had a link', async () => {
+    const therapist = await clinic.createUser();
+
+    expect(await pendingInClinicList(therapist.id)).toBeNull();
+  });
+
+  it('a newer link moves the expiry to the newer one', async () => {
+    const therapist = await clinic.createUser();
+    await generate(therapist.id);
+    const newer = await generate(therapist.id);
+
+    expect(await pendingInClinicList(therapist.id)).toBe(newer.expiresAt);
+  });
+
+  it('is null once the link is used, even with a retired earlier one behind it', async () => {
+    const therapist = await clinic.createUser();
+    await generate(therapist.id);
+    const link = await generate(therapist.id);
+    await request(app)
+      .post('/api/auth/password-reset')
+      .set('X-Forwarded-For', '10.6.0.1')
+      .send({ token: link.token, newPassword: 'ya-la-cambie' });
+
+    expect(await pendingInClinicList(therapist.id)).toBeNull();
+  });
+
+  it('is null once the link expired', async () => {
+    const therapist = await clinic.createUser();
+    await generate(therapist.id);
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: therapist.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    expect(await pendingInClinicList(therapist.id)).toBeNull();
+  });
+
+  it('is null once she is deactivated: her link no longer works', async () => {
+    const therapist = await clinic.createUser();
+    await generate(therapist.id);
+    await prisma.user.update({ where: { id: therapist.id }, data: { isActive: false } });
+
+    expect(await pendingInClinicList(therapist.id)).toBeNull();
+  });
+});
+
 describe('the whole flow through the API', () => {
   let clinic: TestClinic;
 

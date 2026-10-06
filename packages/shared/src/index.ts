@@ -119,6 +119,9 @@ export interface ChangePasswordResponse {
 export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   isActive: boolean;
   lastLoginAt: string | null;
+  // Expiry of her usable password reset link, or null: the
+  // "Restablecimiento pendiente" badge.
+  passwordResetExpiresAt: string | null;
 }
 
 // Payload de POST /api/users.

@@ -21,11 +21,11 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 - [x] Task 2: Public check and reset
 
 ### Checkpoint A: the flow works through the API
-- [ ] Generate as ADMIN → old sessions and password dead → check → reset → login with the new password; full API suite green
+- [x] Generate as ADMIN → old sessions and password dead → check → reset → login with the new password; full API suite green
 
 ### Phase 2: Remaining API
 - [x] Task 3: Operator generation, audited
-- [ ] Task 4: Pending reset in the user lists
+- [x] Task 4: Pending reset in the user lists
 
 ### Phase 3: Web
 - [ ] Task 5: Generate action, link dialog and pending badge (Usuarios and platform page)

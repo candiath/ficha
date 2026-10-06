@@ -3,6 +3,31 @@ import { PASSWORD_RESET_TTL_MS } from '../../lib/passwordReset';
 import { generateOpaqueToken, hashOpaqueToken } from '../../lib/opaqueToken';
 import type { PasswordResetIssueInput, PasswordResetLink } from '../userRepository';
 
+// The user lists show a pending reset (SPEC-password-reset, decision 5):
+// merged into each list's select, so the badge comes with the row. Her
+// unused, unretired link — generating a new one retires the earlier, so
+// there is at most one — and pendingPasswordResetExpiry decides whether it
+// still counts.
+export const pendingPasswordResetSelect = {
+  passwordResetTokens: {
+    where: { usedAt: null, invalidatedAt: null },
+    orderBy: { expiresAt: 'desc' },
+    take: 1,
+    select: { expiresAt: true },
+  },
+} satisfies Prisma.UserSelect;
+
+// The expiry of her link if it can still be used, else null. A deactivated
+// user's link is dead (the public routes require her active), so no badge.
+export function pendingPasswordResetExpiry(row: {
+  isActive: boolean;
+  passwordResetTokens: { expiresAt: Date }[];
+}): string | null {
+  const link = row.passwordResetTokens[0];
+  if (!row.isActive || !link || link.expiresAt.getTime() <= Date.now()) return null;
+  return link.expiresAt.toISOString();
+}
+
 // Who generates a link: an ADMIN of the clinic or the platform operator.
 export type PasswordResetIssuer = { userId: string } | { operatorId: string };
 
