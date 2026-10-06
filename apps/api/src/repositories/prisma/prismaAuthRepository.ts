@@ -15,6 +15,8 @@ import type {
   LoginAttempt,
   LoginEventInput,
   LoginUser,
+  PasswordResetTarget,
+  PasswordResetUseInput,
   PublicProfile,
   ValidAuthSession,
   AuthSessionSummary,
@@ -34,6 +36,19 @@ const publicProfileSelect = {
   role: true,
   tenant: { select: { name: true, slug: true } },
 } as const;
+
+// A password reset link that can still be used (SPEC-password-reset): unused,
+// not retired, not expired, and its user and clinic active — a deactivated
+// account cannot be reopened through a link generated before. One definition
+// for the check and for the write that uses it.
+function validPasswordResetWhere(now: Date): Prisma.PasswordResetTokenWhereInput {
+  return {
+    usedAt: null,
+    invalidatedAt: null,
+    expiresAt: { gt: now },
+    user: { isActive: true, tenant: { deactivatedAt: null } },
+  };
+}
 
 // A session that still grants access: not revoked, not past its absolute
 // timeout, not past its profile's idle timeout. One definition for
@@ -274,6 +289,48 @@ export const prismaAuthRepository: AuthRepository = {
         data: { revokedAt: new Date() },
       }),
     ]);
+  },
+
+  async checkPasswordReset(token: string): Promise<PasswordResetTarget | null> {
+    const link = await prisma.passwordResetToken.findFirst({
+      where: { tokenHash: hashOpaqueToken(token), ...validPasswordResetWhere(new Date()) },
+      select: { user: { select: { email: true, name: true } } },
+    });
+    return link?.user ?? null;
+  },
+
+  async resetPassword(token: string, input: PasswordResetUseInput): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const link = await tx.passwordResetToken.findFirst({
+        where: { tokenHash: hashOpaqueToken(token), ...validPasswordResetWhere(now) },
+        select: { id: true, userId: true },
+      });
+      if (!link) return false;
+
+      // Single use is decided by this write: usedAt: null in its where means
+      // that of two concurrent requests with the same link, the second one
+      // waits for the first to commit, then matches nothing (count 0).
+      const { count } = await tx.passwordResetToken.updateMany({
+        where: { id: link.id, ...validPasswordResetWhere(now) },
+        data: { usedAt: now, usedIp: input.ip, usedUserAgent: input.userAgent },
+      });
+      if (count === 0) return false;
+
+      await tx.user.update({ where: { id: link.userId }, data: { passwordHash: input.passwordHash } });
+      await tx.passwordResetToken.updateMany({
+        where: { userId: link.userId, usedAt: null, invalidatedAt: null },
+        data: { invalidatedAt: now },
+      });
+      // Generating the link already revoked every session; this catches any
+      // opened since by other means (none should exist: her password was
+      // disabled), so the new password starts from a clean slate.
+      await tx.authSession.updateMany({
+        where: { userId: link.userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      return true;
+    });
   },
 
   async recordLoginEvent(input: LoginEventInput): Promise<void> {

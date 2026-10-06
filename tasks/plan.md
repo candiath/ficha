@@ -18,7 +18,7 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 
 ### Phase 1: Core API
 - [x] Task 1: Reset-link table and ADMIN generation
-- [ ] Task 2: Public check and reset
+- [x] Task 2: Public check and reset
 
 ### Checkpoint A: the flow works through the API
 - [ ] Generate as ADMIN → old sessions and password dead → check → reset → login with the new password; full API suite green

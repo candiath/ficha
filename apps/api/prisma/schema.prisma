@@ -190,7 +190,7 @@ model PasswordResetToken {
   createdAt     DateTime  @default(now()) @map("created_at")
   expiresAt     DateTime  @map("expires_at")
   usedAt        DateTime? @map("used_at")
-  // A newer link, or the password changing some other way, retires it.
+  // Retired by a newer link, or when another of her links is used.
   invalidatedAt DateTime? @map("invalidated_at")
 
   createdByUserId     String? @map("created_by_user_id") @db.Uuid

@@ -165,3 +165,275 @@ describe('ADMIN generates a reset link', () => {
     expect(await linksOf(target.id)).toHaveLength(0);
   });
 });
+
+describe('using a reset link', () => {
+  let clinic: TestClinic;
+  let adminToken: string;
+  // Each public request comes from its own IP (trust proxy reads
+  // X-Forwarded-For), so the per-IP limiters do not count across tests; the
+  // limiter itself has its own test below.
+  let nextIp = 1;
+  const fromNewIp = () => `10.3.0.${nextIp++}`;
+
+  const NEW_PASSWORD = 'contraseña-nueva-123';
+
+  const check = (token: string) =>
+    request(app)
+      .post('/api/auth/password-reset/check')
+      .set('X-Forwarded-For', fromNewIp())
+      .send({ token });
+
+  const reset = (token: string, newPassword = NEW_PASSWORD) =>
+    request(app)
+      .post('/api/auth/password-reset')
+      .set('X-Forwarded-For', fromNewIp())
+      .set('User-Agent', 'reset-agent/2.0')
+      .send({ token, newPassword });
+
+  const loginFromNewIp = (email: string, password: string) =>
+    request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', fromNewIp())
+      .send({ email, password });
+
+  const newLink = async (user: User): Promise<string> => {
+    const res = await request(app)
+      .post(`/api/users/${user.id}/password-reset`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    return res.body.data.token as string;
+  };
+
+  const INVALID = { error: 'El enlace no es válido o ya venció' };
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    adminToken = await createTestToken(await clinic.createUser({ role: 'ADMIN' }));
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+  });
+
+  it('check says whose account a valid link resets', async () => {
+    const therapist = await clinic.createUser({ name: 'Tere Fisio' });
+    const token = await newLink(therapist);
+
+    const res = await check(token);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ data: { email: therapist.email, name: 'Tere Fisio' } });
+  });
+
+  it('sets the new password: she logs in with it, not with the old one', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+
+    const res = await reset(token);
+
+    expect(res.status).toBe(204);
+    expect((await loginFromNewIp(therapist.email, NEW_PASSWORD)).status).toBe(200);
+    expect((await loginFromNewIp(therapist.email, TEST_PASSWORD)).status).toBe(401);
+  });
+
+  it('records when and from where the link was used', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+
+    await reset(token);
+
+    const [link] = await linksOf(therapist.id);
+    expect(link.usedAt).not.toBeNull();
+    expect(link.usedUserAgent).toBe('reset-agent/2.0');
+    expect(link.usedIp).toEqual(expect.any(String));
+  });
+
+  it('is single use: the second time is the uniform 400 and the password stays', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+    await reset(token);
+
+    const second = await reset(token, 'otra-contraseña-456');
+
+    expect(second.status).toBe(400);
+    expect(second.body).toEqual(INVALID);
+    expect((await check(token)).status).toBe(400);
+    expect(await bcrypt.compare(NEW_PASSWORD, await passwordHashOf(therapist.id))).toBe(true);
+  });
+
+  it('two simultaneous uses: exactly one succeeds', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+
+    const results = await Promise.all([reset(token, 'primera-123456'), reset(token, 'segunda-123456')]);
+
+    expect(results.map((r) => r.status).sort()).toEqual([204, 400]);
+    const [link] = await linksOf(therapist.id);
+    expect(link.usedAt).not.toBeNull();
+  });
+
+  it('closes any session opened after the link was generated', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+    const lateSession = await createTestToken(therapist);
+
+    await reset(token);
+
+    expect((await me(lateSession)).status).toBe(401);
+  });
+
+  describe('every invalid link gets the same 400 and changes nothing', () => {
+    const expectInvalid = async (token: string, userId?: string) => {
+      const hashBefore = userId ? await passwordHashOf(userId) : null;
+
+      const checked = await check(token);
+      const used = await reset(token);
+
+      expect(checked.status).toBe(400);
+      expect(checked.body).toEqual(INVALID);
+      expect(used.status).toBe(400);
+      expect(used.body).toEqual(INVALID);
+      if (userId) expect(await passwordHashOf(userId)).toBe(hashBefore);
+    };
+
+    it('expired', async () => {
+      const therapist = await clinic.createUser();
+      const token = await newLink(therapist);
+      await prisma.passwordResetToken.updateMany({
+        where: { userId: therapist.id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+
+      await expectInvalid(token, therapist.id);
+    });
+
+    it('retired by a newer link', async () => {
+      const therapist = await clinic.createUser();
+      const older = await newLink(therapist);
+      await newLink(therapist);
+
+      await expectInvalid(older, therapist.id);
+    });
+
+    it('of a user deactivated after it was generated', async () => {
+      const therapist = await clinic.createUser();
+      const token = await newLink(therapist);
+      await prisma.user.update({ where: { id: therapist.id }, data: { isActive: false } });
+
+      await expectInvalid(token, therapist.id);
+    });
+
+    it('of a deactivated clinic', async () => {
+      const closing = await createTestClinic();
+      try {
+        const admin = await closing.createUser({ role: 'ADMIN' });
+        const therapist = await closing.createUser();
+        const res = await request(app)
+          .post(`/api/users/${therapist.id}/password-reset`)
+          .set('Authorization', `Bearer ${await createTestToken(admin)}`);
+        await prisma.tenant.update({
+          where: { id: closing.tenantId },
+          data: { deactivatedAt: new Date() },
+        });
+
+        await expectInvalid(res.body.data.token, therapist.id);
+      } finally {
+        await closing.cleanup();
+      }
+    });
+
+    it('unknown', async () => {
+      await expectInvalid('A'.repeat(43));
+    });
+
+    it('not even shaped like a token', async () => {
+      await expectInvalid('no-es-un-token');
+    });
+  });
+
+  it('a too-short password is rejected and the link stays usable', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+
+    const res = await reset(token, 'corta');
+
+    expect(res.status).toBe(400);
+    expect(res.body.details.newPassword).toBeDefined();
+    expect((await check(token)).status).toBe(200);
+  });
+
+  it('takes the token only from the body', async () => {
+    const therapist = await clinic.createUser();
+    const token = await newLink(therapist);
+
+    const res = await request(app)
+      .post(`/api/auth/password-reset?token=${token}`)
+      .set('X-Forwarded-For', fromNewIp())
+      .send({ newPassword: NEW_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect((await check(token)).status).toBe(200);
+  });
+
+  it('the public routes are rate limited per IP', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const res = await request(app)
+        .post('/api/auth/password-reset/check')
+        .set('X-Forwarded-For', '10.3.255.1')
+        .send({ token: 'A'.repeat(43) });
+      statuses.push(res.status);
+    }
+
+    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
+    expect(statuses[10]).toBe(429);
+  });
+});
+
+describe('the whole flow through the API', () => {
+  let clinic: TestClinic;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+  });
+
+  it('generate → old access dead → check → reset → log in with the new password', async () => {
+    const admin = await clinic.createUser({ role: 'ADMIN' });
+    const therapist = await clinic.createUser();
+    const oldSession = await createTestToken(therapist);
+
+    const generated = await request(app)
+      .post(`/api/users/${therapist.id}/password-reset`)
+      .set('Authorization', `Bearer ${await createTestToken(admin)}`);
+    const token = generated.body.data.token as string;
+
+    expect((await me(oldSession)).status).toBe(401);
+    const oldLogin = await request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', '10.4.0.1')
+      .send({ email: therapist.email, password: TEST_PASSWORD });
+    expect(oldLogin.status).toBe(401);
+
+    const checked = await request(app)
+      .post('/api/auth/password-reset/check')
+      .set('X-Forwarded-For', '10.4.0.2')
+      .send({ token });
+    expect(checked.body.data.email).toBe(therapist.email);
+
+    const done = await request(app)
+      .post('/api/auth/password-reset')
+      .set('X-Forwarded-For', '10.4.0.3')
+      .send({ token, newPassword: 'la-nueva-de-verdad' });
+    expect(done.status).toBe(204);
+
+    const loggedIn = await request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', '10.4.0.4')
+      .send({ email: therapist.email, password: 'la-nueva-de-verdad' });
+    expect(loggedIn.status).toBe(200);
+    expect((await me(loggedIn.body.data.token)).status).toBe(200);
+  });
+});
