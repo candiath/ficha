@@ -23,6 +23,7 @@ description: Cómo levantar y verificar Ficha (API Express + web Vite) end-to-en
 - Operador de plataforma: `POST /api/platform/auth/login` → token propio; `GET /api/platform/tenants`. Ese token da 401 en cualquier `/api/*` de la clínica, y viceversa. UI en `/platform/login`.
 - Datos demo útiles: pacientes "María García" y "Javier Rodríguez" (historia completa). Los ids son UUID (#174): el seed los deriva del nombre legible con `devId('dev-patient-001')`, así que son fijos entre corridas; el seed imprime los de los episodios al terminar, o se sacan de `GET /api/patients`.
 - Un id malformado en la URL da 404 con el mensaje de la entidad; en el body, 400.
+- Password reset: as the ADMIN, *Clínica → Usuarios → Restablecer contraseña* on another active user (the seed has only the ADMIN: create one with *Nuevo usuario*), or the same button on the operator's clinic page. The dialog shows `http://localhost:5173/restablecer-contrasena#<token>` once. Log out first and open it in the same browser: a logged-in session makes `/login` jump to the dashboard and the success message is lost. The page clears the fragment, asks for the new password twice and lands on `/login`; the same link again says "El enlace no es válido o ya venció". In dev React runs effects twice, so `check` shows up twice in the network tab (and twice in the per-IP limit: 10 / 15 min).
 
 ## Gotchas
 

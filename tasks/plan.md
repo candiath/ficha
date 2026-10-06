@@ -36,7 +36,7 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 - [ ] Manual (skill `verify`): ADMIN generates a link for a therapist logged in elsewhere → her session dies; the link opens in a private window, sets the password, lands on `/login`, she logs in; the link fails a second time; the badge appears and disappears
 
 ### Phase 4: Docs
-- [ ] Task 7: `CLAUDE.md` and verify skill
+- [x] Task 7: `CLAUDE.md` and verify skill
 
 ### Checkpoint C: complete
 - [ ] Spec success criteria met; PR against `dev` open, CI green
