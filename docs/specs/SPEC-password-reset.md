@@ -1,6 +1,6 @@
 # Spec: password-reset
 
-> **DRAFT, awaiting approval.** Written 2026-10-05; the first four open questions were answered the same day (see *Decisions*).
+> **DRAFT, awaiting approval.** Written 2026-10-05; every open question was answered the same day (see *Decisions*).
 
 Module 4 of the [authentication redesign](auth-redesign-map.md). Builds on [`server-sessions`](SPEC-server-sessions.md); sits next to [`admin-revocation`](SPEC-admin-revocation.md). Issue #177.
 
@@ -71,6 +71,7 @@ The API returns the token, not a URL: the web knows its own origin and builds th
 ### Web
 
 - **Usuarios (`UsersCard`)** and **platform tenant detail**: a **Restablecer contraseña** action on each active user (not on your own row nor on inactive users), behind a confirmation dialog that states the effects at generation time: "Se cierran todas sus sesiones y su contraseña actual deja de funcionar ya. El enlace dura 24 horas y sirve una sola vez." Then a second dialog shows the link **once**, with a copy button and its expiry: "Compartilo por un canal seguro: quien tenga este enlace puede entrar a la cuenta."
+- **Pending reset badge** (decision 5): while a user has a valid unused link, both user lists show "Restablecimiento pendiente · vence <fecha>" next to her name, so the ADMIN knows why she cannot log in. `TenantUserDTO` (and `PlatformUserDTO`) gain `passwordResetExpiresAt: string | null` — the expiry of her valid link, computed in the list query; never the token or anything that would let the reader use it.
 - **Public page `/restablecer-contrasena`**, outside the authenticated layout (next to `/login`): calls `check`; shows "Nueva contraseña para <email>" with password and confirmation; on success, it sends her to `/login` with "Listo, ya podés ingresar con tu contraseña nueva" (decision 2): the login keeps its throttling and the "trusted device" choice. An invalid link shows the uniform message and suggests asking whoever sent it for a new one.
 
 ### Audit
@@ -89,7 +90,7 @@ API (`passwordReset.test.ts`):
 - Timing property: login against a reset-pending account runs bcrypt against a real hash (assert the stored hash is a valid bcrypt hash that the old password does not match).
 - The token never appears in a URL the API receives (routes take it in the body).
 
-Web: the action and its two dialogs on both screens; the public page reads the fragment, clears it, handles invalid links, validates the confirmation, and submits.
+Web: the action and its two dialogs on both screens; the pending badge appears while the link is valid and disappears once it is used, invalidated or expired (also asserted on the API list); the public page reads the fragment, clears it, handles invalid links, validates the confirmation, and submits.
 
 ## Boundaries
 
@@ -109,7 +110,5 @@ Web: the action and its two dialogs on both screens; the public page reads the f
 2. **After a successful reset she goes to `/login`**; no automatic login.
 3. **An ADMIN can reset another ADMIN** of her clinic (not herself: she uses *Mi cuenta*).
 4. **Audit rows for the ADMIN's action and for the use of the link go in the audit PR (#186)**; this module only stores the evidence: who generated each link, and the **IP and device** of whoever generated it and whoever used it, so an ADMIN impersonating a therapist leaves a trace.
+5. **Show a pending reset in *Usuarios*** (and on the platform tenant page), with its expiry.
 
-## Open Questions
-
-5. **Show a pending reset in *Usuarios*?** E.g. a "Restablecimiento pendiente, vence <fecha>" badge on the user while her link is unused. It would tell the ADMIN that the user cannot log in until she uses it. *Recommendation: yes* — it is one more field in the list and avoids "why can't she log in?" confusion; but it can wait if you prefer the smallest module.
