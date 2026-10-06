@@ -13,6 +13,7 @@ description: Cómo levantar y verificar Ficha (API Express + web Vite) end-to-en
 - Seed idempotente: `npm run db:seed` (usuario demo `admin@ficha.dev` / `password123`; operador de plataforma `operador@ficha.dev` / `password123`).
 - La API exige `PLATFORM_JWT_SECRET` (al menos 32 caracteres): sin él no arranca. `JWT_SECRET` ya no se usa: las sesiones de la clínica viven en `auth_sessions` (token opaco de 43 caracteres) y se pueden ver con SQL.
 - Sesiones de login ("dispositivos"): normal 1 h sin uso / 12 h total; con "Mantener la sesión iniciada en este dispositivo" (casilla del login), 7 días / 30 días. Se ven y se cierran en *Mi cuenta → Dispositivos conectados*. Para simular otro dispositivo, loguear por API con otro `User-Agent` (`curl -H 'User-Agent: …'`): aparece en la tarjeta como "Safari en iPhone", etc. Una sesión vieja del navegador puede haber muerto por inactividad: si `/login` no redirige, es eso.
+- Disconnecting someone else's devices: as ADMIN, *Clínica → Usuarios → Desconectar dispositivos* (not on your own row, nor on inactive users); as operator, the same button on `/platform/tenants/<id>`, which also adds a "Dispositivos desconectados" row to the clinic's platform history. To check it, log the target in via API first: her token answers `401` afterwards, and she can log in again.
 - Levantar API y web desde el panel de preview: `.claude/launch.json` (local, gitignored) con `npm run dev:api` (3001) y `npm run dev:web` (5173).
 
 ## Flujos que valen la pena

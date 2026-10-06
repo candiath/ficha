@@ -146,6 +146,25 @@ router.patch('/tenants/:tenantId/users/:userId', async (req, res) => {
   res.json({ data: result.user });
 });
 
+// POST /api/platform/tenants/:tenantId/users/:userId/disconnect-devices —
+// closes every session of the user without deactivating her, audited. 204
+// with no body, like the clinic's own route: no device count.
+router.post('/tenants/:tenantId/users/:userId/disconnect-devices', async (req, res) => {
+  const done = await platformRepo.disconnectUserDevices(
+    req.operator,
+    req.params.tenantId,
+    req.params.userId,
+  );
+
+  // Nonexistent clinic, or a user who is not in it: same 404.
+  if (!done) {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return;
+  }
+
+  res.status(204).send();
+});
+
 // GET /api/platform/tenants/:tenantId/audit-log
 router.get('/tenants/:tenantId/audit-log', async (req, res) => {
   const entries = await platformRepo.listAuditLog(req.params.tenantId);

@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "PlatformAction" ADD VALUE 'USER_DEVICES_DISCONNECTED';
+

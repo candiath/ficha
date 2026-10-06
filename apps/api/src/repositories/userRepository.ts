@@ -50,4 +50,11 @@ export interface UserRepository {
    * activa (ver whereConservaAdmin).
    */
   update(ctx: TenantContext, id: string, input: UserUpdateInput): Promise<UserUpdateResult>;
+  /**
+   * Revokes every open AuthSession of the user (SPEC-admin-revocation):
+   * she keeps her account and logs in again. `not_found` if she does not
+   * exist or belongs to another clinic. Returns no count on purpose: how
+   * many devices she had is her own business.
+   */
+  disconnectDevices(ctx: TenantContext, id: string): Promise<'disconnected' | 'not_found'>;
 }

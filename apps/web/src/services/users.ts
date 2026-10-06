@@ -12,4 +12,7 @@ export const usersApi = {
   create: (data: CreateUserInput) => api.post<TenantUser>('/api/users', data),
   update: (id: string, data: UpdateUserInput) =>
     api.patch<TenantUser>(`/api/users/${id}`, data),
+  // 204 without a count: how many devices she had is not shown to the ADMIN.
+  disconnectDevices: (id: string) =>
+    api.post<void>(`/api/users/${id}/disconnect-devices`, {}),
 };
