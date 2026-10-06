@@ -24,7 +24,7 @@ An ADMIN or the operator generates a 24 h single-use link that immediately close
 - [ ] Generate as ADMIN → old sessions and password dead → check → reset → login with the new password; full API suite green
 
 ### Phase 2: Remaining API
-- [ ] Task 3: Operator generation, audited
+- [x] Task 3: Operator generation, audited
 - [ ] Task 4: Pending reset in the user lists
 
 ### Phase 3: Web

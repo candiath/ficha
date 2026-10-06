@@ -1,6 +1,12 @@
 import type { PlatformAction } from '@prisma/client';
 import type { OperatorContext } from './types';
-import type { TenantUserDTO, UserUpdateInput, UserUpdateResult } from './userRepository';
+import type {
+  PasswordResetIssueInput,
+  PasswordResetIssueResult,
+  TenantUserDTO,
+  UserUpdateInput,
+  UserUpdateResult,
+} from './userRepository';
 
 // Repositorio del operador de plataforma (issue #153). Es la tercera
 // excepción documentada a "ctx: TenantContext primero", y la más deliberada:
@@ -128,6 +134,18 @@ export interface PlatformRepository {
    * clinic does not exist or the user is not in it.
    */
   disconnectUserDevices(op: OperatorContext, tenantId: string, userId: string): Promise<boolean>;
+  /**
+   * Generates a single-use reset link for a user of the clinic, with the
+   * same effects as the ADMIN's (SPEC-password-reset), and audits it.
+   * `not_found` covers a nonexistent clinic and a user who is not in it;
+   * `inactive` if she is deactivated. Neither changes anything or audits.
+   */
+  createUserPasswordReset(
+    op: OperatorContext,
+    tenantId: string,
+    userId: string,
+    input: PasswordResetIssueInput,
+  ): Promise<PasswordResetIssueResult>;
 
   /**
    * Acciones sobre una clínica, de la más reciente a la más vieja. null si

@@ -6,7 +6,14 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { hashOpaqueToken } from '../src/lib/opaqueToken';
 import { PASSWORD_RESET_TTL_MS } from '../src/lib/passwordReset';
-import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
+import {
+  createTestClinic,
+  createTestOperator,
+  createTestToken,
+  TEST_PASSWORD,
+  type TestClinic,
+  type TestOperator,
+} from './helpers';
 
 // Password reset links (docs/specs/SPEC-password-reset.md).
 
@@ -162,6 +169,112 @@ describe('ADMIN generates a reset link', () => {
     const res = await generate(target.id, await createTestToken(therapist));
 
     expect(res.status).toBe(403);
+    expect(await linksOf(target.id)).toHaveLength(0);
+  });
+});
+
+describe('the platform operator generates a reset link', () => {
+  let clinic: TestClinic;
+  let other: TestClinic;
+  let op: TestOperator;
+
+  const generate = (tenantId: string, userId: string, token = op.token) =>
+    request(app)
+      .post(`/api/platform/tenants/${tenantId}/users/${userId}/password-reset`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('User-Agent', 'operator-agent/1.0');
+
+  const auditRows = (targetUserId: string) =>
+    prisma.platformAuditLog.findMany({
+      where: { targetUserId, action: 'PASSWORD_RESET_LINK_CREATED' },
+    });
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    other = await createTestClinic();
+    op = await createTestOperator();
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+    await other.cleanup();
+    await op.cleanup();
+  });
+
+  it('has the same effects as the ADMIN’s, and leaves one audit row', async () => {
+    const admin = await clinic.createUser({ role: 'ADMIN' });
+    const session = await createTestToken(admin);
+
+    const res = await generate(clinic.tenantId, admin.id);
+
+    expect(res.status).toBe(201);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect((await me(session)).status).toBe(401);
+    expect((await login(admin.email, TEST_PASSWORD)).status).toBe(401);
+    const [link] = await linksOf(admin.id);
+    expect(link.tokenHash.equals(hashOpaqueToken(res.body.data.token))).toBe(true);
+    expect(link).toMatchObject({
+      createdByUserId: null,
+      createdByOperatorId: op.operator.id,
+      createdUserAgent: 'operator-agent/1.0',
+    });
+    const rows = await auditRows(admin.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      operatorId: op.operator.id,
+      tenantId: clinic.tenantId,
+      description: `Generó un enlace para restablecer la contraseña de ${admin.email}`,
+    });
+  });
+
+  it('the link works on the public routes', async () => {
+    const therapist = await clinic.createUser();
+
+    const res = await generate(clinic.tenantId, therapist.id);
+    const reset = await request(app)
+      .post('/api/auth/password-reset')
+      .set('X-Forwarded-For', '10.5.0.1')
+      .send({ token: res.body.data.token, newPassword: 'la-del-operador' });
+
+    expect(reset.status).toBe(204);
+    expect((await login(therapist.email, 'la-del-operador')).status).toBe(200);
+  });
+
+  it('a user of another clinic is a 404: no audit row, nothing changes', async () => {
+    const foreign = await other.createUser();
+    const foreignToken = await createTestToken(foreign);
+    const hashBefore = await passwordHashOf(foreign.id);
+
+    const res = await generate(clinic.tenantId, foreign.id);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Usuario no encontrado' });
+    expect((await me(foreignToken)).status).toBe(200);
+    expect(await passwordHashOf(foreign.id)).toBe(hashBefore);
+    expect(await linksOf(foreign.id)).toHaveLength(0);
+    expect(await auditRows(foreign.id)).toHaveLength(0);
+  });
+
+  it('an inactive user is a 409: no audit row, nothing changes', async () => {
+    const inactive = await clinic.createUser({ isActive: false });
+    const hashBefore = await passwordHashOf(inactive.id);
+
+    const res = await generate(clinic.tenantId, inactive.id);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'El usuario está desactivado' });
+    expect(await passwordHashOf(inactive.id)).toBe(hashBefore);
+    expect(await linksOf(inactive.id)).toHaveLength(0);
+    expect(await auditRows(inactive.id)).toHaveLength(0);
+  });
+
+  it('a clinic session token cannot use the operator route', async () => {
+    const admin = await clinic.createUser({ role: 'ADMIN' });
+    const target = await clinic.createUser();
+
+    const res = await generate(clinic.tenantId, target.id, await createTestToken(admin));
+
+    expect(res.status).toBe(401);
     expect(await linksOf(target.id)).toHaveLength(0);
   });
 });

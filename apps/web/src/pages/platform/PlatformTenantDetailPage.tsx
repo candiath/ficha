@@ -41,6 +41,7 @@ const ACTION_LABELS: Record<PlatformAction, string> = {
   USER_ROLE_CHANGED: 'Cambio de rol',
   USER_ACTIVE_CHANGED: 'Cambio de estado',
   USER_DEVICES_DISCONNECTED: 'Dispositivos desconectados',
+  PASSWORD_RESET_LINK_CREATED: 'Enlace para restablecer contraseña',
 };
 
 function formatDateTime(iso: string | null): string {

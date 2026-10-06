@@ -248,6 +248,7 @@ enum PlatformAction {
   USER_ROLE_CHANGED
   USER_ACTIVE_CHANGED
   USER_DEVICES_DISCONNECTED
+  PASSWORD_RESET_LINK_CREATED
 }
 
 // Cada acción del operador, con el operador como actor. Tabla propia y no

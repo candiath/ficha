@@ -278,7 +278,8 @@ export type PlatformAction =
   | 'ADMIN_CREATED'
   | 'USER_ROLE_CHANGED'
   | 'USER_ACTIVE_CHANGED'
-  | 'USER_DEVICES_DISCONNECTED';
+  | 'USER_DEVICES_DISCONNECTED'
+  | 'PASSWORD_RESET_LINK_CREATED';
 
 export interface PlatformAuditEntry {
   id: string;
