@@ -17,11 +17,13 @@ export function passwordResetUrl(token: string): string {
   return `${window.location.origin}/restablecer-contrasena#${token}`;
 }
 
+// Short ("7 oct, 10:56"): it goes in a badge that has to fit a phone.
 export function formatResetExpiry(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', {
-    day: '2-digit',
+    day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
   });
 }
