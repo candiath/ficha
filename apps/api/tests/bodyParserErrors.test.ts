@@ -48,6 +48,20 @@ describe('request body errors', () => {
     expect(res.body).toEqual({ error: 'Solicitud inválida' });
   });
 
+  // Pins the middleware order on purpose: express.json() runs before
+  // authenticate, so a bad body wins over a missing token on protected routes
+  // too. Moving the parser after authenticate would turn this into a 401;
+  // that is a decision to make explicitly, not by accident.
+  it('a bad body on a protected route is a 400 even without a token', async () => {
+    const res = await request(app)
+      .post('/api/patients')
+      .set('Content-Type', 'application/json')
+      .send('{"fullName":');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'El cuerpo de la solicitud no es JSON válido' });
+  });
+
   it('never echoes the raw body back', async () => {
     const res = await postLogin().send('{"password":"hunter2"');
 
