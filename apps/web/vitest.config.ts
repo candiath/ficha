@@ -10,8 +10,8 @@ export default defineConfig({
     alias: {
       // Mismo alias que vite.config.ts: sin esto los tests resolverían
       // @ficha/shared al dist de CommonJS y verían otro código que la app.
-      '@ficha/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-      '@': path.resolve(__dirname, './src'),
+      '@ficha/shared': path.resolve(import.meta.dirname, '../../packages/shared/src/index.ts'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   test: {
