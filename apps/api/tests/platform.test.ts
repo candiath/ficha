@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
@@ -14,6 +15,12 @@ import {
 } from './helpers';
 
 const PLATFORM = '/api/platform';
+
+// Suffix for the clinic names and slugs this file creates. It must be random:
+// CI runs of different PRs share one database, so two runs creating the same
+// slug get a 409. The operator's id is a UUIDv7, whose first 8 characters are
+// its timestamp and repeat for about a minute, so it cannot be the suffix.
+const runId = randomUUID().slice(0, 8);
 
 // El operador de plataforma (#153): crea clínicas, les delega su ADMIN, y
 // las puede apagar. Y NO ve nada clínico: las respuestas se comparan campo
@@ -127,12 +134,12 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
   describe('clínicas', () => {
     it('crear una clínica la deja en la lista, sin ADMIN, con auditoría', async () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants`)).send({
-        name: `Clínica Nueva ${op.operator.id.slice(0, 8)}`,
+        name: `Clínica Nueva ${runId}`,
       });
 
       expect(res.status).toBe(201);
       createdTenantIds.push(res.body.data.id);
-      expect(res.body.data.slug).toBe(`clinica-nueva-${op.operator.id.slice(0, 8)}`);
+      expect(res.body.data.slug).toBe(`clinica-nueva-${runId}`);
       expect(res.body.data.activeAdmins).toBe(0);
       expect(res.body.data.deactivatedAt).toBeNull();
 
@@ -161,14 +168,14 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
 
     it('un slug vacío o de espacios cuenta como no venir: sale del nombre', async () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants`)).send({
-        name: `  Clínica Sin Slug ${op.operator.id.slice(0, 8)} `,
+        name: `  Clínica Sin Slug ${runId} `,
         slug: '   ',
       });
 
       expect(res.status).toBe(201);
       createdTenantIds.push(res.body.data.id);
-      expect(res.body.data.name).toBe(`Clínica Sin Slug ${op.operator.id.slice(0, 8)}`);
-      expect(res.body.data.slug).toBe(`clinica-sin-slug-${op.operator.id.slice(0, 8)}`);
+      expect(res.body.data.name).toBe(`Clínica Sin Slug ${runId}`);
+      expect(res.body.data.slug).toBe(`clinica-sin-slug-${runId}`);
     });
 
     it('un slug repetido responde 409', async () => {
@@ -251,7 +258,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
 
     beforeAll(async () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants`)).send({
-        name: `Clínica Delegada ${op.operator.id.slice(0, 8)}`,
+        name: `Clínica Delegada ${runId}`,
       });
       tenantId = res.body.data.id;
       createdTenantIds.push(tenantId);
