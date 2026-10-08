@@ -46,6 +46,25 @@ const ChangePasswordSchema = z
     path: ['newPassword'],
   });
 
+// Password reset links (SPEC-password-reset). The token travels only in the
+// body: a query string or path would put it in access logs. Each public
+// route gets its own per-IP limiter; a 256-bit token cannot be guessed, so
+// they guard against floods (and the bcrypt behind a valid one), not guesses.
+const passwordResetCheckLimiter = createLoginLimiter();
+const passwordResetLimiter = createLoginLimiter();
+
+// The shape of an opaque token (lib/opaqueToken.ts). Anything else is not a
+// link we issued: answered like any invalid link, without a query.
+const OPAQUE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+// One answer for every bad link — unknown, used, retired, expired, or of a
+// deactivated user or clinic: the page cannot tell which, and neither can
+// whoever is probing.
+const INVALID_RESET_LINK = { error: 'El enlace no es válido o ya venció' };
+
+const PasswordResetCheckSchema = z.object({ token: z.string() });
+const PasswordResetSchema = z.object({ token: z.string(), newPassword: PasswordSchema });
+
 // user es null cuando el email no corresponde a ninguna cuenta: el evento
 // queda sin tenant ni usuario, pero con el email (lo que cuenta el freno).
 function recordAttempt(
@@ -152,6 +171,44 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await authRepo.changePassword(user.id, passwordHash, req.authSessionId);
 
+  res.status(204).end();
+});
+
+// POST /api/auth/password-reset/check — whose account a link resets, so the
+// page can show it before asking for the new password.
+router.post('/password-reset/check', passwordResetCheckLimiter, async (req, res) => {
+  const { token } = PasswordResetCheckSchema.parse(req.body);
+  const target = OPAQUE_TOKEN.test(token) ? await authRepo.checkPasswordReset(token) : null;
+  if (!target) {
+    res.status(400).json(INVALID_RESET_LINK);
+    return;
+  }
+  res.json({ data: target });
+});
+
+// POST /api/auth/password-reset — sets the new password with a link. No
+// session is created: the page sends her to /login, which keeps its own
+// throttling and the "trusted device" choice.
+router.post('/password-reset', passwordResetLimiter, async (req, res) => {
+  const { token, newPassword } = PasswordResetSchema.parse(req.body);
+
+  // Checked before bcrypt: an invalid link costs one indexed query, not a
+  // hash. The write below re-checks validity in its own where, so a link used
+  // between the two still fails there.
+  if (!OPAQUE_TOKEN.test(token) || !(await authRepo.checkPasswordReset(token))) {
+    res.status(400).json(INVALID_RESET_LINK);
+    return;
+  }
+
+  const done = await authRepo.resetPassword(token, {
+    passwordHash: await bcrypt.hash(newPassword, 10),
+    ip: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
+  if (!done) {
+    res.status(400).json(INVALID_RESET_LINK);
+    return;
+  }
   res.status(204).end();
 });
 

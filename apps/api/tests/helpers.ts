@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import type { PlatformOperator, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { generateAuthSessionToken, hashAuthSessionToken } from '../src/lib/authSessionToken';
+import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -90,11 +90,11 @@ export async function createTestToken(
   user: { id: string },
   opts: CreateTestTokenOptions = {},
 ): Promise<string> {
-  const token = generateAuthSessionToken();
+  const token = generateOpaqueToken();
   await prisma.authSession.create({
     data: {
       userId: user.id,
-      tokenHash: hashAuthSessionToken(token),
+      tokenHash: hashOpaqueToken(token),
       expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
       trusted: opts.trusted ?? false,
       ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
@@ -171,4 +171,28 @@ export async function waitFor<T>(
     }
     await sleep(intervalMs);
   }
+}
+
+// ─── Audit entries for direct repository calls ──────────────────────────────
+// Audited repository writes take their audit entry as an argument (#188);
+// tests that call them directly pass one of these.
+
+export function patientAudit(action: 'CREATED' | 'UPDATED') {
+  return (p: { id: string }) => ({
+    patientId: p.id,
+    entity: 'PATIENT' as const,
+    entityId: p.id,
+    action,
+    description: `test: patient ${action.toLowerCase()}`,
+  });
+}
+
+export function patientDeleteAudit(patientId: string) {
+  return {
+    patientId,
+    entity: 'PATIENT' as const,
+    entityId: patientId,
+    action: 'DELETED' as const,
+    description: 'test: patient deleted',
+  };
 }

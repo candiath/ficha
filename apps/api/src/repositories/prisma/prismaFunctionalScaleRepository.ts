@@ -6,6 +6,8 @@ import type {
   FunctionalScaleRepository,
   FunctionalScaleSummaryDTO,
 } from '../functionalScaleRepository';
+import type { AuditBuilder } from '../auditLogRepository';
+import { recordAudit } from './recordAudit';
 
 const summarySelect = {
   id: true,
@@ -83,20 +85,27 @@ export const prismaFunctionalScaleRepository: FunctionalScaleRepository = {
     ctx: TenantContext,
     patientId: string,
     input: FunctionalScaleCreateInput,
+    audit: AuditBuilder<FunctionalScaleDTO>,
   ): Promise<FunctionalScaleDTO> {
     const db = forTenant(ctx);
-    const row = await db.functionalScale.create({
-      data: {
-        patientId,
-        scaleType: input.scaleType,
-        responses: input.responses,
-        score: input.score,
-        interpretation: input.interpretation,
-        ...(input.appliedAt ? { appliedAt: input.appliedAt } : {}),
-      },
-      select: detailSelect,
+    // The audit row goes in the same transaction as the write (#188).
+    return db.$transaction(async (tx) => {
+      const row = await tx.functionalScale.create({
+        data: {
+          tenantId: ctx.tenantId,
+          patientId,
+          scaleType: input.scaleType,
+          responses: input.responses,
+          score: input.score,
+          interpretation: input.interpretation,
+          ...(input.appliedAt ? { appliedAt: input.appliedAt } : {}),
+        },
+        select: detailSelect,
+      });
+      const scale = toDTO(row);
+      await recordAudit(tx, ctx, audit(scale));
+      return scale;
     });
-    return toDTO(row);
   },
 
   async delete(ctx: TenantContext, patientId: string, id: string): Promise<boolean> {

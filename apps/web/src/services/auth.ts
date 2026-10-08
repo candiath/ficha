@@ -3,6 +3,7 @@ import type {
   AuthSessionDTO,
   AuthUser,
   LoginResponse,
+  PasswordResetTarget,
   RevokeOtherAuthSessionsResponse,
 } from '@ficha/shared';
 
@@ -19,6 +20,15 @@ export const authApi = {
       currentPassword,
       newPassword,
     }),
+};
+
+// Public: whoever holds a reset link (SPEC-password-reset). The token goes
+// only in the body, never in a URL the API would log.
+export const passwordResetApi = {
+  check: (token: string) =>
+    api.post<PasswordResetTarget>('/api/auth/password-reset/check', { token }),
+  reset: (token: string, newPassword: string) =>
+    api.post<void>('/api/auth/password-reset', { token, newPassword }),
 };
 
 // The user's own login sessions, shown as "dispositivos" (never "sesiones":

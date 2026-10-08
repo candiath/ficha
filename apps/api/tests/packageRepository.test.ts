@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { packageRepo, patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, type TestClinic } from './helpers';
+import { createTestClinic, type TestClinic, patientAudit } from './helpers';
 
 // packageRepo concentra la regla "no borrar un paquete con sesiones ya
 // usadas": deleteIfUnused lleva la condición en el where del delete (sin
@@ -28,13 +28,14 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
     ctxA = { tenantId: clinicA.tenantId, userId: userA.id, role: userA.role };
     ctxB = { tenantId: clinicB.tenantId, userId: userB.id, role: userB.role };
 
-    patientA = await patientRepo.create(ctxA, { fullName: 'Paciente A' });
-    patientA2 = await patientRepo.create(ctxA, { fullName: 'Paciente A2' });
-    patientB = await patientRepo.create(ctxB, { fullName: 'Paciente B' });
+    patientA = await patientRepo.create(ctxA, { fullName: 'Paciente A' }, patientAudit('CREATED'));
+    patientA2 = await patientRepo.create(ctxA, { fullName: 'Paciente A2' }, patientAudit('CREATED'));
+    patientB = await patientRepo.create(ctxB, { fullName: 'Paciente B' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
+    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });

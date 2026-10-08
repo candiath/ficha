@@ -1,5 +1,6 @@
 import type { ScaleType } from '@prisma/client';
 import type { TenantContext } from './types';
+import type { AuditBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ export interface FunctionalScaleRepository {
     ctx: TenantContext,
     patientId: string,
     input: FunctionalScaleCreateInput,
+    audit: AuditBuilder<FunctionalScaleDTO>,
   ): Promise<FunctionalScaleDTO>;
   /** false si no había escala del paciente que borrar. */
   delete(ctx: TenantContext, patientId: string, id: string): Promise<boolean>;

@@ -10,6 +10,8 @@ import type {
   SessionUpdateInput,
   SessionWithPatientDTO,
 } from '../sessionRepository';
+import type { AuditBuilder, AuditEntry } from '../auditLogRepository';
+import { recordAudit } from './recordAudit';
 
 // Política del repositorio: todo método opera sobre sesiones vigentes. Una
 // sesión borrada no se lista, no se lee y no se edita — el mismo criterio que
@@ -157,6 +159,7 @@ export const prismaSessionRepository: SessionRepository = {
     ctx: TenantContext,
     patientId: string,
     input: SessionCreateInput,
+    audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionCreateResult> {
     const db = forTenant(ctx);
     const { episodeIds, payment, appointmentId } = input;
@@ -234,6 +237,9 @@ export const prismaSessionRepository: SessionRepository = {
         if (count === 0) throw new TurnoYaRegistrado();
       }
 
+      // The audit row goes in the same transaction as everything above (#188).
+      await recordAudit(tx, ctx, audit(toDTO(created)));
+
       return created;
     }).catch((e: unknown) => {
       // El único caso en que la transacción se aborta a propósito: el turno
@@ -251,32 +257,39 @@ export const prismaSessionRepository: SessionRepository = {
     patientId: string,
     id: string,
     input: SessionUpdateInput,
+    audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionDTO | null> {
     const db = forTenant(ctx);
     const { episodeIds } = input;
 
     try {
-      // patientId en el where del update (Prisma 5 acepta campos no únicos en
-      // WhereUniqueInput): pertenencia y tenant se deciden en la misma query
-      // que escribe. Si no matchea, Prisma tira P2025 y devolvemos null —
-      // el reemplazo de episodios es anidado y no se puede hacer con
-      // updateMany, así que este es el equivalente sin ventana.
-      const row = await db.session.update({
-        // deletedAt en el where: una sesión borrada no se edita. Si no
-        // matchea, Prisma tira P2025 y esto devuelve null → 404.
-        where: { ...VIGENTE, id, patientId },
-        data: {
-          ...sessionData(input),
-          // Reemplaza el conjunto de episodios vinculados solo si se envía.
-          // !== undefined y no truthy: [] significa "desvincular todos" y es
-          // distinto de "el campo no vino" (issue #97).
-          ...(episodeIds !== undefined
-            ? { episodes: { deleteMany: {}, create: episodeLinks(episodeIds) } }
-            : {}),
-        },
-        select: sessionSelect,
+      // The audit row goes in the same transaction as the write (#188). A
+      // P2025 thrown inside rolls it back and becomes null below.
+      return await db.$transaction(async (tx) => {
+        // patientId en el where del update (Prisma 5 acepta campos no únicos en
+        // WhereUniqueInput): pertenencia y tenant se deciden en la misma query
+        // que escribe. Si no matchea, Prisma tira P2025 y devolvemos null —
+        // el reemplazo de episodios es anidado y no se puede hacer con
+        // updateMany, así que este es el equivalente sin ventana.
+        const row = await tx.session.update({
+          // deletedAt en el where: una sesión borrada no se edita. Si no
+          // matchea, Prisma tira P2025 y esto devuelve null → 404.
+          where: { ...VIGENTE, id, patientId, tenantId: ctx.tenantId },
+          data: {
+            ...sessionData(input),
+            // Reemplaza el conjunto de episodios vinculados solo si se envía.
+            // !== undefined y no truthy: [] significa "desvincular todos" y es
+            // distinto de "el campo no vino" (issue #97).
+            ...(episodeIds !== undefined
+              ? { episodes: { deleteMany: {}, create: episodeLinks(episodeIds) } }
+              : {}),
+          },
+          select: sessionSelect,
+        });
+        const session = toDTO(row);
+        await recordAudit(tx, ctx, audit(session));
+        return session;
       });
-      return toDTO(row);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
         return null;
@@ -289,6 +302,7 @@ export const prismaSessionRepository: SessionRepository = {
     ctx: TenantContext,
     patientId: string,
     id: string,
+    audit: AuditEntry,
   ): Promise<'deleted' | 'not_found' | 'paid'> {
     const db = forTenant(ctx);
 
@@ -328,6 +342,8 @@ export const prismaSessionRepository: SessionRepository = {
           where: { sessionId: id, tenantId: ctx.tenantId },
           data: { sessionId: null },
         });
+        // The audit row goes in the same transaction as the deletion (#188).
+        await recordAudit(tx, ctx, audit);
         return 'deleted';
       }
 

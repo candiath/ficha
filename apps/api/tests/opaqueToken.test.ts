@@ -1,22 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { generateAuthSessionToken, hashAuthSessionToken } from '../src/lib/authSessionToken';
+import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 import { createTestClinic, type TestClinic } from './helpers';
 
-describe('session tokens', () => {
+describe('opaque tokens', () => {
   it('are 256 random bits in base64url', () => {
-    const token = generateAuthSessionToken();
+    const token = generateOpaqueToken();
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(generateAuthSessionToken()).not.toBe(token);
+    expect(generateOpaqueToken()).not.toBe(token);
   });
 
   it('hash to 32 deterministic bytes', () => {
-    const token = generateAuthSessionToken();
-    const hash = hashAuthSessionToken(token);
+    const token = generateOpaqueToken();
+    const hash = hashOpaqueToken(token);
     expect(hash).toHaveLength(32);
-    expect(hashAuthSessionToken(token).equals(hash)).toBe(true);
-    expect(hashAuthSessionToken(generateAuthSessionToken()).equals(hash)).toBe(false);
+    expect(hashOpaqueToken(token).equals(hash)).toBe(true);
+    expect(hashOpaqueToken(generateOpaqueToken()).equals(hash)).toBe(false);
   });
 });
 
@@ -37,28 +37,28 @@ describe('auth_sessions.token_hash', () => {
   });
 
   it('finds a session by the hash of its token, and only by that', async () => {
-    const token = generateAuthSessionToken();
+    const token = generateOpaqueToken();
     const created = await prisma.authSession.create({
       data: {
         userId: user.id,
-        tokenHash: hashAuthSessionToken(token),
+        tokenHash: hashOpaqueToken(token),
         expiresAt: new Date(Date.now() + 60_000),
       },
     });
 
     const found = await prisma.authSession.findUnique({
-      where: { tokenHash: hashAuthSessionToken(token) },
+      where: { tokenHash: hashOpaqueToken(token) },
     });
     expect(found?.id).toBe(created.id);
 
     const other = await prisma.authSession.findUnique({
-      where: { tokenHash: hashAuthSessionToken(generateAuthSessionToken()) },
+      where: { tokenHash: hashOpaqueToken(generateOpaqueToken()) },
     });
     expect(other).toBeNull();
   });
 
   it('rejects a second session with the same hash', async () => {
-    const tokenHash = hashAuthSessionToken(generateAuthSessionToken());
+    const tokenHash = hashOpaqueToken(generateOpaqueToken());
     const expiresAt = new Date(Date.now() + 60_000);
     await prisma.authSession.create({ data: { userId: user.id, tokenHash, expiresAt } });
 

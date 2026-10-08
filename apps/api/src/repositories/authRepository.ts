@@ -85,6 +85,21 @@ export interface LoginAttempt {
   success: boolean;
 }
 
+// The public reset page shows whose account it is about to reset: whoever
+// holds the link already controls the account, so this reveals nothing new.
+export interface PasswordResetTarget {
+  email: string;
+  name: string | null;
+}
+
+// passwordHash arrives computed (bcrypt is the route's business); ip and
+// userAgent are those of whoever uses the link: evidence for the audit (#186).
+export interface PasswordResetUseInput {
+  passwordHash: string;
+  ip: string | null;
+  userAgent: string | null;
+}
+
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 export interface AuthRepository {
@@ -130,6 +145,21 @@ export interface AuthRepository {
    * `keepSessionId` (the one making the change), in one transaction.
    */
   changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void>;
+
+  // ── Password reset links (SPEC-password-reset) ────────────────────────────
+  // A link is valid if it is unused, not invalidated and not expired, and its
+  // user and her clinic are active: one `where`, shared by both methods.
+
+  /** Whose account a valid link resets; null for any invalid link. */
+  checkPasswordReset(token: string): Promise<PasswordResetTarget | null>;
+  /**
+   * Uses the link: sets the new hash, marks the link used (with the request's
+   * IP and user agent), retires her other links and revokes her sessions, in
+   * one transaction conditioned on the link still being valid. false if it is
+   * not — including when a concurrent request used it first.
+   */
+  resetPassword(token: string, input: PasswordResetUseInput): Promise<boolean>;
+
   /** Telemetría de seguridad: cada intento de login, exitoso o no. */
   recordLoginEvent(input: LoginEventInput): Promise<void>;
   /**

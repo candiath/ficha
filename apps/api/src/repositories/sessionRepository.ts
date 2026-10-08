@@ -1,5 +1,6 @@
 import type { SessionType } from '@prisma/client';
 import type { TenantContext } from './types';
+import type { AuditBuilder, AuditEntry } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,7 @@ export interface SessionRepository {
     ctx: TenantContext,
     patientId: string,
     input: SessionCreateInput,
+    audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionCreateResult>;
   /** null si no hay sesión vigente de ese paciente con ese id. */
   /**
@@ -117,11 +119,13 @@ export interface SessionRepository {
     ctx: TenantContext,
     patientId: string,
     id: string,
+    audit: AuditEntry,
   ): Promise<'deleted' | 'not_found' | 'paid'>;
   update(
     ctx: TenantContext,
     patientId: string,
     id: string,
     input: SessionUpdateInput,
+    audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionDTO | null>;
 }

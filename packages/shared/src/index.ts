@@ -113,12 +113,28 @@ export interface ChangePasswordResponse {
 
 // ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
 
+// A freshly generated password reset link (POST /api/users/:id/password-reset
+// and its platform counterpart). The raw token is in this response only.
+export interface PasswordResetLink {
+  token: string;
+  expiresAt: string;
+}
+
+// Public reset page: whose account a valid link resets.
+export interface PasswordResetTarget {
+  email: string;
+  name: string | null;
+}
+
 // Usuario del tenant como lo expone GET /api/users: la identidad de AuthUser
 // más los campos administrativos que un ADMIN necesita ver. Sin `tenant`: la
 // lista es de la propia clínica, y la API no lo manda.
 export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   isActive: boolean;
   lastLoginAt: string | null;
+  // Expiry of her usable password reset link, or null: the
+  // "Restablecimiento pendiente" badge.
+  passwordResetExpiresAt: string | null;
 }
 
 // Payload de POST /api/users.
@@ -277,7 +293,9 @@ export type PlatformAction =
   | 'TENANT_REACTIVATED'
   | 'ADMIN_CREATED'
   | 'USER_ROLE_CHANGED'
-  | 'USER_ACTIVE_CHANGED';
+  | 'USER_ACTIVE_CHANGED'
+  | 'USER_DEVICES_DISCONNECTED'
+  | 'PASSWORD_RESET_LINK_CREATED';
 
 export interface PlatformAuditEntry {
   id: string;

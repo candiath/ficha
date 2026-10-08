@@ -1,7 +1,12 @@
 import { Prisma, type UserRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import type { OperatorContext } from '../types';
-import type { UserUpdateInput, UserUpdateResult } from '../userRepository';
+import type {
+  PasswordResetIssueInput,
+  PasswordResetIssueResult,
+  UserUpdateInput,
+  UserUpdateResult,
+} from '../userRepository';
 import type {
   OperatorAuth,
   OperatorCredentials,
@@ -15,6 +20,11 @@ import type {
   PlatformTenantDTO,
   PlatformUserDTO,
 } from '../platformRepository';
+import {
+  issuePasswordReset,
+  pendingPasswordResetExpiry,
+  pendingPasswordResetSelect,
+} from './passwordResetLinks';
 import { whereConservaAdmin } from './userRules';
 
 // Usa el prisma base a conciencia, como authRepository: no hay TenantContext
@@ -56,12 +66,17 @@ const userSelect = {
   role: true,
   isActive: true,
   lastLoginAt: true,
-} as const;
+  ...pendingPasswordResetSelect,
+} satisfies Prisma.UserSelect;
 
 type UserRow = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
-function toUserDTO(row: UserRow): PlatformUserDTO {
-  return { ...row, lastLoginAt: row.lastLoginAt?.toISOString() ?? null };
+function toUserDTO({ passwordResetTokens, ...row }: UserRow): PlatformUserDTO {
+  return {
+    ...row,
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    passwordResetExpiresAt: pendingPasswordResetExpiry({ isActive: row.isActive, passwordResetTokens }),
+  };
 }
 
 const auditSelect = {
@@ -325,6 +340,65 @@ export const prismaPlatformRepository: PlatformRepository = {
       }
 
       return { ok: true, user: toUserDTO(user) } as const;
+    });
+  },
+
+  async disconnectUserDevices(op: OperatorContext, tenantId: string, userId: string): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      // auth_sessions has no tenantId: the { id, tenantId } lookup in the same
+      // transaction is what proves the user is in the clinic the operator named.
+      const user = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { id: true, email: true },
+      });
+      if (!user) return false;
+
+      await tx.authSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      // Audited even when she had no open session: the operator did act,
+      // and the row does not say how many devices there were.
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: op.operatorId,
+          tenantId,
+          targetUserId: user.id,
+          action: 'USER_DEVICES_DISCONNECTED',
+          description: `Desconectó los dispositivos de ${user.email}`,
+        },
+      });
+      return true;
+    });
+  },
+
+  async createUserPasswordReset(
+    op: OperatorContext,
+    tenantId: string,
+    userId: string,
+    input: PasswordResetIssueInput,
+  ): Promise<PasswordResetIssueResult> {
+    return prisma.$transaction(async (tx) => {
+      // As in disconnectUserDevices: the { id, tenantId } lookup in the same
+      // transaction proves the user is in the clinic the operator named.
+      const user = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { id: true, email: true, isActive: true },
+      });
+      if (!user) return { ok: false, reason: 'not_found' } as const;
+      if (!user.isActive) return { ok: false, reason: 'inactive' } as const;
+
+      const link = await issuePasswordReset(tx, user.id, { operatorId: op.operatorId }, input);
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: op.operatorId,
+          tenantId,
+          targetUserId: user.id,
+          action: 'PASSWORD_RESET_LINK_CREATED',
+          description: `Generó un enlace para restablecer la contraseña de ${user.email}`,
+        },
+      });
+      return { ok: true, ...link } as const;
     });
   },
 

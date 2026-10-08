@@ -1,11 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
+import type { AuditBuilder } from '../auditLogRepository';
 import type {
   EvaluationDTO,
   EvaluationRepository,
   EvaluationUpsertInput,
+  EvaluationUpsertResult,
 } from '../evaluationRepository';
+import { recordAudit } from './recordAudit';
 
 const evaluationSelect = {
   id: true,
@@ -107,28 +110,35 @@ export const prismaEvaluationRepository: EvaluationRepository = {
     patientId: string,
     episodeId: string,
     input: EvaluationUpsertInput,
-  ): Promise<{ evaluation: EvaluationDTO; created: boolean }> {
+    audit: AuditBuilder<EvaluationUpsertResult>,
+  ): Promise<EvaluationUpsertResult> {
     const db = forTenant(ctx);
-    const existing = await db.initialEvaluation.findUnique({
-      where: { episodeId },
-      select: { id: true },
-    });
+    // The audit row goes in the same transaction as the write (#188).
+    return db.$transaction(async (tx) => {
+      const existing = await tx.initialEvaluation.findUnique({
+        where: { episodeId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
 
-    const row = await db.initialEvaluation.upsert({
-      where: { episodeId },
-      create: {
-        ...scalarFields(input),
-        ...jsonFields(input),
-        patientId,
-        episodeId,
-      },
-      update: {
-        ...scalarFields(input),
-        ...jsonFields(input),
-      },
-      select: evaluationSelect,
-    });
+      const row = await tx.initialEvaluation.upsert({
+        where: { episodeId, tenantId: ctx.tenantId },
+        create: {
+          ...scalarFields(input),
+          ...jsonFields(input),
+          tenantId: ctx.tenantId,
+          patientId,
+          episodeId,
+        },
+        update: {
+          ...scalarFields(input),
+          ...jsonFields(input),
+        },
+        select: evaluationSelect,
+      });
 
-    return { evaluation: toDTO(row), created: existing === null };
+      const result = { evaluation: toDTO(row), created: existing === null };
+      await recordAudit(tx, ctx, audit(result));
+      return result;
+    });
   },
 };

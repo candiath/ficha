@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // Consentimiento era la única ruta bajo /api/patients/:patientId que no
 // pasaba por patientRepo.exists(). El patientId de la URL entraba directo a
@@ -78,8 +78,8 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
   });
 
   it('rechaza firmar sobre un paciente borrado y no crea la fila', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Borrado' });
-    await patientRepo.softDelete(ctx, patient.id);
+    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Borrado' }, patientAudit('CREATED'));
+    await patientRepo.softDelete(ctx, patient.id, patientDeleteAudit(patient.id));
 
     const res = await sign(patient.id);
 
@@ -91,7 +91,7 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
   });
 
   it('no deja firmar el consentimiento de un paciente de otra clínica', async () => {
-    const ajeno = await patientRepo.create(otherCtx, { fullName: 'Paciente Ajeno' });
+    const ajeno = await patientRepo.create(otherCtx, { fullName: 'Paciente Ajeno' }, patientAudit('CREATED'));
 
     const intruso = await sign(ajeno.id);
     expect(intruso.status).toBe(404);
@@ -106,7 +106,7 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
   });
 
   it('responde 404 al revocar un consentimiento que no existe', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Nunca Firmó' });
+    const patient = await patientRepo.create(ctx, { fullName: 'Nunca Firmó' }, patientAudit('CREATED'));
 
     // Antes: el update sin fila tiraba P2025 y terminaba en 500.
     const res = await revoke(patient.id);
@@ -116,7 +116,7 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
   });
 
   it('el camino feliz sigue intacto: firmar, leer y revocar', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Vigente' });
+    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Vigente' }, patientAudit('CREATED'));
 
     const firmado = await sign(patient.id);
     expect(firmado.status).toBe(201);

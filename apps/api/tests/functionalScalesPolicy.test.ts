@@ -4,7 +4,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // La política de vigencia llega a las escalas: cada handler exige paciente
 // vigente vía patientRepo.exists (antes esta ruta no validaba el paciente en
@@ -34,8 +34,8 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
   const responses = { q1: 3, q2: 2, q3: 4, q4: 1, q5: 0 };
 
   it('responde 404 para un paciente borrado', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Sin Escalas' });
-    await patientRepo.softDelete(ctx, patient.id);
+    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Sin Escalas' }, patientAudit('CREATED'));
+    await patientRepo.softDelete(ctx, patient.id, patientDeleteAudit(patient.id));
 
     const list = await request(app)
       .get(`/api/patients/${patient.id}/scales`)
@@ -50,7 +50,7 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
   });
 
   it('crea la escala y el detalle no expone tenantId', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Con Escala' });
+    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Con Escala' }, patientAudit('CREATED'));
 
     const post = await request(app)
       .post(`/api/patients/${patient.id}/scales`)

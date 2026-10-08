@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "PlatformAction" ADD VALUE 'PASSWORD_RESET_LINK_CREATED';
+

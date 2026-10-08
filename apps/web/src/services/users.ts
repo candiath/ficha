@@ -1,5 +1,10 @@
 import { api } from '@/lib/api';
-import type { CreateUserInput, TenantUser, UpdateUserInput } from '@ficha/shared';
+import type {
+  CreateUserInput,
+  PasswordResetLink,
+  TenantUser,
+  UpdateUserInput,
+} from '@ficha/shared';
 
 export const userKeys = {
   list: ['users'] as const,
@@ -12,4 +17,9 @@ export const usersApi = {
   create: (data: CreateUserInput) => api.post<TenantUser>('/api/users', data),
   update: (id: string, data: UpdateUserInput) =>
     api.patch<TenantUser>(`/api/users/${id}`, data),
+  // 204 without a count: how many devices she had is not shown to the ADMIN.
+  disconnectDevices: (id: string) =>
+    api.post<void>(`/api/users/${id}/disconnect-devices`, {}),
+  createPasswordReset: (id: string) =>
+    api.post<PasswordResetLink>(`/api/users/${id}/password-reset`, {}),
 };

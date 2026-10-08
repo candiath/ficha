@@ -2,12 +2,19 @@ import { Prisma } from '@prisma/client';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
+  PasswordResetIssueInput,
+  PasswordResetIssueResult,
   TenantUserDTO,
   UserCreateInput,
   UserRepository,
   UserUpdateInput,
   UserUpdateResult,
 } from '../userRepository';
+import {
+  issuePasswordReset,
+  pendingPasswordResetExpiry,
+  pendingPasswordResetSelect,
+} from './passwordResetLinks';
 import { whereConservaAdmin } from './userRules';
 
 const tenantUserSelect = {
@@ -17,19 +24,17 @@ const tenantUserSelect = {
   role: true,
   isActive: true,
   lastLoginAt: true,
-} as const;
+  ...pendingPasswordResetSelect,
+} satisfies Prisma.UserSelect;
 
-type UserRow = {
-  id: string;
-  email: string;
-  name: string | null;
-  role: TenantUserDTO['role'];
-  isActive: boolean;
-  lastLoginAt: Date | null;
-};
+type UserRow = Prisma.UserGetPayload<{ select: typeof tenantUserSelect }>;
 
-function toDTO(row: UserRow): TenantUserDTO {
-  return { ...row, lastLoginAt: row.lastLoginAt?.toISOString() ?? null };
+function toDTO({ passwordResetTokens, ...row }: UserRow): TenantUserDTO {
+  return {
+    ...row,
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    passwordResetExpiresAt: pendingPasswordResetExpiry({ isActive: row.isActive, passwordResetTokens }),
+  };
 }
 
 export const prismaUserRepository: UserRepository = {
@@ -93,5 +98,47 @@ export const prismaUserRepository: UserRepository = {
 
     const row = await db.user.findFirstOrThrow({ where: { id }, select: tenantUserSelect });
     return { ok: true, user: toDTO(row) };
+  },
+
+  async disconnectDevices(ctx: TenantContext, id: string): Promise<'disconnected' | 'not_found'> {
+    const db = forTenant(ctx);
+    return db.$transaction(async (tx) => {
+      // auth_sessions has no tenantId to scope by: the tenant-scoped lookup
+      // in the same transaction is what proves the user is in this clinic,
+      // as in deactivation above.
+      const user = await tx.user.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!user) return 'not_found';
+      await tx.authSession.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return 'disconnected';
+    });
+  },
+
+  async createPasswordReset(
+    ctx: TenantContext,
+    id: string,
+    input: PasswordResetIssueInput,
+  ): Promise<PasswordResetIssueResult> {
+    const db = forTenant(ctx);
+    return db.$transaction(async (tx) => {
+      // The tenant-scoped lookup in the same transaction proves the user is
+      // in this clinic (password_reset_tokens and auth_sessions have no
+      // tenantId of their own).
+      const user = await tx.user.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { id: true, isActive: true },
+      });
+      if (!user) return { ok: false, reason: 'not_found' } as const;
+      // A deactivated user has no right to use the system: nothing to reset.
+      if (!user.isActive) return { ok: false, reason: 'inactive' } as const;
+
+      const link = await issuePasswordReset(tx, user.id, { userId: ctx.userId }, input);
+      return { ok: true, ...link } as const;
+    });
   },
 };
