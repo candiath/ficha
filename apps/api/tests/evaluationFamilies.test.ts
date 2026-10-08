@@ -24,7 +24,7 @@ describe('validación de las familias de la evaluación inicial', () => {
 
   const url = () => `/api/patients/${patient.id}/episodes/${episode.id}/evaluation`;
 
-  function put(body: unknown) {
+  function put(body: object) {
     return request(app).put(url()).set('Authorization', `Bearer ${token}`).send(body);
   }
 
