@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import type { PlatformOperator, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
+import type { TenantContext } from '../src/repositories/types';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -90,8 +91,16 @@ export async function createTestToken(
   user: { id: string },
   opts: CreateTestTokenOptions = {},
 ): Promise<string> {
+  return (await createTestAuthSession(user, opts)).token;
+}
+
+// The session row behind createTestToken, for tests that also need its id.
+export async function createTestAuthSession(
+  user: { id: string },
+  opts: CreateTestTokenOptions = {},
+): Promise<{ token: string; authSessionId: string }> {
   const token = generateOpaqueToken();
-  await prisma.authSession.create({
+  const session = await prisma.authSession.create({
     data: {
       userId: user.id,
       tokenHash: hashOpaqueToken(token),
@@ -99,8 +108,20 @@ export async function createTestToken(
       trusted: opts.trusted ?? false,
       ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
     },
+    select: { id: true },
   });
-  return token;
+  return { token, authSessionId: session.id };
+}
+
+// A TenantContext as authenticate builds it, for tests that call repositories
+// directly: backed by a real session of the user, so audited writes record a
+// session that exists (#186).
+export async function createTestContext(
+  tenantId: string,
+  user: { id: string; role: UserRole },
+): Promise<TenantContext> {
+  const { authSessionId } = await createTestAuthSession(user);
+  return { tenantId, userId: user.id, role: user.role, authSessionId };
 }
 
 // ─── Operador de plataforma ─────────────────────────────────────────────────

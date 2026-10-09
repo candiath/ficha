@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
+import { createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
 
 // Regresión del issue #97: SessionUpdateSchema se deriva con .partial() de
 // SessionFieldsSchema, y en Zod un .default() del schema base SOBREVIVE al
@@ -27,7 +27,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
+    ctx = await createTestContext(clinic.tenantId, user);
     patient = await patientRepo.create(ctx, { fullName: 'Paciente PATCH parcial' }, patientAudit('CREATED'));
   });
 

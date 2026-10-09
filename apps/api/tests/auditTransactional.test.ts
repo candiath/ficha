@@ -12,7 +12,7 @@ import {
 } from '../src/repositories';
 import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, patientAudit, type TestClinic } from './helpers';
+import { createTestContext, createTestClinic, patientAudit, type TestClinic } from './helpers';
 
 // #188: an audited write and its audit row commit together or not at all.
 // Each test forces the audit insert to fail — an entry pointing at a patient
@@ -55,7 +55,7 @@ describe('audit rows are written in the same transaction as their action', () =>
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    ctx = { tenantId: clinic.tenantId, userId: user.id, role: 'THERAPIST' };
+    ctx = await createTestContext(clinic.tenantId, user);
   });
 
   afterAll(async () => {

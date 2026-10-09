@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
+import { createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // patientRepo es el único lugar donde vive la política de borrado lógico:
 // TODO método opera sobre pacientes vigentes (deletedAt: null). Antes de estos
@@ -30,8 +30,8 @@ beforeAll(async () => {
   userA = await clinicA.createUser({ role: 'ADMIN' });
   const userB = await clinicB.createUser({ role: 'ADMIN' });
   tokenA = await createTestToken(userA);
-  ctxA = { tenantId: clinicA.tenantId, userId: userA.id, role: 'ADMIN' };
-  ctxB = { tenantId: clinicB.tenantId, userId: userB.id, role: 'ADMIN' };
+  ctxA = await createTestContext(clinicA.tenantId, userA);
+  ctxB = await createTestContext(clinicB.tenantId, userB);
 });
 
 afterAll(async () => {
