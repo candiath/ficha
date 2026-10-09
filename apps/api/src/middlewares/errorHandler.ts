@@ -11,6 +11,23 @@ const DB_UNAVAILABLE_CODES = new Set([
   'P1017', // Server closed the connection
 ]);
 
+// A client error from express.json() (body-parser), which follows the
+// http-errors convention: a 4xx `status` and `expose: true`. The error is never
+// echoed back — `err.message` is English and, for a parse failure, `err.body`
+// holds the raw request body, which may contain a password.
+type ExposedClientError = { status: number; expose: true; type?: unknown };
+
+function isExposedClientError(err: unknown): err is ExposedClientError {
+  if (typeof err !== 'object' || err === null) return false;
+  const { status, expose } = err as { status?: unknown; expose?: unknown };
+  return expose === true && typeof status === 'number' && status >= 400 && status < 500;
+}
+
+const CLIENT_ERROR_MESSAGES = new Map<unknown, string>([
+  ['entity.parse.failed', 'El cuerpo de la solicitud no es JSON válido'],
+  ['entity.too.large', 'El cuerpo de la solicitud es demasiado grande'],
+]);
+
 // Manejador global de errores. Express 5 propaga async errors automáticamente,
 // por eso no necesitamos try/catch en cada handler.
 export function errorHandler(
@@ -25,6 +42,13 @@ export function errorHandler(
       error: 'Datos inválidos',
       details: err.flatten().fieldErrors,
     });
+    return;
+  }
+
+  // The client's mistake, not a server bug: keep its status and log nothing.
+  if (isExposedClientError(err)) {
+    const message = CLIENT_ERROR_MESSAGES.get(err.type) ?? 'Solicitud inválida';
+    res.status(err.status).json({ error: message });
     return;
   }
 
