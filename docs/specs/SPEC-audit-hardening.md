@@ -1,6 +1,6 @@
 # Spec: audit-hardening
 
-Module of the [audit capability map](audit-map.md) (issue #186). **Status: draft v4 (after three adversarial review cycles), awaiting approval.**
+Module of the [audit capability map](audit-map.md) (issue #186). **Status: approved 2026-10-09 (v4, after three adversarial review cycles).**
 
 ## Objective
 
