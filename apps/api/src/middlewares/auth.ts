@@ -3,8 +3,8 @@ import { LAST_USED_THROTTLE_MS } from '../lib/authSessionPolicy';
 import { authRepo } from '../repositories';
 
 // Validates the session token from the Authorization header and attaches
-// req.context = { tenantId, userId, role } for the rest of the handlers, plus
-// req.authSessionId for the routes that act on the current session.
+// req.context = { tenantId, userId, role, authSessionId } for the rest of the
+// handlers.
 //
 // The token is opaque: it only names a row in auth_sessions. Whether it still
 // grants access is decided by one query on every request (session unrevoked,
@@ -42,7 +42,11 @@ export async function authenticate(
       .catch((err) => console.error('[auth] lastUsedAt', err));
   }
 
-  req.context = { tenantId: session.tenantId, userId: session.userId, role: session.role };
-  req.authSessionId = session.authSessionId;
+  req.context = {
+    tenantId: session.tenantId,
+    userId: session.userId,
+    role: session.role,
+    authSessionId: session.authSessionId,
+  };
   next();
 }

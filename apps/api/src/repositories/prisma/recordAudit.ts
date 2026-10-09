@@ -12,6 +12,11 @@ export async function recordAudit(
   entry: AuditEntry,
 ): Promise<void> {
   await tx.auditLog.create({
-    data: { ...entry, tenantId: ctx.tenantId, userId: ctx.userId },
+    data: {
+      ...entry,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      authSessionId: ctx.authSessionId,
+    },
   });
 }
