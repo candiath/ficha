@@ -349,7 +349,14 @@ Web: the platform audit list renders `targetUser`.
   - the line-ending rule;
   - the description rule.
 
-## Open Questions
+## Decisions (2026-10-09)
+
+1. **Checks:** kept in full.
+2. **The operator's session:** `operator-sessions` adds `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key, checked on insert as §1 checks the clinic's, filled from `req.operator`).
+3. **Versioning clinical records:** a module of its own in the map, `clinical-history`.
+4. **The role, session type and scale type** stay in descriptions.
+
+## Open Questions (as asked, answered above)
 
 1. **The operator's session on platform audit rows.** You are writing `operator-sessions` yourself. I suggest that module add `platform_audit_logs.operator_session_id`: a nullable uuid with no foreign key, checked on insert as §1 checks the clinic's, and filled from `req.operator`. That is better than this module adding a column that stays null until then.
 2. **Versioning clinical records.** Ley 26.529 asks for an inviolable record. Today a `PATCH` to a session or payment overwrites its values, and after this module no audit row keeps the originals (§4). I propose a new module in the map, `clinical-history`: each update or delete of a clinical row stores the previous version in an append-only table, and the audit row records which fields changed (names only, as in "X cambió el email de Z"). Should it go in the map, and how high?
