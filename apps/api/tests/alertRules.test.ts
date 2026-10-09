@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { User } from '@prisma/client';
+import type { AlertType, User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
@@ -74,7 +74,7 @@ describe('motor de alertas', () => {
     return episodio;
   }
 
-  async function alertasDe(patientId: string, type?: string) {
+  async function alertasDe(patientId: string, type?: AlertType) {
     return prisma.clinicalAlert.findMany({
       where: { tenantId: clinic.tenantId, patientId, ...(type ? { type } : {}) },
     });
