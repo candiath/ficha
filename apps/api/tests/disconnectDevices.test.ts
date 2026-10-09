@@ -157,7 +157,7 @@ describe('the platform operator disconnects a user’s devices', () => {
     expect(rows[0]).toMatchObject({
       operatorId: op.operator.id,
       tenantId: clinic.tenantId,
-      description: `Desconectó los dispositivos de ${admin.email}`,
+      description: 'Desconectó los dispositivos de la usuaria',
     });
   });
 

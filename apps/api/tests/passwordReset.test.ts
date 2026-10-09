@@ -223,7 +223,7 @@ describe('the platform operator generates a reset link', () => {
     expect(rows[0]).toMatchObject({
       operatorId: op.operator.id,
       tenantId: clinic.tenantId,
-      description: `Generó un enlace para restablecer la contraseña de ${admin.email}`,
+      description: 'Generó un enlace para restablecer la contraseña',
     });
   });
 

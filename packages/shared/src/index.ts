@@ -302,6 +302,8 @@ export interface PlatformAuditEntry {
   operatorId: string | null;
   tenantId: string;
   targetUserId: string | null;
+  // Resolved when the list is read: descriptions never name the person (#186).
+  targetUser: { email: string; name: string | null } | null;
   action: PlatformAction;
   description: string;
   createdAt: string;
