@@ -67,7 +67,7 @@ export async function createTestClinic(): Promise<TestClinic> {
     await prisma.loginEvent.deleteMany({ where: { email: { contains: runId } } });
     // Las acciones del operador de plataforma sobre esta clínica apuntan al
     // tenant con FK RESTRICT: van antes que él.
-    await prisma.platformAuditLog.deleteMany({ where: { tenantId: tenant.id } });
+    await deleteAuditRows([tenant.id]);
     await prisma.user.deleteMany({ where: { tenantId: tenant.id } });
     await prisma.tenant.delete({ where: { id: tenant.id } });
   }
@@ -151,7 +151,7 @@ export async function createTestOperator(
   async function cleanup(): Promise<void> {
     await sleep(200);
     await prisma.loginEvent.deleteMany({ where: { email: { contains: runId } } });
-    await prisma.platformAuditLog.deleteMany({ where: { operatorId: operator.id } });
+    await deleteOperatorAuditRows(operator.id);
     await prisma.platformOperator.delete({ where: { id: operator.id } });
   }
 

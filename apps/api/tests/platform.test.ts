@@ -5,6 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import {
+  deleteAuditRows,
   createTestClinic,
   createTestOperator,
   createTestToken,
@@ -50,7 +51,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
 
   afterAll(async () => {
     for (const id of createdTenantIds) {
-      await prisma.platformAuditLog.deleteMany({ where: { tenantId: id } });
+      await deleteAuditRows([id]);
       await prisma.loginEvent.deleteMany({ where: { tenantId: id } });
       await prisma.user.deleteMany({ where: { tenantId: id } });
       await prisma.tenant.delete({ where: { id } });

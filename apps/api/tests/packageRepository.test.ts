@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { packageRepo, patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestContext, createTestClinic, type TestClinic, patientAudit } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, type TestClinic, patientAudit } from './helpers';
 
 // packageRepo concentra la regla "no borrar un paquete con sesiones ya
 // usadas": deleteIfUnused lleva la condición en el where del delete (sin
@@ -35,7 +35,7 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
 
   afterAll(async () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });

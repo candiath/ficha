@@ -6,6 +6,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { addClinicDays, instantToClinicTime } from '../src/lib/clinicTime';
 import {
+  deleteAuditRows,
   createTestClinic,
   createTestToken,
   sleep,
@@ -52,7 +53,7 @@ describe('turnos', () => {
     await sleep(400);
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });

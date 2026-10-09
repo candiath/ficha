@@ -7,6 +7,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { errorHandler } from '../src/middlewares/errorHandler';
 import {
+  deleteAuditRows,
   createTestClinic,
   createTestOperator,
   createTestToken,
@@ -45,7 +46,7 @@ describe('ids UUID', () => {
   afterAll(async () => {
     await sleep(400);
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await operator.cleanup();
     await clinic.cleanup();

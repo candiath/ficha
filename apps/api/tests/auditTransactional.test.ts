@@ -12,7 +12,7 @@ import {
 } from '../src/repositories';
 import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestContext, createTestClinic, patientAudit, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic } from './helpers';
 
 // #188: an audited write and its audit row commit together or not at all.
 // Each test forces the audit insert to fail — an entry pointing at a patient
@@ -60,7 +60,7 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   afterAll(async () => {
     const tenantId = clinic.tenantId;
-    await prisma.auditLog.deleteMany({ where: { tenantId } });
+    await deleteAuditRows([tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });

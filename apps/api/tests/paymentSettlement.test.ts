@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { settle } from '../src/lib/paymentSettlement';
-import { createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // Un cobro de monto cero no es una deuda: si el descuento cancela el costo
 // entero, o la sesión se dio sin cargo, no hay nada que cobrar. Dejarlo en
@@ -67,7 +67,7 @@ describe('cobros de monto cero, de punta a punta', () => {
   afterAll(async () => {
     await sleep(300);
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });

@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestContext, createTestClinic, createTestToken, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // Consentimiento era la única ruta bajo /api/patients/:patientId que no
 // pasaba por patientRepo.exists(). El patientId de la URL entraba directo a
@@ -37,7 +37,7 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
   afterAll(async () => {
     for (const c of [clinic, otherClinic]) {
       await prisma.informedConsent.deleteMany({ where: { tenantId: c.tenantId } });
-      await prisma.auditLog.deleteMany({ where: { tenantId: c.tenantId } });
+      await deleteAuditRows([c.tenantId]);
       await prisma.patient.deleteMany({ where: { tenantId: c.tenantId } });
       await c.cleanup();
     }

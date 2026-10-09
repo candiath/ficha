@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, type TestClinic } from './helpers';
 
 // Every audit row written by a clinic user names the login it came from
 // (audit-hardening, docs/specs/SPEC-audit-hardening.md §3): the session's id,
@@ -29,7 +29,7 @@ describe('audit rows record the session they came from', () => {
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
   });

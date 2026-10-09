@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // patientRepo es el único lugar donde vive la política de borrado lógico:
 // TODO método opera sobre pacientes vigentes (deletedAt: null). Antes de estos
@@ -40,7 +40,7 @@ afterAll(async () => {
   // delete del paciente por la FK.
   await sleep(300);
   const tenantIds = [clinicA.tenantId, clinicB.tenantId];
-  await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  await deleteAuditRows(tenantIds);
   // Los hijos no deberían existir (el test de sub-rutas verifica justamente
   // que no se creen), pero si ese test falla las FKs bloquearían el borrado
   // del paciente y el fallo se disfrazaría de error de limpieza.

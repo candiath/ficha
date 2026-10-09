@@ -5,7 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
-import { createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
 
 // El CRUD de sesiones por HTTP: los caminos que las otras suites no cubren.
 //
@@ -94,7 +94,7 @@ describe('CRUD de sesiones por HTTP', () => {
   afterAll(async () => {
     await sleep(300);
     const tenantIds = [clinic.tenantId, clinicB.tenantId];
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await deleteAuditRows(tenantIds);
     await prisma.appointment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
