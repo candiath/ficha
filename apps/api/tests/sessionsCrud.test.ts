@@ -636,7 +636,7 @@ describe('CRUD de sesiones por HTTP', () => {
     for (const entrada of [alta, edicion, borrado]) {
       expect(entrada).toMatchObject({ patientId: patient.id, userId: user.id });
     }
-    expect(alta.description).toBe('Sesión RPG registrada — Dolor 7 → 3');
+    expect(alta.description).toBe('Sesión RPG registrada');
   });
 
   it('el alta de una NOTE y de un DISCHARGE se describen como tales', async () => {

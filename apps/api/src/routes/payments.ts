@@ -77,7 +77,7 @@ router.post('/', async (req, res) => {
     entity: 'PAYMENT',
     entityId: p.id,
     action: 'CREATED',
-    description: `Cobro registrado — $${p.finalAmount}`,
+    description: 'Cobro registrado',
   }));
 
   if (!result.ok) {
@@ -112,7 +112,6 @@ router.patch('/:id', async (req, res) => {
         ? new Date()
         : undefined;
 
-  const statusDesc = body.status ? ` — Estado: ${body.status}` : '';
   const result = await paymentRepo.update(
     req.context,
     req.params.id,
@@ -130,7 +129,7 @@ router.patch('/:id', async (req, res) => {
       entity: 'PAYMENT',
       entityId: p.id,
       action: 'UPDATED',
-      description: `Cobro actualizado${statusDesc}`,
+      description: 'Cobro actualizado',
     }),
   );
 

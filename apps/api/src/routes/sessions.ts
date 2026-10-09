@@ -172,11 +172,6 @@ router.post<ParentParams>('/', async (req, res) => {
     NOTE: 'Nota clínica registrada',
     DISCHARGE: 'Alta registrada',
   };
-  const painSuffix =
-    rest.painScaleBefore != null && rest.painScaleAfter != null
-      ? ` — Dolor ${rest.painScaleBefore} → ${rest.painScaleAfter}`
-      : '';
-
   const result = await sessionRepo.create(
     req.context,
     req.params.patientId,
@@ -192,7 +187,7 @@ router.post<ParentParams>('/', async (req, res) => {
       entity: 'SESSION',
       entityId: s.id,
       action: 'CREATED',
-      description: `${sessionTypeDesc[rest.sessionType ?? 'SESSION'] ?? 'Sesión registrada'}${painSuffix}`,
+      description: sessionTypeDesc[rest.sessionType ?? 'SESSION'] ?? 'Sesión registrada',
     }),
   );
 

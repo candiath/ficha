@@ -123,7 +123,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
       entity: 'EVALUATION',
       entityId: s.id,
       action: 'CREATED',
-      description: `Escala ${body.scaleType} aplicada — score ${score}%`,
+      description: `Escala ${body.scaleType} aplicada`,
     }),
   );
 
