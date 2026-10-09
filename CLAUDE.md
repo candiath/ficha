@@ -63,6 +63,11 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 - Los DTOs no exponen `tenantId`; fechas como ISO string y `Decimal` como `number`.
 - Zod y la semántica HTTP se quedan en la ruta; la política de datos (borrado lógico, "global o del tenant", "no borrar un paquete usado") vive en el repositorio.
 - **Audited writes record their audit row in the same transaction** (#188): the repository method takes an `audit` argument (an `AuditBuilder<T>`, built from the write's result, or an `AuditEntry` for deletes) and writes it with `recordAudit(tx, ctx, entry)` using the write's own transaction client. If either fails, both roll back. `auditLogRepository` is read-only — there is no standalone `create`, so a route cannot record an action separately (and lose the row when that second write fails). The route still writes the wording of the entry. `tests/auditTransactional.test.ts` forces the audit insert to fail and checks the action rolled back.
+- **Audit rows are being hardened** (#186, [`docs/specs/audit-map.md`](docs/specs/audit-map.md), [`SPEC-audit-hardening.md`](docs/specs/SPEC-audit-hardening.md)); the append-only triggers have not landed yet. Already in place:
+  - `TenantContext` carries `authSessionId`, set by `authenticate` (there is no `req.authSessionId`); `recordAudit` stores it in `audit_logs.auth_session_id`, which never goes into a clinic-facing DTO.
+  - **A description names the action, never a value**: no measurements, scores, amounts, emails or names. Who was affected is read from the row's target when displayed (`PlatformAuditLogDTO.targetUser`).
+  - **Tests touch audit rows only through `tests/helpers.ts`**: `deleteAuditRows`, `deleteOperatorAuditRows`, `insertAuditRowsAt` (backdating). They turn on the maintenance switch the triggers will honour; repository tests get a session-backed context from `createTestContext`.
+  - The seed refuses to run on a database with accounts outside `@ficha.dev` / `@test.ficha.local` (`prisma/seedGuard.ts`).
 
 Tres excepciones documentadas:
 
