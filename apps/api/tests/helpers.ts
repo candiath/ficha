@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import type { PlatformOperator, User, UserRole } from '@prisma/client';
+import type { PlatformOperator, Prisma, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 import type { TenantContext } from '../src/repositories/types';
@@ -216,4 +216,50 @@ export function patientDeleteAudit(patientId: string) {
     action: 'DELETED' as const,
     description: 'test: patient deleted',
   };
+}
+
+// ─── Audit rows ─────────────────────────────────────────────────────────────
+
+// The only test code that deletes or backdates audit rows (#186,
+// docs/specs/SPEC-audit-hardening.md §1). Each helper runs one transaction
+// that first turns on the maintenance switch, tied to that transaction's id
+// so a leaked value never matches. The append-only triggers honour it only on
+// branches that carry the maintenance flag (development and ci).
+async function inAuditMaintenance<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
+    return work(tx);
+  });
+}
+
+// Fails closed: an empty list, or an empty id in it, throws instead of
+// becoming "every row".
+function requireIds(ids: string[], what: string): void {
+  if (ids.length === 0 || ids.some((id) => !id)) {
+    throw new Error(`audit cleanup needs at least one ${what}, and no empty ones`);
+  }
+}
+
+// Every audit row of these clinics, clinical and platform.
+export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
+  requireIds(tenantIds, 'tenant id');
+  await inAuditMaintenance(async (tx) => {
+    await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await tx.platformAuditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  });
+}
+
+// The platform audit rows of one operator.
+export async function deleteOperatorAuditRows(operatorId: string): Promise<void> {
+  requireIds([operatorId], 'operator id');
+  await inAuditMaintenance((tx) => tx.platformAuditLog.deleteMany({ where: { operatorId } }));
+}
+
+// Audit rows with a chosen date, for tests about ordering. A row with an
+// author names one of her sessions, as the database will require (#186).
+export type BackdatedAuditRow = Prisma.AuditLogCreateManyInput & { createdAt: Date };
+
+export async function insertAuditRowsAt(rows: BackdatedAuditRow[]): Promise<{ id: string }[]> {
+  if (rows.length === 0) throw new Error('insertAuditRowsAt needs at least one row');
+  return inAuditMaintenance((tx) => tx.auditLog.createManyAndReturn({ data: rows, select: { id: true } }));
 }
