@@ -1,8 +1,17 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Prisma, PrismaClient, type User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { createTestAuthSession, createTestClinic, deleteAuditRows, type TestClinic } from './helpers';
+import {
+  createTestAuthSession,
+  createTestClinic,
+  createTestOperator,
+  deleteAuditRows,
+  type TestClinic,
+  type TestOperator,
+} from './helpers';
 
 // What the database itself enforces on audit rows (#186,
 // docs/specs/SPEC-audit-hardening.md): they cannot be changed, only deleted
@@ -297,5 +306,183 @@ describe("the session on an audit row is its author's", () => {
     } finally {
       await db.$disconnect();
     }
+  });
+});
+
+// Audit rows keep everyone they name (spec §2): RESTRICT on every foreign key,
+// and composite keys so a row cannot name another clinic's patient, author or
+// target. P2003 is Prisma's foreign key violation.
+describe('audit rows keep who they name, within their clinic', () => {
+  let clinic: TestClinic;
+  let otherClinic: TestClinic;
+  let operator: TestOperator;
+  let author: User;
+  let stranger: User;
+  let patientId: string;
+  let strangerPatientId: string;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    otherClinic = await createTestClinic();
+    operator = await createTestOperator();
+    author = await clinic.createUser();
+    stranger = await otherClinic.createUser();
+    ({ id: patientId } = await prisma.patient.create({
+      data: { tenantId: clinic.tenantId, fullName: 'Kept Patient' },
+      select: { id: true },
+    }));
+    ({ id: strangerPatientId } = await prisma.patient.create({
+      data: { tenantId: otherClinic.tenantId, fullName: 'Stranger Patient' },
+      select: { id: true },
+    }));
+  });
+
+  afterAll(async () => {
+    await deleteAuditRows([clinic.tenantId, otherClinic.tenantId]);
+    await prisma.patient.deleteMany({ where: { tenantId: { in: [clinic.tenantId, otherClinic.tenantId] } } });
+    await operator.cleanup();
+    await clinic.cleanup();
+    await otherClinic.cleanup();
+  });
+
+  const clinicalRow = (over: { patientId?: string; userId?: string | null } = {}) => ({
+    tenantId: clinic.tenantId,
+    patientId: over.patientId ?? patientId,
+    userId: over.userId === undefined ? author.id : over.userId,
+    entity: 'PATIENT' as const,
+    entityId: over.patientId ?? patientId,
+    action: 'UPDATED' as const,
+    description: 'test: kept',
+  });
+
+  const platformRow = (targetUserId: string) => ({
+    operatorId: operator.operator.id,
+    tenantId: clinic.tenantId,
+    targetUserId,
+    action: 'USER_DEVICES_DISCONNECTED' as const,
+    description: 'test: kept',
+  });
+
+  it('cannot delete the author of an audit row', async () => {
+    const authored = await clinic.createUser();
+    await prisma.auditLog.create({ data: clinicalRow({ userId: authored.id }) });
+
+    await expect(prisma.user.delete({ where: { id: authored.id } })).rejects.toMatchObject({ code: 'P2003' });
+  });
+
+  it('cannot delete the target of a platform audit row, or the operator who acted', async () => {
+    const target = await clinic.createUser();
+    await prisma.platformAuditLog.create({ data: platformRow(target.id) });
+
+    await expect(prisma.user.delete({ where: { id: target.id } })).rejects.toMatchObject({ code: 'P2003' });
+    await expect(
+      prisma.platformOperator.delete({ where: { id: operator.operator.id } }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
+  it("cannot name another clinic's patient or author", async () => {
+    await expect(
+      prisma.auditLog.create({ data: clinicalRow({ patientId: strangerPatientId }) }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+    await expect(
+      prisma.auditLog.create({ data: clinicalRow({ userId: stranger.id }) }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
+  it("cannot target another clinic's user", async () => {
+    await expect(prisma.platformAuditLog.create({ data: platformRow(stranger.id) })).rejects.toMatchObject({
+      code: 'P2003',
+    });
+  });
+
+  it('still accepts a row with no author', async () => {
+    await expect(prisma.auditLog.create({ data: clinicalRow({ userId: null }) })).resolves.toBeTruthy();
+  });
+});
+
+// prisma/audit-guards.sql, the check that CI, the Render build and the API's
+// startup run. It passes on the real tables; on TEMP copies of them (which can
+// be broken without touching anything shared) it reports exactly what changed.
+describe('audit-guards.sql', () => {
+  const guards = readFileSync(join(__dirname, '../prisma/audit-guards.sql'), 'utf8');
+
+  it('passes on the deployed tables', async () => {
+    await expect(prisma.$executeRawUnsafe(guards)).resolves.toBeDefined();
+  });
+
+  describe('on TEMP copies', () => {
+    const url = new URL(process.env.DIRECT_DATABASE_URL as string);
+    url.searchParams.set('connection_limit', '1');
+    const db = new PrismaClient({ datasourceUrl: url.toString() });
+
+    const swap = (sql: string, from: string, to: string) => {
+      expect(sql.split(from)).toHaveLength(2); // exactly one occurrence
+      return sql.replace(from, to);
+    };
+    const onCopies = swap(
+      swap(guards, "'public.audit_logs'", "'pg_temp.audit_logs'"),
+      "'public.platform_audit_logs'",
+      "'pg_temp.platform_audit_logs'",
+    );
+
+    // The copies have no foreign keys (a TEMP table cannot reference a
+    // permanent one) and are not permanent, so the guard always fails on
+    // them; what matters is whether it also names a trigger problem. The TEMP
+    // tables shadow the real ones on this backend, so messages name them
+    // without a schema, like the real ones.
+    const failure = async (): Promise<string> => {
+      try {
+        await db.$executeRawUnsafe(onCopies);
+      } catch (error) {
+        return (error as Error).message;
+      }
+      throw new Error('audit-guards.sql passed on TEMP copies');
+    };
+
+    beforeAll(async () => {
+      for (const table of ['audit_logs', 'platform_audit_logs']) {
+        await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_created_at BEFORE INSERT ON pg_temp.${table}
+          FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE ON pg_temp.${table}
+          FOR EACH ROW EXECUTE FUNCTION public.audit_rows_are_append_only()`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_no_truncate BEFORE TRUNCATE ON pg_temp.${table}
+          FOR EACH STATEMENT EXECUTE FUNCTION public.audit_rows_are_append_only()`);
+      }
+      await db.$executeRawUnsafe(`CREATE TRIGGER audit_logs_check_session BEFORE INSERT ON pg_temp.audit_logs
+        FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session()`);
+    });
+
+    afterAll(() => db.$disconnect());
+
+    it('finds no trigger problem on faithful copies', async () => {
+      const message = await failure();
+      expect(message).toMatch(/is not permanent/);
+      expect(message).not.toMatch(/trigger/);
+    });
+
+    it('notices a disabled trigger', async () => {
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.audit_logs DISABLE TRIGGER audit_logs_append_only');
+      try {
+        expect(await failure()).toMatch(/trigger audit_logs_append_only on audit_logs is not enabled/);
+      } finally {
+        await db.$executeRawUnsafe('ALTER TABLE pg_temp.audit_logs ENABLE TRIGGER audit_logs_append_only');
+      }
+    });
+
+    it('notices a WHEN condition', async () => {
+      await db.$executeRawUnsafe('DROP TRIGGER platform_audit_logs_stamp_created_at ON pg_temp.platform_audit_logs');
+      await db.$executeRawUnsafe(`CREATE TRIGGER platform_audit_logs_stamp_created_at BEFORE INSERT
+        ON pg_temp.platform_audit_logs FOR EACH ROW WHEN (NEW.description <> 'skip')
+        EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);
+      expect(await failure()).toMatch(/trigger set on platform_audit_logs differs/);
+    });
+
+    it('notices a trigger calling another function', async () => {
+      await db.$executeRawUnsafe('DROP TRIGGER audit_logs_no_truncate ON pg_temp.audit_logs');
+      await db.$executeRawUnsafe(`CREATE TRIGGER audit_logs_no_truncate BEFORE TRUNCATE ON pg_temp.audit_logs
+        FOR EACH STATEMENT EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);
+      expect(await failure()).toMatch(/trigger set on audit_logs differs/);
+    });
   });
 });

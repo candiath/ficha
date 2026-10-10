@@ -89,3 +89,54 @@ CREATE TRIGGER platform_audit_logs_append_only BEFORE UPDATE OR DELETE ON public
   FOR EACH ROW EXECUTE FUNCTION public.audit_rows_are_append_only();
 CREATE TRIGGER platform_audit_logs_no_truncate BEFORE TRUNCATE ON public.platform_audit_logs
   FOR EACH STATEMENT EXECUTE FUNCTION public.audit_rows_are_append_only();
+
+-- Composite foreign keys with RESTRICT (spec §2): an audit row cannot lose
+-- its patient, author, target or operator, nor point at another clinic's.
+-- A null second column (no author, no target) skips the check, as intended.
+-- operator_id was nullable only so SET NULL could work.
+
+-- DropForeignKey
+ALTER TABLE "audit_logs" DROP CONSTRAINT "audit_logs_patient_id_fkey";
+
+-- DropForeignKey
+ALTER TABLE "audit_logs" DROP CONSTRAINT "audit_logs_tenant_id_fkey";
+
+-- DropForeignKey
+ALTER TABLE "audit_logs" DROP CONSTRAINT "audit_logs_user_id_fkey";
+
+-- DropForeignKey
+ALTER TABLE "platform_audit_logs" DROP CONSTRAINT "platform_audit_logs_operator_id_fkey";
+
+-- DropForeignKey
+ALTER TABLE "platform_audit_logs" DROP CONSTRAINT "platform_audit_logs_target_user_id_fkey";
+
+-- DropForeignKey
+ALTER TABLE "platform_audit_logs" DROP CONSTRAINT "platform_audit_logs_tenant_id_fkey";
+
+-- AlterTable
+ALTER TABLE "platform_audit_logs" ALTER COLUMN "operator_id" SET NOT NULL;
+
+-- CreateIndex
+CREATE UNIQUE INDEX "patients_tenant_id_id_key" ON "patients"("tenant_id", "id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "users_tenant_id_id_key" ON "users"("tenant_id", "id");
+
+-- AddForeignKey
+ALTER TABLE "platform_audit_logs" ADD CONSTRAINT "platform_audit_logs_operator_id_fkey" FOREIGN KEY ("operator_id") REFERENCES "platform_operators"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "platform_audit_logs" ADD CONSTRAINT "platform_audit_logs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "platform_audit_logs" ADD CONSTRAINT "platform_audit_logs_tenant_id_target_user_id_fkey" FOREIGN KEY ("tenant_id", "target_user_id") REFERENCES "users"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_tenant_id_patient_id_fkey" FOREIGN KEY ("tenant_id", "patient_id") REFERENCES "patients"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_tenant_id_user_id_fkey" FOREIGN KEY ("tenant_id", "user_id") REFERENCES "users"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
