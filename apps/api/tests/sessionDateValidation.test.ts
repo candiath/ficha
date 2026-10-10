@@ -10,7 +10,7 @@ import {
   isClinicalDateTooFarInFuture,
   MIN_CLINICAL_DATE_MS,
 } from '../src/lib/clinicalDate';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // A4: la política de fecha de sesión vivía sólo en el frontend, donde el tope a
 // futuro es una advertencia BLANDA (deja enviar). Un request directo la saltea.
@@ -34,7 +34,7 @@ describe('validación de fecha de sesión en la API', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Fecha' },
       select: { id: true },
@@ -43,7 +43,7 @@ describe('validación de fecha de sesión en la API', () => {
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();

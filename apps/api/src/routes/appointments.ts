@@ -18,8 +18,10 @@ import {
   tenantRepo,
 } from '../repositories';
 import type { AppointmentDTO } from '../repositories/appointmentRepository';
+import { idParam } from '../middlewares/idParam';
 
 const router = Router();
+router.param('id', idParam('Turno no encontrado'));
 
 // Días que puede pedir la agenda de una vez. Una vista mensual necesita ~42
 // (seis semanas de grilla); el tope está para que nadie se traiga la agenda

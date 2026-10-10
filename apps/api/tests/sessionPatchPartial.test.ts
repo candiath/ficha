@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
 
 // Regresión del issue #97: SessionUpdateSchema se deriva con .partial() de
 // SessionFieldsSchema, y en Zod un .default() del schema base SOBREVIVE al
@@ -26,14 +26,14 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
-    ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
-    patient = await patientRepo.create(ctx, { fullName: 'Paciente PATCH parcial' });
+    token = await createTestToken(user);
+    ctx = await createTestContext(clinic.tenantId, user);
+    patient = await patientRepo.create(ctx, { fullName: 'Paciente PATCH parcial' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.sessionEpisode.deleteMany({ where: { session: { tenantId: clinic.tenantId } } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });

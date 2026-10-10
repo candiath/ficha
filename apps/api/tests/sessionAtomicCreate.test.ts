@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // POST /api/patients/:id/sessions con payment: sesión, cobro y cierre de
 // episodios se crean en una sola transacción. Antes el frontend encadenaba
@@ -30,7 +30,7 @@ describe('creación atómica de sesión con pago', () => {
   beforeAll(async () => {
     clinicA = await createTestClinic();
     userA = await clinicA.createUser();
-    tokenA = signTestToken(userA);
+    tokenA = await createTestToken(userA);
 
     patientA = await prisma.patient.create({
       data: { tenantId: clinicA.tenantId, fullName: 'Paciente Atómico' },
@@ -55,7 +55,7 @@ describe('creación atómica de sesión con pago', () => {
   afterAll(async () => {
     await sleep(300);
     const tenantIds = [clinicA.tenantId];
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });

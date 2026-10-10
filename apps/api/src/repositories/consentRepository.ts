@@ -1,4 +1,5 @@
 import type { TenantContext } from './types';
+import type { AuditBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +17,15 @@ export interface InformedConsentDTO {
 
 export interface ConsentRepository {
   getByPatient(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO | null>;
-  sign(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO>;
+  sign(
+    ctx: TenantContext,
+    patientId: string,
+    audit: AuditBuilder<InformedConsentDTO>,
+  ): Promise<InformedConsentDTO>;
   /** null si el paciente no tiene consentimiento: no hay nada que revocar. */
-  revoke(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO | null>;
+  revoke(
+    ctx: TenantContext,
+    patientId: string,
+    audit: AuditBuilder<InformedConsentDTO>,
+  ): Promise<InformedConsentDTO | null>;
 }

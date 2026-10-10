@@ -19,25 +19,22 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { setToken } from '@/lib/api';
 import { authApi } from '@/services/auth';
 import { toast } from 'sonner';
-import type { ChangePasswordResponse } from '@ficha/shared';
 
-// De qué sesión es la contraseña que se cambia: contra qué endpoint se manda
-// y dónde se guarda el token nuevo. El formulario, la validación y los
-// mensajes son los mismos para la clínica y para el operador de plataforma;
-// lo único distinto es esto, así que es lo único que se inyecta. Por defecto,
-// la sesión de la clínica (AccountPage no pasa nada).
+// Which session's password is being changed. The form, validation and
+// messages are the same for the clinic and the platform operator; only the
+// call differs, so it is the only thing injected. Whatever a session must do
+// with its token after the change is its own business: the clinic keeps its
+// session as is, the operator (still on a JWT) stores the new token it gets
+// back. Defaults to the clinic session (AccountPage passes nothing).
 export interface PasswordSession {
-  changePassword: (currentPassword: string, newPassword: string) => Promise<ChangePasswordResponse>;
-  setToken: (token: string) => void;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const clinicSession: PasswordSession = {
   changePassword: (currentPassword, newPassword) =>
     authApi.changePassword(currentPassword, newPassword),
-  setToken,
 };
 
 const schema = z
@@ -78,10 +75,7 @@ export default function ChangePasswordDialog({ open, onClose, session = clinicSe
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>
       session.changePassword(values.currentPassword, values.newPassword),
-    onSuccess: ({ token }) => {
-      // El cambio invalidó todos los tokens anteriores, incluido el de esta
-      // sesión; guardar el nuevo evita quedar deslogueado.
-      session.setToken(token);
+    onSuccess: () => {
       toast.success('Contraseña actualizada');
       form.reset();
       onClose();

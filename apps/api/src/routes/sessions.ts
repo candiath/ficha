@@ -4,12 +4,12 @@ import { IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validatio
 import { sessionDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
-  auditLogRepo,
   episodeRepo,
   packageRepo,
   patientRepo,
   sessionRepo,
 } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -19,6 +19,7 @@ type SessionParams = { patientId: string; sessionId: string };
 // queda el HTTP: validar el body, exigir que paciente, episodios y paquete
 // sean del tenant, y registrar auditoría.
 const router = Router({ mergeParams: true });
+router.param('sessionId', idParam('Sesión no encontrada'));
 
 // Base SIN defaults: es el que se deriva para el PATCH.
 //
@@ -166,13 +167,29 @@ router.post<ParentParams>('/', async (req, res) => {
   // Sesión, cobro, cierre de episodios y vínculo con el turno se crean en una
   // sola transacción dentro del repo: si algo falla no queda una sesión a
   // medias.
-  const result = await sessionRepo.create(req.context, req.params.patientId, {
-    ...rest,
-    sessionDate: new Date(rest.sessionDate),
-    episodeIds,
-    payment,
-    appointmentId,
-  });
+  const sessionTypeDesc: Record<string, string> = {
+    SESSION: 'Sesión registrada',
+    NOTE: 'Nota clínica registrada',
+    DISCHARGE: 'Alta registrada',
+  };
+  const result = await sessionRepo.create(
+    req.context,
+    req.params.patientId,
+    {
+      ...rest,
+      sessionDate: new Date(rest.sessionDate),
+      episodeIds,
+      payment,
+      appointmentId,
+    },
+    (s) => ({
+      patientId: req.params.patientId,
+      entity: 'SESSION',
+      entityId: s.id,
+      action: 'CREATED',
+      description: sessionTypeDesc[rest.sessionType ?? 'SESSION'] ?? 'Sesión registrada',
+    }),
+  );
 
   // El turno ya había producido su sesión: dos clicks en "registrar sesión",
   // o dos pestañas. La sesión no se creó, así que no hay nada que deshacer.
@@ -181,28 +198,7 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  const session = result.session;
-
-  const sessionTypeDesc: Record<string, string> = {
-    SESSION: 'Sesión RPG registrada',
-    NOTE: 'Nota clínica registrada',
-    DISCHARGE: 'Alta registrada',
-  };
-  const painSuffix =
-    rest.painScaleBefore != null && rest.painScaleAfter != null
-      ? ` — Dolor ${rest.painScaleBefore} → ${rest.painScaleAfter}`
-      : '';
-  auditLogRepo
-    .create(req.context, {
-      patientId: req.params.patientId,
-      entity: 'SESSION',
-      entityId: session.id,
-      action: 'CREATED',
-      description: `${sessionTypeDesc[rest.sessionType ?? 'SESSION'] ?? 'Sesión registrada'}${painSuffix}`,
-    })
-    .catch((err) => console.error('[audit]', err));
-
-  res.status(201).json({ data: session });
+  res.status(201).json({ data: result.session });
 });
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
@@ -234,22 +230,19 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
       ...(sessionDate ? { sessionDate: new Date(sessionDate) } : {}),
       episodeIds,
     },
+    (s) => ({
+      patientId: req.params.patientId,
+      entity: 'SESSION',
+      entityId: s.id,
+      action: 'UPDATED',
+      description: 'Sesión actualizada',
+    }),
   );
 
   if (!session) {
     res.status(404).json({ error: 'Sesión no encontrada' });
     return;
   }
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: req.params.patientId,
-      entity: 'SESSION',
-      entityId: session.id,
-      action: 'UPDATED',
-      description: 'Sesión actualizada',
-    })
-    .catch((err) => console.error('[audit]', err));
 
   res.json({ data: session });
 });
@@ -268,6 +261,13 @@ router.delete<SessionParams>('/:sessionId', async (req, res) => {
     req.context,
     req.params.patientId,
     req.params.sessionId,
+    {
+      patientId: req.params.patientId,
+      entity: 'SESSION',
+      entityId: req.params.sessionId,
+      action: 'DELETED',
+      description: 'Sesión eliminada',
+    },
   );
 
   // Inexistente, de otro paciente o ya borrada: mismo 404, sin revelar cuál.
@@ -285,16 +285,6 @@ router.delete<SessionParams>('/:sessionId', async (req, res) => {
     });
     return;
   }
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: req.params.patientId,
-      entity: 'SESSION',
-      entityId: req.params.sessionId,
-      action: 'DELETED',
-      description: 'Sesión eliminada',
-    })
-    .catch((err) => console.error('[audit]', err));
 
   res.status(204).send();
 });

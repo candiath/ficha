@@ -1,6 +1,12 @@
 import type { PlatformAction } from '@prisma/client';
 import type { OperatorContext } from './types';
-import type { TenantUserDTO, UserUpdateInput, UserUpdateResult } from './userRepository';
+import type {
+  PasswordResetIssueInput,
+  PasswordResetIssueResult,
+  TenantUserDTO,
+  UserUpdateInput,
+  UserUpdateResult,
+} from './userRepository';
 
 // Repositorio del operador de plataforma (issue #153). Es la tercera
 // excepción documentada a "ctx: TenantContext primero", y la más deliberada:
@@ -80,6 +86,8 @@ export interface PlatformAuditLogDTO {
   operatorId: string | null;
   tenantId: string;
   targetUserId: string | null;
+  // Resolved when the list is read: descriptions never name the person (#186).
+  targetUser: { email: string; name: string | null } | null;
   action: PlatformAction;
   description: string;
   createdAt: string;
@@ -122,6 +130,24 @@ export interface PlatformRepository {
    * `not_found` cubre clínica inexistente y usuario que no es de ella.
    */
   updateTenantUser(op: OperatorContext, tenantId: string, userId: string, input: UserUpdateInput): Promise<UserUpdateResult>;
+  /**
+   * Revokes every open AuthSession of a user of the clinic, without
+   * deactivating her, and audits it (SPEC-admin-revocation). false if the
+   * clinic does not exist or the user is not in it.
+   */
+  disconnectUserDevices(op: OperatorContext, tenantId: string, userId: string): Promise<boolean>;
+  /**
+   * Generates a single-use reset link for a user of the clinic, with the
+   * same effects as the ADMIN's (SPEC-password-reset), and audits it.
+   * `not_found` covers a nonexistent clinic and a user who is not in it;
+   * `inactive` if she is deactivated. Neither changes anything or audits.
+   */
+  createUserPasswordReset(
+    op: OperatorContext,
+    tenantId: string,
+    userId: string,
+    input: PasswordResetIssueInput,
+  ): Promise<PasswordResetIssueResult>;
 
   /**
    * Acciones sobre una clínica, de la más reciente a la más vieja. null si

@@ -1,7 +1,6 @@
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
-  AuditLogCreateDTO,
   AuditLogDTO,
   AuditLogRepository,
 } from '../auditLogRepository';
@@ -39,21 +38,5 @@ export const prismaAuditLogRepository: AuditLogRepository = {
       select: auditSelect,
     });
     return rows.map(toDTO);
-  },
-
-  async create(ctx: TenantContext, data: AuditLogCreateDTO): Promise<AuditLogDTO> {
-    const db = forTenant(ctx);
-    const row = await db.auditLog.create({
-      data: {
-        patientId: data.patientId,
-        userId: data.userId ?? ctx.userId ?? null,
-        entity: data.entity,
-        entityId: data.entityId,
-        action: data.action,
-        description: data.description,
-      },
-      select: auditSelect,
-    });
-    return toDTO(row);
   },
 };

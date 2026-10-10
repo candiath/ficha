@@ -1,8 +1,4 @@
+// So the editor checks tests with the same options as `npm run typecheck`.
 {
-  "extends": "../tsconfig.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "rootDir": ".."
-  },
-  "include": ["**/*.ts", "../src/**/*.ts"]
+  "extends": "../tsconfig.check.json"
 }

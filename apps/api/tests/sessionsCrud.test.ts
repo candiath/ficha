@@ -5,7 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
-import { createTestClinic, signTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
 
 // El CRUD de sesiones por HTTP: los caminos que las otras suites no cubren.
 //
@@ -44,7 +44,7 @@ describe('CRUD de sesiones por HTTP', () => {
     clinic = await createTestClinic();
     clinicB = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
 
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente CRUD Sesiones' },
@@ -94,7 +94,7 @@ describe('CRUD de sesiones por HTTP', () => {
   afterAll(async () => {
     await sleep(300);
     const tenantIds = [clinic.tenantId, clinicB.tenantId];
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await deleteAuditRows(tenantIds);
     await prisma.appointment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -636,7 +636,7 @@ describe('CRUD de sesiones por HTTP', () => {
     for (const entrada of [alta, edicion, borrado]) {
       expect(entrada).toMatchObject({ patientId: patient.id, userId: user.id });
     }
-    expect(alta.description).toBe('Sesión RPG registrada — Dolor 7 → 3');
+    expect(alta.description).toBe('Sesión registrada');
   });
 
   it('el alta de una NOTE y de un DISCHARGE se describen como tales', async () => {

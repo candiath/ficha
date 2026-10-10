@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // El episodio es la unidad de tratamiento: todo lo clínico cuelga de él y su
 // estado decide qué mira el motor de alertas (listStale solo recorre los
@@ -31,7 +31,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Episodios' },
       select: { id: true },
@@ -40,7 +40,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();

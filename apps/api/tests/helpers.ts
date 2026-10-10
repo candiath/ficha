@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import type { PlatformOperator, User, UserRole } from '@prisma/client';
+import type { PlatformOperator, Prisma, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
+import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
+import type { TenantContext } from '../src/repositories/types';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -65,7 +67,7 @@ export async function createTestClinic(): Promise<TestClinic> {
     await prisma.loginEvent.deleteMany({ where: { email: { contains: runId } } });
     // Las acciones del operador de plataforma sobre esta clínica apuntan al
     // tenant con FK RESTRICT: van antes que él.
-    await prisma.platformAuditLog.deleteMany({ where: { tenantId: tenant.id } });
+    await deleteAuditRows([tenant.id]);
     await prisma.user.deleteMany({ where: { tenantId: tenant.id } });
     await prisma.tenant.delete({ where: { id: tenant.id } });
   }
@@ -73,24 +75,53 @@ export async function createTestClinic(): Promise<TestClinic> {
   return { tenantId: tenant.id, name: tenant.name, slug: tenant.slug, email, createUser, cleanup };
 }
 
-interface SignTestTokenOptions {
-  /** Corrimiento del iat en segundos (negativo = emitido en el pasado). */
-  iatOffsetSeconds?: number;
+interface CreateTestTokenOptions {
+  /** Absolute lifetime from now, in ms; negative creates an already expired session. */
+  ttlMs?: number;
+  /** Trusted-device profile (longer idle timeout). */
+  trusted?: boolean;
+  /** When the session was last used; in the past to test idle expiry. */
+  lastUsedAt?: Date;
 }
 
-// Firma tokens con el mismo secreto que la API pero sin pasar por /login:
-// no gasta el presupuesto del rate limiter y permite fabricar tokens con
-// iat en el pasado para probar la invalidación por passwordChangedAt
-// (jsonwebtoken usa el iat del payload como base si se lo pasás).
-export function signTestToken(
-  user: { id: string; tenantId: string },
-  opts: SignTestTokenOptions = {},
-): string {
-  const iat = Math.floor(Date.now() / 1000) + (opts.iatOffsetSeconds ?? 0);
-  return jwt.sign({ tenantId: user.tenantId, iat }, process.env.JWT_SECRET as string, {
-    subject: user.id,
-    expiresIn: '1h',
+// The bearer token for a clinic user: inserts an auth_sessions row directly,
+// without going through /login (no rate limiter budget spent). The session is
+// deleted with the user by the clinic's cleanup (ON DELETE CASCADE).
+export async function createTestToken(
+  user: { id: string },
+  opts: CreateTestTokenOptions = {},
+): Promise<string> {
+  return (await createTestAuthSession(user, opts)).token;
+}
+
+// The session row behind createTestToken, for tests that also need its id.
+export async function createTestAuthSession(
+  user: { id: string },
+  opts: CreateTestTokenOptions = {},
+): Promise<{ token: string; authSessionId: string }> {
+  const token = generateOpaqueToken();
+  const session = await prisma.authSession.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashOpaqueToken(token),
+      expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
+      trusted: opts.trusted ?? false,
+      ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
+    },
+    select: { id: true },
   });
+  return { token, authSessionId: session.id };
+}
+
+// A TenantContext as authenticate builds it, for tests that call repositories
+// directly: backed by a real session of the user, so audited writes record a
+// session that exists (#186).
+export async function createTestContext(
+  tenantId: string,
+  user: { id: string; role: UserRole },
+): Promise<TenantContext> {
+  const { authSessionId } = await createTestAuthSession(user);
+  return { tenantId, userId: user.id, role: user.role, authSessionId };
 }
 
 // ─── Operador de plataforma ─────────────────────────────────────────────────
@@ -120,7 +151,7 @@ export async function createTestOperator(
   async function cleanup(): Promise<void> {
     await sleep(200);
     await prisma.loginEvent.deleteMany({ where: { email: { contains: runId } } });
-    await prisma.platformAuditLog.deleteMany({ where: { operatorId: operator.id } });
+    await deleteOperatorAuditRows(operator.id);
     await prisma.platformOperator.delete({ where: { id: operator.id } });
   }
 
@@ -132,11 +163,10 @@ export async function createTestOperator(
 // probar que el otro middleware lo rechaza.
 export function signOperatorTestToken(
   operatorId: string,
-  opts: SignTestTokenOptions & { secret?: string } = {},
+  opts: { secret?: string } = {},
 ): string {
-  const iat = Math.floor(Date.now() / 1000) + (opts.iatOffsetSeconds ?? 0);
   return jwt.sign(
-    { kind: 'platform', iat },
+    { kind: 'platform' },
     opts.secret ?? (process.env.PLATFORM_JWT_SECRET as string),
     { subject: operatorId, expiresIn: '1h' },
   );
@@ -162,4 +192,74 @@ export async function waitFor<T>(
     }
     await sleep(intervalMs);
   }
+}
+
+// ─── Audit entries for direct repository calls ──────────────────────────────
+// Audited repository writes take their audit entry as an argument (#188);
+// tests that call them directly pass one of these.
+
+export function patientAudit(action: 'CREATED' | 'UPDATED') {
+  return (p: { id: string }) => ({
+    patientId: p.id,
+    entity: 'PATIENT' as const,
+    entityId: p.id,
+    action,
+    description: `test: patient ${action.toLowerCase()}`,
+  });
+}
+
+export function patientDeleteAudit(patientId: string) {
+  return {
+    patientId,
+    entity: 'PATIENT' as const,
+    entityId: patientId,
+    action: 'DELETED' as const,
+    description: 'test: patient deleted',
+  };
+}
+
+// ─── Audit rows ─────────────────────────────────────────────────────────────
+
+// The only test code that deletes or backdates audit rows (#186,
+// docs/specs/SPEC-audit-hardening.md §1). Each helper runs one transaction
+// that first turns on the maintenance switch, tied to that transaction's id
+// so a leaked value never matches. The append-only triggers honour it only on
+// branches that carry the maintenance flag (development and ci).
+async function inAuditMaintenance<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
+    return work(tx);
+  });
+}
+
+// Fails closed: an empty list, or an empty id in it, throws instead of
+// becoming "every row".
+function requireIds(ids: string[], what: string): void {
+  if (ids.length === 0 || ids.some((id) => !id)) {
+    throw new Error(`audit cleanup needs at least one ${what}, and no empty ones`);
+  }
+}
+
+// Every audit row of these clinics, clinical and platform.
+export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
+  requireIds(tenantIds, 'tenant id');
+  await inAuditMaintenance(async (tx) => {
+    await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await tx.platformAuditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  });
+}
+
+// The platform audit rows of one operator.
+export async function deleteOperatorAuditRows(operatorId: string): Promise<void> {
+  requireIds([operatorId], 'operator id');
+  await inAuditMaintenance((tx) => tx.platformAuditLog.deleteMany({ where: { operatorId } }));
+}
+
+// Audit rows with a chosen date, for tests about ordering. A row with an
+// author names one of her sessions, as the database will require (#186).
+export type BackdatedAuditRow = Prisma.AuditLogCreateManyInput & { createdAt: Date };
+
+export async function insertAuditRowsAt(rows: BackdatedAuditRow[]): Promise<{ id: string }[]> {
+  if (rows.length === 0) throw new Error('insertAuditRowsAt needs at least one row');
+  return inAuditMaintenance((tx) => tx.auditLog.createManyAndReturn({ data: rows, select: { id: true } }));
 }

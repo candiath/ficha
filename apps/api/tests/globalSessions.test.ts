@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // GET /api/sessions es la vista de "todas las sesiones" de la clínica: sin un
 // paciente en la URL, con el nombre de cada uno y el motivo de cada episodio.
@@ -28,7 +28,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     clinic = await createTestClinic();
     clinicB = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
 
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Global' },
@@ -84,7 +84,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   afterAll(async () => {
     await sleep(300);
     const tenantIds = [clinic.tenantId, clinicB.tenantId];
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });

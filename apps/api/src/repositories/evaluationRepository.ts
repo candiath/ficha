@@ -1,6 +1,12 @@
 import type { FamilyPainOption, PostureFamilies } from '@ficha/shared';
 
 import type { TenantContext } from './types';
+import type { AuditBuilder } from './auditLogRepository';
+
+export interface EvaluationUpsertResult {
+  evaluation: EvaluationDTO;
+  created: boolean;
+}
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -78,5 +84,6 @@ export interface EvaluationRepository {
     patientId: string,
     episodeId: string,
     input: EvaluationUpsertInput,
-  ): Promise<{ evaluation: EvaluationDTO; created: boolean }>;
+    audit: AuditBuilder<EvaluationUpsertResult>,
+  ): Promise<EvaluationUpsertResult>;
 }

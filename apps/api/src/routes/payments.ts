@@ -6,12 +6,14 @@ import {
   OptionalIdSchema,
   OptionalTextSchema,
 } from '../lib/validation';
-import { auditLogRepo, paymentRepo } from '../repositories';
+import { paymentRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Las queries, la derivación del paciente desde la sesión, el cálculo de
 // finalAmount y la unicidad pago-por-sesión viven en paymentRepo; acá queda
 // el HTTP: validar el body, resolver paidAt y mapear reasons a status codes.
 const router = Router();
+router.param('id', idParam('Pago no encontrado'));
 
 // Sin patientId: el paciente se deriva de la sesión. Aceptarlo del body
 // permitía crear pagos apuntando a pacientes de otro tenant (y el GET,
@@ -70,7 +72,13 @@ router.get('/last-base-price', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = PaymentCreateSchema.parse(req.body);
 
-  const result = await paymentRepo.create(req.context, body);
+  const result = await paymentRepo.create(req.context, body, (p) => ({
+    patientId: p.patientId,
+    entity: 'PAYMENT',
+    entityId: p.id,
+    action: 'CREATED',
+    description: 'Cobro registrado',
+  }));
 
   if (!result.ok) {
     switch (result.reason) {
@@ -87,16 +95,6 @@ router.post('/', async (req, res) => {
   }
 
   res.status(201).json({ data: result.payment });
-
-  auditLogRepo
-    .create(req.context, {
-      patientId: result.payment.patientId,
-      entity: 'PAYMENT',
-      entityId: result.payment.id,
-      action: 'CREATED',
-      description: `Cobro registrado — $${result.payment.finalAmount}`,
-    })
-    .catch((err) => console.error('[audit]', err));
 });
 
 // PATCH /api/payments/:id
@@ -114,15 +112,26 @@ router.patch('/:id', async (req, res) => {
         ? new Date()
         : undefined;
 
-  const result = await paymentRepo.update(req.context, req.params.id, {
-    baseAmount: body.baseAmount,
-    discount: body.discount,
-    status: body.status,
-    method: body.method,
-    paidAt,
-    packageId: body.packageId,
-    notes: body.notes,
-  });
+  const result = await paymentRepo.update(
+    req.context,
+    req.params.id,
+    {
+      baseAmount: body.baseAmount,
+      discount: body.discount,
+      status: body.status,
+      method: body.method,
+      paidAt,
+      packageId: body.packageId,
+      notes: body.notes,
+    },
+    (p) => ({
+      patientId: p.patientId,
+      entity: 'PAYMENT',
+      entityId: p.id,
+      action: 'UPDATED',
+      description: 'Cobro actualizado',
+    }),
+  );
 
   if (!result.ok) {
     switch (result.reason) {
@@ -139,17 +148,6 @@ router.patch('/:id', async (req, res) => {
   }
 
   res.json({ data: result.payment });
-
-  const statusDesc = body.status ? ` — Estado: ${body.status}` : '';
-  auditLogRepo
-    .create(req.context, {
-      patientId: result.payment.patientId,
-      entity: 'PAYMENT',
-      entityId: result.payment.id,
-      action: 'UPDATED',
-      description: `Cobro actualizado${statusDesc}`,
-    })
-    .catch((err) => console.error('[audit]', err));
 });
 
 export default router;

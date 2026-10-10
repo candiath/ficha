@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "auth_sessions" ADD COLUMN     "last_used_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "trusted" BOOLEAN NOT NULL DEFAULT false;
+

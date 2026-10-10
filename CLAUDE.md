@@ -13,90 +13,43 @@ Monorepo de npm workspaces: `apps/api` (Express 5 + Prisma + Postgres), `apps/we
 
 ## Infraestructura
 
-Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a los otros. La rama de git es el único pegamento — los tres se disparan solos al detectar un push.
+El porqué de cada regla de esta sección y la historia del split a tres entornos están en [`docs/infra.md`](docs/infra.md). Los recursos se nombran por nombre: los IDs de Render y Neon no se versionan (el repo es público). Para llegar a uno, buscarlo con los MCPs (`list_services` en Render, `list_projects` / `list_branches` en Neon); Netlify no tiene MCP, se mira en el dashboard.
 
-- **GitHub** (`candiath/ficha`, repo **público**) — código, CI y rulesets de protección de ramas.
-- **Render** — la API de Express. Un servicio por entorno, plan free (cold start ~50s).
-- **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
-- **Neon** — Postgres. Un solo proyecto (`holy-pine-07820384`) con una branch por entorno.
-
-### Los tres entornos
+- **GitHub** (`candiath/ficha`, **público**) — código, CI, rulesets.
+- **Render** — la API. Un servicio por entorno, plan free (cold start ~50s).
+- **Netlify** — la web. Un sitio (`fichita`) con dos contextos de deploy.
+- **Neon** — Postgres. Proyecto `ficha`, una branch por entorno.
 
 | | Producción | Testing | Desarrollo |
 | --- | --- | --- | --- |
 | Rama | `main` | `dev` | working tree local |
-| Quién lo consume | los usuarios | solo Nath | solo Nath |
-| API | `Ficha` / `srv-d8d00v57vvec73fpvjkg` → ficha-i3t6.onrender.com | `ficha-staging` / `srv-da9eodpsrm7s73c4tsr0` → ficha-staging.onrender.com | `localhost:3001` |
-| Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
-| DB (Neon branch) | `production` / `br-mute-star-acmnbdh1` | `staging` / `br-quiet-bread-ac78jda0` | `development` / `br-cool-lake-ac3pow9e` |
+| API (servicio de Render) | `Ficha` → ficha-i3t6.onrender.com | `ficha-staging` → ficha-staging.onrender.com | `localhost:3001` |
+| Web | fichita.netlify.app | `dev--fichita.netlify.app` | `localhost:5173` |
+| DB (branch de Neon) | `production` | `staging` | `development` |
 
-Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos secretos de un mismo entorno tienen que ser distintos entre sí: la API no arranca si son iguales (ver *Operador de plataforma*). Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
+CI usa una cuarta branch, `ci`, que arrancó **vacía a propósito** (los logs del CI son públicos). It persists between runs: `migrate deploy` applies only new migrations, and interrupted runs leave fictitious test rows behind (see `docs/infra.md`). Release PRs to `main` rebuild it from scratch with `migrate reset`, guarded against any database with non-test accounts.
 
-Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci` / `br-wild-paper-acsbbmws`) y su propia `CI_DATABASE_URL` (secret de GitHub).
+Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platform operator's; clinic users have no secret: their sessions are server-side rows in `auth_sessions`, see below). Los desplegados corren con `NODE_ENV=production`, que bloquea el seed y exige `CORS_ORIGIN`.
 
-Esa branch se creó desde `production` y después se le borró el esquema, así que arranca **vacía**: `migrate deploy` la reconstruye desde la primera migración en cada corrida, lo que de paso verifica que la cadena entera aplica sobre una base limpia. Vacía a propósito y no por descuido — los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
+### Reglas
 
-Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
-
-### El ciclo de vida de un cambio
-
-```
-local (development) ──PR──> dev ──auto-deploy──> testing
-                             │
-                             └──PR "release: ..."──> main ──auto-deploy──> producción
-```
-
-Los PRs de feature van contra `dev`, nunca contra `main`. La promoción a producción es un PR `dev` → `main` con merge commit (no squash: reescribir ahí duplicaría el historial que ya vive en `dev`).
-
-**El ruleset tiene `strict_required_status_checks_policy` en `false` a propósito** — no es un olvido. Con `strict` en `true` ("require branches to be up to date"), cada release deja un merge commit que vive solo en `main`, así que `dev` queda permanentemente "desactualizada" y GitHub exige un *Update branch*; ese botón hace un push directo a `dev`, que el mismo ruleset rechaza por no tener checks corridos todavía. Deadlock en cada release. Y no se pierde nada: como todo llega a `main` a través de `dev`, `dev` nunca puede estar atrasada en código. La contracara es que si alguna vez se hace un hotfix directo sobre `main`, hay que bajarlo a `dev` a mano — GitHub ya no avisa.
-
-Como el árbol que testea el PR de release es idéntico al merge commit que aterriza en `main` (nadie más mueve `main`), el CI **no corre de nuevo al mergear a `main`**: el trigger de `push` cubre solo `dev`. Si en el futuro `main` empezara a recibir cambios por otro canal, esa suposición deja de valer y habría que volver a sumarla.
-
-El entorno de testing solo sirve si se usa: el valor está en la ventana entre mergear a `dev` y promover a `main`. Promover en el mismo minuto convierte a testing en una segunda producción rota en silencio.
-
-### Política de migraciones
-
-Cada entorno migra su propia base, y el schema viaja por el mismo canal que el código:
-
-1. **Local**: `npm run db:migrate` (`prisma migrate dev`) genera el archivo de migración contra la branch `development`. El archivo se commitea junto al cambio de código que lo necesita.
-2. **Testing y producción**: `npm run migrate:prod` (`prisma migrate deploy`) corre en el Build Command de cada servicio de Render, con el `DATABASE_URL` de ese servicio. Es idempotente: aplica solo lo pendiente.
-
-Las migraciones van por **conexión directa**, no por el pooler: el datasource declara `directUrl = env("DIRECT_DATABASE_URL")`, que es el mismo host de Neon sin `-pooler`. `prisma migrate` toma un advisory lock de sesión y PgBouncer en modo transacción no garantiza la misma conexión física entre statements (falla con `P1002`). Cada entorno necesita las dos variables; la app solo usa la pooled.
-
-Si una migración falla, el build falla y Render **mantiene vivo el deploy anterior** — el entorno sigue sirviendo la versión vieja en vez de arrancar con un schema a medias. Prisma envuelve cada migración en una transacción, así que no quedan aplicadas por la mitad.
-
-**Migraciones destructivas en dos pasos.** Un `DROP COLUMN` que llega junto al código que deja de usar la columna rompe producción en el intervalo entre que la migración corre y el proceso nuevo toma el tráfico. Se hace en dos releases: primero se agrega lo nuevo y se deja de leer lo viejo; el `DROP` va en un release posterior, cuando ya nada lo referencia.
-
-Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. **El `.env` local no guarda la URL de producción**, ni siquiera comentada: tenerla a mano invita a copiarla, y una credencial de producción pegada donde no corresponde obliga a rotarla en las cuatro branches. Si hace falta inspeccionar producción con `db:studio`, se saca de la consola de Neon en el momento y se descarta.
+- PRs de feature contra `dev`. Release: PR `dev` → `main` con **merge commit**, no squash. Dejar pasar tiempo entre mergear a `dev` y promover: ese intervalo es todo el valor de testing.
+- **No activar `strict` ("require branches to be up to date") en el ruleset**: produce un deadlock en cada release. Un hotfix directo sobre `main` hay que bajarlo a `dev` a mano.
+- El CI no corre en push a `main` porque el PR de release ya testeó el mismo árbol. Si `main` empieza a recibir cambios por otro canal, hay que volver a sumarlo. **Nor on push to `dev`** (same reason: the PR tested the merge); and on PRs it skips what the change cannot affect — docs-only PRs run no tests, web-only PRs skip the API tests (`changes` job in `test.yml`). The full API suite runs locally before every push.
+- Los PRs borran su rama al mergearse (`delete_branch_on_merge`). `dev` y `main` sobreviven solo porque el ruleset tiene la regla `deletion`: no sacarla.
+- **Migraciones**: se generan en local con `npm run db:migrate` y se commitean con el código. Render corre `npm run migrate:prod` en el build de cada servicio; si falla, sigue sirviendo el deploy anterior. Van por `DIRECT_DATABASE_URL` (sin pooler; con pooler fallan con `P1002`).
+- **Migraciones destructivas en dos releases**: primero se deja de leer la columna; el `DROP` va en un release posterior.
+- Nunca correr `db:migrate` ni `db:seed` contra `production`. **El `.env` local no guarda la URL de producción**, ni comentada.
+- No habilitar PR previews sobre el servicio de Render de producción: clonan sus env vars. Si se quieren previews, van sobre `ficha-staging`.
+- Para saber a qué API pega cada contexto de Netlify, mirar el bundle publicado (`VITE_API_URL` se inlinea al buildear), no el dashboard.
 
 ### Backups
 
-El point-in-time recovery de Neon en el plan free cubre **6 horas** hacia atrás (`history_retention_seconds: 21600`). Alcanza para deshacer un error que se nota enseguida; no alcanza para nada que se descubra al día siguiente, ni sirve si se pierde la cuenta.
-
-Por eso hay un repositorio aparte, **[`candiath/ficha-backups`](https://github.com/candiath/ficha-backups) (privado)**, con un `pg_dump` de producción versionado por git. El dump se escribe siempre en los mismos dos archivos —`dump/schema.sql` y `dump/data.sql`— y cada corrida que encuentra diferencias deja un commit: el historial de git *es* el versionado, y `git log dump/data.sql` es la línea de tiempo de la base. Una corrida sin cambios no commitea nada, y la detección es `git diff --cached --quiet`, sin preguntarle nada a la base.
-
-Corre diario a las 06:00 UTC, a mano, y desde este repo al abrir el PR de release (`.github/workflows/backup-antes-del-release.yml`) — al **abrir** y no al mergear, porque para cuando el merge ocurre Render ya arrancó el build y `migrate deploy` puede estar corriendo.
-
-**La credencial de producción vive solo en el repo privado.** Éste es público: aunque las secrets no se filtran a los PRs de forks, cualquiera con permiso de escritura podría sacarlas modificando un workflow. Acá solo está `BACKUP_DISPATCH_TOKEN`, que puede disparar aquel workflow y nada más.
-
-Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{id}/dispatches`), no por el de `repository_dispatch` (`/dispatches`), y la diferencia es de permisos: en un PAT fine-grained el segundo exige **Contents: write** sobre el repo privado, y Contents incluye lectura — o sea que el token del repo público podría bajarse los dumps con las historias clínicas. El primero se conforma con **Actions: write**, que permite pedir un backup pero no leerlo.
-
-Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
-
-### Cómo se llegó acá (2026-08-29)
-
-El split a tres entornos se hizo el 29/08/2026 y está **completo**: `main` como default branch, rulesets (`test` + `test-web` en `main` y `dev`, PR obligatorio en `main`), las tres branches de Neon, los dos servicios de Render apuntando a su rama y corriendo `migrate:prod` en el build, Netlify con production branch en `main` más branch deploy de `dev`, y `VITE_API_URL` por contexto.
-
-Dos cosas que se rompieron en el camino y conviene no repetir:
-
-- **No habilitar PR previews sobre el servicio de producción de Render.** Los previews clonan las env vars del padre, así que cada uno arrancaba con el `DATABASE_URL` y el `JWT_SECRET` de producción: migraba contra la base real y firmaba tokens válidos en producción. Si se quieren previews, van sobre `ficha-staging`.
-- **Verificar la config de Netlify leyendo el bundle, no el dashboard.** Vite inlinea `VITE_API_URL` en build time, así que `curl` sobre el JS publicado dice a qué API pega cada contexto de verdad. Cambiar la variable no tiene efecto hasta rebuildear.
-
-Para consultar el estado real hay MCPs de Render y Neon disponibles; los IDs de arriba son el punto de entrada. Netlify no tiene MCP: se mira en el dashboard.
+El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en un repo privado aparte, disparado también al **abrir** el PR de release (`.github/workflows/backup-antes-del-release.yml`). La credencial de producción vive solo allá. Acá solo está `BACKUP_DISPATCH_TOKEN`, un PAT fine-grained con **Actions: write** (y no Contents, que daría lectura de los dumps) que usa el endpoint `workflow_dispatch`.
 
 ## Base de datos
 
-Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver arriba). No hay base local ni Docker: `prisma migrate dev` corre directo contra Neon.
+Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver *Infraestructura*). No hay base local ni Docker: `prisma migrate dev` corre directo contra Neon.
 
 ### Acceso a datos: patrón repositorio
 
@@ -109,10 +62,22 @@ Cada entidad tiene un **port** (`<entidad>Repository.ts`: interface + DTOs) y un
 - **Las escrituras condicionadas llevan la condición en el `where` del write** (`updateMany`/`deleteMany` + count, o `update` con campos no únicos en el where y `P2025` → `null`): existencia, pertenencia y vigencia se deciden en la misma query que escribe, sin ventana entre chequeo y escritura.
 - Los DTOs no exponen `tenantId`; fechas como ISO string y `Decimal` como `number`.
 - Zod y la semántica HTTP se quedan en la ruta; la política de datos (borrado lógico, "global o del tenant", "no borrar un paquete usado") vive en el repositorio.
+- **Audited writes record their audit row in the same transaction** (#188): the repository method takes an `audit` argument (an `AuditBuilder<T>`, built from the write's result, or an `AuditEntry` for deletes) and writes it with `recordAudit(tx, ctx, entry)` using the write's own transaction client. If either fails, both roll back. `auditLogRepository` is read-only — there is no standalone `create`, so a route cannot record an action separately (and lose the row when that second write fails). The route still writes the wording of the entry. `tests/auditTransactional.test.ts` forces the audit insert to fail and checks the action rolled back.
+- **Audit rows are being hardened** (#186, [`docs/specs/audit-map.md`](docs/specs/audit-map.md), [`SPEC-audit-hardening.md`](docs/specs/SPEC-audit-hardening.md)); the append-only triggers have not landed yet. Already in place:
+  - `TenantContext` carries `authSessionId`, set by `authenticate` (there is no `req.authSessionId`); `recordAudit` stores it in `audit_logs.auth_session_id`, which never goes into a clinic-facing DTO.
+  - **A description names the action, never a value**: no measurements, scores, amounts, emails or names. Who was affected is read from the row's target when displayed (`PlatformAuditLogDTO.targetUser`).
+  - **Tests touch audit rows only through `tests/helpers.ts`**: `deleteAuditRows`, `deleteOperatorAuditRows`, `insertAuditRowsAt` (backdating). They turn on the maintenance switch the triggers will honour; repository tests get a session-backed context from `createTestContext`.
+  - The seed refuses to run on a database with accounts outside `@ficha.dev` / `@test.ficha.local` (`prisma/seedGuard.ts`).
 
 Tres excepciones documentadas:
 
-- **`authRepository` no recibe `ctx`**: sus lecturas son las que lo construyen (login y `authenticate`), así que corren antes de que exista un tenant.
+- **`authRepository` no recibe `ctx`**: sus lecturas son las que lo construyen (login y `authenticate`), así que corren antes de que exista un tenant. **Sessions live here too** (`docs/specs/SPEC-server-sessions.md`): login creates an `auth_sessions` row and returns an opaque token (only its SHA-256 is stored); `authenticate` accepts it only if one query finds the session unrevoked and unexpired *and* the user and clinic active. Every write that cuts access (logout, password change, deactivating a user or a clinic) also revokes the sessions involved, in the same transaction — the join is the safety net, the revocation is what keeps a reactivation from bringing old sessions back. `auth_sessions` has no `tenantId` (the owner is the user), so it needs no guard classification.
+
+  **Lifetime** (`lib/authSessionPolicy.ts`, `docs/specs/SPEC-my-sessions.md`): every session has an idle *and* an absolute timeout and dies at the first — idle kills an abandoned session, absolute caps a stolen one that is kept alive by use. Normal: 1 h idle / 12 h absolute. Trusted device (opt-in checkbox at login): 7 days / 30 days, at most 3 per user (a 4th demotes the oldest to normal). `last_used_at` is written at most every 5 minutes. These are code constants on purpose — security policy is changed in a reviewed PR, not per deployment. Users see and close their own sessions in *Mi cuenta → Dispositivos conectados* (`/api/auth/devices`); nobody else can list them. An ADMIN (`POST /api/users/:id/disconnect-devices`, *Clínica → Usuarios*) and the platform operator can **disconnect every device** of a user without deactivating her (`docs/specs/SPEC-admin-revocation.md`): `204` with no count, so they never learn how many devices she had. The operator's is audited; the ADMIN's is not yet (#186).
+
+  **Password reset links** (`docs/specs/SPEC-password-reset.md`): there is no "forgot my password" by email; an ADMIN (`POST /api/users/:id/password-reset`, not on herself) or the operator generates a single-use link for an active user of the clinic, valid 24 h, and passes it on by hand. **Generating it is what cuts access**, in one transaction (`repositories/prisma/passwordResetLinks.ts`, shared by both): her earlier unused links are retired, her password hash is replaced with a bcrypt hash of random bytes (so login timing does not reveal the reset) and every session she had is revoked. The token is opaque (`lib/opaqueToken.ts`, the same generator as sessions; only its SHA-256 is stored in `password_reset_tokens`) and travels **only in request bodies and the URL fragment** (`/restablecer-contrasena#<token>`, which the page clears from the address bar): never in a path or query string a server would log. The public routes (`POST /api/auth/password-reset/check` and `/password-reset`) are rate limited per IP and answer every invalid link — unknown, used, retired, expired, deactivated user or clinic — with the same `400`; the conditioned write decides single use, so two concurrent uses yield one `204`. Both user lists show the expiry of a usable link (`passwordResetExpiresAt`, the "Restablecimiento pendiente" badge), never the token. The operator's generation is audited (`PASSWORD_RESET_LINK_CREATED`); the ADMIN's and the use of a link are not yet (#186), but each row keeps the evidence #186 will read: `created_by_user_id` / `created_by_operator_id`, `created_ip` / `created_user_agent`, `used_ip` / `used_user_agent` — so an ADMIN who resets a therapist's password and uses the link herself leaves a trace.
+
+  **Naming: "session" alone is the clinical one** (`Session`, `sessions`, `SessionDTO`, `/api/sessions`): it is the therapists' own word. A login session is always **`AuthSession`** in code (`AuthSessionDTO`, `authSessionId`, `lib/authSession*.ts`), lives under `/api/auth/devices`, and is a **"dispositivo"** in the UI ("Dispositivos conectados"); only the standard phrases "Iniciar sesión" / "Cerrar sesión" keep the word.
 - **`tenantRepository` filtra a mano por `id: ctx.tenantId`**: `Tenant` no está —ni debe estar— en `TENANT_SCOPED_MODELS`, porque el guard filtra inyectando una columna `tenantId` y en esa tabla el tenant *es* el `id`. Ponerla en la lista haría que buscara `tenants.tenant_id`, que no existe.
 - **`platformRepository` recibe el `tenantId` como argumento explícito** en cada operación, en vez de un `ctx`: es la capa del operador de plataforma (abajo), la única que elige el tenant a mano. Usa el `prisma` base y solo toca `tenants`, lo administrativo de `users` y `platform_audit_logs`.
 
@@ -122,9 +87,9 @@ Hubo otra —`techniqueRepository`— pero los catálogos de técnicas se elimin
 
 ### Operador de plataforma
 
-Quien crea clínicas y les nombra su primera ADMIN (issue #153). **No es un tercer valor de `UserRole`**: es la tabla `platform_operators`, con su propio login (`/api/platform/auth/*`), su propio secreto (`PLATFORM_JWT_SECRET`, obligatorio y distinto de `JWT_SECRET`) y sus propias rutas (`/api/platform/*`), montadas en `app.ts` **antes** de `authenticate` y por lo tanto fuera de él y de `forTenant`. Un token de operador es inválido para la API clínica por firma (otro secreto) y por forma (sin `tenantId`); uno de usuario, inválido para la plataforma por lo mismo al revés. `tests/platformIsolation.test.ts` prueba las dos direcciones con tokens fabricados.
+Quien crea clínicas y les nombra su primera ADMIN (issue #153). **No es un tercer valor de `UserRole`**: es la tabla `platform_operators`, con su propio login (`/api/platform/auth/*`), su propio secreto (`PLATFORM_JWT_SECRET`, obligatorio) y sus propias rutas (`/api/platform/*`), montadas en `app.ts` **antes** de `authenticate` y por lo tanto fuera de él y de `forTenant`. The operator is still on a JWT (it moves to sessions in the `operator-sessions` module); the two kinds of token cannot overlap: an operator JWT matches no clinic session, and a clinic session token is not a JWT. `tests/platformIsolation.test.ts` prueba las dos direcciones con tokens fabricados.
 
-Lo que puede: listar y crear clínicas, desactivarlas (`tenants.deactivated_at`: todos sus usuarios reciben 401 en el request siguiente, porque `findForAuth` lo exige null), crear el ADMIN de una clínica y cambiar rol o estado de sus usuarios —con la misma regla de "la clínica conserva una ADMIN activa" que aplica `userRepository` (`whereConservaAdmin`)—. Lo que no puede: nada clínico. Cada acción deja una fila en `platform_audit_logs` **en la misma transacción**.
+Lo que puede: listar y crear clínicas, desactivarlas (`tenants.deactivated_at`: todos sus usuarios reciben 401 en el request siguiente, porque `findForAuth` lo exige null), crear el ADMIN de una clínica y cambiar rol o estado de sus usuarios —con la misma regla de "la clínica conserva una ADMIN activa" que aplica `userRepository` (`whereConservaAdmin`)—, disconnect a user's devices (`USER_DEVICES_DISCONNECTED`) and generate a password reset link for her (`PASSWORD_RESET_LINK_CREATED`). Lo que no puede: nada clínico. Cada acción deja una fila en `platform_audit_logs` **en la misma transacción**.
 
 El bootstrap es `npm run create:operator -w apps/api` con `OPERATOR_EMAIL` y `OPERATOR_PASSWORD`: se corre **una vez por entorno**, y a partir de ahí todo pasa por la UI de `/platform`. Reemplazó a `create-admin.ts`, que se borró en #79. En local el seed crea `operador@ficha.dev` / `password123`.
 
@@ -148,8 +113,10 @@ Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()
 
 ## Convenciones
 
-- Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, mensajes en español con prefijo convencional (`fix(web): ...`, `test(web): ...`).
-- UI y mensajes de error de la API en español.
+- Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, con prefijo convencional (`fix(web): ...`, `test(web): ...`).
+- **Language (since 2026-10-04): everything new is written in English** — identifiers, comments, test names, commit messages, PR and issue text, and documentation (including specs and new sections of this file).
+  - **Exception: what users read stays in Spanish** — UI text and API error messages (`{"error":"No autenticado"}`).
+  - Existing Spanish code and docs are not translated in bulk; translate a piece when it is touched for another reason.
 - La API envuelve respuestas en `{ data: ... }`; todo `/api/*` salvo `/api/auth/*` y `/health` exige `Authorization: Bearer <token>` (401 → `{"error":"No autenticado"}`).
 - CI (`.github/workflows/test.yml`): jobs paralelos para API (con migraciones) y web.
 
@@ -166,5 +133,17 @@ Hay una sola forma de decir "este campo no tiene dato" y es `null`. Como un form
 Los schemas están en `apps/api/src/lib/validation.ts` (`OptionalTextSchema`, `OptionalDateSchema`, `OptionalDateTimeSchema`, `OptionalIdSchema`, `optionalEnum`, `optionalText({ max })`) y las rutas los usan en vez de repetir la regla. El texto obligatorio va con `requiredText(min, mensaje)`, que **trimea antes de medir**: sin eso, un nombre de tres espacios pasa `min(2)` y queda una ficha con un paciente sin nombre.
 
 Esto vale también para las columnas JSON de la evaluación inicial: `jsonFields()` omite la clave del campo que no vino, en vez de completarla con `JsonNull`. Lo contrario —lo que hacía hasta #161— convertía cada PUT parcial en un borrado silencioso de la grilla de posturas.
+
+### Ids: UUIDv7 en columnas `uuid`, validados antes de consultar
+
+Toda PK es `@default(uuid(7)) @db.Uuid` y toda columna que guarda un id lleva `@db.Uuid` (#174). Contra una columna `uuid`, un id con otra forma no devuelve "no encontrado": Prisma tira `P2023`. Por eso el formato se valida antes de llegar al repositorio:
+
+- **En la URL → 404** con el mensaje de la entidad: cada `:param` se registra con `router.param(nombre, idParam('X no encontrado'))` en el archivo que lo declara; los del path de montaje (`:patientId`, `:episodeId`) con `app.param` en `app.ts`. `tests/idParamCoverage.test.ts` rompe el CI si una ruta nueva usa un param sin registrar.
+- **En el body o el query → 400**: `IdSchema` / `OptionalIdSchema`.
+- Red de seguridad: el `errorHandler` responde `P2023` como 404 y lo loguea — si aparece en los logs, hay un camino sin validar.
+
+Una columna nueva que guarde un id lleva `@db.Uuid`, aunque no tenga relación declarada (como `AuditLog.entityId` o `Appointment.seriesId`). Y una migración que cambie el tipo de una columna con datos se revisa a mano: para `text → uuid` Prisma genera `DROP COLUMN` + `ADD COLUMN`, que borra los valores (ver `20261002154935_ids_uuid_nativos`).
+
+**Un id identifica, no autoriza**: un UUID (v4 o v7) no es un secreto. Un acceso sin login nunca lleva el id de una fila en la URL, sino un token aleatorio propio.
 
 Para levantar y verificar la app end-to-end (puertos, seed, gotchas de Windows): skill `verify` en `.claude/skills/verify/SKILL.md`.

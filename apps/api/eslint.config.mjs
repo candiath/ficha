@@ -20,6 +20,7 @@ export default defineConfig([
           allowDefaultProject: [
             'vitest.config.ts',
             'prisma/seed.ts',
+            'prisma/seedGuard.ts',
             'scripts/create-admin.ts',
             'scripts/create-operator.ts',
           ],

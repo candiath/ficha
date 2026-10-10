@@ -17,21 +17,20 @@ export const PasswordSchema = z
   .string()
   .min(8, 'La contraseña debe tener al menos 8 caracteres');
 
-// El id de una fila, tal como llega en un body.
+// El id de una fila, tal como llega en un body o en un query string: un UUID.
 //
-// A propósito NO valida formato de UUID. La columna es `String @id
-// @default(uuid())`, y ese default es de dónde sale el valor cuando nadie lo
-// provee — no una promesa sobre la forma de los ids que existen. El seed lo
-// deja a la vista: crea `dev-patient-001` y `dev-episode-001` para que los
-// datos de desarrollo sean legibles, y esas filas son tan válidas como
-// cualquier otra.
-//
-// Validar el formato tampoco compraba nada. Un id bien formado que no existe
-// termina en 404 igual que uno con cualquier otra forma; lo único que agregaba
-// era convertir ese 404 en un 400 para casos que no importan, mientras
-// rechazaba ids legítimos. Se descubrió porque agendar un turno a los
-// pacientes demo respondía "Datos inválidos".
-export const IdSchema = z.string().min(1);
+// Las columnas de ids son `uuid` nativo (issue #174), y contra esa columna un
+// id con otra forma no es "no encontrado": Prisma tira P2023 y la consulta
+// muere. Así que el formato se valida antes de consultar, en dos lugares con
+// dos respuestas distintas:
+//   - en el body o el query, 400: el cliente mandó un dato inválido;
+//   - en la URL, 404 (middlewares/idParam.ts): un id con forma imposible es
+//     un recurso que no existe, y responder otra cosa cambiaría el contrato.
+export const IdSchema = z.uuid('Id inválido');
+
+export function isId(value: unknown): value is string {
+  return IdSchema.safeParse(value).success;
+}
 
 // ─── Un solo vacío ───────────────────────────────────────────────────────────
 
@@ -77,11 +76,15 @@ export const OptionalDateTimeSchema = z
   .nullable()
   .optional();
 
-// Y para un id opcional que sale de un <select> ("" es "ninguno"). Se llama
-// aparte de OptionalTextSchema aunque hoy validen igual, porque lo que cada
-// uno promete es distinto: si mañana los ids se validan por formato, el
-// cambio va acá y no en todos los campos de texto de la app.
-export const OptionalIdSchema = OptionalTextSchema;
+// Y para un id opcional que sale de un <select> ("" es "ninguno"). Mismas
+// tres reglas del vacío; lo que no es vacío tiene que ser un UUID.
+export const OptionalIdSchema = z
+  .string()
+  .trim()
+  .transform((v) => (v === '' ? null : v))
+  .pipe(IdSchema.nullable())
+  .nullable()
+  .optional();
 
 // Texto obligatorio: se trimea antes de medir, para que " " no pase por tener
 // longitud. El mínimo y el mensaje los pone cada campo.

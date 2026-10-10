@@ -2,7 +2,6 @@ import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authRepo } from '../repositories';
-import { signAccessToken } from '../lib/jwt';
 import {
   createLoginLimiter,
   HASH_SENUELO,
@@ -12,8 +11,13 @@ import {
 } from '../lib/loginGuard';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
+import { idParam } from '../middlewares/idParam';
+import type { RevokeOtherAuthSessionsResponse, AuthSessionDTO } from '@ficha/shared';
 
 const router = Router();
+router.param('authSessionId', idParam('Dispositivo no encontrado'));
+
+type AuthSessionParams = { authSessionId: string };
 
 // Los frenos (por IP y por cuenta), el hash señuelo y la telemetría de
 // intentos viven en lib/loginGuard: los comparte el login del operador de
@@ -23,6 +27,9 @@ const loginLimiter = createLoginLimiter();
 const LoginSchema = z.object({
   email: EmailSchema,
   password: z.string().min(1),
+  // "Mantener la sesión iniciada en este dispositivo": the trusted profile
+  // (lib/authSessionPolicy.ts). Absent means a normal session.
+  trustDevice: z.boolean().optional(),
 });
 
 // Cambiar la contraseña pide la actual, así que también es blanco de
@@ -38,6 +45,25 @@ const ChangePasswordSchema = z
     message: 'La contraseña nueva debe ser distinta de la actual',
     path: ['newPassword'],
   });
+
+// Password reset links (SPEC-password-reset). The token travels only in the
+// body: a query string or path would put it in access logs. Each public
+// route gets its own per-IP limiter; a 256-bit token cannot be guessed, so
+// they guard against floods (and the bcrypt behind a valid one), not guesses.
+const passwordResetCheckLimiter = createLoginLimiter();
+const passwordResetLimiter = createLoginLimiter();
+
+// The shape of an opaque token (lib/opaqueToken.ts). Anything else is not a
+// link we issued: answered like any invalid link, without a query.
+const OPAQUE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+// One answer for every bad link — unknown, used, retired, expired, or of a
+// deactivated user or clinic: the page cannot tell which, and neither can
+// whoever is probing.
+const INVALID_RESET_LINK = { error: 'El enlace no es válido o ya venció' };
+
+const PasswordResetCheckSchema = z.object({ token: z.string() });
+const PasswordResetSchema = z.object({ token: z.string(), newPassword: PasswordSchema });
 
 // user es null cuando el email no corresponde a ninguna cuenta: el evento
 // queda sin tenant ni usuario, pero con el email (lo que cuenta el freno).
@@ -57,7 +83,7 @@ function recordAttempt(
 
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res) => {
-  const { email, password } = LoginSchema.parse(req.body);
+  const { email, password, trustDevice } = LoginSchema.parse(req.body);
 
   // Antes de buscar el usuario y de bcrypt: un intento frenado no cuesta
   // trabajo ni deja rastro (ver isAccountThrottled).
@@ -98,7 +124,12 @@ router.post('/login', loginLimiter, async (req, res) => {
     .touchLastLogin(user.id)
     .catch((err) => console.error('[auth] lastLoginAt', err));
 
-  const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
+  const { token } = await authRepo.createAuthSession({
+    userId: user.id,
+    trusted: trustDevice ?? false,
+    ip: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
 
   res.json({
     data: {
@@ -135,16 +166,98 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
     return;
   }
 
-  // updatePassword estampa passwordChangedAt, que invalida los tokens
-  // emitidos antes del cambio.
+  // Every other session of the user is revoked; the one making the change
+  // stays valid, so the client keeps its token and nothing is returned.
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await authRepo.updatePassword(user.id, passwordHash);
+  await authRepo.changePassword(user.id, passwordHash, req.context.authSessionId);
 
-  // passwordChangedAt invalida los tokens emitidos antes del cambio; este
-  // token nuevo evita que la sesión que hizo el cambio quede afuera.
-  const token = signAccessToken({ sub: user.id, tenantId: user.tenantId });
+  res.status(204).end();
+});
 
-  res.json({ data: { token } });
+// POST /api/auth/password-reset/check — whose account a link resets, so the
+// page can show it before asking for the new password.
+router.post('/password-reset/check', passwordResetCheckLimiter, async (req, res) => {
+  const { token } = PasswordResetCheckSchema.parse(req.body);
+  const target = OPAQUE_TOKEN.test(token) ? await authRepo.checkPasswordReset(token) : null;
+  if (!target) {
+    res.status(400).json(INVALID_RESET_LINK);
+    return;
+  }
+  res.json({ data: target });
+});
+
+// POST /api/auth/password-reset — sets the new password with a link. No
+// session is created: the page sends her to /login, which keeps its own
+// throttling and the "trusted device" choice.
+router.post('/password-reset', passwordResetLimiter, async (req, res) => {
+  const { token, newPassword } = PasswordResetSchema.parse(req.body);
+
+  // Checked before bcrypt: an invalid link costs one indexed query, not a
+  // hash. The write below re-checks validity in its own where, so a link used
+  // between the two still fails there.
+  if (!OPAQUE_TOKEN.test(token) || !(await authRepo.checkPasswordReset(token))) {
+    res.status(400).json(INVALID_RESET_LINK);
+    return;
+  }
+
+  const done = await authRepo.resetPassword(token, {
+    passwordHash: await bcrypt.hash(newPassword, 10),
+    ip: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
+  if (!done) {
+    res.status(400).json(INVALID_RESET_LINK);
+    return;
+  }
+  res.status(204).end();
+});
+
+// POST /api/auth/logout — revokes the session that makes the request. Other
+// sessions of the same user stay open. A token reused after logout no longer
+// passes authenticate, so a second logout gets the usual 401.
+router.post('/logout', authenticate, async (req, res) => {
+  await authRepo.revokeAuthSession(req.context.authSessionId);
+  res.status(204).end();
+});
+
+// ── The user's own sessions (docs/specs/SPEC-my-sessions.md) ────────────────
+// Only ever her own: the repository scopes every read and write by userId,
+// and someone else's session id gets the same 404 as a nonexistent one.
+
+// GET /api/auth/devices — her live sessions, the current one marked.
+router.get('/devices', authenticate, async (req, res) => {
+  const sessions = await authRepo.listAuthSessions(req.context.userId);
+  const data: AuthSessionDTO[] = sessions.map((s) => ({ ...s, current: s.id === req.context.authSessionId }));
+  res.json({ data });
+});
+
+// POST /api/auth/devices/revoke-others — closes all her sessions but this one.
+router.post('/devices/revoke-others', authenticate, async (req, res) => {
+  const revoked = await authRepo.revokeOtherAuthSessions(req.context.userId, req.context.authSessionId);
+  const data: RevokeOtherAuthSessionsResponse = { revoked };
+  res.json({ data });
+});
+
+// DELETE /api/auth/devices/:authSessionId — closes one of her sessions. The
+// current one is allowed: it is a logout.
+router.delete<AuthSessionParams>('/devices/:authSessionId', authenticate, async (req, res) => {
+  const closed = await authRepo.revokeUserAuthSession(req.context.userId, req.params.authSessionId);
+  if (!closed) {
+    res.status(404).json({ error: 'Dispositivo no encontrado' });
+    return;
+  }
+  res.status(204).end();
+});
+
+// POST /api/auth/devices/:authSessionId/untrust — moves one of her trusted
+// sessions to the normal profile, without closing it.
+router.post<AuthSessionParams>('/devices/:authSessionId/untrust', authenticate, async (req, res) => {
+  const demoted = await authRepo.untrustUserAuthSession(req.context.userId, req.params.authSessionId);
+  if (!demoted) {
+    res.status(404).json({ error: 'Dispositivo no encontrado' });
+    return;
+  }
+  res.status(204).end();
 });
 
 // GET /api/auth/me — usuario autenticado actual.

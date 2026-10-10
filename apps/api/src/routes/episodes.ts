@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { clinicalDateField } from '../lib/clinicalDate';
 import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, patientRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 type Params = { patientId: string; episodeId: string };
 
 // Montado en /api/patients/:patientId/episodes
 const router = Router({ mergeParams: true });
+router.param('episodeId', idParam('Episodio no encontrado'));
 
 const CLOSING_STATUSES = ['DISCHARGED', 'ABANDONED'] as const;
 

@@ -1,20 +1,24 @@
 name: Tests
 
 on:
+  # Only on PRs. The PR already tests the merge of its branch into the base,
+  # so running again on the push that merges it repeats the same tree (it used
+  # to run on push to dev: half of the CI time for no new information). If two
+  # PRs to dev ever conflict semantically after merging, the release PR to
+  # main tests the combined tree before it reaches production.
   pull_request:
-  # Solo `dev`: el PR de release testea el merge de dev en main, y como nadie
-  # más mueve main, ese árbol es idéntico al merge commit que aterriza. Correr
-  # de nuevo al mergear no aporta información y además llega tarde — Render ya
-  # desplegó para cuando termina.
-  push:
-    branches: [dev]
   # A demanda, sobre cualquier rama. No es un lujo: lo que el CI valida depende
-  # de credenciales que viven fuera del repo (CI_DATABASE_URL, CI_JWT_SECRET),
+  # de credenciales que viven fuera del repo (CI_DATABASE_URL),
   # así que un check en verde afirma algo sobre un commit en un momento, no
   # sobre el estado de hoy. Después de rotar una clave hay que poder volver a
   # correrlo sin inventar un push ni depender de que exista un run viejo para
   # re-ejecutar.
   workflow_dispatch:
+    inputs:
+      reset_ci_db:
+        description: "Rebuild the ci database from scratch (migrate reset) before the tests, as release PRs do"
+        type: boolean
+        default: false
 
 # Si llegan pushes seguidos al mismo PR, cancela la corrida vieja: los tests
 # van contra una DB compartida (branch de CI en Neon) y no tiene sentido
@@ -24,48 +28,111 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Job aparte del de la API: no necesita DB ni secrets, y en paralelo
-  # no alarga el tiempo total del CI.
-  test-web:
+  # Decides which of the two test jobs have anything to check, from the files
+  # the PR changes. Default is to run: a job is skipped only when the change
+  # provably cannot affect it.
+  #   - docs-only (docs/, tasks/, .claude/, .notes/, *.md): nothing to run.
+  #   - only apps/web/: no API integration tests (the web job still runs,
+  #     and its `npm run check` typechecks the API too).
+  # Manual runs and release PRs to main always run everything.
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      api: ${{ steps.diff.outputs.api }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Clasificar los archivos cambiados
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || [ "$BASE_REF" = "main" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "Full run ($EVENT, base: ${BASE_REF:-none})."
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "Changed files:"; echo "$files"
+          code=$(echo "$files" | grep -vE '^(docs/|tasks/|\.claude/|\.notes/)|\.md$' || true)
+          api=$(echo "$code" | grep -vE '^apps/web/' || true)
+          echo "code=$([ -n "$code" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "api=$([ -n "$api" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  # Job aparte del de la API: no necesita DB ni secrets, y en paralelo
+  # no alarga el tiempo total del CI.
+  #
+  # Both test jobs always run, even with nothing to check: `test` and
+  # `test-web` are required status checks in the ruleset, and a job that is
+  # skipped as a whole never reports, which would block the merge. Skipping
+  # their steps instead reports success in seconds.
+  test-web:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sin cambios de código
+        if: needs.changes.outputs.code != 'true'
+        run: echo 'Docs-only change, nothing to lint or test.'
+
+      - uses: actions/checkout@v5
+        if: needs.changes.outputs.code == 'true'
 
       - uses: actions/setup-node@v5
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: 24
           cache: npm
 
       - name: Instalar dependencias
+        if: needs.changes.outputs.code == 'true'
         run: npm ci
 
       # Solo lee schema.prisma (no toca la DB): el typecheck de la api
       # importa el cliente generado.
       - name: Generar el cliente de Prisma
+        if: needs.changes.outputs.code == 'true'
         run: npx prisma generate
         working-directory: apps/api
 
       # El mismo comando que se corre localmente antes de pushear.
       - name: Lint y typecheck
+        if: needs.changes.outputs.code == 'true'
         run: npm run check
 
       - name: Tests del frontend
+        if: needs.changes.outputs.code == 'true'
         run: npm test -w apps/web
 
   test:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Sin cambios que afecten a la API
+        if: needs.changes.outputs.api != 'true'
+        run: echo 'No API-relevant change, integration tests skipped.'
+
       - uses: actions/checkout@v5
+        if: needs.changes.outputs.api == 'true'
 
       - uses: actions/setup-node@v5
+        if: needs.changes.outputs.api == 'true'
         with:
           node-version: 24
           cache: npm
 
       - name: Instalar dependencias
+        if: needs.changes.outputs.api == 'true'
         run: npm ci
 
       - name: Generar el cliente de Prisma
+        if: needs.changes.outputs.api == 'true'
         run: npx prisma generate
         working-directory: apps/api
 
@@ -74,7 +141,49 @@ jobs:
       # al arrancar los tests. En Render esto ya pasa porque el build corre
       # `build:api`, que buildea shared primero.
       - name: Buildear el paquete compartido
+        if: needs.changes.outputs.api == 'true'
         run: npm run build -w packages/shared
+
+      # Release PRs (or a manual run with reset_ci_db): rebuild the ci database from an empty schema, so the
+      # whole migration chain is proven to apply from scratch (what a brand
+      # new environment does) before it reaches production. It also clears the
+      # test rows that interrupted runs leave behind. Feature PRs skip it to
+      # keep CI short; they only apply their new migrations (next step).
+      #
+      # migrate reset destroys everything, so it first refuses to run on any
+      # database holding a non-test account: every environment but CI has
+      # one (the demo admin, real users, the operator), and the ci branch only
+      # ever gets @test.ficha.local accounts. No config to keep in sync, and
+      # if CI_DATABASE_URL is ever pointed somewhere else by mistake, this
+      # fails instead of wiping it.
+      - name: Comprobar que la base es la de CI (release o manual)
+        if: needs.changes.outputs.api == 'true' && (github.base_ref == 'main' || inputs.reset_ci_db)
+        run: |
+          url="${DATABASE_URL/-pooler/}"
+          non_test=0
+          for table in users platform_operators; do
+            exists=$(psql "$url" -tAc "SELECT to_regclass('public.$table') IS NOT NULL")
+            if [ "$exists" = "t" ]; then
+              n=$(psql "$url" -tAc "SELECT count(*) FROM $table WHERE email NOT LIKE '%@test.ficha.local'")
+              non_test=$((non_test + n))
+            fi
+          done
+          if [ "$non_test" -ne 0 ]; then
+            echo "::error::Refusing to reset: the database has $non_test non-test account(s). Is CI_DATABASE_URL really the ci branch?"
+            exit 1
+          fi
+          echo "Only test accounts found: safe to reset."
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+
+      - name: Reconstruir la base de CI desde cero (release o manual)
+        if: needs.changes.outputs.api == 'true' && (github.base_ref == 'main' || inputs.reset_ci_db)
+        run: |
+          export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
+          npx prisma migrate reset --force --skip-seed
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
       # Idempotente: aplica solo las migraciones pendientes, así la branch
       # de CI acompaña a los PRs que traen migraciones nuevas.
@@ -82,6 +191,7 @@ jobs:
       # (el porqué está en schema.prisma). Lo derivamos de la misma secret
       # sacándole `-pooler`; si la URL no lo tiene, queda igual.
       - name: Aplicar migraciones
+        if: needs.changes.outputs.api == 'true'
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
           npx prisma migrate deploy
@@ -90,8 +200,12 @@ jobs:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
       - name: Tests de integración de la API
-        run: npm test
+        if: needs.changes.outputs.api == 'true'
+        # The audit tests of #186 need a direct (non-pooled) connection, derived
+        # the same way as in the migrate steps.
+        run: |
+          export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
+          npm test
         env:
           # Branch de Neon dedicada a CI — nunca la DB de dev.
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.CI_JWT_SECRET }}

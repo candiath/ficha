@@ -9,6 +9,15 @@ export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error'],
+    // Interactive transactions ($transaction(async (tx) => ...)) are closed by
+    // Prisma after 5 s by default, and the commit then fails with P2028. Each
+    // query inside one is a round-trip to Neon, so a multi-step write (a
+    // session with its payment, episodes, appointment and audit row) crossed
+    // 5 s from a CI runner with high latency. 10 s leaves room for that
+    // without letting a stuck transaction hold its connection for long.
+    // Applies to every interactive transaction, including those made through
+    // forTenant(), which extends this client.
+    transactionOptions: { timeout: 10_000 },
   });
 
 if (process.env.NODE_ENV !== 'production') {

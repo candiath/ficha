@@ -2,13 +2,16 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { EmailSchema, PasswordSchema, requiredText } from '../lib/validation';
+import { disabledPasswordHash } from '../lib/passwordReset';
 import { userRepo } from '../repositories';
+import { idParam } from '../middlewares/idParam';
 
 // Gestión de usuarios de la clínica. Se monta detrás de authenticate +
 // requireRole('ADMIN'): un THERAPIST nunca llega a estos handlers.
 // Las queries viven en userRepo; acá queda el HTTP: validar el body,
 // hashear la contraseña y mapear null a 409/404.
 const router = Router();
+router.param('id', idParam('Usuario no encontrado'));
 
 // Los mismos valores en el alta y en el cambio de rol: un rol que se puede
 // asignar al crear se puede asignar después.
@@ -88,6 +91,61 @@ router.patch('/:id', async (req, res) => {
   }
 
   res.json({ data: result.user });
+});
+
+// POST /api/users/:id/disconnect-devices — closes every session of a user of
+// the clinic without deactivating her (lost phone, a session left open
+// somewhere). 204 with no body: how many devices she had is not the ADMIN's
+// business. Not audited yet: ADMIN actions on users are #186.
+router.post('/:id/disconnect-devices', async (req, res) => {
+  // Her own devices are managed from Mi cuenta, where she can keep the
+  // current one; this route would also log her out of the request itself.
+  if (req.params.id === req.context.userId) {
+    res.status(400).json({ error: 'Para desconectar tus propios dispositivos usá Mi cuenta' });
+    return;
+  }
+
+  const result = await userRepo.disconnectDevices(req.context, req.params.id);
+
+  // Nonexistent or from another clinic: same 404, without revealing which.
+  if (result === 'not_found') {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return;
+  }
+
+  res.status(204).send();
+});
+
+// POST /api/users/:id/password-reset — a single-use link for a user who
+// forgot her password or may have it compromised (SPEC-password-reset).
+// Generating it already closes her sessions and disables her password; she
+// sets a new one with the link, so nobody but her ever knows it. An ADMIN can
+// do this for another ADMIN. Not audited yet (#186), but the link row keeps
+// who generated it and from where.
+router.post('/:id/password-reset', async (req, res) => {
+  if (req.params.id === req.context.userId) {
+    res.status(400).json({ error: 'Para cambiar tu contraseña usá Mi cuenta' });
+    return;
+  }
+
+  const result = await userRepo.createPasswordReset(req.context, req.params.id, {
+    disabledPasswordHash: await disabledPasswordHash(),
+    ip: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
+
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+    res.status(409).json({ error: 'El usuario está desactivado' });
+    return;
+  }
+
+  // The token is a credential: this response must not be stored anywhere.
+  res.set('Cache-Control', 'no-store');
+  res.status(201).json({ data: { token: result.token, expiresAt: result.expiresAt } });
 });
 
 export default router;

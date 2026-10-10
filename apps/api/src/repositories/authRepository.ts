@@ -1,4 +1,5 @@
 import type { UserRole } from '@prisma/client';
+import type { AuthSessionDTO } from '@ficha/shared';
 
 // Repositorio PRE-TENANT: acá no hay TenantContext porque estas lecturas son
 // las que lo CONSTRUYEN — login y authenticate corren antes de conocer el
@@ -31,13 +32,26 @@ export interface LoginUser {
   tenantActive: boolean;
 }
 
-// Para authenticate: lo justo para armar req.context y validar el token.
-// passwordChangedAt queda como Date (se compara contra el iat en segundos).
-export interface AuthUser {
-  id: string;
+// What authenticate needs from a valid session: enough to build req.context,
+// plus the session id for the routes that act on the current session.
+export interface ValidAuthSession {
+  authSessionId: string;
+  userId: string;
   tenantId: string;
   role: UserRole;
-  passwordChangedAt: Date | null;
+  // For authenticate to decide whether last use is worth refreshing.
+  lastUsedAt: Date;
+}
+
+// A session as the user's own list shows it; the route adds `current`.
+export type AuthSessionSummary = Omit<AuthSessionDTO, 'current'>;
+
+export interface CreateAuthSessionInput {
+  userId: string;
+  // Profile from lib/authSessionPolicy.ts; the expiry is derived from it.
+  trusted: boolean;
+  ip: string | null;
+  userAgent: string | null;
 }
 
 export interface PublicProfile {
@@ -71,25 +85,81 @@ export interface LoginAttempt {
   success: boolean;
 }
 
+// The public reset page shows whose account it is about to reset: whoever
+// holds the link already controls the account, so this reveals nothing new.
+export interface PasswordResetTarget {
+  email: string;
+  name: string | null;
+}
+
+// passwordHash arrives computed (bcrypt is the route's business); ip and
+// userAgent are those of whoever uses the link: evidence for the audit (#186).
+export interface PasswordResetUseInput {
+  passwordHash: string;
+  ip: string | null;
+  userAgent: string | null;
+}
+
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 export interface AuthRepository {
   /** Para el login. Incluye inactivos: la ruta decide el mensaje único. */
   findByEmailForLogin(email: string): Promise<LoginUser | null>;
   /**
-   * Para authenticate: solo usuarios activos de clínicas activas (null
-   * revoca el acceso). Que la clínica esté desactivada se decide acá y no
-   * en el middleware para que ninguna ruta pueda olvidarse de mirarlo.
+   * Opens a session and returns its raw token. The token leaves this method
+   * once, for the login response; only its hash is stored.
    */
-  findForAuth(userId: string): Promise<AuthUser | null>;
+  createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }>;
+  /**
+   * For authenticate: the session behind a raw token, or null. One query
+   * decides everything — session unrevoked and unexpired, user active, clinic
+   * active — so no route can forget one of the conditions.
+   */
+  findValidAuthSession(token: string): Promise<ValidAuthSession | null>;
+  /** Revokes one session. false if it was already revoked or does not exist. */
+  revokeAuthSession(authSessionId: string): Promise<boolean>;
+  /** Marks the session as used now, unless it was within the throttle window. */
+  touchAuthSession(authSessionId: string): Promise<void>;
+
+  // ── The user's own sessions (my-sessions) ─────────────────────────────────
+  // Scoped by an explicit userId in the same query that reads or writes:
+  // auth_sessions has no tenantId, and the owner is the user. Someone else's
+  // session id behaves exactly like a nonexistent one.
+
+  /** Live sessions (not revoked, expired or idle), most recently used first; at most 50. */
+  listAuthSessions(userId: string): Promise<AuthSessionSummary[]>;
+  /** false if the session is not hers, does not exist or is already closed. */
+  revokeUserAuthSession(userId: string, authSessionId: string): Promise<boolean>;
+  /** Closes every live session of the user but one; returns how many. */
+  revokeOtherAuthSessions(userId: string, keepSessionId: string): Promise<number>;
+  /** Demotes one of her live trusted sessions to normal; false otherwise. */
+  untrustUserAuthSession(userId: string, authSessionId: string): Promise<boolean>;
   /** Perfil público para /me. */
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */
   getCredentials(userId: string): Promise<Credentials | null>;
   /** Registra el último acceso exitoso. */
   touchLastLogin(userId: string): Promise<void>;
-  /** Cambia el hash y estampa passwordChangedAt (invalida tokens previos). */
-  updatePassword(userId: string, passwordHash: string): Promise<void>;
+  /**
+   * Sets the new hash and revokes every open session of the user except
+   * `keepSessionId` (the one making the change), in one transaction.
+   */
+  changePassword(userId: string, passwordHash: string, keepSessionId: string): Promise<void>;
+
+  // ── Password reset links (SPEC-password-reset) ────────────────────────────
+  // A link is valid if it is unused, not invalidated and not expired, and its
+  // user and her clinic are active: one `where`, shared by both methods.
+
+  /** Whose account a valid link resets; null for any invalid link. */
+  checkPasswordReset(token: string): Promise<PasswordResetTarget | null>;
+  /**
+   * Uses the link: sets the new hash, marks the link used (with the request's
+   * IP and user agent), retires her other links and revokes her sessions, in
+   * one transaction conditioned on the link still being valid. false if it is
+   * not — including when a concurrent request used it first.
+   */
+  resetPassword(token: string, input: PasswordResetUseInput): Promise<boolean>;
+
   /** Telemetría de seguridad: cada intento de login, exitoso o no. */
   recordLoginEvent(input: LoginEventInput): Promise<void>;
   /**

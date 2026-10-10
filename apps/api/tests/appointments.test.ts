@@ -6,8 +6,9 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { addClinicDays, instantToClinicTime } from '../src/lib/clinicTime';
 import {
+  deleteAuditRows,
   createTestClinic,
-  signTestToken,
+  createTestToken,
   sleep,
   waitFor,
   type TestClinic,
@@ -33,7 +34,7 @@ describe('turnos', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Turnos' },
       select: { id: true },
@@ -52,7 +53,7 @@ describe('turnos', () => {
     await sleep(400);
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -437,7 +438,7 @@ describe('turnos', () => {
     const otra = await createTestClinic();
     try {
       const otroUser = await otra.createUser();
-      const otroToken = signTestToken(otroUser);
+      const otroToken = await createTestToken(otroUser);
       const otroPaciente = await prisma.patient.create({
         data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
         select: { id: true },

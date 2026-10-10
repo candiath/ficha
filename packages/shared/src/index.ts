@@ -77,20 +77,54 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
+// One of the user's active sessions, as GET /api/auth/devices lists them
+// (docs/specs/SPEC-my-sessions.md). Only the user herself ever sees these.
+export interface AuthSessionDTO {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  // "Mantener la sesión iniciada en este dispositivo".
+  trusted: boolean;
+  ip: string | null;
+  // Raw User-Agent; the web turns it into "Chrome en Windows" and the like.
+  userAgent: string | null;
+  // The session making this request.
+  current: boolean;
+}
+
+// POST /api/auth/devices/revoke-others.
+export interface RevokeOtherAuthSessionsResponse {
+  revoked: number;
+}
+
 // Payload de POST /api/auth/change-password.
 export interface ChangePasswordInput {
   currentPassword: string;
   newPassword: string;
 }
 
-// Respuesta de POST /api/auth/change-password. Devuelve un token nuevo
-// porque el cambio de contraseña invalida todos los tokens anteriores:
-// sin éste, la propia sesión que hizo el cambio quedaría afuera.
+// Response of POST /api/platform/auth/change-password. The operator is still
+// on a JWT: the change invalidates every earlier token, so a new one comes
+// back. The clinic endpoint answers 204 instead (its session survives).
 export interface ChangePasswordResponse {
   token: string;
 }
 
 // ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
+
+// A freshly generated password reset link (POST /api/users/:id/password-reset
+// and its platform counterpart). The raw token is in this response only.
+export interface PasswordResetLink {
+  token: string;
+  expiresAt: string;
+}
+
+// Public reset page: whose account a valid link resets.
+export interface PasswordResetTarget {
+  email: string;
+  name: string | null;
+}
 
 // Usuario del tenant como lo expone GET /api/users: la identidad de AuthUser
 // más los campos administrativos que un ADMIN necesita ver. Sin `tenant`: la
@@ -98,6 +132,9 @@ export interface ChangePasswordResponse {
 export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   isActive: boolean;
   lastLoginAt: string | null;
+  // Expiry of her usable password reset link, or null: the
+  // "Restablecimiento pendiente" badge.
+  passwordResetExpiresAt: string | null;
 }
 
 // Payload de POST /api/users.
@@ -256,13 +293,17 @@ export type PlatformAction =
   | 'TENANT_REACTIVATED'
   | 'ADMIN_CREATED'
   | 'USER_ROLE_CHANGED'
-  | 'USER_ACTIVE_CHANGED';
+  | 'USER_ACTIVE_CHANGED'
+  | 'USER_DEVICES_DISCONNECTED'
+  | 'PASSWORD_RESET_LINK_CREATED';
 
 export interface PlatformAuditEntry {
   id: string;
   operatorId: string | null;
   tenantId: string;
   targetUserId: string | null;
+  // Resolved when the list is read: descriptions never name the person (#186).
+  targetUser: { email: string; name: string | null } | null;
   action: PlatformAction;
   description: string;
   createdAt: string;

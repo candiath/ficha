@@ -1,0 +1,13 @@
+// Typecheck for everything the build does not compile: tests, the seed,
+// scripts and the vitest config. tsconfig.json covers only src/ (its rootDir),
+// and vitest and `ts-node --transpile-only` strip types without checking them,
+// so a type error outside src/ would otherwise go unnoticed (#180).
+// `npm run typecheck` runs this after the build's own check.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src", "tests", "prisma", "scripts", "vitest.config.ts"]
+}

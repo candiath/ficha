@@ -1,65 +1,51 @@
+import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getPlatformJwtSecret, signOperatorToken, verifyOperatorToken } from '../src/lib/platformJwt';
-import { signAccessToken, verifyAccessToken } from '../src/lib/jwt';
+import { generateOpaqueToken } from '../src/lib/opaqueToken';
 
-// Unit tests del secreto y la forma del token de operador, sin DB.
+// Unit tests of the operator token's secret and shape, without a DB.
 const ORIGINAL = { ...process.env };
 
+// UUIDs, not toy ids: the verifier requires `sub` to be one (#174), and these
+// tests must fail on signature or shape, not on that.
+const OP = randomUUID();
+const USER = randomUUID();
+const TENANT = randomUUID();
+
 afterEach(() => {
-  process.env.JWT_SECRET = ORIGINAL.JWT_SECRET;
   process.env.PLATFORM_JWT_SECRET = ORIGINAL.PLATFORM_JWT_SECRET;
 });
 
 describe('getPlatformJwtSecret', () => {
-  it('exige al menos 32 caracteres, como JWT_SECRET', () => {
+  it('requires at least 32 characters', () => {
     process.env.PLATFORM_JWT_SECRET = 'corto';
     expect(() => getPlatformJwtSecret()).toThrow(/PLATFORM_JWT_SECRET/);
 
     delete process.env.PLATFORM_JWT_SECRET;
     expect(() => getPlatformJwtSecret()).toThrow(/PLATFORM_JWT_SECRET/);
   });
-
-  // Si fueran iguales, la separación entre los dos logins quedaría reducida
-  // a la forma del token: un secreto distinto es lo que hace que un token de
-  // operador sea inválido para la clínica por firma, antes de mirar claims.
-  it('rechaza que sea igual a JWT_SECRET', () => {
-    process.env.PLATFORM_JWT_SECRET = process.env.JWT_SECRET;
-    expect(() => getPlatformJwtSecret()).toThrow(/igual a JWT_SECRET/);
-  });
 });
 
-describe('forma del token de operador', () => {
-  it('lleva kind=platform y no lleva tenantId', () => {
-    const token = signOperatorToken('op-1');
+describe('operator token shape', () => {
+  it('carries kind=platform and no tenantId', () => {
+    const token = signOperatorToken(OP);
     const decoded = verifyOperatorToken(token);
-    expect(decoded.sub).toBe('op-1');
+    expect(decoded.sub).toBe(OP);
     expect(typeof decoded.iat).toBe('number');
   });
 
-  // Con secretos distintos, el otro verificador lo rechaza por firma.
-  it('el verificador de la clínica lo rechaza, y al revés', () => {
-    expect(() => verifyAccessToken(signOperatorToken('op-1'))).toThrow();
-    expect(() => verifyOperatorToken(signAccessToken({ sub: 'u-1', tenantId: 't-1' }))).toThrow();
+  it('a clinic session token is not an operator token', () => {
+    expect(() => verifyOperatorToken(generateOpaqueToken())).toThrow();
   });
 
-  // Y aun con el MISMO secreto, la forma ya lo rechazaría: el verificador de
-  // la clínica exige tenantId y el de plataforma exige que no lo haya (más
-  // kind=platform). Se firma a mano con el secreto del otro lado para que la
-  // firma sea válida y lo único que falle sea la forma — es la segunda capa
-  // del aislamiento, y tiene que sostenerse sola.
-  it('con la firma del otro lado, la forma alcanza para rechazarlo en las dos direcciones', () => {
-    const operatorShapedWithClinicSecret = jwt.sign(
-      { kind: 'platform' },
-      process.env.JWT_SECRET as string,
-      { subject: 'op-1', expiresIn: '1h' },
-    );
-    expect(() => verifyAccessToken(operatorShapedWithClinicSecret)).toThrow(/formato/);
-
+  // Even with the platform's own valid signature, a token shaped like a clinic
+  // one (with tenantId, without kind) is rejected by shape.
+  it('rejects a clinic-shaped token signed with the platform secret', () => {
     const userShapedWithPlatformSecret = jwt.sign(
-      { tenantId: 't-1' },
+      { tenantId: TENANT },
       process.env.PLATFORM_JWT_SECRET as string,
-      { subject: 'u-1', expiresIn: '1h' },
+      { subject: USER, expiresIn: '1h' },
     );
     expect(() => verifyOperatorToken(userShapedWithPlatformSecret)).toThrow(/formato/);
   });

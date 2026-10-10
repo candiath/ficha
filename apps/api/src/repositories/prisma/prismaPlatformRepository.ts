@@ -1,7 +1,12 @@
 import { Prisma, type UserRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import type { OperatorContext } from '../types';
-import type { UserUpdateInput, UserUpdateResult } from '../userRepository';
+import type {
+  PasswordResetIssueInput,
+  PasswordResetIssueResult,
+  UserUpdateInput,
+  UserUpdateResult,
+} from '../userRepository';
 import type {
   OperatorAuth,
   OperatorCredentials,
@@ -15,6 +20,11 @@ import type {
   PlatformTenantDTO,
   PlatformUserDTO,
 } from '../platformRepository';
+import {
+  issuePasswordReset,
+  pendingPasswordResetExpiry,
+  pendingPasswordResetSelect,
+} from './passwordResetLinks';
 import { whereConservaAdmin } from './userRules';
 
 // Usa el prisma base a conciencia, como authRepository: no hay TenantContext
@@ -56,12 +66,17 @@ const userSelect = {
   role: true,
   isActive: true,
   lastLoginAt: true,
-} as const;
+  ...pendingPasswordResetSelect,
+} satisfies Prisma.UserSelect;
 
 type UserRow = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
-function toUserDTO(row: UserRow): PlatformUserDTO {
-  return { ...row, lastLoginAt: row.lastLoginAt?.toISOString() ?? null };
+function toUserDTO({ passwordResetTokens, ...row }: UserRow): PlatformUserDTO {
+  return {
+    ...row,
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    passwordResetExpiresAt: pendingPasswordResetExpiry({ isActive: row.isActive, passwordResetTokens }),
+  };
 }
 
 const auditSelect = {
@@ -72,6 +87,9 @@ const auditSelect = {
   action: true,
   description: true,
   createdAt: true,
+  // Who was affected, read now and not copied into the description: an
+  // audit row can never change, so a name in it could never be erased (#186).
+  targetUser: { select: { email: true, name: true } },
 } as const;
 
 type AuditRow = Prisma.PlatformAuditLogGetPayload<{ select: typeof auditSelect }>;
@@ -154,7 +172,7 @@ export const prismaPlatformRepository: PlatformRepository = {
             operatorId: op.operatorId,
             tenantId: tenant.id,
             action: 'TENANT_CREATED',
-            description: `Creó la clínica "${tenant.name}" (${tenant.slug})`,
+            description: 'Creó la clínica',
           },
         });
         return tenant;
@@ -184,13 +202,22 @@ export const prismaPlatformRepository: PlatformRepository = {
       const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: tenantSelect });
       if (!tenant) return null;
 
+      // Deactivating the clinic closes every session of its users, so
+      // reactivating it later does not bring old sessions back.
+      if (count === 1 && !active) {
+        await tx.authSession.updateMany({
+          where: { user: { tenantId }, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
       if (count === 1) {
         await tx.platformAuditLog.create({
           data: {
             operatorId: op.operatorId,
             tenantId,
             action: active ? 'TENANT_REACTIVATED' : 'TENANT_DEACTIVATED',
-            description: `${active ? 'Reactivó' : 'Desactivó'} la clínica "${tenant.name}"`,
+            description: `${active ? 'Reactivó' : 'Desactivó'} la clínica`,
           },
         });
       }
@@ -237,7 +264,7 @@ export const prismaPlatformRepository: PlatformRepository = {
             tenantId,
             targetUserId: user.id,
             action: 'ADMIN_CREATED',
-            description: `Creó a ${user.email} como ADMIN de "${tenant.name}"`,
+            description: 'Creó una ADMIN',
           },
         });
         return { ok: true, user: toUserDTO(user) } as const;
@@ -281,6 +308,15 @@ export const prismaPlatformRepository: PlatformRepository = {
       });
       if (count === 0) return { ok: false, reason: 'last_admin' } as const;
 
+      // Deactivating closes the user's sessions in the same transaction, so a
+      // later reactivation does not bring old sessions back.
+      if (input.isActive === false) {
+        await tx.authSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
       const user = await tx.user.findFirstOrThrow({ where: { id: userId, tenantId }, select: userSelect });
 
       // Una fila por campo que CAMBIÓ: "cambió el rol" y "cambió el estado"
@@ -292,7 +328,7 @@ export const prismaPlatformRepository: PlatformRepository = {
           data: {
             ...base,
             action: 'USER_ROLE_CHANGED',
-            description: `Cambió el rol de ${user.email} a ${ROLE_EN_AUDITORIA[input.role]}`,
+            description: `Cambió el rol a ${ROLE_EN_AUDITORIA[input.role]}`,
           },
         });
       }
@@ -301,12 +337,71 @@ export const prismaPlatformRepository: PlatformRepository = {
           data: {
             ...base,
             action: 'USER_ACTIVE_CHANGED',
-            description: `${input.isActive ? 'Reactivó' : 'Desactivó'} a ${user.email}`,
+            description: `${input.isActive ? 'Reactivó' : 'Desactivó'} a la usuaria`,
           },
         });
       }
 
       return { ok: true, user: toUserDTO(user) } as const;
+    });
+  },
+
+  async disconnectUserDevices(op: OperatorContext, tenantId: string, userId: string): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      // auth_sessions has no tenantId: the { id, tenantId } lookup in the same
+      // transaction is what proves the user is in the clinic the operator named.
+      const user = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { id: true, email: true },
+      });
+      if (!user) return false;
+
+      await tx.authSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      // Audited even when she had no open session: the operator did act,
+      // and the row does not say how many devices there were.
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: op.operatorId,
+          tenantId,
+          targetUserId: user.id,
+          action: 'USER_DEVICES_DISCONNECTED',
+          description: 'Desconectó los dispositivos de la usuaria',
+        },
+      });
+      return true;
+    });
+  },
+
+  async createUserPasswordReset(
+    op: OperatorContext,
+    tenantId: string,
+    userId: string,
+    input: PasswordResetIssueInput,
+  ): Promise<PasswordResetIssueResult> {
+    return prisma.$transaction(async (tx) => {
+      // As in disconnectUserDevices: the { id, tenantId } lookup in the same
+      // transaction proves the user is in the clinic the operator named.
+      const user = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { id: true, email: true, isActive: true },
+      });
+      if (!user) return { ok: false, reason: 'not_found' } as const;
+      if (!user.isActive) return { ok: false, reason: 'inactive' } as const;
+
+      const link = await issuePasswordReset(tx, user.id, { operatorId: op.operatorId }, input);
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: op.operatorId,
+          tenantId,
+          targetUserId: user.id,
+          action: 'PASSWORD_RESET_LINK_CREATED',
+          description: 'Generó un enlace para restablecer la contraseña',
+        },
+      });
+      return { ok: true, ...link } as const;
     });
   },
 
@@ -318,7 +413,7 @@ export const prismaPlatformRepository: PlatformRepository = {
 
     const rows = await prisma.platformAuditLog.findMany({
       where: { tenantId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: auditSelect,
     });
     return rows.map(toAuditDTO);

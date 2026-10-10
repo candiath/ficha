@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma';
 import { forTenant, scopeArgs } from '../src/lib/tenantScope';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, type TestClinic } from './helpers';
+import { createTestContext, createTestClinic, type TestClinic } from './helpers';
 
 // Unit tests de scopeArgs, sin DB: verifican la mecánica de inyección y que
 // el guard sea fail-closed ante operaciones que no reconoce.
@@ -33,7 +33,7 @@ describe('scopeArgs: inyección y fail-closed', () => {
 
 describe('forTenant: validación del contexto', () => {
   it('rechaza un contexto con tenantId vacío', () => {
-    expect(() => forTenant({ tenantId: '', userId: 'u1', role: 'ADMIN' })).toThrow(
+    expect(() => forTenant({ tenantId: '', userId: 'u1', role: 'ADMIN', authSessionId: 'none' })).toThrow(
       /tenantId/,
     );
   });
@@ -56,7 +56,7 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
     clinicA = await createTestClinic();
     clinicB = await createTestClinic();
     const userA = await clinicA.createUser({ role: 'ADMIN' });
-    ctxA = { tenantId: clinicA.tenantId, userId: userA.id, role: 'ADMIN' };
+    ctxA = await createTestContext(clinicA.tenantId, userA);
     dbA = forTenant(ctxA);
 
     patientA = await prisma.patient.create({

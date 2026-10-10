@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { familyPainSchema, postureFamiliesSchema } from '@ficha/shared';
 import { z } from 'zod';
 import { OptionalTextSchema } from '../lib/validation';
-import { auditLogRepo, episodeRepo, evaluationRepo } from '../repositories';
+import { episodeRepo, evaluationRepo } from '../repositories';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -59,24 +59,19 @@ router.put<Params>('/', async (req, res) => {
 
   const body = EvaluationSchema.parse(req.body);
 
-  const { evaluation, created } = await evaluationRepo.upsert(
+  const { evaluation } = await evaluationRepo.upsert(
     req.context,
     req.params.patientId,
     req.params.episodeId,
     body,
-  );
-
-  auditLogRepo
-    .create(req.context, {
+    ({ evaluation: e, created }) => ({
       patientId: req.params.patientId,
       entity: 'EVALUATION',
-      entityId: evaluation.id,
+      entityId: e.id,
       action: created ? 'CREATED' : 'UPDATED',
-      description: created
-        ? 'Evaluación inicial registrada'
-        : 'Evaluación inicial actualizada',
-    })
-    .catch((err) => console.error('[audit]', err));
+      description: created ? 'Evaluación inicial registrada' : 'Evaluación inicial actualizada',
+    }),
+  );
 
   res.json({ data: evaluation });
 });

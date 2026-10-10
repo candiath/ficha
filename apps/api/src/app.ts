@@ -4,8 +4,8 @@ import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
 import { authenticateOperator } from './middlewares/platformAuth';
 import { errorHandler } from './middlewares/errorHandler';
+import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
-import { getJwtSecret } from './lib/jwt';
 import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
@@ -32,11 +32,8 @@ import usersRouter from './routes/users';
 // importan para dispararle requests con supertest sin abrir sockets.
 const app = express();
 
-// Validar la configuración al armar la app: mejor explotar acá que descubrir
-// en el primer login que JWT_SECRET no estaba definido.
-getJwtSecret();
-// Ídem para el secreto del operador de plataforma — y además tienen que ser
-// distintos (lo verifica la propia función).
+// Validate configuration while building the app: better to blow up here than
+// to find out at the first login that a setting was missing or malformed.
 getPlatformJwtSecret();
 
 // Detrás de un proxy (Render), la IP real del cliente viene en
@@ -58,7 +55,7 @@ const envOrigins = (process.env.CORS_ORIGIN ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Mismo criterio que getJwtSecret: mejor explotar al arrancar que descubrir
+// Mismo criterio que getPlatformJwtSecret: mejor explotar al arrancar que descubrir
 // en producción que el frontend quedó bloqueado (o cualquier origen, adentro).
 if (IS_PRODUCTION && envOrigins.length === 0) {
   throw new Error(
@@ -117,6 +114,11 @@ app.use('/api/platform', authenticateOperator, platformRouter);
 // authenticate adjunta req.context = { tenantId, userId, role }, que las rutas
 // le pasan a los repositorios: ellos scopean cada query al tenant.
 app.use('/api', authenticate);
+
+// Los ids que vienen del path de montaje se validan acá: un router.param del
+// router hijo no se dispara para ellos (ver middlewares/idParam.ts).
+app.param('patientId', idParam('Paciente no encontrado'));
+app.param('episodeId', idParam('Episodio no encontrado'));
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', episodesRouter);

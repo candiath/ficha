@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // Aislamiento entre clínicas en las rutas de dominio: los ids que viajan en
 // el body (episodeIds, packageId, patientId) no deben poder apuntar a datos
@@ -41,7 +41,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     clinicA = await createTestClinic();
     clinicB = await createTestClinic();
     userA = await clinicA.createUser();
-    tokenA = signTestToken(userA);
+    tokenA = await createTestToken(userA);
 
     async function createPatientWithEpisode(tenantId: string, fullName: string) {
       const patient = await prisma.patient.create({
@@ -95,7 +95,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     // aterrizar antes de borrar (mismo criterio que loginEvents en helpers).
     await sleep(300);
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await deleteAuditRows(tenantIds);
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     // Borrar sesiones arrastra session_episodes por el onDelete: Cascade.

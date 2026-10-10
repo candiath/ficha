@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, signTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // La grilla de familias de posturas y las listas de dolor en familia son
 // columnas JSONB: Postgres no valida nada de su contenido. Hasta que existió
@@ -24,14 +24,14 @@ describe('validación de las familias de la evaluación inicial', () => {
 
   const url = () => `/api/patients/${patient.id}/episodes/${episode.id}/evaluation`;
 
-  function put(body: unknown) {
+  function put(body: object) {
     return request(app).put(url()).set('Authorization', `Bearer ${token}`).send(body);
   }
 
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
-    token = signTestToken(user);
+    token = await createTestToken(user);
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Familias' },
       select: { id: true },
@@ -44,7 +44,7 @@ describe('validación de las familias de la evaluación inicial', () => {
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.initialEvaluation.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
