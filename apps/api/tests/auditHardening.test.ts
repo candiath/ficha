@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { User } from '@prisma/client';
+import { Prisma, PrismaClient, type User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { createTestAuthSession, createTestClinic, deleteAuditRows, type TestClinic } from './helpers';
 
@@ -119,5 +119,105 @@ describe('audit rows are append-only', () => {
       FROM audit_logs a, audit_logs b
       WHERE a.id = ${first.id}::uuid AND b.id = ${second.id}::uuid`;
     expect(gap).toBeGreaterThanOrEqual(0.04);
+  });
+});
+
+// The switch and the flag, probed on one backend: a single-connection client
+// over the direct URL (the pooler would hand each statement to any backend),
+// and a TEMP table carrying the real trigger function, so nothing shared is
+// truncated or deleted.
+describe('maintenance needs the flag and a switch tied to the transaction', () => {
+  const url = new URL(process.env.DIRECT_DATABASE_URL as string);
+  url.searchParams.set('connection_limit', '1');
+  const db = new PrismaClient({ datasourceUrl: url.toString() });
+
+  const SWITCH_ON = Prisma.sql`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
+  const deleteProbe = (tx: Prisma.TransactionClient | PrismaClient) =>
+    tx.$executeRaw`DELETE FROM pg_temp.audit_probe`;
+
+  beforeAll(async () => {
+    await db.$executeRaw`CREATE TEMP TABLE audit_probe (id int)`;
+    await db.$executeRaw`CREATE TRIGGER audit_probe_append_only BEFORE UPDATE OR DELETE ON pg_temp.audit_probe
+      FOR EACH ROW EXECUTE FUNCTION public.audit_rows_are_append_only()`;
+    await db.$executeRaw`CREATE TRIGGER audit_probe_no_truncate BEFORE TRUNCATE ON pg_temp.audit_probe
+      FOR EACH STATEMENT EXECUTE FUNCTION public.audit_rows_are_append_only()`;
+  });
+
+  afterAll(async () => {
+    await db.$executeRaw`RESET ficha.audit_maintenance`;
+    await db.$disconnect();
+  });
+
+  const refill = () => db.$executeRaw`INSERT INTO pg_temp.audit_probe VALUES (1)`;
+
+  it('deletes with the flag and the switch (the probe works)', async () => {
+    await refill();
+    const deleted = await db.$transaction(async (tx) => {
+      await tx.$queryRaw(SWITCH_ON);
+      return deleteProbe(tx);
+    });
+    expect(deleted).toBeGreaterThan(0);
+  });
+
+  it('never truncates, even under maintenance', async () => {
+    await refill();
+    await expect(
+      db.$transaction(async (tx) => {
+        await tx.$queryRaw(SWITCH_ON);
+        await tx.$executeRaw`TRUNCATE pg_temp.audit_probe`;
+      }),
+    ).rejects.toThrow(APPEND_ONLY);
+  });
+
+  it('ignores a switch set to any other value', async () => {
+    await refill();
+    await expect(
+      db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', 'on', true)`;
+        await deleteProbe(tx);
+      }),
+    ).rejects.toThrow(APPEND_ONLY);
+  });
+
+  it('ignores a switch set at session level', async () => {
+    await refill();
+    // The value is the id of this statement's own transaction: right for it,
+    // wrong for every later one.
+    await db.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, false)`;
+    try {
+      await expect(deleteProbe(db)).rejects.toThrow(APPEND_ONLY);
+    } finally {
+      await db.$executeRaw`RESET ficha.audit_maintenance`;
+    }
+  });
+
+  it('does not outlive the transaction that set it, on the same backend', async () => {
+    await refill();
+    const pid = await db.$transaction(async (tx) => {
+      await tx.$queryRaw(SWITCH_ON);
+      const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      return row.pid;
+    });
+
+    const [{ pid: samePid }] = await db.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+    expect(samePid).toBe(pid);
+    await expect(deleteProbe(db)).rejects.toThrow(APPEND_ONLY);
+  });
+
+  // The only lock this suite takes on a shared object: the flag table, which
+  // nothing else writes, dropped inside a transaction that always rolls back.
+  it('does nothing without the flag', async () => {
+    await refill();
+    await expect(
+      db.$transaction(async (tx) => {
+        await tx.$queryRaw(SWITCH_ON);
+        await tx.$executeRaw`DROP TABLE ficha_ops.audit_maintenance_allowed`;
+        await deleteProbe(tx);
+      }),
+    ).rejects.toThrow(APPEND_ONLY);
+
+    const [{ flagged }] = await db.$queryRaw<{ flagged: boolean }[]>`
+      SELECT to_regclass('ficha_ops.audit_maintenance_allowed') IS NOT NULL AS flagged`;
+    expect(flagged).toBe(true);
   });
 });

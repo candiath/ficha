@@ -227,6 +227,15 @@ export function patientDeleteAudit(patientId: string) {
 // branches that carry the maintenance flag (development and ci).
 async function inAuditMaintenance<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
+    const [{ flagged }] = await tx.$queryRaw<{ flagged: boolean }[]>`
+      SELECT to_regclass('ficha_ops.audit_maintenance_allowed') IS NOT NULL AS flagged`;
+    if (!flagged) {
+      throw new Error(
+        'This database has no audit maintenance flag, so tests cannot clean up audit rows. ' +
+          'Only development and ci get it: CREATE SCHEMA IF NOT EXISTS ficha_ops; ' +
+          'CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed (); (see docs/infra.md).',
+      );
+    }
     await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
     return work(tx);
   });
