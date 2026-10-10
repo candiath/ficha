@@ -23,6 +23,7 @@ export default defineConfig([
             'prisma/seedGuard.ts',
             'scripts/create-admin.ts',
             'scripts/create-operator.ts',
+            'scripts/purge-test-audit.ts',
           ],
         },
         // Monorepo: fija la raíz a esta carpeta para que el ESLint del IDE
