@@ -212,8 +212,8 @@ async function main() {
   await seedAuditRows([
     { ...demoAudit, id: devId('dev-audit-001'), patientId: patient.id, entity: 'PATIENT', entityId: patient.id, action: 'CREATED', description: 'Paciente registrado en el sistema', createdAt: new Date('2026-02-01T09:00:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: patient.id, action: 'CREATED', description: 'Evaluación inicial registrada', createdAt: new Date('2026-02-01T09:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'CREATED', description: 'Sesión RPG registrada', createdAt: new Date('2026-02-10T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'CREATED', description: 'Sesión RPG registrada', createdAt: new Date('2026-02-24T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'CREATED', description: 'Sesión registrada', createdAt: new Date('2026-02-10T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'CREATED', description: 'Sesión registrada', createdAt: new Date('2026-02-24T10:30:00.000Z') },
   ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
@@ -579,16 +579,16 @@ async function main() {
     { id: devId('dev-audit-p2-001'), entity: 'PATIENT',    entityId: p2.id,                  action: 'CREATED', description: 'Paciente registrado en el sistema',                  date: '2025-12-01T09:00:00.000Z' },
     { id: devId('dev-audit-p2-002'), entity: 'CONSENT',    entityId: devId('dev-consent-002'),       action: 'CREATED', description: 'Consentimiento informado firmado',                    date: '2025-12-05T09:00:00.000Z' },
     { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'CREATED', description: 'Evaluación inicial registrada',                       date: '2025-12-05T09:30:00.000Z' },
-    { id: devId('dev-audit-p2-004'), entity: 'SESSION',    entityId: devId('dev-session-p2-001'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2025-12-05T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-004'), entity: 'SESSION',    entityId: devId('dev-session-p2-001'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2025-12-05T11:00:00.000Z' },
     { id: devId('dev-audit-p2-005'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-001'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2025-12-05T09:35:00.000Z' },
-    { id: devId('dev-audit-p2-006'), entity: 'SESSION',    entityId: devId('dev-session-p2-002'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2025-12-12T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-007'), entity: 'SESSION',    entityId: devId('dev-session-p2-003'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2026-01-09T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-008'), entity: 'SESSION',    entityId: devId('dev-session-p2-004'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2026-01-16T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-006'), entity: 'SESSION',    entityId: devId('dev-session-p2-002'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2025-12-12T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-007'), entity: 'SESSION',    entityId: devId('dev-session-p2-003'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-09T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-008'), entity: 'SESSION',    entityId: devId('dev-session-p2-004'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-16T11:00:00.000Z' },
     { id: devId('dev-audit-p2-009'), entity: 'SESSION',    entityId: devId('dev-session-p2-005'),    action: 'CREATED', description: 'Nota clínica registrada',                            date: '2026-01-23T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-010'), entity: 'SESSION',    entityId: devId('dev-session-p2-006'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2026-01-30T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-010'), entity: 'SESSION',    entityId: devId('dev-session-p2-006'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-30T11:00:00.000Z' },
     { id: devId('dev-audit-p2-011'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-002'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2026-01-30T10:35:00.000Z' },
-    { id: devId('dev-audit-p2-012'), entity: 'SESSION',    entityId: devId('dev-session-p2-007'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2026-02-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-013'), entity: 'SESSION',    entityId: devId('dev-session-p2-008'),    action: 'CREATED', description: 'Sesión RPG registrada',                              date: '2026-03-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-012'), entity: 'SESSION',    entityId: devId('dev-session-p2-007'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-02-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-013'), entity: 'SESSION',    entityId: devId('dev-session-p2-008'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-03-06T11:00:00.000Z' },
     { id: devId('dev-audit-p2-014'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-003'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2026-03-06T10:35:00.000Z' },
     { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'UPDATED', description: 'Evaluación inicial actualizada',                      date: '2026-01-30T10:00:00.000Z' },
   ] as const;

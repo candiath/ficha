@@ -168,7 +168,7 @@ router.post<ParentParams>('/', async (req, res) => {
   // sola transacción dentro del repo: si algo falla no queda una sesión a
   // medias.
   const sessionTypeDesc: Record<string, string> = {
-    SESSION: 'Sesión RPG registrada',
+    SESSION: 'Sesión registrada',
     NOTE: 'Nota clínica registrada',
     DISCHARGE: 'Alta registrada',
   };

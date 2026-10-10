@@ -57,7 +57,7 @@ describe('audit descriptions carry no values', () => {
   it('a session with pain values does not record them', async () => {
     const session = await createSession({ painScaleBefore: 7, painScaleAfter: 3 });
 
-    expect(await descriptionOf(session.id, 'CREATED')).toBe('Sesión RPG registrada');
+    expect(await descriptionOf(session.id, 'CREATED')).toBe('Sesión registrada');
   });
 
   it('a scale does not record its score', async () => {
