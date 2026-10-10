@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Prisma, PrismaClient, type User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
@@ -219,5 +220,82 @@ describe('maintenance needs the flag and a switch tied to the transaction', () =
     const [{ flagged }] = await db.$queryRaw<{ flagged: boolean }[]>`
       SELECT to_regclass('ficha_ops.audit_maintenance_allowed') IS NOT NULL AS flagged`;
     expect(flagged).toBe(true);
+  });
+});
+
+// A session on an audit row is a real session of its author when the row is
+// written (spec §1 and §3). A null session still passes: the code that
+// predates #186 writes none.
+describe("the session on an audit row is its author's", () => {
+  const NOT_HERS = /audit row names a session that is not its author's/;
+  let clinic: TestClinic;
+  let author: User;
+  let colleague: User;
+  let authorSession: string;
+  let colleagueSession: string;
+  let patientId: string;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    author = await clinic.createUser();
+    colleague = await clinic.createUser();
+    ({ authSessionId: authorSession } = await createTestAuthSession(author));
+    ({ authSessionId: colleagueSession } = await createTestAuthSession(colleague));
+    ({ id: patientId } = await prisma.patient.create({
+      data: { tenantId: clinic.tenantId, fullName: 'Session Checked Patient' },
+      select: { id: true },
+    }));
+  });
+
+  afterAll(async () => {
+    await deleteAuditRows([clinic.tenantId]);
+    await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await clinic.cleanup();
+  });
+
+  const row = (userId: string | null, authSessionId: string | null) => ({
+    tenantId: clinic.tenantId,
+    patientId,
+    userId,
+    authSessionId,
+    entity: 'PATIENT' as const,
+    entityId: patientId,
+    action: 'UPDATED' as const,
+    description: 'test: session checked',
+  });
+
+  it("accepts the author's own session, or none", async () => {
+    await expect(prisma.auditLog.create({ data: row(author.id, authorSession) })).resolves.toBeTruthy();
+    await expect(prisma.auditLog.create({ data: row(author.id, null) })).resolves.toBeTruthy();
+  });
+
+  it("rejects a colleague's session", async () => {
+    await expect(prisma.auditLog.create({ data: row(author.id, colleagueSession) })).rejects.toThrow(
+      NOT_HERS,
+    );
+  });
+
+  it('rejects a session that does not exist, or one with no author', async () => {
+    await expect(prisma.auditLog.create({ data: row(author.id, randomUUID()) })).rejects.toThrow(NOT_HERS);
+    await expect(prisma.auditLog.create({ data: row(null, authorSession) })).rejects.toThrow(NOT_HERS);
+  });
+
+  it('is not fooled by a TEMP table named auth_sessions', async () => {
+    const url = new URL(process.env.DIRECT_DATABASE_URL as string);
+    url.searchParams.set('connection_limit', '1');
+    const db = new PrismaClient({ datasourceUrl: url.toString() });
+    try {
+      const forged = randomUUID();
+      await db.$executeRaw`CREATE TEMP TABLE auth_sessions (id uuid, user_id uuid)`;
+      await db.$executeRaw`INSERT INTO pg_temp.auth_sessions VALUES (${forged}::uuid, ${author.id}::uuid)`;
+      // Unqualified, this name now resolves to the TEMP table for this backend.
+      const [{ seen }] = await db.$queryRaw<{ seen: bigint }[]>`
+        SELECT count(*) AS seen FROM auth_sessions WHERE id = ${forged}::uuid`;
+      expect(seen).toBe(1n);
+
+      await expect(db.auditLog.create({ data: row(author.id, forged) })).rejects.toThrow(NOT_HERS);
+    } finally {
+      await db.$disconnect();
+    }
   });
 });

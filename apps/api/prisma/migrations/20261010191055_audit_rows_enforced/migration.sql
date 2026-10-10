@@ -56,6 +56,26 @@ BEGIN
 END
 $$;
 
+-- A session on a row is a real session of its author when the row is written.
+-- That session row always exists at that moment: authenticate has just read it.
+-- No foreign key: auth_sessions rows are pruned and deleted with their user,
+-- and the audit row outlives them.
+CREATE FUNCTION public.audit_logs_check_session() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF NEW.auth_session_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.auth_sessions s
+    WHERE s.id = NEW.auth_session_id AND s.user_id = NEW.user_id
+  ) THEN
+    RAISE EXCEPTION 'audit row names a session that is not its author''s';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER audit_logs_check_session BEFORE INSERT ON public.audit_logs
+  FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session();
+
 CREATE TRIGGER audit_logs_stamp_created_at BEFORE INSERT ON public.audit_logs
   FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_created_at();
 CREATE TRIGGER audit_logs_append_only BEFORE UPDATE OR DELETE ON public.audit_logs
