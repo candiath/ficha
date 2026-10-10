@@ -23,7 +23,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 
 ### Phase 0: Setup (one-time, before any code)
 
-- [ ] **Task 0: Flag on `development` and `ci`; the throwaway branch**
+- [x] **Task 0: Flag on `development` and `ci`; the throwaway branch**
   - *Acceptance:*
     - `CREATE SCHEMA IF NOT EXISTS ficha_ops; CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();` runs on `development` and `ci` (MCP);
     - `to_regclass` returns it on both, and returns null on `staging` and `production`;
@@ -34,7 +34,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 
 ### Phase 1: Triggers (the core guarantee, highest risk first)
 
-- [ ] **Task 1: Append-only and database-stamped time**
+- [x] **Task 1: Append-only and database-stamped time**
   - *Acceptance:*
     - The migration creates `audit_maintenance_on`, `audit_rows_are_append_only` and `audit_rows_stamp_created_at` (spec §1, verbatim), plus their six triggers on both tables.
     - `created_at` becomes `timestamp(6)` (`@db.Timestamp(6)`).
@@ -44,7 +44,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
     - New tests in `tests/auditHardening.test.ts` on the test's own rows: `update`, `delete` and `deleteMany` fail; `deleteAuditRows` succeeds; a past `createdAt` is stored as now (UTC); two rows from one `createMany` differ.
     - Full suite green.
   - *Files:* `schema.prisma`, new migration, `tests/auditHardening.test.ts`. **M**
-- [ ] **Task 2: Single-connection tests of the switch and the flag**
+- [x] **Task 2: Single-connection tests of the switch and the flag**
   - *Acceptance:* on a `connection_limit=1` client over the direct URL, against a `TEMP` table with the same triggers:
     - `TRUNCATE` fails even under maintenance;
     - a switch set to another value, or set at session level, does not allow a delete;
@@ -54,18 +54,18 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
   - *Verify:* `auditHardening.test.ts` green on the throwaway branch.
   - *Files:* `tests/auditHardening.test.ts`, `tests/helpers.ts`. **S**
   - *Depends on:* 1.
-- [ ] **Task 3: Session check**
+- [x] **Task 3: Session check**
   - *Acceptance:* `audit_logs_check_session` and its trigger are in the migration. A row naming another user's session, or a session that does not exist, is rejected. A `TEMP` table named `auth_sessions` does not satisfy the check. `auditSession.test.ts` (PR 1) still passes.
   - *Verify:* new cases in `auditHardening.test.ts`; full suite green.
   - *Files:* migration, `tests/auditHardening.test.ts`. **S**
   - *Depends on:* 1.
 
 ### Checkpoint A
-- [ ] Full API suite green on the throwaway branch after resetting it and applying the migration from scratch; `npm run check` clean.
+- [x] Full API suite green on the throwaway branch after resetting it and applying the migration from scratch; `npm run check` clean.
 
 ### Phase 2: Foreign keys
 
-- [ ] **Task 4: Composite `RESTRICT` keys and `operator_id NOT NULL`**
+- [x] **Task 4: Composite `RESTRICT` keys and `operator_id NOT NULL`**
   - *Acceptance:*
     - `@@unique([tenantId, id])` on `Patient` and `User`.
     - Composite relations for patient, author and target (spec §2).
@@ -80,7 +80,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 
 ### Phase 3: Checks
 
-- [ ] **Task 5: `audit-guards.sql` and `no-audit-maintenance.sql`, run in CI and on Render**
+- [x] **Task 5: `audit-guards.sql` and `no-audit-maintenance.sql`, run in CI and on Render**
   - *Acceptance:*
     - Both files are written as specified in §1 *Checks*, with hashes taken from the throwaway branch.
     - `db:migrate:prod` becomes `no-audit-maintenance` → `migrate deploy` → `audit-guards`.
@@ -91,24 +91,24 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
     - `no-audit-maintenance` fails on the throwaway branch (it has the flag) and passes on a scratch branch copied from `staging`, via the MCP.
   - *Files:* `prisma/audit-guards.sql`, `prisma/no-audit-maintenance.sql`, `apps/api/package.json`, `.github/workflows/test.yml`, `tests/auditHardening.test.ts`. **M**
   - *Depends on:* 3, 4.
-- [ ] **Task 6: Startup check**
+- [x] **Task 6: Startup check**
   - *Acceptance:* `index.ts` (not `app.ts`) runs both checks after `listen`, through a repository method; `no-audit-maintenance` only when `NODE_ENV=production`. It logs "could not check" apart from "check failed", and never blocks or exits.
   - *Verify:* a unit test of the method's three outcomes (pass, fail, unreachable); `npm run dev:api` logs a pass on the throwaway branch.
   - *Files:* `src/index.ts`, new repository port and implementation, barrel, a test. **S**
   - *Depends on:* 5.
 
 ### Checkpoint B
-- [ ] Full suite green; both checks pass where expected and fail where expected.
+- [x] Full suite green; both checks pass where expected and fail where expected.
 
 ### Phase 4: Guards in code and tooling
 
-- [ ] **Task 7: Migration-DDL scan and switch scan**
+- [x] **Task 7: Migration-DDL scan and switch scan**
   - *Acceptance:* both tests exactly as in §1 *Who deletes, and how*.
     - The frozen list is every migration that exists when PR 2 merges, this one included. The allowlist starts empty.
     - The switch scan's file list adds `scripts/purge-test-audit.ts`.
   - *Verify:* both pass on today's files. A fixture migration with `DROP TRIGGER` on `audit_logs`, and a session-level `SET ficha.audit_maintenance` in a fixture file, each make them fail.
   - *Files:* two test files. **S**
-- [ ] **Task 8: Orphan purge script**
+- [x] **Task 8: Orphan purge script**
   - *Acceptance:* `scripts/purge-test-audit.ts` deletes the audit rows of `@test.ficha.local` clinics left by interrupted runs, inside the switch. It refuses to run without the flag (so never on `staging` or `production`).
   - *Verify:* a run on the throwaway branch removes planted orphans, and leaves the demo clinic's rows.
   - *Files:* the script, `apps/api/package.json` (script entry). **S**
@@ -116,12 +116,12 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 
 ### Phase 5: Rehearsals and docs
 
-- [ ] **Task 9: Docs**
+- [x] **Task 9: Docs**
   - *Acceptance:*
     - `CLAUDE.md` replaces the "triggers have not landed yet" bullet. It covers the triggers, flag and switch (who may use them), `RESTRICT`, the checks, and the description rule (kept from PR 1).
     - `docs/infra.md` covers: the flag setup step for `development`/`ci` and why a reset from `production` drops it, the wipe procedure, the restore procedure, the line-ending rule, and `P3009` recovery.
   - *Files:* `CLAUDE.md`, `docs/infra.md`. **S**
-- [ ] **Task 10: Rehearsal on a copy of `production`**
+- [x] **Task 10: Rehearsal on a copy of `production`**
   - *Acceptance:* on a branch copied from `production` (MCP):
     - the four §2 queries return 0;
     - the migration applies in one transaction;
@@ -130,7 +130,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
   - The branch is deleted afterwards, with your permission.
   - **XS**, no files.
   - *Depends on:* 5.
-- [ ] **Task 11: Restore rehearsal** (see Open Questions)
+- [x] **Task 11: Restore rehearsal** (see Open Questions)
   - *Acceptance:* a dump of the throwaway branch is restored into a scratch branch with the procedure in `docs/infra.md` (triggers disabled, one transaction with `ON_ERROR_STOP`, re-enabled). Row counts match and `audit-guards` passes.
   - **S**
   - *Depends on:* 9.
@@ -165,3 +165,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 ## Decisions during implementation
 
 - **`created_at` keeps millisecond precision (2026-10-10).** Moving it to `timestamp(6)` broke every audit query on the throwaway branch with `cached plan must not change result type`. Neon's pooler shares prepared statements across clients, and a column type change invalidates their result type until its server connections recycle. On `staging` or `production` that would fail every audited write (the insert returns `created_at`) for a while after the deploy. Readers already order by `created_at`, then `id`. The test of "two rows of one `createMany` differ" became "two inserts in one transaction keep their gap", which is what proves `clock_timestamp()`.
+- **Restore rehearsal in a GitHub Actions runner (2026-10-10).** This machine has no `psql`, `pg_dump` or Docker. A one-off workflow on a throwaway branch (deleted after the run) migrated and seeded a Postgres 16 service container, dumped it with the backups repository's exact flags, and restored it with and without the procedure: [run 38083672334](https://github.com/candiath/ficha/actions/runs/38083672334). No secrets, only seed data.
+- **The trigger WHEN condition is hashed in `audit-guards.sql`**: `pg_get_expr` cannot print one that reads both `NEW` and `OLD`.
+- **`migrate reset` keeps `ficha_ops`** (checked on the throwaway branch), so release PRs, which reset `ci`, keep its flag.
+- **Rehearsal on a copy of `production`**: both pending migrations applied in order, the four §2 queries returned 0 there and on `staging`, `development` and `ci`, the function hashes matched the throwaway branch, and an old-code insert (null session, past date) was stamped now while an `UPDATE` was rejected.
