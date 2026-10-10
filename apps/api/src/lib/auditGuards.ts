@@ -9,7 +9,7 @@ import { auditGuardRepo } from '../repositories';
 // no-audit-maintenance runs only in production, since development carries the
 // flag on purpose. Once sysadmin-alerts exists, a failure alerts.
 //
-// Resolved from this file, so it works from src/ (tsx) and dist/ (node).
+// Resolved from this file, so it works from src/ (ts-node-dev) and dist/ (node).
 const CHECKS_DIR = path.join(__dirname, '..', '..', 'prisma');
 
 export async function checkAuditGuardsAtStartup(

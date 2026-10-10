@@ -66,6 +66,11 @@ BEGIN
     IF (SELECT c.relpersistence FROM pg_catalog.pg_class c WHERE c.oid = tbl) <> 'p' THEN
       problems := problems || format('table %s is not permanent', tbl);
     END IF;
+    -- A child table (INHERITS, a partition) has none of these triggers or
+    -- keys, and its rows show up in reads of the parent.
+    IF (SELECT c.relhassubclass FROM pg_catalog.pg_class c WHERE c.oid = tbl) THEN
+      problems := problems || format('table %s has child tables', tbl);
+    END IF;
 
     -- Every foreign key from an audit table restricts, on delete and update.
     FOR r IN SELECT k.conname FROM pg_catalog.pg_constraint k
@@ -76,21 +81,28 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  -- The foreign keys themselves, by name and referenced table: the composite
-  -- ones keep a row inside its clinic.
+  -- The foreign keys themselves: name, columns on both sides, referenced
+  -- table, MATCH SIMPLE and validated. The composite ones keep a row inside
+  -- its clinic; one re-created under the same name on fewer columns would not.
   FOR r IN SELECT * FROM (VALUES
-      (clinical, 'audit_logs_tenant_id_fkey', 'public.tenants'::regclass),
-      (clinical, 'audit_logs_tenant_id_patient_id_fkey', 'public.patients'::regclass),
-      (clinical, 'audit_logs_tenant_id_user_id_fkey', 'public.users'::regclass),
-      (platform, 'platform_audit_logs_tenant_id_fkey', 'public.tenants'::regclass),
-      (platform, 'platform_audit_logs_operator_id_fkey', 'public.platform_operators'::regclass),
-      (platform, 'platform_audit_logs_tenant_id_target_user_id_fkey', 'public.users'::regclass)
-    ) AS fk(tbl, name, target)
+      (clinical, 'audit_logs_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (clinical, 'audit_logs_tenant_id_patient_id_fkey', 'tenant_id,patient_id', 'public.patients'::regclass, 'tenant_id,id'),
+      (clinical, 'audit_logs_tenant_id_user_id_fkey', 'tenant_id,user_id', 'public.users'::regclass, 'tenant_id,id'),
+      (platform, 'platform_audit_logs_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (platform, 'platform_audit_logs_operator_id_fkey', 'operator_id', 'public.platform_operators'::regclass, 'id'),
+      (platform, 'platform_audit_logs_tenant_id_target_user_id_fkey', 'tenant_id,target_user_id', 'public.users'::regclass, 'tenant_id,id')
+    ) AS fk(tbl, name, cols, target, target_cols)
   LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k
-                    WHERE k.conrelid = r.tbl AND k.conname = r.name AND k.contype = 'f'
-                      AND k.confrelid = r.target) THEN
-      problems := problems || format('foreign key %s on %s is missing', r.name, r.tbl);
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_constraint k
+       WHERE k.conrelid = r.tbl AND k.conname = r.name AND k.contype = 'f'
+         AND k.confrelid = r.target AND k.confmatchtype = 's' AND k.convalidated
+         AND (SELECT string_agg(a.attname, ',' ORDER BY c.n) FROM unnest(k.conkey) WITH ORDINALITY c(num, n)
+                JOIN pg_catalog.pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = c.num) = r.cols
+         AND (SELECT string_agg(a.attname, ',' ORDER BY c.n) FROM unnest(k.confkey) WITH ORDINALITY c(num, n)
+                JOIN pg_catalog.pg_attribute a ON a.attrelid = k.confrelid AND a.attnum = c.num) = r.target_cols
+    ) THEN
+      problems := problems || format('foreign key %s on %s is missing or changed', r.name, r.tbl);
     END IF;
   END LOOP;
 

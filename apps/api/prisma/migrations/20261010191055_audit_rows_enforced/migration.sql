@@ -9,14 +9,25 @@
 -- result type") until its server connections recycle: every audited write,
 -- during a deploy. Readers order by created_at, then id.
 
+-- Every table this migration alters or references, locked up front in one
+-- order. Otherwise the migration locks audit_logs first (CREATE TRIGGER) and
+-- the referenced tables later (dropping their foreign keys), while a request
+-- of the code still serving holds patients and waits for audit_logs: a
+-- deadlock that could abort the migration. Requests wait instead, for the
+-- moments this takes.
+LOCK TABLE public.tenants, public.platform_operators, public.users, public.patients,
+  public.audit_logs, public.platform_audit_logs IN ACCESS EXCLUSIVE MODE;
+
 -- Maintenance (deleting audit rows, inserting them with a past date) needs two
 -- things at once:
 --  * the flag: the table ficha_ops.audit_maintenance_allowed exists. It lives
 --    outside `public`, so Prisma neither sees it nor drops it on migrate reset.
 --    Only the development and ci branches have it.
 --  * the switch: ficha.audit_maintenance set, transaction-local, to the id of
---    the current transaction. A value that leaked (a session-level SET through
---    the pooler, another transaction's) never matches.
+--    the current transaction. A value left behind by another transaction (a
+--    session-level SET through the pooler, an earlier switch) does not match;
+--    only a session-level SET to a predicted future id could, and only where
+--    the flag exists (development and ci).
 -- The switch is checked first, so ordinary writes never look up the flag.
 -- Every name is schema-qualified and search_path ends in pg_temp: otherwise
 -- pg_temp is searched first, and a TEMP table named like a real one would be

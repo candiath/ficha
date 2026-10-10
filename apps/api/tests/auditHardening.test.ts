@@ -104,7 +104,12 @@ describe('audit rows are append-only', () => {
   });
 
   it("stamps the database's current UTC time, whatever the caller sent", async () => {
-    const { id } = await insert({ createdAt: new Date('2020-01-01T00:00:00Z') });
+    // In a session whose time zone is not UTC (Neon's default is UTC, which
+    // would hide a stamp that followed the session's zone).
+    const { id } = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL TimeZone = 'America/Argentina/Buenos_Aires'`;
+      return tx.auditLog.create({ data: row({ createdAt: new Date('2020-01-01T00:00:00Z') }), select: { id: true } });
+    });
 
     const [stored] = await prisma.$queryRaw<{ age: number }[]>`
       SELECT extract(epoch FROM (now() AT TIME ZONE 'UTC') - created_at)::float8 AS age
@@ -366,36 +371,47 @@ describe('audit rows keep who they name, within their clinic', () => {
     description: 'test: kept',
   });
 
+  // The audit key itself, by name: another restricting key on users or
+  // operators must not make these pass.
+  const violates = (constraint: string) => ({
+    code: 'P2003',
+    meta: { field_name: expect.stringContaining(constraint) as unknown },
+  });
+
   it('cannot delete the author of an audit row', async () => {
     const authored = await clinic.createUser();
     await prisma.auditLog.create({ data: clinicalRow({ userId: authored.id }) });
 
-    await expect(prisma.user.delete({ where: { id: authored.id } })).rejects.toMatchObject({ code: 'P2003' });
+    await expect(prisma.user.delete({ where: { id: authored.id } })).rejects.toMatchObject(
+      violates('audit_logs_tenant_id_user_id_fkey'),
+    );
   });
 
   it('cannot delete the target of a platform audit row, or the operator who acted', async () => {
     const target = await clinic.createUser();
     await prisma.platformAuditLog.create({ data: platformRow(target.id) });
 
-    await expect(prisma.user.delete({ where: { id: target.id } })).rejects.toMatchObject({ code: 'P2003' });
+    await expect(prisma.user.delete({ where: { id: target.id } })).rejects.toMatchObject(
+      violates('platform_audit_logs_tenant_id_target_user_id_fkey'),
+    );
     await expect(
       prisma.platformOperator.delete({ where: { id: operator.operator.id } }),
-    ).rejects.toMatchObject({ code: 'P2003' });
+    ).rejects.toMatchObject(violates('platform_audit_logs_operator_id_fkey'));
   });
 
   it("cannot name another clinic's patient or author", async () => {
     await expect(
       prisma.auditLog.create({ data: clinicalRow({ patientId: strangerPatientId }) }),
-    ).rejects.toMatchObject({ code: 'P2003' });
+    ).rejects.toMatchObject(violates('audit_logs_tenant_id_patient_id_fkey'));
     await expect(
       prisma.auditLog.create({ data: clinicalRow({ userId: stranger.id }) }),
-    ).rejects.toMatchObject({ code: 'P2003' });
+    ).rejects.toMatchObject(violates('audit_logs_tenant_id_user_id_fkey'));
   });
 
   it("cannot target another clinic's user", async () => {
-    await expect(prisma.platformAuditLog.create({ data: platformRow(stranger.id) })).rejects.toMatchObject({
-      code: 'P2003',
-    });
+    await expect(prisma.platformAuditLog.create({ data: platformRow(stranger.id) })).rejects.toMatchObject(
+      violates('platform_audit_logs_tenant_id_target_user_id_fkey'),
+    );
   });
 
   it('still accepts a row with no author', async () => {

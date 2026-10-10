@@ -169,3 +169,11 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 - **The trigger WHEN condition is hashed in `audit-guards.sql`**: `pg_get_expr` cannot print one that reads both `NEW` and `OLD`.
 - **`migrate reset` keeps `ficha_ops`** (checked on the throwaway branch), so release PRs, which reset `ci`, keep its flag.
 - **Rehearsal on a copy of `production`**: both pending migrations applied in order, the four §2 queries returned 0 there and on `staging`, `development` and `ci`, the function hashes matched the throwaway branch, and an old-code insert (null session, past date) was stamped now while an `UPDATE` was rejected.
+- **Adversarial review (2026-10-10), no blockers.** Applied:
+  - the migration locks every table it touches up front, in one order, so it cannot deadlock with a request of the code still serving;
+  - `audit-guards.sql` also checks each foreign key's columns, match type and validation, and that the audit tables have no child tables;
+  - the DDL scan catches `ENABLE REPLICA|ALWAYS TRIGGER`, `INHERITS` and `ATTACH PARTITION`;
+  - the purge script leaves test operators' rows younger than an hour, and recognises a test clinic by its exact name and slug;
+  - the foreign key tests assert the constraint's name, and the UTC test runs in a non-UTC session.
+
+  Checked and dismissed: `session_replication_role` cannot be set by the app's role on Neon (`permission denied`), so it is no bypass.

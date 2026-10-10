@@ -6,10 +6,11 @@ import { PrismaClient } from '@prisma/client';
 // are append-only, so without this their clinics, patients and users could
 // never be cleaned up either: every foreign key from an audit row restricts.
 //
-// Only rows of test clinics (slug `test-xxxxxxxx`, every user under
-// @test.ficha.local) created more than an hour ago, so a test run in progress
-// keeps its rows, plus the platform rows of test operators. It needs the
-// maintenance flag, so it refuses to run on staging or production.
+// Only rows of test clinics (exactly as tests/helpers.ts names them, every
+// user under @test.ficha.local) created more than an hour ago, and platform
+// rows of test operators older than an hour: a test run in progress keeps
+// its rows. It needs the maintenance flag, so it refuses to run on staging or
+// production.
 //
 // Usage: npm run purge:test-audit -w apps/api
 // (against apps/api/.env's DATABASE_URL: development; for ci, set DATABASE_URL)
@@ -17,6 +18,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const TEST_DOMAIN = '%@test.ficha.local';
+const AN_HOUR_MS = 60 * 60 * 1000;
 
 async function main() {
   const [{ flagged }] = await prisma.$queryRaw<{ flagged: boolean }[]>`
@@ -33,6 +35,7 @@ async function main() {
     const stale = await tx.$queryRaw<{ id: string }[]>`
       SELECT t.id FROM tenants t
       WHERE t.slug ~ '^test-[0-9a-f]{8}$'
+        AND t.name = 'Clínica Test ' || substr(t.slug, 6)
         AND t.created_at < (now() AT TIME ZONE 'UTC') - interval '1 hour'
         AND NOT EXISTS (
           SELECT 1 FROM users u WHERE u.tenant_id = t.id AND u.email NOT LIKE ${TEST_DOMAIN}
@@ -44,14 +47,20 @@ async function main() {
       where: {
         OR: [
           { tenantId: { in: tenantIds } },
-          { operator: { email: { endsWith: '@test.ficha.local' } } },
+          {
+            operator: { email: { endsWith: '@test.ficha.local' } },
+            createdAt: { lt: new Date(Date.now() - AN_HOUR_MS) },
+          },
         ],
       },
     });
     return { clinical: clinicalRows.count, platform: platformRows.count, clinics: tenantIds.length };
   });
 
-  console.log(`Deleted ${clinical} clinical and ${platform} platform audit rows (${clinics} stale test clinics, and test operators).`);
+  console.log(
+    `Deleted ${clinical} clinical and ${platform} platform audit rows ` +
+      `(${clinics} stale test clinics, and test operators).`,
+  );
 }
 
 main()

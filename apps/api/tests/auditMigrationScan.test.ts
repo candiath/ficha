@@ -72,6 +72,12 @@ const FORBIDDEN: [string, RegExp][] = [
   ['OWNER TO', /\bOWNER\s+TO\b/i],
   ['CREATE TRIGGER', /\bCREATE\s+(OR\s+REPLACE\s+)?(CONSTRAINT\s+)?TRIGGER\b/i],
   ['DISABLE TRIGGER', /\bDISABLE\s+TRIGGER\b/i],
+  // A REPLICA or ALWAYS trigger fires under a different session_replication_role.
+  ['ENABLE REPLICA/ALWAYS TRIGGER', /\bENABLE\s+(REPLICA|ALWAYS)\s+TRIGGER\b/i],
+  // A child table has none of the triggers or keys, and its rows show up in
+  // reads of the parent.
+  ['INHERITS', /\bINHERITS\b/i],
+  ['ATTACH PARTITION', /\bATTACH\s+PARTITION\b/i],
   ['DROP TRIGGER', /\bDROP\s+TRIGGER\b/i],
   ['CREATE RULE', /\bCREATE\s+(OR\s+REPLACE\s+)?RULE\b/i],
   ['POLICY', /\bPOLICY\b/i],
@@ -126,6 +132,9 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('CREATE OR REPLACE FUNCTION public.audit_maintenance_on() RETURNS boolean')).toHaveLength(1);
     expect(auditDdlViolations('ALTER TYPE "AuditAction" RENAME VALUE \'CREATED\' TO \'ADDED\';')).toHaveLength(1);
     expect(auditDdlViolations('SET session_replication_role = replica;')).toHaveLength(1);
+    expect(auditDdlViolations('ALTER TABLE audit_logs ENABLE ALWAYS TRIGGER audit_logs_append_only;')).toHaveLength(1);
+    expect(auditDdlViolations('CREATE TABLE forged (LIKE audit_logs) INHERITS (audit_logs);')).toHaveLength(1);
+    expect(auditDdlViolations('ALTER TABLE audit_logs ATTACH PARTITION forged DEFAULT;')).toHaveLength(1);
 
     expect(auditDdlViolations('ALTER TABLE "audit_logs" ADD COLUMN "x" UUID;')).toEqual([]);
     expect(auditDdlViolations('ALTER TYPE "AuditAction" ADD VALUE \'VIEWED\';')).toEqual([]);
