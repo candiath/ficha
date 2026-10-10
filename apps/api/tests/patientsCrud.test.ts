@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
 
 // El CRUD de pacientes por HTTP, camino por camino. patientRepository.test.ts
 // fija la política de vigencia (qué se ve y qué no después de un borrado);
@@ -26,7 +26,7 @@ describe('CRUD de pacientes por HTTP', () => {
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
   });

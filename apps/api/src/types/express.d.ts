@@ -18,10 +18,6 @@ declare global {
     interface Request {
       context: TenantContext;
       operator: OperatorContext;
-      // The auth_sessions row behind the request's token, set by authenticate
-      // next to context. Kept out of TenantContext on purpose: repositories
-      // never need it, only the auth routes (logout, change-password) do.
-      authSessionId: string;
     }
   }
 }

@@ -1,2 +1,7 @@
 # Los hooks corren con /bin/sh (Git Bash en Windows): CRLF los rompe.
 .githooks/* text eol=lf
+
+# Migrations go to Postgres byte for byte, and a function body keeps any CR
+# it was written with; the audit checks of #186 hash those bodies, so a
+# laptop deploy must send the same bytes as CI and Render.
+apps/api/prisma/**/*.sql text eol=lf

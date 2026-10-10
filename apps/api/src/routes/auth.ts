@@ -169,7 +169,7 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
   // Every other session of the user is revoked; the one making the change
   // stays valid, so the client keeps its token and nothing is returned.
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await authRepo.changePassword(user.id, passwordHash, req.authSessionId);
+  await authRepo.changePassword(user.id, passwordHash, req.context.authSessionId);
 
   res.status(204).end();
 });
@@ -216,7 +216,7 @@ router.post('/password-reset', passwordResetLimiter, async (req, res) => {
 // sessions of the same user stay open. A token reused after logout no longer
 // passes authenticate, so a second logout gets the usual 401.
 router.post('/logout', authenticate, async (req, res) => {
-  await authRepo.revokeAuthSession(req.authSessionId);
+  await authRepo.revokeAuthSession(req.context.authSessionId);
   res.status(204).end();
 });
 
@@ -227,13 +227,13 @@ router.post('/logout', authenticate, async (req, res) => {
 // GET /api/auth/devices — her live sessions, the current one marked.
 router.get('/devices', authenticate, async (req, res) => {
   const sessions = await authRepo.listAuthSessions(req.context.userId);
-  const data: AuthSessionDTO[] = sessions.map((s) => ({ ...s, current: s.id === req.authSessionId }));
+  const data: AuthSessionDTO[] = sessions.map((s) => ({ ...s, current: s.id === req.context.authSessionId }));
   res.json({ data });
 });
 
 // POST /api/auth/devices/revoke-others — closes all her sessions but this one.
 router.post('/devices/revoke-others', authenticate, async (req, res) => {
-  const revoked = await authRepo.revokeOtherAuthSessions(req.context.userId, req.authSessionId);
+  const revoked = await authRepo.revokeOtherAuthSessions(req.context.userId, req.context.authSessionId);
   const data: RevokeOtherAuthSessionsResponse = { revoked };
   res.json({ data });
 });

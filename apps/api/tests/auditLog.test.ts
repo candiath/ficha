@@ -4,7 +4,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import {
+  createTestAuthSession,
+  createTestClinic,
+  deleteAuditRows,
+  insertAuditRowsAt,
+  sleep,
+  waitFor,
+  type TestClinic,
+} from './helpers';
 
 // El historial de una ficha: quién tocó qué y cuándo. Es la única parte de la
 // app que nadie puede editar ni borrar desde la UI, así que lo que importa es
@@ -17,6 +25,7 @@ describe('historial de auditoría de un paciente', () => {
   let clinic: TestClinic;
   let user: User;
   let token: string;
+  let authSessionId: string;
   let patient: { id: string };
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
@@ -25,7 +34,7 @@ describe('historial de auditoría de un paciente', () => {
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
-    token = await createTestToken(user);
+    ({ token, authSessionId } = await createTestAuthSession(user));
     patient = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Auditado' },
       select: { id: true },
@@ -34,33 +43,36 @@ describe('historial de auditoría de un paciente', () => {
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
   });
 
   // Filas escritas a mano: la fecha es el eje de este endpoint y así se
   // controla sin depender de cuándo corrió cada request.
-  function entrada(
+  async function entrada(
     patientId: string,
     tenantId: string,
     description: string,
     createdAt: Date,
     userId: string | null = user.id,
   ) {
-    return prisma.auditLog.create({
-      data: {
+    // Backdated rows go through the maintenance helper (#186); a row with an
+    // author names her session.
+    const [row] = await insertAuditRowsAt([
+      {
         tenantId,
         patientId,
         userId,
+        authSessionId: userId ? authSessionId : null,
         entity: 'PATIENT',
         entityId: patientId,
         action: 'UPDATED',
         description,
         createdAt,
       },
-      select: { id: true },
-    });
+    ]);
+    return row;
   }
 
   it('lista el historial del paciente, de lo más nuevo a lo más viejo', async () => {
@@ -135,7 +147,7 @@ describe('historial de auditoría de un paciente', () => {
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual([]);
 
-      await prisma.auditLog.deleteMany({ where: { tenantId: otra.tenantId } });
+      await deleteAuditRows([otra.tenantId]);
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });
     } finally {
       await otra.cleanup();

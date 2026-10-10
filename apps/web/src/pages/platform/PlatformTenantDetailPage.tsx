@@ -410,6 +410,18 @@ export default function PlatformTenantDetailPage() {
                   <span>
                     <span className="font-medium">{ACTION_LABELS[a.action] ?? a.action}</span>
                     <span className="text-muted-foreground"> · {a.description}</span>
+                    {/* The description never names the person (#186): who
+                        was affected comes from the row's target. */}
+                    {a.targetUser && (
+                      <span className="text-muted-foreground">
+                        {' · '}
+                        <span>
+                          {a.targetUser.name
+                            ? `${a.targetUser.name} (${a.targetUser.email})`
+                            : a.targetUser.email}
+                        </span>
+                      </span>
+                    )}
                   </span>
                 </li>
               ))}

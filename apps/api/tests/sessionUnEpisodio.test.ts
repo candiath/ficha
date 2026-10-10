@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
 
 // El pivote sesión↔episodio es M:N en la base, pero la API acepta un episodio
 // como máximo: una sesión aborda un único motivo de consulta.
@@ -28,7 +28,7 @@ describe('Una sesión aborda un único episodio', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
+    ctx = await createTestContext(clinic.tenantId, user);
     patient = await patientRepo.create(ctx, { fullName: 'Paciente un episodio' }, patientAudit('CREATED'));
 
     const crearEpisodio = async (mainComplaint: string) => {
@@ -45,7 +45,7 @@ describe('Una sesión aborda un único episodio', () => {
 
   afterAll(async () => {
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.sessionEpisode.deleteMany({ where: { session: { tenantId: clinic.tenantId } } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });

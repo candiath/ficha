@@ -9,6 +9,10 @@ export interface TenantContext {
   tenantId: string;
   userId: string;
   role: UserRole;
+  // The auth_sessions row behind the request's token. Audited writes record
+  // it as the device the action came from (#186); the auth routes use it to
+  // act on the current session (logout, change-password, devices).
+  authSessionId: string;
 }
 
 // Contexto del operador de plataforma autenticado (middleware

@@ -201,7 +201,11 @@ jobs:
 
       - name: Tests de integración de la API
         if: needs.changes.outputs.api == 'true'
-        run: npm test
+        # The audit tests of #186 need a direct (non-pooled) connection, derived
+        # the same way as in the migrate steps.
+        run: |
+          export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
+          npm test
         env:
           # Branch de Neon dedicada a CI — nunca la DB de dev.
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}

@@ -25,6 +25,11 @@ export interface AuditLogCreateDTO {
 // What an audited write records (#188). The repository writes it in the same
 // transaction as the change and fills the actor from the context, so an
 // action can never land without its audit row.
+//
+// The description names the action, never a value: no measurements, scores,
+// amounts, emails or names (#186, SPEC-audit-hardening.md §4). Audit rows can
+// never change, so a value copied into one could never be corrected or
+// erased; it lives in its own row.
 export type AuditEntry = Omit<AuditLogCreateDTO, 'userId'>;
 
 // Built from the write's result (its id, created vs updated…), inside the

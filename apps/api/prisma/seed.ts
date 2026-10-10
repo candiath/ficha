@@ -1,8 +1,31 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { foreignAccounts } from './seedGuard';
 
 const prisma = new PrismaClient();
+
+// The demo audit history, inserted only where missing and with its demo dates.
+// createMany with skipDuplicates is ON CONFLICT DO NOTHING: an upsert would
+// fire the append-only trigger of #186 on every re-run. Backdating needs the
+// maintenance switch, set for this transaction alone; once the triggers exist
+// it also needs the branch's maintenance flag, so the seed stops with
+// instructions instead of silently stamping "now".
+async function seedAuditRows(rows: Prisma.AuditLogCreateManyInput[]): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const [state] = await tx.$queryRaw<{ hardened: boolean; flagged: boolean }[]>`
+      SELECT to_regprocedure('public.audit_maintenance_on()') IS NOT NULL AS hardened,
+             to_regclass('ficha_ops.audit_maintenance_allowed') IS NOT NULL AS flagged`;
+    if (state.hardened && !state.flagged) {
+      throw new Error(
+        'This database has no audit maintenance flag, so the seed cannot write its demo ' +
+          'history. Only development and ci get it: see docs/infra.md.',
+      );
+    }
+    await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
+    await tx.auditLog.createMany({ data: rows, skipDuplicates: true });
+  });
+}
 
 // Ids fijos para que el seed se pueda correr las veces que haga falta: cada
 // upsert encuentra la fila de la corrida anterior. Las columnas de ids son
@@ -31,6 +54,17 @@ async function main() {
     return;
   }
 
+  // Second guard: NODE_ENV does not protect a laptop pointed at the wrong
+  // database. Any account outside the demo and test domains means this is not
+  // a database the seed belongs in (prisma/seedGuard.ts).
+  const foreign = await foreignAccounts(prisma);
+  if (foreign.length > 0) {
+    throw new Error(
+      `Refusing to seed: this database has ${foreign.length} account(s) outside the demo ` +
+        'and test domains. The seed plants known credentials; run it only on development.',
+    );
+  }
+
   // ── Tenant de desarrollo ─────────────────────────────────────────────────
   const tenant = await prisma.tenant.upsert({
     where: { id: devId('dev-tenant-001') },
@@ -55,6 +89,23 @@ async function main() {
       passwordHash: hashedPassword,
       name: 'Admin Demo',
       role: 'ADMIN',
+    },
+  });
+
+  // ── Demo session (expired) ────────────────────────────────────────────────
+  // The demo audit history names a session of its author, as the database
+  // will require (#186). Already expired, and its token is random bytes nobody
+  // ever saw: it cannot be used to sign in.
+  const demoSession = await prisma.authSession.upsert({
+    where: { id: devId('dev-auth-session-001') },
+    update: {},
+    create: {
+      id: devId('dev-auth-session-001'),
+      userId: user.id,
+      tokenHash: createHash('sha256').update(randomBytes(32)).digest(),
+      createdAt: new Date('2025-12-01T08:55:00.000Z'),
+      lastUsedAt: new Date('2026-03-06T11:00:00.000Z'),
+      expiresAt: new Date('2026-03-06T12:00:00.000Z'),
     },
   });
 
@@ -156,69 +207,14 @@ async function main() {
   });
 
   // ── Registros de auditoría de ejemplo ──────────────────────────────────
-  await prisma.auditLog.upsert({
-    where: { id: devId('dev-audit-001') },
-    update: {},
-    create: {
-      id: devId('dev-audit-001'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      entity: 'PATIENT',
-      entityId: patient.id,
-      action: 'CREATED',
-      description: 'Paciente María García creada en el sistema',
-      createdAt: new Date('2026-02-01T09:00:00.000Z'),
-    },
-  });
-
-  await prisma.auditLog.upsert({
-    where: { id: devId('dev-audit-002') },
-    update: {},
-    create: {
-      id: devId('dev-audit-002'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      entity: 'EVALUATION',
-      entityId: patient.id,
-      action: 'CREATED',
-      description: 'Evaluación inicial registrada',
-      createdAt: new Date('2026-02-01T09:30:00.000Z'),
-    },
-  });
-
-  await prisma.auditLog.upsert({
-    where: { id: devId('dev-audit-003') },
-    update: {},
-    create: {
-      id: devId('dev-audit-003'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      entity: 'SESSION',
-      entityId: devId('dev-session-001'),
-      action: 'CREATED',
-      description: 'Sesión de tratamiento registrada',
-      createdAt: new Date('2026-02-10T10:30:00.000Z'),
-    },
-  });
-
-  await prisma.auditLog.upsert({
-    where: { id: devId('dev-audit-004') },
-    update: {},
-    create: {
-      id: devId('dev-audit-004'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      entity: 'SESSION',
-      entityId: devId('dev-session-002'),
-      action: 'CREATED',
-      description: 'Sesión de tratamiento registrada',
-      createdAt: new Date('2026-02-24T10:30:00.000Z'),
-    },
-  });
+  // Descriptions name the action, never a value or a name (#186).
+  const demoAudit = { tenantId: tenant.id, userId: user.id, authSessionId: demoSession.id };
+  await seedAuditRows([
+    { ...demoAudit, id: devId('dev-audit-001'), patientId: patient.id, entity: 'PATIENT', entityId: patient.id, action: 'CREATED', description: 'Paciente registrado en el sistema', createdAt: new Date('2026-02-01T09:00:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: patient.id, action: 'CREATED', description: 'Evaluación inicial registrada', createdAt: new Date('2026-02-01T09:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'CREATED', description: 'Sesión registrada', createdAt: new Date('2026-02-10T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'CREATED', description: 'Sesión registrada', createdAt: new Date('2026-02-24T10:30:00.000Z') },
+  ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
   await prisma.clinicalAlert.upsert({
@@ -580,40 +576,35 @@ async function main() {
 
   // ── Auditoría ────────────────────────────────────────────────────────────
   const auditLogsP2 = [
-    { id: devId('dev-audit-p2-001'), entity: 'PATIENT',    entityId: p2.id,                  action: 'CREATED', description: 'Paciente Javier Rodríguez registrado',               date: '2025-12-01T09:00:00.000Z' },
+    { id: devId('dev-audit-p2-001'), entity: 'PATIENT',    entityId: p2.id,                  action: 'CREATED', description: 'Paciente registrado en el sistema',                  date: '2025-12-01T09:00:00.000Z' },
     { id: devId('dev-audit-p2-002'), entity: 'CONSENT',    entityId: devId('dev-consent-002'),       action: 'CREATED', description: 'Consentimiento informado firmado',                    date: '2025-12-05T09:00:00.000Z' },
     { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'CREATED', description: 'Evaluación inicial registrada',                       date: '2025-12-05T09:30:00.000Z' },
-    { id: devId('dev-audit-p2-004'), entity: 'SESSION',    entityId: devId('dev-session-p2-001'),    action: 'CREATED', description: 'Sesión registrada — EVA 8→5',                         date: '2025-12-05T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-005'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-001'),      action: 'CREATED', description: 'Escala NDI aplicada — score 60%',                     date: '2025-12-05T09:35:00.000Z' },
-    { id: devId('dev-audit-p2-006'), entity: 'SESSION',    entityId: devId('dev-session-p2-002'),    action: 'CREATED', description: 'Sesión registrada — EVA 7→4',                         date: '2025-12-12T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-007'), entity: 'SESSION',    entityId: devId('dev-session-p2-003'),    action: 'CREATED', description: 'Sesión registrada — EVA 6→3',                         date: '2026-01-09T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-008'), entity: 'SESSION',    entityId: devId('dev-session-p2-004'),    action: 'CREATED', description: 'Sesión registrada — EVA 5→2',                         date: '2026-01-16T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-009'), entity: 'SESSION',    entityId: devId('dev-session-p2-005'),    action: 'CREATED', description: 'Nota clínica — reagudización por sobrecarga laboral', date: '2026-01-23T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-010'), entity: 'SESSION',    entityId: devId('dev-session-p2-006'),    action: 'CREATED', description: 'Sesión cierre ciclo 1 — EVA 5→2',                     date: '2026-01-30T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-011'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-002'),      action: 'CREATED', description: 'Escala NDI aplicada — score 36%',                     date: '2026-01-30T10:35:00.000Z' },
-    { id: devId('dev-audit-p2-012'), entity: 'SESSION',    entityId: devId('dev-session-p2-007'),    action: 'CREATED', description: 'Sesión inicio ciclo 2 — EVA 3→1',                     date: '2026-02-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-013'), entity: 'SESSION',    entityId: devId('dev-session-p2-008'),    action: 'CREATED', description: 'Sesión registrada — EVA 3→1',                         date: '2026-03-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-014'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-003'),      action: 'CREATED', description: 'Escala NDI aplicada — score 18%',                     date: '2026-03-06T10:35:00.000Z' },
-    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'UPDATED', description: 'Mapa de retracciones actualizado con evolución',       date: '2026-01-30T10:00:00.000Z' },
+    { id: devId('dev-audit-p2-004'), entity: 'SESSION',    entityId: devId('dev-session-p2-001'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2025-12-05T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-005'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-001'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2025-12-05T09:35:00.000Z' },
+    { id: devId('dev-audit-p2-006'), entity: 'SESSION',    entityId: devId('dev-session-p2-002'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2025-12-12T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-007'), entity: 'SESSION',    entityId: devId('dev-session-p2-003'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-09T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-008'), entity: 'SESSION',    entityId: devId('dev-session-p2-004'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-16T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-009'), entity: 'SESSION',    entityId: devId('dev-session-p2-005'),    action: 'CREATED', description: 'Nota clínica registrada',                            date: '2026-01-23T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-010'), entity: 'SESSION',    entityId: devId('dev-session-p2-006'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-30T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-011'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-002'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2026-01-30T10:35:00.000Z' },
+    { id: devId('dev-audit-p2-012'), entity: 'SESSION',    entityId: devId('dev-session-p2-007'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-02-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-013'), entity: 'SESSION',    entityId: devId('dev-session-p2-008'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-03-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-014'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-003'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2026-03-06T10:35:00.000Z' },
+    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'UPDATED', description: 'Evaluación inicial actualizada',                      date: '2026-01-30T10:00:00.000Z' },
   ] as const;
 
-  for (const log of auditLogsP2) {
-    await prisma.auditLog.upsert({
-      where: { id: log.id },
-      update: {},
-      create: {
-        id: log.id,
-        tenantId: tenant.id,
-        patientId: p2.id,
-        userId: user.id,
-        entity: log.entity,
-        entityId: log.entityId,
-        action: log.action,
-        description: log.description,
-        createdAt: new Date(log.date),
-      },
-    });
-  }
+  await seedAuditRows(
+    auditLogsP2.map((log) => ({
+      ...demoAudit,
+      id: log.id,
+      patientId: p2.id,
+      entity: log.entity,
+      entityId: log.entityId,
+      action: log.action,
+      description: log.description,
+      createdAt: new Date(log.date),
+    })),
+  );
 
   console.log('✓ Seed completado');
   console.log(`  Tenant:    ${tenant.name} (slug: ${tenant.slug})`);

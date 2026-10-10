@@ -87,6 +87,9 @@ const auditSelect = {
   action: true,
   description: true,
   createdAt: true,
+  // Who was affected, read now and not copied into the description: an
+  // audit row can never change, so a name in it could never be erased (#186).
+  targetUser: { select: { email: true, name: true } },
 } as const;
 
 type AuditRow = Prisma.PlatformAuditLogGetPayload<{ select: typeof auditSelect }>;
@@ -169,7 +172,7 @@ export const prismaPlatformRepository: PlatformRepository = {
             operatorId: op.operatorId,
             tenantId: tenant.id,
             action: 'TENANT_CREATED',
-            description: `Creó la clínica "${tenant.name}" (${tenant.slug})`,
+            description: 'Creó la clínica',
           },
         });
         return tenant;
@@ -214,7 +217,7 @@ export const prismaPlatformRepository: PlatformRepository = {
             operatorId: op.operatorId,
             tenantId,
             action: active ? 'TENANT_REACTIVATED' : 'TENANT_DEACTIVATED',
-            description: `${active ? 'Reactivó' : 'Desactivó'} la clínica "${tenant.name}"`,
+            description: `${active ? 'Reactivó' : 'Desactivó'} la clínica`,
           },
         });
       }
@@ -261,7 +264,7 @@ export const prismaPlatformRepository: PlatformRepository = {
             tenantId,
             targetUserId: user.id,
             action: 'ADMIN_CREATED',
-            description: `Creó a ${user.email} como ADMIN de "${tenant.name}"`,
+            description: 'Creó una ADMIN',
           },
         });
         return { ok: true, user: toUserDTO(user) } as const;
@@ -325,7 +328,7 @@ export const prismaPlatformRepository: PlatformRepository = {
           data: {
             ...base,
             action: 'USER_ROLE_CHANGED',
-            description: `Cambió el rol de ${user.email} a ${ROLE_EN_AUDITORIA[input.role]}`,
+            description: `Cambió el rol a ${ROLE_EN_AUDITORIA[input.role]}`,
           },
         });
       }
@@ -334,7 +337,7 @@ export const prismaPlatformRepository: PlatformRepository = {
           data: {
             ...base,
             action: 'USER_ACTIVE_CHANGED',
-            description: `${input.isActive ? 'Reactivó' : 'Desactivó'} a ${user.email}`,
+            description: `${input.isActive ? 'Reactivó' : 'Desactivó'} a la usuaria`,
           },
         });
       }
@@ -365,7 +368,7 @@ export const prismaPlatformRepository: PlatformRepository = {
           tenantId,
           targetUserId: user.id,
           action: 'USER_DEVICES_DISCONNECTED',
-          description: `Desconectó los dispositivos de ${user.email}`,
+          description: 'Desconectó los dispositivos de la usuaria',
         },
       });
       return true;
@@ -395,7 +398,7 @@ export const prismaPlatformRepository: PlatformRepository = {
           tenantId,
           targetUserId: user.id,
           action: 'PASSWORD_RESET_LINK_CREATED',
-          description: `Generó un enlace para restablecer la contraseña de ${user.email}`,
+          description: 'Generó un enlace para restablecer la contraseña',
         },
       });
       return { ok: true, ...link } as const;
@@ -410,7 +413,7 @@ export const prismaPlatformRepository: PlatformRepository = {
 
     const rows = await prisma.platformAuditLog.findMany({
       where: { tenantId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: auditSelect,
     });
     return rows.map(toAuditDTO);

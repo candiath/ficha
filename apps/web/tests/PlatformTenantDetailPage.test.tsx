@@ -81,8 +81,9 @@ const AUDIT: PlatformAuditEntry[] = [
     operatorId: 'op1',
     tenantId: 't1',
     targetUserId: null,
+    targetUser: null,
     action: 'TENANT_CREATED',
-    description: 'Creó la clínica "Clínica Norte" (clinica-norte)',
+    description: 'Creó la clínica',
     createdAt: '2026-09-01T12:00:00.000Z',
   },
 ];
@@ -322,13 +323,32 @@ describe('PlatformTenantDetailPage: disconnect devices', () => {
         id: 'a2',
         action: 'USER_DEVICES_DISCONNECTED',
         targetUserId: 'u-fisio',
-        description: 'Desconectó los dispositivos de fisio@norte.test',
+        targetUser: { email: 'fisio@norte.test', name: 'Fede Fisio' },
+        description: 'Desconectó los dispositivos de la usuaria',
       },
     ]);
     renderAt();
 
     expect(await screen.findByText('Dispositivos desconectados')).toBeInTheDocument();
     expect(screen.queryByText('USER_DEVICES_DISCONNECTED')).not.toBeInTheDocument();
+  });
+
+  // Descriptions never name the person (#186): who was affected comes from
+  // the row's target, read when the list is.
+  it('names the affected user next to the action', async () => {
+    auditLog.mockResolvedValue([
+      {
+        ...AUDIT[0],
+        id: 'a4',
+        action: 'USER_ACTIVE_CHANGED',
+        targetUserId: 'u-fisio',
+        targetUser: { email: 'fisio@norte.test', name: 'Fede Fisio' },
+        description: 'Desactivó a la usuaria',
+      },
+    ]);
+    renderAt();
+
+    expect(await screen.findByText('Fede Fisio (fisio@norte.test)')).toBeInTheDocument();
   });
 });
 
@@ -385,7 +405,8 @@ describe('PlatformTenantDetailPage: password reset', () => {
         id: 'a3',
         action: 'PASSWORD_RESET_LINK_CREATED',
         targetUserId: 'u-fisio',
-        description: 'Generó un enlace para restablecer la contraseña de fisio@norte.test',
+        targetUser: { email: 'fisio@norte.test', name: 'Fede Fisio' },
+        description: 'Generó un enlace para restablecer la contraseña',
       },
     ]);
     renderAt();

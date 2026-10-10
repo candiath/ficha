@@ -4,7 +4,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // La política de vigencia llega a las escalas: cada handler exige paciente
 // vigente vía patientRepo.exists (antes esta ruta no validaba el paciente en
@@ -19,13 +19,13 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
     clinic = await createTestClinic();
     const user = await clinic.createUser();
     token = await createTestToken(user);
-    ctx = { tenantId: clinic.tenantId, userId: user.id, role: user.role };
+    ctx = await createTestContext(clinic.tenantId, user);
   });
 
   afterAll(async () => {
     // El audit del POST es fire-and-forget: darle un instante a aterrizar.
     await sleep(300);
-    await prisma.auditLog.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.functionalScale.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
