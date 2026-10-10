@@ -161,3 +161,7 @@ Everything is developed against a throwaway Neon branch, rehearsed on a copy of 
 
    I recommend (a): it also lets me rehearse the wipe.
 3. **Restore notes in `candiath/ficha-backups`.** The spec puts them there too. Should I open a PR in that repository, or do you write them?
+
+## Decisions during implementation
+
+- **`created_at` keeps millisecond precision (2026-10-10).** Moving it to `timestamp(6)` broke every audit query on the throwaway branch with `cached plan must not change result type`. Neon's pooler shares prepared statements across clients, and a column type change invalidates their result type until its server connections recycle. On `staging` or `production` that would fail every audited write (the insert returns `created_at`) for a while after the deploy. Readers already order by `created_at`, then `id`. The test of "two rows of one `createMany` differ" became "two inserts in one transaction keep their gap", which is what proves `clock_timestamp()`.

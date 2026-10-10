@@ -264,6 +264,8 @@ model PlatformAuditLog {
   targetUserId String?        @map("target_user_id") @db.Uuid
   action       PlatformAction
   description  String
+  // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
+  // whatever the caller sends is replaced. (#186)
   createdAt    DateTime       @default(now()) @map("created_at")
 
   // SetNull en los dos: el registro sobrevive a que se borre el operador o
@@ -624,6 +626,8 @@ model AuditLog {
   // audit row outlives them. Never in a clinic-facing DTO: only the user
   // herself may list her sessions. (#186, SPEC-audit-hardening.md §3)
   authSessionId String?   @map("auth_session_id") @db.Uuid
+  // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
+  // whatever the caller sends is replaced. (#186)
   createdAt   DateTime    @default(now()) @map("created_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
