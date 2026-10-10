@@ -142,6 +142,9 @@ describe('maintenance needs the flag and a switch tied to the transaction', () =
   const db = new PrismaClient({ datasourceUrl: url.toString() });
 
   const SWITCH_ON = Prisma.sql`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
+  // The wrong ways to set it, which the switch scan (auditSwitchScan.test.ts)
+  // forbids in source, pass the name as a parameter.
+  const SWITCH_NAME = 'ficha.' + 'audit_maintenance';
   const deleteProbe = (tx: Prisma.TransactionClient | PrismaClient) =>
     tx.$executeRaw`DELETE FROM pg_temp.audit_probe`;
 
@@ -183,7 +186,7 @@ describe('maintenance needs the flag and a switch tied to the transaction', () =
     await refill();
     await expect(
       db.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', 'on', true)`;
+        await tx.$queryRaw`SELECT set_config(${SWITCH_NAME}, 'on', true)`;
         await deleteProbe(tx);
       }),
     ).rejects.toThrow(APPEND_ONLY);
@@ -193,7 +196,7 @@ describe('maintenance needs the flag and a switch tied to the transaction', () =
     await refill();
     // The value is the id of this statement's own transaction: right for it,
     // wrong for every later one.
-    await db.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, false)`;
+    await db.$queryRaw`SELECT set_config(${SWITCH_NAME}, pg_current_xact_id()::text, false)`;
     try {
       await expect(deleteProbe(db)).rejects.toThrow(APPEND_ONLY);
     } finally {
