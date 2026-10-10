@@ -2,7 +2,6 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
-import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 const CHANGE = '/api/auth/change-password';
@@ -83,10 +82,6 @@ describe('POST /api/auth/change-password', () => {
 
     expect((await me(current)).status).toBe(200);
     expect((await me(otherDevice)).status).toBe(401);
-
-    // password_changed_at is no longer stamped (sessions replaced it).
-    const row = await prisma.user.findUniqueOrThrow({ where: { id: victim.id } });
-    expect(row.passwordChangedAt).toBeNull();
 
     // And login reflects the change: the new password works, the old one not.
     const loginNew = await request(app)

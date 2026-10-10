@@ -199,6 +199,19 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
+      # The audit tables' triggers, functions and foreign keys are what the
+      # migrations deployed (#186): checked here before the PR reaches staging,
+      # whose Render build runs the same file. ci carries the maintenance flag on
+      # purpose, so no-audit-maintenance.sql is not run here.
+      - name: Check the audit guarantees
+        if: needs.changes.outputs.api == 'true'
+        run: |
+          export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
+          npm run db:check:audit-guards
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+
       - name: Tests de integración de la API
         if: needs.changes.outputs.api == 'true'
         # The audit tests of #186 need a direct (non-pooled) connection, derived
