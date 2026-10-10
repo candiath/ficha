@@ -17,7 +17,8 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "create:operator": "ts-node --transpile-only scripts/create-operator.ts"
+    "create:operator": "ts-node --transpile-only scripts/create-operator.ts",
+    "purge:test-audit": "ts-node --transpile-only scripts/purge-test-audit.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
