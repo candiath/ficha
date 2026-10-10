@@ -68,6 +68,10 @@ Si una migración falla, el build falla y Render **mantiene vivo el deploy anter
 
 **Migraciones destructivas en dos pasos.** Un `DROP COLUMN` que llega junto al código que deja de usar la columna rompe producción en el intervalo entre que la migración corre y el proceso nuevo toma el tráfico. Se hace en dos releases: primero se agrega lo nuevo y se deja de leer lo viejo; el `DROP` va en un release posterior, cuando ya nada lo referencia.
 
+**A column type change on a table the app reads breaks the pooler for a while** (found in #186, 2026-10-10). Neon's pooler shares prepared statements across clients, and once a column's type changes (even `timestamp(3)` → `timestamp(6)`), every cached statement that reads it fails with `cached plan must not change result type` until the pooler's server connections recycle. With the old code still serving, or the new one starting, that means failed requests right after the deploy. Avoid type changes on hot tables; if one is unavoidable, it is its own release, and the compute is restarted right after the migration (Neon console, or the MCP's `restart_postgres_endpoint`).
+
+**A migration that fails on Render leaves the database blocked.** `_prisma_migrations` keeps the failed row, and every later deploy fails with `P3009` until someone runs `npx prisma migrate resolve --rolled-back <migration>` against that database's direct URL. First confirm that nothing of the migration remains: Prisma sends a migration as one script, which Postgres runs as one implicit transaction, so a failed one normally leaves nothing; a migration with its own `COMMIT` or a non-transactional statement (`CREATE INDEX CONCURRENTLY`) can leave half of it, which has to be undone or finished by hand first. For `production`, that happens where its credential lives, never from a laptop's `.env`.
+
 Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. **El `.env` local no guarda la URL de producción**, ni siquiera comentada: tenerla a mano invita a copiarla, y una credencial de producción pegada donde no corresponde obliga a rotarla en las cuatro branches. Si hace falta inspeccionar producción con `db:studio`, se saca de la consola de Neon en el momento y se descarta.
 
 ## Backups
@@ -83,6 +87,75 @@ Corre diario a las 06:00 UTC, a mano, y desde este repo al abrir el PR de releas
 Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{id}/dispatches`), no por el de `repository_dispatch` (`/dispatches`), y la diferencia es de permisos: en un PAT fine-grained el segundo exige **Contents: write** sobre el repo privado, y Contents incluye lectura — o sea que el token del repo público podría bajarse los dumps con las historias clínicas. El primero se conforma con **Actions: write**, que permite pedir un backup pero no leerlo.
 
 Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
+
+## Audit tables
+
+Since #186 (`docs/specs/SPEC-audit-hardening.md`) the database itself keeps `audit_logs` and `platform_audit_logs` honest: triggers reject every `UPDATE` and `TRUNCATE`, stamp `created_at` on insert, and check that a row's session belongs to its author; foreign keys `RESTRICT` and keep a row inside its clinic. Deleting an audit row, or inserting one with a past date, needs **maintenance**: two things at once.
+
+- **The flag**: the table `ficha_ops.audit_maintenance_allowed` exists. **Only `development` and `ci` have it.** It lives outside `public`, so `prisma migrate reset` keeps it (checked on 2026-10-10).
+- **The switch**: `SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`, inside the same transaction as the delete. A switch with any other value, or set at session level, does nothing.
+
+Only the test helpers (`tests/helpers.ts`), the seed and `npm run purge:test-audit -w apps/api` turn it on; `tests/auditSwitchScan.test.ts` keeps it that way.
+
+### Setting up a branch
+
+A branch created from `development` or `ci` inherits the flag. A branch created or reset from `production` (or `staging`) does not have it, and test cleanup fails until the flag exists. To add it to a test branch:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS ficha_ops;
+CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();
+```
+
+**Never on `staging` or `production`.** There, the Render build refuses to deploy, and the API logs `[audit] no-audit-maintenance.sql: FAILED` at startup.
+
+### The checks
+
+| | `prisma/audit-guards.sql` | `prisma/no-audit-maintenance.sql` |
+| --- | --- | --- |
+| What fails it | a trigger or audit function differs from what the migrations deployed, a trigger is disabled, a rule, row-level security, an unlogged table, a missing or non-restricting foreign key | the flag exists |
+| CI (`test.yml`, on `ci`) | after `migrate deploy` | — (`ci` has the flag) |
+| Render build (`migrate:prod`) | after `migrate deploy` | before `migrate deploy` |
+| API startup (`src/index.ts`) | always, only logs | in production, only logs |
+
+When a Render build fails on a check, the previous deploy keeps serving. Find out what changed the database before anything else: a check failing means a guarantee is gone. When the change is intended, it arrives as a new migration and new expected values in `audit-guards.sql`, in the same PR. That migration also needs an entry in the `ALLOWED` list of `tests/auditMigrationScan.test.ts`, which fails on DDL that alters the audit tables, their functions or their enums.
+
+**Line endings.** Migration SQL is checked out with LF (`.gitattributes`), so a migration applied from a Windows laptop creates the same function bodies as one applied by CI or Render, and the function hashes match.
+
+### Orphans
+
+Interrupted test runs leave test clinics behind, and their audit rows now block deleting them. `npm run purge:test-audit -w apps/api` deletes the audit rows of test clinics older than an hour (and of test operators); it refuses to run without the flag.
+
+### The pre-launch wipe
+
+Production's data is fictitious until delivery. The wipe before delivery drops the schema, which no trigger sees, and rebuilds it:
+
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+```
+
+followed by `prisma migrate deploy`. Run it where the production credential lives (the backups repository), never from a laptop. Never use `migrate reset` with the seed on a deployed database.
+
+### Restoring a backup
+
+The dumps in the backups repository load with the triggers already in place: `schema.sql` creates them before `data.sql` inserts. Loaded naively:
+- the session check rejects audit rows whose session was pruned, or not loaded yet (`audit_logs` sorts before `auth_sessions`);
+- the stamp trigger would rewrite every `created_at` to the moment of the restore.
+
+So the triggers of the two audit tables are off **for the load only**, in one transaction that stops at the first error:
+
+```bash
+psql "$URL" -v ON_ERROR_STOP=1 -f dump/schema.sql
+psql "$URL" -1 -v ON_ERROR_STOP=1 \
+  -c 'ALTER TABLE public.audit_logs DISABLE TRIGGER USER' \
+  -c 'ALTER TABLE public.platform_audit_logs DISABLE TRIGGER USER' \
+  -f dump/data.sql \
+  -c 'ALTER TABLE public.audit_logs ENABLE TRIGGER USER' \
+  -c 'ALTER TABLE public.platform_audit_logs ENABLE TRIGGER USER'
+psql "$URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/audit-guards.sql
+```
+
+Then compare the row counts per table with the dump. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable.
 
 ## Cómo se llegó acá (2026-08-29)
 

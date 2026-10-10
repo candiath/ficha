@@ -129,6 +129,9 @@ model User {
   passwordResetTokens  PasswordResetToken[] @relation("PasswordResetTokenUser")
   passwordResetsIssued PasswordResetToken[] @relation("PasswordResetTokenIssuer")
 
+  // Audit rows reference (tenant_id, id), so they cannot name another
+  // clinic's user (#186); Postgres needs a unique constraint to reference.
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@map("users")
 }
@@ -259,18 +262,21 @@ enum PlatformAction {
 // el tenantId es el objetivo de la acción, no el dueño de la fila.
 model PlatformAuditLog {
   id           String         @id @default(uuid(7)) @db.Uuid
-  operatorId   String?        @map("operator_id") @db.Uuid
+  operatorId   String         @map("operator_id") @db.Uuid
   tenantId     String         @map("tenant_id") @db.Uuid
   targetUserId String?        @map("target_user_id") @db.Uuid
   action       PlatformAction
   description  String
+  // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
+  // whatever the caller sends is replaced. (#186)
   createdAt    DateTime       @default(now()) @map("created_at")
 
-  // SetNull en los dos: el registro sobrevive a que se borre el operador o
-  // el usuario al que apuntaba; la descripción conserva los datos en texto.
-  operator   PlatformOperator? @relation(fields: [operatorId], references: [id], onDelete: SetNull)
-  tenant     Tenant            @relation(fields: [tenantId], references: [id])
-  targetUser User?             @relation(fields: [targetUserId], references: [id], onDelete: SetNull)
+  // Restrict everywhere (#186): an audit row can never change, so it cannot
+  // lose its operator or target, and nobody it names can be deleted. The
+  // target is a user of the row's own clinic.
+  operator   PlatformOperator @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  targetUser User?            @relation(fields: [tenantId, targetUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([createdAt])
@@ -351,6 +357,9 @@ model Patient {
   clinicalEpisodes   ClinicalEpisode[]
   appointments       Appointment[]
 
+  // Audit rows reference (tenant_id, id), so they cannot name another
+  // clinic's patient (#186); Postgres needs a unique constraint to reference.
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@map("patients")
 }
@@ -624,13 +633,16 @@ model AuditLog {
   // audit row outlives them. Never in a clinic-facing DTO: only the user
   // herself may list her sessions. (#186, SPEC-audit-hardening.md §3)
   authSessionId String?   @map("auth_session_id") @db.Uuid
+  // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
+  // whatever the caller sends is replaced. (#186)
   createdAt   DateTime    @default(now()) @map("created_at")
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  patient Patient @relation(fields: [patientId], references: [id])
-  // SetNull: si se borra el usuario, el registro de auditoría se conserva
-  // (la historia clínica no puede perder entradas) pero queda sin actor.
-  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Restrict everywhere (#186): an audit row can never change, so it cannot
+  // lose its patient or author, and neither can be deleted while it exists.
+  // Patient and author belong to the row's own clinic.
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  user    User?   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([patientId])
