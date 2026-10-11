@@ -17,6 +17,15 @@ describe('auditGuardRepo.run', () => {
     expect(result).toEqual({ status: 'failed', message: 'audit guards failed: trigger x is not enabled' });
   });
 
+  // Only a connection error means "could not check" (SPEC-sysadmin-alerts.md
+  // §7). Any other error is a failure: a dropped audit table makes the check
+  // error out instead of raising its own message, and that is the worst case.
+  it('fails on an error that is not a connection error', async () => {
+    const result = await auditGuardRepo.run('SELECT 1 FROM public.no_such_audit_table');
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') expect(result.message).toMatch(/no_such_audit_table/);
+  });
+
   it('reports an unreachable database as unknown, not as failed', async () => {
     const nowhere = new PrismaClient({ datasourceUrl: 'postgresql://nobody:nothing@127.0.0.1:1/none' });
     try {
