@@ -84,7 +84,9 @@ export type PlatformAdminCreateResult =
 export interface PlatformAuditLogDTO {
   id: string;
   operatorId: string | null;
-  tenantId: string;
+  // Null only for an action on the platform itself (TEST_ALERT_SENT), which a
+  // clinic's list never returns.
+  tenantId: string | null;
   targetUserId: string | null;
   // Resolved when the list is read: descriptions never name the person (#186).
   targetUser: { email: string; name: string | null } | null;

@@ -12,6 +12,10 @@ import { PrismaClient } from '@prisma/client';
 // its rows. It needs the maintenance flag, so it refuses to run on staging or
 // production.
 //
+// Also every sysadmin alert older than an hour, with its deliveries
+// (SPEC-sysadmin-alerts.md §9): only development and ci carry the flag, and
+// their alerts are all from tests or local runs.
+//
 // Usage: npm run purge:test-audit -w apps/api
 // (against apps/api/.env's DATABASE_URL: development; for ci, set DATABASE_URL)
 
@@ -30,7 +34,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { clinical, platform, clinics } = await prisma.$transaction(async (tx) => {
+  const { clinical, platform, clinics, alerts } = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`;
     const stale = await tx.$queryRaw<{ id: string }[]>`
       SELECT t.id FROM tenants t
@@ -54,12 +58,20 @@ async function main() {
         ],
       },
     });
-    return { clinical: clinicalRows.count, platform: platformRows.count, clinics: tenantIds.length };
+    const anHourAgo = new Date(Date.now() - AN_HOUR_MS);
+    await tx.sysadminAlertDelivery.deleteMany({ where: { alert: { createdAt: { lt: anHourAgo } } } });
+    const alertRows = await tx.sysadminAlert.deleteMany({ where: { createdAt: { lt: anHourAgo } } });
+    return {
+      clinical: clinicalRows.count,
+      platform: platformRows.count,
+      clinics: tenantIds.length,
+      alerts: alertRows.count,
+    };
   });
 
   console.log(
     `Deleted ${clinical} clinical and ${platform} platform audit rows ` +
-      `(${clinics} stale test clinics, and test operators).`,
+      `(${clinics} stale test clinics, and test operators), and ${alerts} sysadmin alerts.`,
   );
 }
 

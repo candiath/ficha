@@ -53,6 +53,8 @@ const ACTION_LABELS: Record<PlatformAction, string> = {
   USER_ACTIVE_CHANGED: 'Cambio de estado',
   USER_DEVICES_DISCONNECTED: 'Dispositivos desconectados',
   PASSWORD_RESET_LINK_CREATED: 'Enlace para restablecer contraseña',
+  // Never in a clinic's history (it names no clinic); here for the union.
+  TEST_ALERT_SENT: 'Alerta de prueba enviada',
 };
 
 function formatDateTime(iso: string | null): string {

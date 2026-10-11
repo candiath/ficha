@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
 // #186 hardened the audit tables is scanned for DDL that touches them, their
 // functions or their enums (docs/specs/SPEC-audit-hardening.md §1).
 //
-// A migration that really needs one of these goes on ALLOWED with its reason,
-// in a reviewed PR (the spec's "ask first").
+// A migration that really needs one of these goes on ALLOWED with its reason
+// and the exact violations it is allowed, in a reviewed PR (the spec's "ask
+// first"). Exact, so a statement added to it later does not pass unseen.
 
 const MIGRATIONS = path.join(__dirname, '..', 'prisma', 'migrations');
 
@@ -57,10 +58,26 @@ const FROZEN = new Set([
   '20261010191055_audit_rows_enforced',
 ]);
 
-const ALLOWED: Record<string, string> = {};
+const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261011193500_sysadmin_alerts': {
+    reason:
+      'The sysadmin alert tables (SPEC-sysadmin-alerts.md): six triggers that call the audit ' +
+      'functions on the two new tables, and platform_audit_logs.tenant_id made nullable for an ' +
+      'action on the platform itself (two CHECKs keep it narrow, pinned by audit-guards.sql).',
+    violations: [
+      'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "tenant_id" DROP NOT NULL',
+      'CREATE TRIGGER: CREATE TRIGGER sysadmin_alerts_stamp_created_at BEFORE INSERT ON public.sysadmin_alerts FOR EACH ROW EXECUTE FUNCTION pu',
+      'CREATE TRIGGER: CREATE TRIGGER sysadmin_alerts_append_only BEFORE UPDATE OR DELETE ON public.sysadmin_alerts FOR EACH ROW EXECUTE FUNCTI',
+      'CREATE TRIGGER: CREATE TRIGGER sysadmin_alerts_no_truncate BEFORE TRUNCATE ON public.sysadmin_alerts FOR EACH STATEMENT EXECUTE FUNCTION',
+      'CREATE TRIGGER: CREATE TRIGGER sysadmin_alert_deliveries_stamp_created_at BEFORE INSERT ON public.sysadmin_alert_deliveries FOR EACH ROW',
+      'CREATE TRIGGER: CREATE TRIGGER sysadmin_alert_deliveries_append_only BEFORE UPDATE OR DELETE ON public.sysadmin_alert_deliveries FOR EAC',
+      'CREATE TRIGGER: CREATE TRIGGER sysadmin_alert_deliveries_no_truncate BEFORE TRUNCATE ON public.sysadmin_alert_deliveries FOR EACH STATEM',
+    ],
+  },
+};
 
 const AUDIT_NAMES =
-  /\b(audit_logs|platform_audit_logs|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|AuditAction|AuditEntity|PlatformAction)\b/i;
+  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|AuditAction|AuditEntity|PlatformAction|SysadminAlertKind|SysadminAlertOutcome)\b/i;
 
 const FORBIDDEN: [string, RegExp][] = [
   ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],
@@ -97,7 +114,9 @@ function auditDdlViolations(sql: string): string[] {
   for (const statement of code.split(';')) {
     if (!AUDIT_NAMES.test(statement)) continue;
     for (const [name, pattern] of FORBIDDEN) {
-      if (pattern.test(statement)) violations.push(`${name}: ${statement.trim().slice(0, 120)}`);
+      if (pattern.test(statement)) {
+        violations.push(`${name}: ${statement.trim().replace(/\s+/g, ' ').slice(0, 120)}`);
+      }
     }
   }
   return violations;
@@ -110,6 +129,15 @@ describe('migrations leave the audit tables alone', () => {
 
   it('the frozen list names migrations that exist', () => {
     for (const name of FROZEN) expect(migrations).toContain(name);
+  });
+
+  it('an allowed migration does exactly what it is allowed', () => {
+    for (const [name, { reason, violations }] of Object.entries(ALLOWED)) {
+      expect(migrations).toContain(name);
+      expect(reason).not.toBe('');
+      const sql = readFileSync(path.join(MIGRATIONS, name, 'migration.sql'), 'utf8');
+      expect({ name, violations: auditDdlViolations(sql) }).toEqual({ name, violations });
+    }
   });
 
   it('no later migration touches them, unless allowed', () => {
@@ -140,5 +168,11 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TYPE "AuditAction" ADD VALUE \'VIEWED\';')).toEqual([]);
     expect(auditDdlViolations('ALTER TABLE "patients" DROP COLUMN "notes";')).toEqual([]);
     expect(auditDdlViolations('-- DROP TRIGGER audit_logs_append_only (a comment)')).toEqual([]);
+
+    // The alert tables are audit tables too.
+    expect(auditDdlViolations('DROP TRIGGER sysadmin_alerts_append_only ON sysadmin_alerts;')).toHaveLength(1);
+    expect(auditDdlViolations('ALTER TABLE "sysadmin_alert_deliveries" DROP COLUMN "detail";')).toHaveLength(1);
+    expect(auditDdlViolations('ALTER TYPE "SysadminAlertOutcome" RENAME VALUE \'SENT\' TO \'OK\';')).toHaveLength(1);
+    expect(auditDdlViolations('ALTER TYPE "SysadminAlertKind" ADD VALUE \'ACCESS_BURST\';')).toEqual([]);
   });
 });

@@ -85,6 +85,10 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'POST /api/platform/tenants/:tenantId/users/:userId/disconnect-devices': audited('platform_audit_logs'),
   'POST /api/platform/tenants/:tenantId/users/:userId/password-reset': audited('platform_audit_logs'),
 
+  // Sysadmin alerts (routes/platformAlerts.ts): the test alert is an operator
+  // action (TEST_ALERT_SENT), written with the alert in one transaction
+  'POST /api/platform/alerts/test': audited('platform_audit_logs'),
+
   // Operator login and password (routes/platformAuth.ts)
   'POST /api/platform/auth/login': audited('login_events'),
   'POST /api/platform/auth/change-password': debt('account-audit'),

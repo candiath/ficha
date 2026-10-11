@@ -90,7 +90,7 @@ Se respalda **solo producción**: `staging` y `development` se rehacen desde ell
 
 ## Audit tables
 
-Since #186 (`docs/specs/SPEC-audit-hardening.md`) the database itself keeps `audit_logs` and `platform_audit_logs` honest: triggers reject every `UPDATE` and `TRUNCATE`, stamp `created_at` on insert, and check that a row's session belongs to its author; foreign keys `RESTRICT` and keep a row inside its clinic. Deleting an audit row, or inserting one with a past date, needs **maintenance**: two things at once.
+Since #186 (`docs/specs/SPEC-audit-hardening.md`) the database itself keeps `audit_logs` and `platform_audit_logs` honest, and since sysadmin-alerts `sysadmin_alerts` and `sysadmin_alert_deliveries` too: triggers reject every `UPDATE` and `TRUNCATE`, stamp `created_at` on insert, and check that a row's session belongs to its author; foreign keys `RESTRICT` and keep a row inside its clinic. Deleting an audit row, or inserting one with a past date, needs **maintenance**: two things at once.
 
 - **The flag**: the table `ficha_ops.audit_maintenance_allowed` exists. **Only `development` and `ci` have it.** It lives outside `public`, so `prisma migrate reset` keeps it (checked on 2026-10-10).
 - **The switch**: `SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`, inside the same transaction as the delete. A switch with any other value, or set at session level, does nothing.
@@ -142,20 +142,58 @@ The dumps in the backups repository load with the triggers already in place: `sc
 - the session check rejects audit rows whose session was pruned, or not loaded yet (`audit_logs` sorts before `auth_sessions`);
 - the stamp trigger would rewrite every `created_at` to the moment of the restore.
 
-So the triggers of the two audit tables are off **for the load only**, in one transaction that stops at the first error:
+So the triggers of the four audit tables (since sysadmin-alerts, the two alert tables too) are off **for the load only**, in one transaction that stops at the first error:
 
 ```bash
 psql "$URL" -v ON_ERROR_STOP=1 -f dump/schema.sql
 psql "$URL" -1 -v ON_ERROR_STOP=1 \
   -c 'ALTER TABLE public.audit_logs DISABLE TRIGGER USER' \
   -c 'ALTER TABLE public.platform_audit_logs DISABLE TRIGGER USER' \
+  -c 'ALTER TABLE public.sysadmin_alerts DISABLE TRIGGER USER' \
+  -c 'ALTER TABLE public.sysadmin_alert_deliveries DISABLE TRIGGER USER' \
   -f dump/data.sql \
   -c 'ALTER TABLE public.audit_logs ENABLE TRIGGER USER' \
-  -c 'ALTER TABLE public.platform_audit_logs ENABLE TRIGGER USER'
+  -c 'ALTER TABLE public.platform_audit_logs ENABLE TRIGGER USER' \
+  -c 'ALTER TABLE public.sysadmin_alerts ENABLE TRIGGER USER' \
+  -c 'ALTER TABLE public.sysadmin_alert_deliveries ENABLE TRIGGER USER'
 psql "$URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/audit-guards.sql
 ```
 
 Then compare the row counts per table with the dump. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable.
+
+## Sysadmin alerts (Telegram)
+
+The API tells the platform operator by Telegram when something needs her (`docs/specs/SPEC-sysadmin-alerts.md`). Today it alerts when an audit check fails at startup. Each environment has **its own bot**, so staging never writes into production's chat.
+
+### Setting up an environment
+
+1. In Telegram, talk to **@BotFather**: `/newbot`, a name (`Ficha staging alerts`) and a username ending in `bot`. It answers with the token.
+2. Open a chat with the new bot and send it any message (a bot cannot write first). Use **a private chat with the bot, or a private group with only the operator**: never a public channel, whose messages anyone can read. The API rejects `@channel` ids for that reason.
+3. Find the chat id: open `https://api.telegram.org/bot<token>/getUpdates` in your own browser and read `result[].message.chat.id` (a number; negative for a group). Do it on your machine, not through any tool that logs URLs: the URL carries the token.
+4. In the Render dashboard, on that environment's service (`ficha-staging` or `Ficha`), add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Saving redeploys.
+5. In `/platform`, the *Alertas* card says "Configurado · bot @…". Press **Enviar alerta de prueba**: the message arrives, and the card shows the result.
+
+The label at the start of every message is the service's `RENDER_SERVICE_NAME` (`[Ficha]`, `[ficha-staging]`), which Render sets itself; `[local]` elsewhere.
+
+### Rules
+
+- **The local `.env` never holds a staging or production token**, just as it never holds the production database URL. Use a third bot of your own, or leave the variables unset (the card says "No configurado"). Agents read `.env` files, and `ts-node-dev` re-runs the startup check, and its alerts, on every save.
+- **Never set `NODE_DEBUG=undici` or `NODE_DEBUG=fetch`** on a deployed service: Node then prints request URLs, token included, to the logs.
+- **Messages never carry links.** A message from the bot with a link was not sent by the app.
+- **Rotating a token** (it leaked, or someone left): `/revoke` in @BotFather, then the new token in Render (redeploys). A leaked token lets someone read the chat and send fake alerts in the bot's name.
+- **The test button** is limited to 50 a minute, shared by every operator: Telegram limits per chat, and a bot over its limit gets a `429` and a wait, during which a real alert is delayed or lost.
+
+### When an alert does not arrive
+
+The card lists the last 20 real alerts with the outcome of their last attempt; the API logs one line per attempt (`[alerts] AUDIT_GUARDS_FAILED <id>: REJECTED 401 Unauthorized`). A banner across `/platform` stays until a later real alert is delivered.
+
+| Outcome | Meaning |
+| --- | --- |
+| `REJECTED 401` | The token is wrong or revoked. |
+| `REJECTED 400` "chat not found" / `403` | Wrong chat id, or nobody wrote to the bot first, or the bot was blocked or removed. |
+| `REJECTED 429` | Too many messages; retried after Telegram's wait if it is under a minute. |
+| `UNREACHABLE` | No usable answer (timeout, network); retried twice. |
+| `NOT_CONFIGURED` | A variable is missing or malformed; nothing was sent. |
 
 ## Cómo se llegó acá (2026-08-29)
 

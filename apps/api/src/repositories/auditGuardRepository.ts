@@ -5,10 +5,11 @@
 
 export type AuditGuardResult =
   | { status: 'passed' }
-  // The check ran and found the guarantees changed.
+  // The check found the guarantees changed, or errored on the database (a
+  // dropped audit table errors instead of raising the check's own message).
   | { status: 'failed'; message: string }
-  // The check could not run (a cold-start timeout, the database unreachable):
-  // nothing is known, which is not the same as a failure.
+  // The check never reached the database (a cold-start timeout, the server
+  // unreachable): nothing is known, which is not the same as a failure.
   | { status: 'unreachable'; message: string };
 
 export interface AuditGuardRepository {
