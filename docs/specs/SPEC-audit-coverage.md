@@ -1,6 +1,6 @@
 # SPEC: audit-coverage
 
-Module of the capability map [`audit-map.md`](audit-map.md) (issue #186). Status: draft, pending adversarial review.
+Module of the capability map [`audit-map.md`](audit-map.md) (issue #186). Status: implemented. An adversarial review ran before implementation, and its findings are folded into *Test assertions* and *Limits*.
 
 ## Objective
 
@@ -57,7 +57,8 @@ The key uses the route's own param names. A rename in code fails the test, which
 1. Sanity: the number of extracted write routes equals the number of `router.<write>(` / `app.<write>(` occurrences in the scanned files (a regex that went blind fails here, not silently). Calls are matched only on a `router` or `app` receiver, so `repo.delete(...)` is not a route.
 2. Every extracted write route has a manifest entry (missing → fail, with the key listed).
 3. Every manifest entry matches an extracted route (stale → fail, with the key listed).
-4. Every `debt` entry names a module that exists in the `DebtModule` union, and every `audited` entry names a table in the `AuditTable` union.
+4. Every `debt` entry names a module in the `DebtModule` union, and every `audited` entry names a table in the `AuditTable` union. The type checker enforces this, not vitest: `tsconfig.check.json` includes `tests/`, and `npm run check` runs it. Every `exempt` entry has a non-empty reason (vitest).
+5. No two extracted routes share a key, and every route file with writes is mounted in `app.ts`.
 
 Each module that closes debt deletes its entries; the type unions make a typo a compile error.
 

@@ -25,83 +25,76 @@ const WRITE = '(post|put|patch|delete)';
 const WRITE_CALL = new RegExp(`\\b(?:router|app)\\.${WRITE}\\b`, 'g');
 // `router.post('/x'`, `router.post<Pick<Params, 'a'>>('/x'`, across lines.
 const WRITE_ROUTE = new RegExp(`\\b(?:router|app)\\.${WRITE}\\s*(?:<[^()]*?>)?\\(\\s*'([^']*)'`, 'g');
-// `app.use('/api/x', [middleware,] xRouter)`; the middleware may have parentheses
-// only in `requireRole('ADMIN')`, which the lazy group skips.
+// `app.use('/api/x', [middleware,] xRouter)`; the lazy group skips middleware
+// such as `requireRole('ADMIN')`.
 const MOUNT = /app\.use\(\s*'([^']*)'\s*,(?:[^;]*?,)?\s*(\w+Router)\s*\)/g;
 const IMPORT = /import\s+(\w+)\s+from\s+'\.\/routes\/(\w+)'/g;
 
-type Ruta = { clave: string; origen: string };
-
-function escrituras(codigo: string, origen: string, prefijos: string[]): Ruta[] {
-  const rutas: Ruta[] = [];
-  for (const [, metodo, ruta] of codigo.matchAll(WRITE_ROUTE)) {
-    const relativa = ruta === '/' ? '' : ruta.replace(/\/$/, '');
-    for (const prefijo of prefijos) {
-      rutas.push({ clave: `${metodo.toUpperCase()} ${prefijo}${relativa}`, origen });
-    }
+function writeRoutes(source: string, prefixes: string[]): string[] {
+  const keys: string[] = [];
+  for (const [, method, route] of source.matchAll(WRITE_ROUTE)) {
+    const relative = route === '/' ? '' : route.replace(/\/$/, '');
+    for (const prefix of prefixes) keys.push(`${method.toUpperCase()} ${prefix}${relative}`);
   }
-  return rutas;
+  return keys;
 }
 
-function extraer(): { rutas: Ruta[]; llamadas: number; literales: number; sinMontar: string[] } {
+function extract() {
   const app = readFileSync(APP, 'utf8');
-  const routerAArchivo = new Map([...app.matchAll(IMPORT)].map(([, v, f]) => [v, `${f}.ts`]));
-  const prefijosPorArchivo = new Map<string, string[]>();
-  for (const [, prefijo, router] of app.matchAll(MOUNT)) {
-    const archivo = routerAArchivo.get(router);
-    if (!archivo) continue;
-    prefijosPorArchivo.set(archivo, [...(prefijosPorArchivo.get(archivo) ?? []), prefijo]);
+  const fileOfRouter = new Map([...app.matchAll(IMPORT)].map(([, name, file]) => [name, `${file}.ts`]));
+  const prefixesOfFile = new Map<string, string[]>();
+  for (const [, prefix, router] of app.matchAll(MOUNT)) {
+    const file = fileOfRouter.get(router);
+    if (file) prefixesOfFile.set(file, [...(prefixesOfFile.get(file) ?? []), prefix]);
   }
 
-  const rutas: Ruta[] = [...escrituras(app, 'app.ts', [''])];
-  let llamadas = [...app.matchAll(WRITE_CALL)].length;
-  let literales = [...app.matchAll(WRITE_ROUTE)].length;
-  const sinMontar: string[] = [];
+  const keys = writeRoutes(app, ['']);
+  let calls = [...app.matchAll(WRITE_CALL)].length;
+  let literals = [...app.matchAll(WRITE_ROUTE)].length;
+  const unmounted: string[] = [];
 
-  for (const archivo of readdirSync(ROUTES).filter((f) => f.endsWith('.ts'))) {
-    const codigo = readFileSync(path.join(ROUTES, archivo), 'utf8');
-    llamadas += [...codigo.matchAll(WRITE_CALL)].length;
-    const cantidad = [...codigo.matchAll(WRITE_ROUTE)].length;
-    literales += cantidad;
-    if (cantidad > 0 && !prefijosPorArchivo.has(archivo)) sinMontar.push(archivo);
-    rutas.push(...escrituras(codigo, `routes/${archivo}`, prefijosPorArchivo.get(archivo) ?? []));
+  for (const file of readdirSync(ROUTES).filter((f) => f.endsWith('.ts'))) {
+    const source = readFileSync(path.join(ROUTES, file), 'utf8');
+    const count = [...source.matchAll(WRITE_ROUTE)].length;
+    calls += [...source.matchAll(WRITE_CALL)].length;
+    literals += count;
+    if (count > 0 && !prefixesOfFile.has(file)) unmounted.push(file);
+    keys.push(...writeRoutes(source, prefixesOfFile.get(file) ?? []));
   }
-  return { rutas, llamadas, literales, sinMontar };
+  return { keys, calls, literals, unmounted };
 }
 
-const { rutas, llamadas, literales, sinMontar } = extraer();
-const claves = rutas.map((r) => r.clave);
-const repetidas = claves.filter((c, i) => claves.indexOf(c) !== i);
-const extraidas = new Set(claves);
-const clasificadas = new Set(Object.keys(AUDIT_COVERAGE));
+const { keys, calls, literals, unmounted } = extract();
+const extracted = new Set(keys);
+const classified = new Set(Object.keys(AUDIT_COVERAGE));
 
-describe('cobertura de audit', () => {
-  it('toda llamada de escritura es una ruta con path literal (el regex no quedó ciego)', () => {
-    expect(literales, 'llamadas de escritura con path no literal').toBe(llamadas);
+describe('audit coverage', () => {
+  it('every write call is a route with a literal path (the regex did not go blind)', () => {
+    expect(literals, 'write calls without a literal path').toBe(calls);
   });
 
-  it('ningún archivo de rutas con escrituras queda sin montar en app.ts', () => {
-    expect(sinMontar).toEqual([]);
+  it('every route file with writes is mounted in app.ts', () => {
+    expect(unmounted).toEqual([]);
   });
 
-  it('no hay dos rutas con la misma clave', () => {
-    expect(repetidas).toEqual([]);
+  it('no two routes share a key', () => {
+    expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([]);
   });
 
-  it('toda ruta que escribe está clasificada en el manifiesto', () => {
-    const sinClasificar = [...extraidas].filter((c) => !clasificadas.has(c)).sort();
-    expect(sinClasificar, 'escribe y no figura en tests/auditCoverageManifest.ts').toEqual([]);
+  it('every write route is classified in the manifest', () => {
+    const missing = [...extracted].filter((k) => !classified.has(k)).sort();
+    expect(missing, 'writes and is not in tests/auditCoverageManifest.ts').toEqual([]);
   });
 
-  it('toda entrada del manifiesto corresponde a una ruta que existe', () => {
-    const obsoletas = [...clasificadas].filter((c) => !extraidas.has(c)).sort();
-    expect(obsoletas, 'figura en el manifiesto y ya no existe en el código').toEqual([]);
+  it('every manifest entry matches a route that exists', () => {
+    const stale = [...classified].filter((k) => !extracted.has(k)).sort();
+    expect(stale, 'in the manifest but no longer in the code').toEqual([]);
   });
 
-  it('toda exención tiene motivo', () => {
-    const sinMotivo = Object.entries(AUDIT_COVERAGE)
-      .filter(([, v]) => v.status === 'exempt' && v.reason.trim() === '')
-      .map(([k]) => k);
-    expect(sinMotivo).toEqual([]);
+  it('every exemption has a reason', () => {
+    const noReason = Object.entries(AUDIT_COVERAGE)
+      .filter(([, entry]) => entry.status === 'exempt' && entry.reason.trim() === '')
+      .map(([key]) => key);
+    expect(noReason).toEqual([]);
   });
 });

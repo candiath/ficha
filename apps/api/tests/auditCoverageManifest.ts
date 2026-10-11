@@ -25,6 +25,7 @@ export type AuditCoverage =
   | { status: 'debt'; module: DebtModule };
 
 const audited = (table: AuditTable): AuditCoverage => ({ status: 'audited', table });
+const exempt = (reason: string): AuditCoverage => ({ status: 'exempt', reason });
 const debt = (module: DebtModule): AuditCoverage => ({ status: 'debt', module });
 
 export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
@@ -102,7 +103,3 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'POST /api/users/:id/disconnect-devices': debt('clinic-audit'),
   'POST /api/users/:id/password-reset': debt('clinic-audit'),
 };
-
-function exempt(reason: string): AuditCoverage {
-  return { status: 'exempt', reason };
-}
