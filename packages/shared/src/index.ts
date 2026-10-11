@@ -295,12 +295,15 @@ export type PlatformAction =
   | 'USER_ROLE_CHANGED'
   | 'USER_ACTIVE_CHANGED'
   | 'USER_DEVICES_DISCONNECTED'
-  | 'PASSWORD_RESET_LINK_CREATED';
+  | 'PASSWORD_RESET_LINK_CREATED'
+  | 'TEST_ALERT_SENT';
 
 export interface PlatformAuditEntry {
   id: string;
   operatorId: string | null;
-  tenantId: string;
+  // Null only for an action on the platform itself (TEST_ALERT_SENT), which a
+  // clinic's list never returns.
+  tenantId: string | null;
   targetUserId: string | null;
   // Resolved when the list is read: descriptions never name the person (#186).
   targetUser: { email: string; name: string | null } | null;

@@ -75,8 +75,20 @@ export const TENANT_MODELS_FUERA_DEL_GUARD = {
   // platformRepository, que usa el prisma base y recibe el tenantId como
   // argumento explícito. Es una tabla cross-tenant por definición: el
   // operador ve las acciones sobre todas las clínicas.
-  PlatformAuditLog: 'la escribe el operador de plataforma, que no tiene tenant; tenantId es el objetivo',
+  //
+  // Since sysadmin-alerts (#186) the clinic is null for an action on the
+  // platform itself (TEST_ALERT_SENT): a test alert names no clinic.
+  PlatformAuditLog:
+    'la escribe el operador de plataforma, que no tiene tenant; tenantId es el objetivo, ' +
+    'y es null en una acción sobre la plataforma misma',
 } as const satisfies Record<string, string>;
+
+// Not in either list, on purpose: SysadminAlert and SysadminAlertDelivery
+// (#186, docs/specs/SPEC-sysadmin-alerts.md). They have no tenantId, because
+// an alert is about the platform, not a clinic, and the coverage test only
+// takes models that have one. A producer that adds a tenant_id to them
+// classifies them above, outside the guard: they are written without a ctx
+// (sysadminAlertRepository) and the operator reads them across clinics.
 
 // Operaciones cuyo `where` acota las filas afectadas: se les inyecta tenantId.
 // En Prisma 5 el WhereUniqueInput acepta campos no-únicos, así que esto vale

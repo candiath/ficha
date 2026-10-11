@@ -258,10 +258,26 @@ export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
   });
 }
 
-// The platform audit rows of one operator.
+// The platform audit rows of one operator, and the test alerts she sent
+// (with their deliveries): both restrict deleting her.
 export async function deleteOperatorAuditRows(operatorId: string): Promise<void> {
   requireIds([operatorId], 'operator id');
-  await inAuditMaintenance((tx) => tx.platformAuditLog.deleteMany({ where: { operatorId } }));
+  await inAuditMaintenance(async (tx) => {
+    await tx.sysadminAlertDelivery.deleteMany({ where: { alert: { operatorId } } });
+    await tx.sysadminAlert.deleteMany({ where: { operatorId } });
+    await tx.platformAuditLog.deleteMany({ where: { operatorId } });
+  });
+}
+
+// Sysadmin alerts a test raised, with their deliveries (#186,
+// SPEC-sysadmin-alerts.md). Alerts carry no clinic, so a test deletes its own
+// by id.
+export async function deleteSysadminAlerts(alertIds: string[]): Promise<void> {
+  requireIds(alertIds, 'alert id');
+  await inAuditMaintenance(async (tx) => {
+    await tx.sysadminAlertDelivery.deleteMany({ where: { alertId: { in: alertIds } } });
+    await tx.sysadminAlert.deleteMany({ where: { id: { in: alertIds } } });
+  });
 }
 
 // Audit rows with a chosen date, for tests about ordering. A row with an
