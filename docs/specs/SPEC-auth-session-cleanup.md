@@ -1,6 +1,6 @@
 # Spec: auth-session-cleanup
 
-Issue #178. Follow-up of `server-sessions` (#177, [`SPEC-server-sessions.md`](SPEC-server-sessions.md)). **Status: draft, awaiting approval** (decisions below; three doubt-review cycles, 2026-10-11).
+Issue #178. Follow-up of `server-sessions` (#177, [`SPEC-server-sessions.md`](SPEC-server-sessions.md)). **Status: approved 2026-10-11** (decisions below; three doubt-review cycles).
 
 ## Objective
 

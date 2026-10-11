@@ -245,6 +245,27 @@ export const prismaAuthRepository: AuthRepository = {
     });
   },
 
+  async deleteEndedAuthSessions({ cutoff, idleCutoff, batch }): Promise<number> {
+    // Ended before the cutoff at the earliest of revocation, expiry and idle
+    // timeout: any one of them suffices, and each means the session can never
+    // be valid again. deleteMany has no LIMIT, so pick the batch first.
+    const ended = await prisma.authSession.findMany({
+      where: {
+        OR: [
+          { revokedAt: { lt: cutoff } },
+          { expiresAt: { lt: cutoff } },
+          { lastUsedAt: { lt: idleCutoff } },
+        ],
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: batch,
+    });
+    if (ended.length === 0) return 0;
+    const { count } = await prisma.authSession.deleteMany({ where: { id: { in: ended.map((s) => s.id) } } });
+    return count;
+  },
+
   async revokeAuthSession(authSessionId: string): Promise<boolean> {
     // The condition rides in the write: revoking twice is a no-op, not an
     // error, and the original revokedAt is kept.
