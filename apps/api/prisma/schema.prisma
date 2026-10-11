@@ -148,6 +148,10 @@ model User {
 //
 // No tenantId column: the owner is the user and the tenant comes from the
 // join. A copied tenantId could drift from users.tenant_id.
+//
+// Retention: deleted 180 days after the session ended (revoked, expired, or
+// idle past the longest idle timeout), by lib/retention.ts (#178). Audit rows
+// keep the id, with no foreign key.
 // ─────────────────────────────────────────────────────────────────────────────
 model AuthSession {
   id        String    @id @default(uuid(7)) @db.Uuid

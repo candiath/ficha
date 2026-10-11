@@ -120,6 +120,10 @@ export interface AuthRepository {
   revokeAuthSession(authSessionId: string): Promise<boolean>;
   /** Marks the session as used now, unless it was within the throttle window. */
   touchAuthSession(authSessionId: string): Promise<void>;
+  // Retention (#178, docs/specs/SPEC-auth-session-cleanup.md): deletes one
+  // batch of sessions that ended before the cutoffs, which come from
+  // authSessionCleanupCutoffs. Returns how many it deleted.
+  deleteEndedAuthSessions(input: { cutoff: Date; idleCutoff: Date; batch: number }): Promise<number>;
 
   // ── The user's own sessions (my-sessions) ─────────────────────────────────
   // Scoped by an explicit userId in the same query that reads or writes:

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import app from './app';
 import { checkAuditGuardsAtStartup } from './lib/auditGuards';
+import { authSessionRetentionJob, startRetention } from './lib/retention';
 import { sysadminAlerts } from './lib/sysadminAlerts';
 
 // Punto de entrada del server: solo carga el entorno y escucha. Toda la
@@ -20,4 +21,7 @@ app.listen(PORT, () => {
   void checkAuditGuardsAtStartup().catch((error: unknown) => {
     console.error('[audit] startup check crashed:', error);
   });
+  // Retention purges (#178): a minute after start, then daily, off every
+  // request; the timers never keep the process alive.
+  startRetention([authSessionRetentionJob]);
 });
