@@ -26,7 +26,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
 
 ### Phase 0: Setup
 
-- [ ] **Task 0: Throwaway branch**
+- [x] **Task 0: Throwaway branch**
   - *Acceptance:*
     - Neon branch `sysadmin-alerts` is created from `development`, so it inherits the maintenance flag;
     - `apps/api/.env.sysadmin-alerts` points at it, written by a script that prints nothing secret;
@@ -35,7 +35,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
 
 ### Phase 1: The tables (highest risk first)
 
-- [ ] **Task 1: Schema, migration and the migration scan**
+- [x] **Task 1: Schema, migration and the migration scan**
   - *Acceptance:*
     - Schema and migration as spec §1 and §2:
       - the lock comes first;
@@ -60,7 +60,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
 
     Plus the migration scan, `tenantScopeCoverage`, `platform.test.ts` and `npm run check`.
   - *Files:* `schema.prisma`, the migration, `tests/auditMigrationScan.test.ts`, `tests/helpers.ts`, `tests/sysadminAlertTables.test.ts`, `src/lib/tenantScope.ts`, `platformRepository.ts`, `packages/shared/src/index.ts`. **M** (the type change is one line each)
-- [ ] **Task 2: Guards pin the new tables; "unreachable" narrowed**
+- [x] **Task 2: Guards pin the new tables; "unreachable" narrowed**
   - *Acceptance:*
     - `audit-guards.sql`:
       - resolves tables with `to_regclass` and reports a missing one;
@@ -74,17 +74,17 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
 
 ### Checkpoint A
 
-- [ ] The migration is final enough to rehearse. Reset the throwaway branch, re-apply, and the Phase 1 tests pass.
+- [x] The migration is final enough to rehearse. Reset the throwaway branch, re-apply, and the Phase 1 tests pass.
 
 ### Phase 2: Telegram and the service
 
-- [ ] **Task 3: Telegram client, and tests never reach Telegram**
+- [x] **Task 3: Telegram client, and tests never reach Telegram**
   - *Acceptance:* `src/lib/telegram.ts` as spec §3: `readTelegramConfig`, `sendTelegramMessage`, `getTelegramBot` and `redact`. `tests/setup.ts`:
     - deletes the Telegram variables and `RENDER_SERVICE_NAME`;
     - guards `fetch` against `api.telegram.org`, with a message that does not repeat the URL.
   - *Verify:* `tests/telegram.test.ts`, with every case in the spec's *Testing Strategy*, the leak cases included. No database.
   - *Files:* `src/lib/telegram.ts`, `tests/telegram.test.ts`, `tests/setup.ts`. **S**
-- [ ] **Task 4: Repository and the banner rule**
+- [x] **Task 4: Repository and the banner rule**
   - *Acceptance:*
     - The port and the Prisma implementation: `createAlert`, `createTestAlert` (the alert and the platform audit row in one transaction), `recordDelivery` and `overview` (spec §5).
     - The pure `undeliveredAlert()`.
@@ -94,7 +94,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
     - `undeliveredAlert` unit cases (spec).
   - *Files:* `repositories/sysadminAlertRepository.ts`, `repositories/prisma/prismaSysadminAlertRepository.ts`, `repositories/index.ts`, `tests/sysadminAlertRepository.test.ts`. **M**
   - *Depends on:* 1.
-- [ ] **Task 5: Alerts service**
+- [x] **Task 5: Alerts service**
   - *Acceptance:* `src/lib/sysadminAlerts.ts` as spec §4:
     - `raise` with retries, never rejecting;
     - `sendTest`;
@@ -111,7 +111,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
     - the `getMe` cache.
   - *Files:* `src/lib/sysadminAlerts.ts`, `tests/sysadminAlerts.test.ts`. **S**
   - *Depends on:* 3, 4.
-- [ ] **Task 6: Startup producer**
+- [x] **Task 6: Startup producer**
   - *Acceptance:*
     - `checkAuditGuardsAtStartup` raises on a failed check, awaits `raise` inside its own `try/catch`, and raises nothing on `unreachable`;
     - `index.ts` logs the Telegram configuration.
@@ -124,14 +124,14 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
 
 ### Phase 3: Routes and UI
 
-- [ ] **Task 7: Routes**
+- [x] **Task 7: Routes**
   - *Acceptance:*
     - `createPlatformAlertsRouter({ testLimitPerMinute })`, mounted in `app.ts` before `/api/platform` with 50 per minute, keyed globally;
     - the manifest entry for `POST /api/platform/alerts/test`.
   - *Verify:* `tests/platformAlerts.test.ts`, with every route case in the spec; `auditCoverage.test.ts`; `idParamCoverage.test.ts`.
   - *Files:* `src/routes/platformAlerts.ts`, `src/app.ts`, `tests/auditCoverageManifest.ts`, `tests/platformAlerts.test.ts`. **M**
   - *Depends on:* 5.
-- [ ] **Task 8: Web card and banner**
+- [x] **Task 8: Web card and banner**
   - *Acceptance:*
     - shared types;
     - `platformAlertsApi` and query keys;
@@ -149,7 +149,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
 
 ### Phase 4: Docs, purge, rehearsal, PR
 
-- [ ] **Task 9: Purge script and docs**
+- [x] **Task 9: Purge script and docs**
   - *Acceptance:*
     - `purge-test-audit.ts` also deletes alerts older than an hour, with their deliveries.
     - Docs:
@@ -159,7 +159,7 @@ It all lands in one PR against `dev`. The migration is developed on a throwaway 
       - `.env.example`.
   - *Verify:* `npm run purge:test-audit -w apps/api` against the throwaway branch reports a count and fails nowhere.
   - *Files:* `scripts/purge-test-audit.ts`, `CLAUDE.md`, `docs/infra.md`, `docs/specs/audit-map.md`, `apps/api/.env.example`. **S**
-- [ ] **Task 10: Rehearsal on a copy of `production`**
+- [x] **Task 10: Rehearsal on a copy of `production`**
   - *Acceptance:* on a Neon branch from `production`:
     - `no-audit-maintenance.sql` passes before the migration;
     - the migration applies in one transaction;
