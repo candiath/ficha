@@ -1,6 +1,6 @@
 # Spec: sysadmin-alerts
 
-Module of the [audit capability map](audit-map.md) (issue #186). **Status: reviewed.** An adversarial security review ran before implementation (2026-10-11); its findings are folded in below and marked *(review)*. Decisions Nath took before the spec was written are marked *(decided)*.
+Module of the [audit capability map](audit-map.md) (issue #186). **Status: approved 2026-10-11.** An adversarial security review ran before implementation; its findings are folded in below and marked *(review)*. Decisions Nath took before the spec was written are marked *(decided)*, and the answers to its open questions are under *Decisions*.
 
 ## Objective
 
@@ -81,7 +81,7 @@ Two tables: the alert, and its delivery attempts.
   - Each kind of row gets its own `NOT NULL` columns.
   - An attempt's foreign key can only point at an alert, never at another attempt.
 
-  See Open Question 1.
+  See Decision 1.
 
 ```prisma
 // What the sysadmin is told (#186, docs/specs/SPEC-sysadmin-alerts.md). An
@@ -172,7 +172,7 @@ Both enum types are created in this same migration, so these `CHECK`s can name t
 - A comment next to `TENANT_MODELS_FUERA_DEL_GUARD` records the decision. It also says where a later producer that adds a `tenant_id` must classify them: outside the guard, since they are written without a `ctx` and the operator reads them across clinics.
 - The coverage test enforces that classification as soon as the column appears.
 
-See Open Question 2.
+See Decision 2.
 
 ### 2. The test alert in `platform_audit_logs`
 
@@ -338,8 +338,7 @@ export interface SysadminAlertRepository {
   - **the latest delivery overall**, with its alert's kind: the card's "último envío";
   - **the banner**, decided by a pure function, `undeliveredAlert(latestRealAlert, lastSentAt, now)`, unit-tested on its own *(review)*:
     - It looks only at the most recent real alert, and shows it while that alert has no `SENT` delivery, and either its latest delivery is not `SENT` or it is more than 3 minutes old. The second case covers an alert whose process died before any attempt was recorded *(review)*.
-    - A test never clears it *(review)*. If a delivery of any kind was `SENT` after the alert, the banner changes its text: the channel works now, but that alert did not arrive.
-    - It stops showing 7 days after the alert. The alert stays in the list with its state. See Open Question 4.
+    - Only a later real alert that is delivered clears it. A test never does *(review)*, and it does not expire (Decision 4).
 
 ### 6. Routes (`src/routes/platformAlerts.ts`)
 
@@ -355,7 +354,7 @@ Mounted at `/api/platform/alerts`, behind `authenticateOperator`. They go before
   - It is keyed **globally**, not per operator *(review)*: Telegram limits per chat, and every operator shares the one chat.
   - The router is built by `createPlatformAlertsRouter({ testLimitPerMinute })`. `app.ts` passes the module's constant; tests pass a small number to the same code.
   - Over the limit: `429 { error: 'Demasiadas alertas de prueba. Probá de nuevo en un minuto.' }`.
-  - The number is Open Question 3.
+  - **50 per minute** (Decision 3).
 - **No response names the token or the chat id.** The configuration is `configured`, plus the names of the missing or malformed variables and the bot's username.
 - **Audit coverage.** `POST /api/platform/alerts/test` enters `auditCoverageManifest.ts` as `audited`, in `platform_audit_logs`.
 
@@ -411,7 +410,6 @@ Mounted at `/api/platform/alerts`, behind `authenticateOperator`. They go before
   - the last 20 real alerts: kind, date, delivery state, and the number of attempts when there was more than one.
 - **The banner** (`components/platform/UndeliveredAlertBanner.tsx`) sits in `PlatformLayout`, above every page:
   - "La última alerta no llegó por Telegram (fecha, tipo). Revisá la tarjeta Alertas."
-  - After a later successful delivery: "Las alertas vuelven a llegar, pero la del (fecha, tipo) no llegó."
   - It links to `/platform/tenants#alertas`, and reads `GET /api/platform/alerts`, the same query as the card.
 - **Shared types** in `packages/shared`: `SysadminAlertKind`, `SysadminAlertOutcome`, `SysadminAlertsOverview`, `SysadminAlertBot` and `TestAlertResult`. Also `PlatformAuditEntry.tenantId: string | null`.
 
@@ -494,10 +492,9 @@ Vitest and supertest against Neon for the API; vitest and jsdom for the web. Tel
   - **`overview()`, on the test's own ids:** its real alert appears with its latest delivery and its count; its test is the last test and is not in the list.
 - **`undeliveredAlert()`** (pure function, no database):
   - a failed real alert shows;
-  - a later `SENT` real delivery clears it;
-  - a later `SENT` test changes the text but keeps it;
+  - a later real alert that is delivered clears it;
+  - a later `SENT` test does not;
   - an alert with no delivery shows after 3 minutes, not before;
-  - after 7 days it no longer shows;
   - a failed test never shows.
 - **`tests/platformAlerts.test.ts`** (routes):
   - **Auth:** without an operator token, `401`; with a clinic token, `401`.
@@ -522,7 +519,7 @@ Vitest and supertest against Neon for the API; vitest and jsdom for the web. Tel
   - `tenantScopeCoverage.test.ts`, unchanged.
 - **Web:**
   - `AlertsCard`: configured with its bot; not configured, with the button disabled; the test's result shown; the list.
-  - `UndeliveredAlertBanner`: both texts; hidden when there is nothing to show.
+  - `UndeliveredAlertBanner`: shown with the alert's date and kind; hidden when there is nothing to show.
 
 ## Boundaries
 
@@ -555,19 +552,12 @@ Vitest and supertest against Neon for the API; vitest and jsdom for the web. Tel
 - [ ] `npm test`, `npm test -w apps/web` and `npm run check` pass locally, and the CI `test` and `test-web` jobs pass.
 - [ ] The migration was rehearsed on a copy of `production`, and the throwaway branches are deleted.
 
-## Open Questions
+## Decisions (2026-10-11)
 
-1. **Two tables instead of one.** You described "una tabla propia … una fila por alerta y una por cada intento de envío". I split it into `sysadmin_alerts` and `sysadmin_alert_deliveries`.
-   - **With one table:** half the columns would be null on every row, with `CHECK`s to say which half. And an attempt's foreign key could point at another attempt; keeping that out needs a trigger.
-   - **With two:** each row has its own `NOT NULL` columns, and a plain `RESTRICT` key. Both tables are append-only, stamped, and in the guards and the scan; same reader, same retention, still one meaning.
+The open questions, as Nath answered them:
 
-   I recommend two, and the review agrees.
-2. **The tenant guard.** You asked to classify the table for the guard. It has no `tenantId`, because alerts are about the platform, and the coverage test rejects classifying a model without one. So I leave a comment in `tenantScope.ts` saying where it goes when a producer adds a `tenant_id`. The test will demand that classification at that point.
-3. **The test's limit.**
-   - **The risk:** Telegram asks for at most about one message per second in a private chat and 20 per minute in a group, and answers `429` with a wait when a bot goes over. At 100 per minute, a held-down button, or a stolen operator token (2 h, not revocable), gets the bot throttled. A real alert raised during that wait is then delayed, or lost if the wait is over 60 s.
-   - **The recommendation:** 5 per minute, keyed globally. The review recommends the same.
-4. **When the banner goes away.** Read literally, "when the last real delivery failed" keeps the banner until the next *real* alert is delivered, which can be weeks away. The review rejected my first idea (any later success clears it), because a test would then hide an alert that never arrived. What this spec does:
-   - a test never clears the banner; it only changes the text to "the channel works, but this alert did not arrive";
-   - a real alert delivered later does clear it;
-   - the banner expires 7 days after the alert, which stays in the list.
-5. **`platform_audit_logs.tenant_id` becomes nullable.** This follows from recording the test there, since the test names no clinic. Two `CHECK`s keep it narrow: only `TEST_ALERT_SENT` has no clinic, and a row with a target always has one.
+1. **Two tables**, `sysadmin_alerts` and `sysadmin_alert_deliveries`. With one, half the columns would be null on every row, and an attempt's foreign key could point at another attempt.
+2. **The tenant guard.** Neither table has a `tenantId`, and the coverage test rejects classifying a model without one. A comment in `tenantScope.ts` says where they go when a producer adds a `tenant_id`; the test demands it at that point.
+3. **The test's limit: 50 per minute**, keyed globally: Telegram limits per chat, and every operator shares the one chat. It was 100. Telegram asks for about one message per second per chat and answers `429` with a wait, during which a real alert is delayed, or lost if the wait is over 60 s.
+4. **The banner is literal, with no expiry**: it stays until a later real alert is delivered. A test does not clear it.
+5. **`platform_audit_logs.tenant_id` becomes nullable**, which recording the test there requires. Two `CHECK`s keep it narrow: only `TEST_ALERT_SENT` has no clinic, and a row with a target always has one.
