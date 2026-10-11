@@ -94,18 +94,29 @@ async function main() {
 
   // ── Demo session (expired) ────────────────────────────────────────────────
   // The demo audit history names a session of its author, as the database
-  // will require (#186). Already expired, and its token is random bytes nobody
+  // requires (#186). Already expired, and its token is random bytes nobody
   // ever saw: it cannot be used to sign in.
+  //
+  // Dated relative to this run, and refreshed on every run: a session that
+  // ended more than 180 days ago is deleted by the retention runner (#178),
+  // and a local API could delete it between this upsert and the demo audit
+  // rows below, whose insert trigger requires the session to exist. The demo
+  // audit rows keep their own, earlier, backdated times; nothing compares the
+  // two.
+  const ranAt = Date.now();
+  const demoSessionDates = {
+    createdAt: new Date(ranAt - 2 * 24 * 60 * 60 * 1000),
+    lastUsedAt: new Date(ranAt - 25 * 60 * 60 * 1000),
+    expiresAt: new Date(ranAt - 24 * 60 * 60 * 1000),
+  };
   const demoSession = await prisma.authSession.upsert({
     where: { id: devId('dev-auth-session-001') },
-    update: {},
+    update: demoSessionDates,
     create: {
       id: devId('dev-auth-session-001'),
       userId: user.id,
       tokenHash: createHash('sha256').update(randomBytes(32)).digest(),
-      createdAt: new Date('2025-12-01T08:55:00.000Z'),
-      lastUsedAt: new Date('2026-03-06T11:00:00.000Z'),
-      expiresAt: new Date('2026-03-06T12:00:00.000Z'),
+      ...demoSessionDates,
     },
   });
 
