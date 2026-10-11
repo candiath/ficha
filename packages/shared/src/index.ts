@@ -311,3 +311,58 @@ export interface PlatformAuditEntry {
   description: string;
   createdAt: string;
 }
+
+// ── Sysadmin alerts (/api/platform/alerts) ──────────────────────────────────
+//
+// What the operator is told by Telegram, and whether it reached her (#186,
+// docs/specs/SPEC-sysadmin-alerts.md). The card shows the configuration by
+// status and variable names only: never the token or the chat id.
+
+export type SysadminAlertKind = 'AUDIT_GUARDS_FAILED' | 'AUDIT_MAINTENANCE_FLAG_PRESENT' | 'TEST';
+
+export type SysadminAlertOutcome = 'SENT' | 'REJECTED' | 'UNREACHABLE' | 'NOT_CONFIGURED';
+
+export interface SysadminAlertDelivery {
+  outcome: SysadminAlertOutcome;
+  /** Telegram's error_code, only when it rejected the message. */
+  errorCode: number | null;
+  /** Telegram's description, the network error's code, or the variables' names. */
+  detail: string | null;
+  createdAt: string;
+}
+
+export interface SysadminAlert {
+  id: string;
+  kind: SysadminAlertKind;
+  createdAt: string;
+  /** How many delivery attempts it took; the latest is lastDelivery. */
+  deliveries: number;
+  lastDelivery: SysadminAlertDelivery | null;
+}
+
+export interface SysadminAlertsOverview {
+  /** The label every message starts with: the Render service's name, or "local". */
+  environment: string;
+  configuration: 'configured' | 'not_configured' | 'invalid';
+  /** The names of the missing or malformed variables. */
+  variables: string[];
+  /** The last 20 real alerts (tests apart), newest first. */
+  alerts: SysadminAlert[];
+  lastTest: SysadminAlert | null;
+  /** The latest attempt of any alert. */
+  lastDelivery: (SysadminAlertDelivery & { alertId: string; kind: SysadminAlertKind }) | null;
+  /** The most recent real alert, while it has not been delivered: the banner. */
+  undeliveredAlert: SysadminAlert | null;
+}
+
+export type SysadminAlertBot =
+  | { status: 'ok'; username: string }
+  | { status: 'not_configured' }
+  | { status: 'error'; errorCode: number | null; detail: string | null };
+
+export interface TestAlertResult {
+  alertId: string;
+  outcome: SysadminAlertOutcome;
+  errorCode: number | null;
+  detail: string | null;
+}

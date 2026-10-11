@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Building2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { SLUG_PATTERN, slugify, type PlatformTenant } from '@ficha/shared';
+import AlertsCard from '@/components/platform/AlertsCard';
 import TenantStatus from '@/components/platform/TenantStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -92,6 +93,8 @@ export default function PlatformTenantsPage() {
           </CardContent>
         </Card>
       )}
+
+      <AlertsCard />
 
       <CreateTenantDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
