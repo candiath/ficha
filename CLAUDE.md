@@ -124,6 +124,10 @@ Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()
 - La API envuelve respuestas en `{ data: ... }`; todo `/api/*` salvo `/api/auth/*` y `/health` exige `Authorization: Bearer <token>` (401 → `{"error":"No autenticado"}`).
 - CI (`.github/workflows/test.yml`): jobs paralelos para API (con migraciones) y web.
 
+### Every write route is classified for audit
+
+Every `POST`, `PUT`, `PATCH` and `DELETE` route is in `apps/api/tests/auditCoverageManifest.ts`, as `audited` (with its audit table), `exempt` (with a reason) or `debt` (with the module that closes it). A new write route either writes its audit row in the same transaction (see *Acceso a datos*) or is added as `exempt` with a reason, reviewed in the PR. Never add a new route as `debt`. `tests/auditCoverage.test.ts` breaks the CI when a route is missing from the manifest or an entry outlives its route. Spec: [`docs/specs/SPEC-audit-coverage.md`](docs/specs/SPEC-audit-coverage.md).
+
 ### Un solo vacío, y lo decide la API
 
 Hay una sola forma de decir "este campo no tiene dato" y es `null`. Como un formulario web no tiene `null` sino `""`, la API acepta las dos y normaliza; el front manda lo que el control tiene en la mano y no traduce nada.
