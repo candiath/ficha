@@ -103,11 +103,13 @@ A new `GET` without an entry fails the test.
 
 Two paths are allowlisted for clinical-looking text: the dashboard's `pathologies[].name` (an aggregate that names no patient, Decision 1) and `GET /api/patients`' `referringDoctor` (administrative, Decision 2). The fixture puts no marker in them.
 
-**Hints.** Payment notes, package names and custom alerts stay in the lists (Decision 3). Their forms say: "No escribas datos clínicos acá: van en la ficha del paciente."
+**Hints.** Payment notes, package names and custom alerts stay in the lists (Decision 3). Their forms say: "No escribas datos clínicos acá: van en la ficha del paciente." Today only payment notes have a form: in the session form and in the payment edit dialog. No web form creates packages or custom alerts.
 
-### 7. Logout clears the query cache *(review)*
+### 7. Login and logout clear the query cache *(review)*
 
-Today `AuthContext.logout` and the 401 handler keep TanStack's cache for 5 minutes. The next person on the same tab sees the previous user's records from that cache, which `record-access-log` will never see. Both now call `queryClient.clear()`.
+Today TanStack keeps its cache for 5 minutes after logout, and indefinitely after a session that ended with a `401`. The next person on the same tab sees the previous user's records from that cache, which `record-access-log` will never see. Now `logout` clears the cache, and so does `login`, before the new user's first screen.
+
+The 401 handler does not clear it: the protected pages are still mounted at that moment, and their queries would refetch without a token. Clearing at the next login covers the same case.
 
 ## Not in this module
 

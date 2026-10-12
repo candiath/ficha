@@ -205,7 +205,13 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
             placeholder="Ej: pagó mitad hoy, resto la próxima"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            aria-describedby="pay-notes-hint"
           />
+          {/* Payment notes travel in the clinic-wide Cobros list (#186,
+              SPEC-list-minimization.md, Decision 3). */}
+          <p id="pay-notes-hint" className="text-xs text-muted-foreground">
+            No escribas datos clínicos acá: van en la ficha del paciente.
+          </p>
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}

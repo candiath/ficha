@@ -659,6 +659,11 @@ export default function SessionFormModalWide({
                                 {...field}
                               />
                             </FormControl>
+                            {/* Payment notes travel in the clinic-wide Cobros
+                                list (#186, SPEC-list-minimization.md, Decision 3). */}
+                            <p className="text-xs text-muted-foreground">
+                              No escribas datos clínicos acá: van en la ficha del paciente.
+                            </p>
                             <FormMessage />
                           </DirtyFieldItem>
                         )}
