@@ -159,11 +159,18 @@ export interface AuditActionDef<S extends ParamShape = ParamShape> {
   readonly deprecated?: true;
 }
 
-// Keeps the entity literal in the type, so AuditTakesEntity can tell which
-// actions need an entity id.
-const action = <const S extends ParamShape, const E extends AuditEntity | PlatformAuditEntity | undefined = undefined>(
-  def: AuditActionDef<S> & { readonly entity?: E },
-) => def as AuditActionDef<S> & (E extends string ? { readonly entity: E } : unknown);
+// Keeps the entity and deprecated literals in the type, so AuditTakesEntity
+// and AuditWritableAction can tell actions apart.
+const action = <
+  const S extends ParamShape,
+  const E extends AuditEntity | PlatformAuditEntity | undefined = undefined,
+  const D extends true | undefined = undefined,
+>(
+  def: AuditActionDef<S> & { readonly entity?: E; readonly deprecated?: D },
+) =>
+  def as AuditActionDef<S> &
+    (E extends string ? { readonly entity: E } : unknown) &
+    (D extends true ? { readonly deprecated: true } : unknown);
 
 // "el teléfono", "el teléfono y la obra social", "a, b y c".
 function joinFields(names: readonly string[] | undefined, labels: Labels): string | null {

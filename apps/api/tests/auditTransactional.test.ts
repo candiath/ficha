@@ -12,6 +12,8 @@ import {
 } from '../src/repositories';
 import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
+import { AuditEntryError } from '../src/repositories/prisma/recordAudit';
+import { ZodError } from 'zod';
 import { deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic } from './helpers';
 
 // #188: an audited write and its audit row commit together or not at all.
@@ -26,22 +28,20 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   // An audit entry that cannot be inserted.
   const broken = (): AuditEntry => ({
+    action: 'PATIENT_DELETED',
     patientId: randomUUID(),
-    entity: 'PATIENT',
     entityId: randomUUID(),
-    action: 'UPDATED',
-    description: 'test: this insert must fail',
+    params: {},
   });
 
   // A valid entry, for the setup writes that precede the one under test.
   const validFor =
     (patientId: string) =>
     (result: { id: string }): AuditEntry => ({
+      action: 'CONSENT_SIGNED',
       patientId,
-      entity: 'PATIENT',
       entityId: result.id,
-      action: 'CREATED',
-      description: 'test: setup',
+      params: {},
     });
 
   const newPatient = (fullName: string) =>
@@ -76,6 +76,25 @@ describe('audit rows are written in the same transaction as their action', () =>
 
     await expect(patientRepo.create(ctx, { fullName: 'Sin Auditoría' }, broken)).rejects.toThrow();
 
+    expect(await prisma.patient.count({ where: { tenantId: clinic.tenantId } })).toBe(before);
+  });
+
+  // The catalog refuses an entry before the insert (SPEC-audit-structured-entries.md
+  // §4): a server bug, so not a ZodError, which the error handler would answer
+  // as a 400 with the parameter's details. It still rolls the write back.
+  it('an entry the catalog refuses rolls the write back, as a server error', async () => {
+    const before = await prisma.patient.count({ where: { tenantId: clinic.tenantId } });
+    const deprecated = (p: { id: string }) =>
+      ({ action: 'CREATED', patientId: p.id, entityId: p.id, params: {} }) as unknown as AuditEntry;
+    const freeText = (p: { id: string }) =>
+      ({ action: 'SCALE_APPLIED', patientId: p.id, entityId: p.id, params: { scaleType: 'Oswestry 42%' } }) as unknown as AuditEntry;
+
+    for (const entry of [deprecated, freeText]) {
+      const error = await patientRepo.create(ctx, { fullName: 'Rechazada' }, entry).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(AuditEntryError);
+      expect(error).not.toBeInstanceOf(ZodError);
+      expect(String(error)).not.toContain('42%');
+    }
     expect(await prisma.patient.count({ where: { tenantId: clinic.tenantId } })).toBe(before);
   });
 
@@ -229,6 +248,6 @@ describe('audit rows are written in the same transaction as their action', () =>
 
     const rows = await prisma.auditLog.findMany({ where: { patientId: patient.id } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ action: 'CREATED', entity: 'PATIENT', userId: user.id });
+    expect(rows[0]).toMatchObject({ action: 'PATIENT_CREATED', entity: 'PATIENT', userId: user.id });
   });
 });

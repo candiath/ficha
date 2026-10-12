@@ -98,8 +98,7 @@ describe('deleteEndedAuthSessions', () => {
         authSessionId,
         entity: 'PATIENT',
         entityId: patient.id,
-        action: 'CREATED',
-        description: 'test: retained',
+        action: 'PATIENT_CREATED',
       },
       select: { id: true },
     });

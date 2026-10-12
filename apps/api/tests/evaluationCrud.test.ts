@@ -52,7 +52,7 @@ describe('CRUD de la evaluación inicial', () => {
     });
   }
 
-  function auditoria(evaluationId: string, action: 'CREATED' | 'UPDATED') {
+  function auditoria(evaluationId: string, action: 'EVALUATION_CREATED' | 'EVALUATION_UPDATED') {
     return waitFor(() =>
       prisma.auditLog.findFirst({
         where: {
@@ -61,7 +61,7 @@ describe('CRUD de la evaluación inicial', () => {
           entityId: evaluationId,
           action,
         },
-        select: { patientId: true, userId: true, description: true },
+        select: { patientId: true, userId: true, params: true },
       }),
     );
   }
@@ -107,10 +107,10 @@ describe('CRUD de la evaluación inicial', () => {
     expect(typeof res.body.data.evaluatedAt).toBe('string');
     expect(res.body.data).not.toHaveProperty('tenantId');
 
-    await expect(auditoria(res.body.data.id, 'CREATED')).resolves.toMatchObject({
+    await expect(auditoria(res.body.data.id, 'EVALUATION_CREATED')).resolves.toMatchObject({
       patientId: patient.id,
       userId: user.id,
-      description: 'Evaluación inicial registrada',
+      params: {},
     });
   });
 
@@ -131,8 +131,9 @@ describe('CRUD de la evaluación inicial', () => {
       prisma.initialEvaluation.count({ where: { episodeId: propio.id } }),
     ).resolves.toBe(1);
 
-    await expect(auditoria(alta.body.data.id, 'UPDATED')).resolves.toMatchObject({
-      description: 'Evaluación inicial actualizada',
+    // Names only: which field changed, never its value.
+    await expect(auditoria(alta.body.data.id, 'EVALUATION_UPDATED')).resolves.toMatchObject({
+      params: { changedFields: ['evaScale'] },
     });
   });
 
