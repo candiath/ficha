@@ -84,7 +84,6 @@ const AUDIT: PlatformAuditEntry[] = [
     targetUser: null,
     action: 'TENANT_CREATED',
     params: {},
-    description: 'Creó la clínica',
     createdAt: '2026-09-01T12:00:00.000Z',
   },
 ];
@@ -325,7 +324,6 @@ describe('PlatformTenantDetailPage: disconnect devices', () => {
         action: 'USER_DEVICES_DISCONNECTED',
         targetUserId: 'u-fisio',
         targetUser: { email: 'fisio@norte.test', name: 'Fede Fisio' },
-        description: 'Desconectó los dispositivos de la usuaria',
       },
     ]);
     renderAt();
@@ -344,7 +342,6 @@ describe('PlatformTenantDetailPage: disconnect devices', () => {
         action: 'USER_DEACTIVATED',
         targetUserId: 'u-fisio',
         targetUser: { email: 'fisio@norte.test', name: 'Fede Fisio' },
-        description: 'Desactivó a la usuaria',
       },
     ]);
     renderAt();
@@ -353,24 +350,14 @@ describe('PlatformTenantDetailPage: disconnect devices', () => {
   });
 
   // The sentence comes from the row's codes and the catalog in @ficha/shared
-  // (SPEC-audit-structured-entries.md), not from the API's description.
+  // (SPEC-audit-structured-entries.md).
   it("builds the sentence from the row's codes", async () => {
     auditLog.mockResolvedValue([
-      { ...AUDIT[0], id: 'a5', action: 'USER_ROLE_CHANGED', params: { role: 'ADMIN' }, description: 'ignored' },
+      { ...AUDIT[0], id: 'a5', action: 'USER_ROLE_CHANGED', params: { role: 'ADMIN' } },
     ]);
     renderAt();
 
     expect(await screen.findByText(/Cambió el rol a ADMIN/)).toBeInTheDocument();
-    expect(screen.queryByText(/ignored/)).not.toBeInTheDocument();
-  });
-
-  it('shows the sentence of an API that predates the catalog', async () => {
-    const older: Partial<PlatformAuditEntry> = { ...AUDIT[0], id: 'a6', description: 'Texto de la API anterior' };
-    delete older.params;
-    auditLog.mockResolvedValue([older as PlatformAuditEntry]);
-    renderAt();
-
-    expect(await screen.findByText(/Texto de la API anterior/)).toBeInTheDocument();
   });
 
   it('never shows the raw code of an action it does not know', async () => {
@@ -438,7 +425,6 @@ describe('PlatformTenantDetailPage: password reset', () => {
         action: 'PASSWORD_RESET_LINK_CREATED',
         targetUserId: 'u-fisio',
         targetUser: { email: 'fisio@norte.test', name: 'Fede Fisio' },
-        description: 'Generó un enlace para restablecer la contraseña',
       },
     ]);
     renderAt();

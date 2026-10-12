@@ -116,9 +116,9 @@ describe('historial de auditoría de un paciente', () => {
       actorType: 'USER',
       action: 'PATIENT_UPDATED',
       params: { changedFields: ['phone'] },
-      // Built from the catalog, for a web that predates it.
-      description: 'Actualizó el teléfono',
     });
+    // Codes only: the sentence is the screen's, from the catalog.
+    expect(res.body.data[0]).not.toHaveProperty('description');
     expect(typeof res.body.data[0].createdAt).toBe('string');
     expect(res.body.data[0]).not.toHaveProperty('tenantId');
     expect(res.body.data[0]).not.toHaveProperty('authSessionId');

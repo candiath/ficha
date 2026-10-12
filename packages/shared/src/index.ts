@@ -310,14 +310,11 @@ export interface PlatformAuditEntry {
   // clinic's list never returns.
   tenantId: string | null;
   targetUserId: string | null;
-  // Resolved when the list is read: descriptions never name the person (#186).
+  // Resolved when the list is read: an audit row never names the person (#186).
   targetUser: { email: string; name: string | null } | null;
   action: PlatformAction;
   // Codes only (#186): read with readAuditParams / describeAuditEntry.
   params: Record<string, unknown>;
-  // Built by the API from the catalog, for a web that predates it. Goes away
-  // with release 2 of SPEC-audit-structured-entries.md.
-  description: string;
   createdAt: string;
 }
 

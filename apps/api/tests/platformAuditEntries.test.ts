@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describeAuditEntry } from '@ficha/shared';
 import app from '../src/app';
 import { createTestClinic, createTestOperator, type TestClinic, type TestOperator } from './helpers';
 
@@ -20,7 +21,6 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
   type AuditRow = {
     action: string;
     params: Record<string, unknown>;
-    description: string;
     targetUserId: string | null;
     targetUser: { email: string; name: string | null } | null;
   };
@@ -87,15 +87,18 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     for (const row of rows) {
       expect(JSON.stringify(row.params)).not.toMatch(/@/);
       expect(JSON.stringify(row.params)).not.toContain(clinic.name);
-      expect(row.description).not.toMatch(/@/);
-      expect(row.description).not.toContain(clinic.name);
+      const sentence = describeAuditEntry('platform_audit_logs', row.action, row.params);
+      expect(sentence).not.toMatch(/@/);
+      expect(sentence).not.toContain(clinic.name);
     }
   });
 
   it('the new role stays, as a code: it is what the audit must show', () => {
     const roleChange = rows.find((r) => r.action === 'USER_ROLE_CHANGED');
     expect(roleChange?.params).toEqual({ role: 'THERAPIST' });
-    expect(roleChange?.description).toBe('Cambió el rol a fisioterapeuta');
+    expect(describeAuditEntry('platform_audit_logs', 'USER_ROLE_CHANGED', roleChange?.params)).toBe(
+      'Cambió el rol a fisioterapeuta',
+    );
   });
 
   it('who was affected is resolved from the target', () => {

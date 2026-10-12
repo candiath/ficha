@@ -542,7 +542,7 @@ describe('audit-guards.sql', () => {
     it('notices a WHEN condition', async () => {
       await db.$executeRawUnsafe('DROP TRIGGER platform_audit_logs_stamp_created_at ON pg_temp.platform_audit_logs');
       await db.$executeRawUnsafe(`CREATE TRIGGER platform_audit_logs_stamp_created_at BEFORE INSERT
-        ON pg_temp.platform_audit_logs FOR EACH ROW WHEN (NEW.description <> 'skip')
+        ON pg_temp.platform_audit_logs FOR EACH ROW WHEN (NEW.operator_id IS NOT NULL)
         EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);
       expect(await failure()).toMatch(/trigger set on platform_audit_logs differs/);
     });

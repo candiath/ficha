@@ -300,8 +300,6 @@ model PlatformAuditLog {
   // since it points at a different table by type. Both or neither (a CHECK).
   entity       PlatformAuditEntity?
   entityId     String?        @map("entity_id") @db.Uuid
-  // The sentence before the catalog; ignored, as in audit_logs.
-  description  String?        @ignore
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
   createdAt    DateTime       @default(now()) @map("created_at")
@@ -755,10 +753,6 @@ model AuditLog {
   params      Json        @default("{}")
   // USER exactly when user_id is set (a CHECK in the migration).
   actorType   AuditActorType @default(USER) @map("actor_type")
-  // The Spanish sentence of the format before the catalog. Ignored by the
-  // client so that dropping it (release 2 of SPEC-audit-structured-entries.md)
-  // cannot break this code while it still serves.
-  description String?     @ignore
   // The login this action came from: groups the actions of one session, and
   // resolves to its device and IP while the auth_sessions row exists. The
   // session's id, not its token: not a credential. No foreign key, because
