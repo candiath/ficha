@@ -69,9 +69,15 @@ Stripe solves the same problem with a version stamped on every event (`api_versi
 | `action` (`AuditAction`) | Gains the domain values of §3. `CREATED`, `UPDATED`, `DELETED` stay in the enum, deprecated. |
 | `entity` (`AuditEntity`) | Gains `SCALE`. Set by `recordAudit` from the catalog, never by the caller. |
 | `params` (new) | `jsonb NOT NULL DEFAULT '{}'`, with the check below. |
+| `actor_type` (new) | `AuditActorType NOT NULL DEFAULT 'USER'`. |
 | `description` | Release 1: nullable, and `@ignore` in `schema.prisma`. Release 2: dropped. |
 
-**`platform_audit_logs`**: the same `params` and `description` changes. `PlatformAction` gains `USER_DEACTIVATED` and `USER_REACTIVATED`; `USER_ACTIVE_CHANGED` stays, deprecated.
+**`platform_audit_logs`**: the same `params` and `description` changes, and `actor_type … DEFAULT 'OPERATOR'`.
+
+**Who acted: `actor_type`** (`USER` / `OPERATOR` / `SYSTEM`, one enum for every audit table). Today every writer is a user or the operator, so it holds one value per table; it exists from the start so that no row is ever written without it (decided 2026-10-11). The first system writer (`clinical-audit-coverage`: alerts created by the engine) uses `SYSTEM`.
+- `audit_logs`: `CHECK ((actor_type = 'USER') = (user_id IS NOT NULL) AND actor_type <> 'OPERATOR')` — a user row names its user, a system row names none, and an empty `user_id` can no longer mean "unknown". No existing row has a null `user_id` (checked on `production`, `staging` and `development`, 2026-10-11), so the check is validated, not `NOT VALID`.
+- `platform_audit_logs`: `CHECK (actor_type = 'OPERATOR')` for now; a system action on the platform would make `operator_id` nullable and widen it, in its own module.
+- The defaults fill the existing rows when the column is added (no `UPDATE`, so the triggers are not involved), and cover the previous code while it still serves. `recordAudit` and `recordPlatformAudit` always set it explicitly. `PlatformAction` gains `USER_DEACTIVATED` and `USER_REACTIVATED`; `USER_ACTIVE_CHANGED` stays, deprecated.
 
 **Why `@ignore` in release 1.** Prisma's `create` returns the row, so its `INSERT … RETURNING` names every column the client knows. If release 1's client still knew `description`, release 2's `DROP COLUMN` would make every audited write of release 1 — still serving during release 2's build — fail with "column does not exist". With `@ignore`, release 1's client never names it. The cost: from release 1 on, the old rows of `development`, `staging` and `ci` show their deprecated generic wording instead of their sentence.
 
@@ -193,7 +199,7 @@ Later modules add their sections and actions to the same catalog.
 
 ### 6. Checks and scans
 
-- `prisma/audit-guards.sql` pins `audit_params_are_codes` by hash, the two `*_params_are_codes` checks by name and definition, and `params` as `NOT NULL`. Release 2 pins the absence of `description`.
+- `prisma/audit-guards.sql` pins `audit_params_are_codes` by hash, the two `*_params_are_codes` checks and the two `actor_type` checks by name and definition, and `params` and `actor_type` as `NOT NULL`. Release 2 pins the absence of `description`.
 - `tests/auditMigrationScan.test.ts`:
   - `audit_params_are_codes` joins `AUDIT_NAMES`, so a later migration that redefines it is caught in CI and not only by the guard, after it has run.
   - Entries for the migrations with DDL on the audit tables, with the exact violations allowed: release 1's table migration (`DROP NOT NULL` on `description` is an `ALTER COLUMN`) and release 2's (`DROP COLUMN`). The enum migration only adds values.
@@ -212,7 +218,6 @@ Later modules add their sections and actions to the same catalog.
 ### Out of scope
 
 - **`changedFields`** (which fields an update changed, names only). Computing it needs the exact previous state of the row, read under a lock, which `clinical-history` reads anyway to store the version. It arrives there, as an optional parameter of the `*_UPDATED` actions; the check of §2 already accepts it. Until then the timeline says "Actualizó la ficha". *(See Open Questions.)*
-- **`actor_type`** (`USER` / `OPERATOR` / `SYSTEM`). Every current writer is a user or the operator, so it would hold one value. The first module with a writer that is neither (`clinical-audit-coverage`: alerts created by the engine) adds it. *(See Open Questions.)*
 - **`request_id`**: with #220.
 - **Tying `entity` to `action` in the database.** `recordAudit` derives one from the other; a `CHECK` listing every pair would change with every new action.
 - **Translations**: the catalog has Spanish only; a second language is a second wording table, not a schema change.
@@ -276,6 +281,9 @@ Two fresh-context adversarial reviews. What changed because of them:
 ## Open Questions
 
 1. **`changedFields` in `clinical-history`, not here** (Out of scope): agreed? Bringing it here means reading each row under a lock before every update, which `clinical-history` would do again.
-2. **`actor_type` with the first system writer**, not here: agreed?
-3. **The session type as a parameter** (`SESSION_CREATED { sessionType: "DISCHARGE" }`) and not three actions (`DISCHARGE_RECORDED`…): it follows the rule of §1, but a discharge is clinically significant. Agreed?
-4. **Old rows in `staging` lose their sentence from release 1** and show the generic wording of their deprecated code ("Paciente · Actualización"): acceptable, since they are fictitious?
+2. **The session type as a parameter** (`SESSION_CREATED { sessionType: "DISCHARGE" }`) and not three actions (`DISCHARGE_RECORDED`…): it follows the rule of §1, but a discharge is clinically significant. Agreed?
+
+## Decisions (2026-10-11)
+
+- `actor_type` is added here, not with the first system writer: no row is ever written without it.
+- Old rows in `staging` losing their sentence from release 1 is accepted; `staging` can be wiped too.
