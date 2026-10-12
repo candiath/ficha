@@ -6,15 +6,11 @@ export interface AuditLog {
   id: string;
   patientId: string;
   userId: string | null;
-  // Absent from an API that predates the catalog.
-  actorType?: AuditActorType;
+  actorType: AuditActorType;
   entity: string;
   entityId: string;
   action: string;
-  // Codes only. Absent from an API that predates the catalog.
-  params?: Record<string, unknown>;
-  // The sentence of an API that predates the catalog; while both exist, the
-  // API builds it from the codes too.
-  description?: string;
+  // Codes only.
+  params: Record<string, unknown>;
   createdAt: string;
 }

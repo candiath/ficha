@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { describeAuditEntry, readAuditParams } from '@ficha/shared';
+import { readAuditParams } from '@ficha/shared';
 import { prisma } from '../../lib/prisma';
 import type { OperatorContext } from '../types';
 import type {
@@ -96,13 +96,11 @@ const auditSelect = {
 
 type AuditRow = Prisma.PlatformAuditLogGetPayload<{ select: typeof auditSelect }>;
 
-// params are read leniently and the description is built from the catalog,
-// for a web that predates it (SPEC-audit-structured-entries.md §5).
+// params are read leniently (SPEC-audit-structured-entries.md §5).
 function toAuditDTO(row: AuditRow): PlatformAuditLogDTO {
   return {
     ...row,
     params: readAuditParams('platform_audit_logs', row.action, row.params),
-    description: describeAuditEntry('platform_audit_logs', row.action, row.params),
     createdAt: row.createdAt.toISOString(),
   };
 }

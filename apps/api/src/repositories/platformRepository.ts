@@ -93,8 +93,6 @@ export interface PlatformAuditLogDTO {
   action: PlatformAction;
   // Codes only (SPEC-audit-structured-entries.md), read leniently.
   params: Record<string, unknown>;
-  // Built from the catalog, for a web that predates it. Goes away with release 2.
-  description: string;
   createdAt: string;
 }
 

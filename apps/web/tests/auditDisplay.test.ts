@@ -24,9 +24,9 @@ describe('auditDisplay', () => {
     });
   });
 
-  it("uses an older API's sentence when the row has no codes", () => {
-    expect(auditDisplay('audit_logs', { action: 'UPDATED', description: 'Ficha del paciente actualizada' }).text).toBe(
-      'Ficha del paciente actualizada',
+  it('reads a row with no parameters with the generic sentence of its action', () => {
+    expect(auditDisplay('audit_logs', { action: 'PATIENT_UPDATED', params: {} }).text).toBe(
+      'Actualizó la ficha del paciente',
     );
   });
 
