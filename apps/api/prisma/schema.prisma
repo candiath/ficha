@@ -245,18 +245,23 @@ model PlatformOperator {
   @@map("platform_operators")
 }
 
+// Declared with its parameters and wording in packages/shared/src/auditActions.ts
+// (SPEC-audit-structured-entries.md). Codes are permanent.
 enum PlatformAction {
   TENANT_CREATED
   TENANT_DEACTIVATED
   TENANT_REACTIVATED
   ADMIN_CREATED
   USER_ROLE_CHANGED
+  // Deprecated: split into USER_DEACTIVATED and USER_REACTIVATED.
   USER_ACTIVE_CHANGED
   USER_DEVICES_DISCONNECTED
   PASSWORD_RESET_LINK_CREATED
   // An action on the platform itself: the only one with no clinic (a CHECK
   // on platform_audit_logs pins it). SPEC-sysadmin-alerts.md §2.
   TEST_ALERT_SENT
+  USER_DEACTIVATED
+  USER_REACTIVATED
 }
 
 // Cada acción del operador, con el operador como actor. Tabla propia y no
@@ -278,7 +283,12 @@ model PlatformAuditLog {
   tenantId     String?        @map("tenant_id") @db.Uuid
   targetUserId String?        @map("target_user_id") @db.Uuid
   action       PlatformAction
-  description  String
+  // Codes only, as in audit_logs (SPEC-audit-structured-entries.md).
+  params       Json           @default("{}")
+  // Always OPERATOR for now (a CHECK in the migration).
+  actorType    AuditActorType @default(OPERATOR) @map("actor_type")
+  // The sentence before the catalog; ignored, as in audit_logs.
+  description  String?        @ignore
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
   createdAt    DateTime       @default(now()) @map("created_at")
@@ -673,10 +683,30 @@ model InformedConsent {
 // ─────────────────────────────────────────────────────────────────────────────
 // Registro de auditoría: cambios en las entidades clínicas de un paciente.
 // ─────────────────────────────────────────────────────────────────────────────
+// One code per business fact, declared with its parameters and wording in
+// packages/shared/src/auditActions.ts, which recordAudit validates against
+// (#186, docs/specs/SPEC-audit-structured-entries.md). Codes are permanent:
+// never renamed, reused or removed. CREATED, UPDATED and DELETED are the
+// format before the catalog: deprecated, kept for the rows that have them.
 enum AuditAction {
   CREATED
   UPDATED
   DELETED
+  PATIENT_CREATED
+  PATIENT_UPDATED
+  PATIENT_DELETED
+  EVALUATION_CREATED
+  EVALUATION_UPDATED
+  SCALE_APPLIED
+  SESSION_RECORDED
+  NOTE_RECORDED
+  DISCHARGE_RECORDED
+  SESSION_UPDATED
+  SESSION_DELETED
+  PAYMENT_CREATED
+  PAYMENT_UPDATED
+  CONSENT_SIGNED
+  CONSENT_REVOKED
 }
 
 enum AuditEntity {
@@ -685,6 +715,16 @@ enum AuditEntity {
   SESSION
   PAYMENT
   CONSENT
+  SCALE
+}
+
+// Who acted, on every audit table: a person of a clinic, the platform
+// operator, or the system itself (none yet). Present from the start so that
+// no row is ever written without it.
+enum AuditActorType {
+  USER
+  OPERATOR
+  SYSTEM
 }
 
 model AuditLog {
@@ -695,7 +735,15 @@ model AuditLog {
   entity      AuditEntity
   entityId    String      @map("entity_id") @db.Uuid
   action      AuditAction
-  description String
+  // The action's parameters: codes only, never a value. Validated against the
+  // catalog by recordAudit, and by audit_params_are_codes in the database.
+  params      Json        @default("{}")
+  // USER exactly when user_id is set (a CHECK in the migration).
+  actorType   AuditActorType @default(USER) @map("actor_type")
+  // The Spanish sentence of the format before the catalog. Ignored by the
+  // client so that dropping it (release 2 of SPEC-audit-structured-entries.md)
+  // cannot break this code while it still serves.
+  description String?     @ignore
   // The login this action came from: groups the actions of one session, and
   // resolves to its device and IP while the auth_sessions row exists. The
   // session's id, not its token: not a credential. No foreign key, because

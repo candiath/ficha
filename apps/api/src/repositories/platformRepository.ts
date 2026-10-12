@@ -88,9 +88,12 @@ export interface PlatformAuditLogDTO {
   // clinic's list never returns.
   tenantId: string | null;
   targetUserId: string | null;
-  // Resolved when the list is read: descriptions never name the person (#186).
+  // Resolved when the list is read: an audit row never names the person (#186).
   targetUser: { email: string; name: string | null } | null;
   action: PlatformAction;
+  // Codes only (SPEC-audit-structured-entries.md), read leniently.
+  params: Record<string, unknown>;
+  // Built from the catalog, for a web that predates it. Goes away with release 2.
   description: string;
   createdAt: string;
 }

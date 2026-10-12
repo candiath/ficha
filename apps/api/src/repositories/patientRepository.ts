@@ -1,6 +1,7 @@
 import type { Sex } from '@prisma/client';
 import type { TenantContext } from './types';
-import type { AuditBuilder, AuditEntry } from './auditLogRepository';
+import type { AUDIT_PATIENT_FIELDS } from '@ficha/shared';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -58,18 +59,23 @@ export type PatientUpdateInput = Partial<PatientCreateInput>;
 // eso las ALERTAS sí filtran pacientes borrados (clinicalAlertRepository):
 // no son un registro de lo que pasó sino un pedido de acción, y sobre un
 // paciente eliminado esa acción es imposible.
+export type PatientAuditField = keyof typeof AUDIT_PATIENT_FIELDS;
+
 export interface PatientRepository {
   list(ctx: TenantContext): Promise<PatientDTO[]>;
   getById(ctx: TenantContext, id: string): Promise<PatientDTO | null>;
   /** true si el paciente existe, es del tenant y no está borrado. */
   exists(ctx: TenantContext, id: string): Promise<boolean>;
   create(ctx: TenantContext, input: PatientCreateInput, audit: AuditBuilder<PatientDTO>): Promise<PatientDTO>;
-  /** null si el paciente no existe, es de otro tenant o está borrado. */
+  /**
+   * null si el paciente no existe, es de otro tenant o está borrado. Records
+   * an audit row only when a field changed, with the changed fields' names.
+   */
   update(
     ctx: TenantContext,
     id: string,
     input: PatientUpdateInput,
-    audit: AuditBuilder<PatientDTO>,
+    audit: AuditUpdateBuilder<PatientDTO, PatientAuditField>,
   ): Promise<PatientDTO | null>;
   /** Borrado lógico. false si no había paciente vigente que borrar. */
   softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;

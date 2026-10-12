@@ -86,6 +86,14 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 // payment queda afuera a propósito: el pago se edita por /api/payments.
 const SessionUpdateSchema = SessionFieldsSchema.partial();
 
+// A session, a clinical note and a discharge are three facts for the clinic,
+// so three audit actions (SPEC-audit-structured-entries.md §1).
+const RECORDED_ACTION = {
+  SESSION: 'SESSION_RECORDED',
+  NOTE: 'NOTE_RECORDED',
+  DISCHARGE: 'DISCHARGE_RECORDED',
+} as const;
+
 const SessionFiltersSchema = z.object({ episodeId: IdSchema.optional() });
 
 // GET /api/patients/:patientId/sessions
@@ -167,11 +175,6 @@ router.post<ParentParams>('/', async (req, res) => {
   // Sesión, cobro, cierre de episodios y vínculo con el turno se crean en una
   // sola transacción dentro del repo: si algo falla no queda una sesión a
   // medias.
-  const sessionTypeDesc: Record<string, string> = {
-    SESSION: 'Sesión registrada',
-    NOTE: 'Nota clínica registrada',
-    DISCHARGE: 'Alta registrada',
-  };
   const result = await sessionRepo.create(
     req.context,
     req.params.patientId,
@@ -183,11 +186,10 @@ router.post<ParentParams>('/', async (req, res) => {
       appointmentId,
     },
     (s) => ({
+      action: RECORDED_ACTION[s.sessionType],
       patientId: req.params.patientId,
-      entity: 'SESSION',
       entityId: s.id,
-      action: 'CREATED',
-      description: sessionTypeDesc[rest.sessionType ?? 'SESSION'] ?? 'Sesión registrada',
+      params: {},
     }),
   );
 
@@ -230,12 +232,11 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
       ...(sessionDate ? { sessionDate: new Date(sessionDate) } : {}),
       episodeIds,
     },
-    (s) => ({
+    (s, changedFields) => ({
+      action: 'SESSION_UPDATED',
       patientId: req.params.patientId,
-      entity: 'SESSION',
       entityId: s.id,
-      action: 'UPDATED',
-      description: 'Sesión actualizada',
+      params: { sessionType: s.sessionType, changedFields },
     }),
   );
 
@@ -262,11 +263,10 @@ router.delete<SessionParams>('/:sessionId', async (req, res) => {
     req.params.patientId,
     req.params.sessionId,
     {
+      action: 'SESSION_DELETED',
       patientId: req.params.patientId,
-      entity: 'SESSION',
       entityId: req.params.sessionId,
-      action: 'DELETED',
-      description: 'Sesión eliminada',
+      params: {},
     },
   );
 
