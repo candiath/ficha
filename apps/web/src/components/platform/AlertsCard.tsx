@@ -110,10 +110,15 @@ export default function AlertsCard() {
 
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground" id="ultimas-alertas">
-                Últimas alertas
+                Últimas alertas reales
               </p>
               {data.alerts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Ninguna alerta todavía.</p>
+                // Tests are kept out of this list, so a burst of them cannot push a
+                // real alert out of view; their result shows next to the button.
+                <p className="text-sm text-muted-foreground">
+                  Ninguna alerta real todavía. Las pruebas no se listan acá: su resultado aparece junto al
+                  botón.
+                </p>
               ) : (
                 <ul className="divide-y text-sm" aria-labelledby="ultimas-alertas">
                   {data.alerts.map((alert) => (
