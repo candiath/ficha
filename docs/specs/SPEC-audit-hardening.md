@@ -281,6 +281,7 @@ Hence:
    - **If it is abandoned:** a down script in the PR description, to apply by hand on `ci` and `development`.
    - **Old code still serving:** it never updates or deletes audit rows, writes valid foreign keys and a null session (the session check only applies when one is present), and always sets `operator_id`. It keeps working during the deploy window and after a failed build.
 4. **One release later:** the two `NOT VALID` checks (the session required with an author, and descriptions without digits, `@` or `$`). They are safe once no code that predates PR 1 can be serving anywhere, and go with the next module that writes audit rows (`clinic-audit`).
+   - *Superseded in part (2026-10-11):* the description check is dropped, because [`audit-structured-entries`](SPEC-audit-structured-entries.md) removes descriptions and checks `params` instead. The session check stays, but `audit-guards.sql` only accepts validated checks today: pinning a `NOT VALID` one needs the guard to learn the expected `convalidated` value first.
 
 A migration that fails on Render leaves `_prisma_migrations` marked failed, so later deploys fail with `P3009` until `migrate resolve --rolled-back` runs against that database. For production that has to happen where its credential lives. It is a gap for every migration and gets its own issue.
 

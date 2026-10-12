@@ -1,6 +1,6 @@
 # Spec: audit-structured-entries
 
-Module of the [audit map](audit-map.md) (issue #186). **Status: draft, awaiting approval.**
+Module of the [audit map](audit-map.md) (issue #186). **Status: approved 2026-10-11; release 1 implemented 2026-10-12.**
 
 ## Objective
 
@@ -72,7 +72,16 @@ Stripe solves the same problem with a version stamped on every event (`api_versi
 | `actor_type` (new) | `AuditActorType NOT NULL DEFAULT 'USER'`. |
 | `description` | Release 1: nullable, and `@ignore` in `schema.prisma`. Release 2: dropped. |
 
-**`platform_audit_logs`**: the same `params` and `description` changes, and `actor_type … DEFAULT 'OPERATOR'`.
+**`platform_audit_logs`**: the same `params` and `description` changes, and `actor_type … DEFAULT 'OPERATOR'`. Plus **the object the action was on** (decided 2026-10-12):
+
+| Column | What |
+|---|---|
+| `entity` (`PlatformAuditEntity`, new) | `PASSWORD_RESET_TOKEN` or `SYSADMIN_ALERT`; null for actions on a clinic or a user, whose object already has a column (`tenant_id`, `target_user_id`) |
+| `entity_id` (new) | The link generated, the alert sent. No foreign key: it points at a different table by type |
+
+- `CHECK ((entity IS NULL) = (entity_id IS NULL))`, and a partial unique index on `(action, entity, entity_id) WHERE entity IS NOT NULL`: one row per action on an object, so a later action on the same object (revoking a link) still fits.
+- The catalog declares which action takes which entity, and `recordPlatformAudit` fills it from there and refuses a mismatch.
+- A row then names exactly which link it generated: generation and use of a link can be tied even when a user had several.
 
 **Who acted: `actor_type`** (`USER` / `OPERATOR` / `SYSTEM`, one enum for every audit table). Today every writer is a user or the operator, so it holds one value per table; it exists from the start so that no row is ever written without it (decided 2026-10-11). The first system writer (`clinical-audit-coverage`: alerts created by the engine) uses `SYSTEM`.
 - `audit_logs`: `CHECK ((actor_type = 'USER') = (user_id IS NOT NULL) AND actor_type <> 'OPERATOR')` — a user row names its user, a system row names none, and an empty `user_id` can no longer mean "unknown". No existing row has a null `user_id` (checked on `production`, `staging` and `development`, 2026-10-11), so the check is validated, not `NOT VALID`.
@@ -149,7 +158,7 @@ export const AUDIT_ACTIONS = {
 - **Writing is strict**: the parameters form a `strictObject`, every one required, each an enum from the catalog's own lists or a list of field names from an allowlist, never `z.string()`. Unknown keys fail.
 - **Reading is lenient and per parameter** (`readAuditParams(table, action, json)`): each parameter is parsed on its own, so one value this version does not know (from a newer API) drops only that parameter; unknown keys are ignored; anything that is not an object reads as `{}`. `describe` receives only what parsed, and every wording handles each parameter missing.
 - **Wordings say what was done, not who did it.** The screen adds the actor when it shows one.
-- **The labels the wordings need** (`SCALE_TYPE_LABELS`, `SESSION_TYPE_LABELS`, `PAYMENT_STATUS_LABELS`, `ROLE_LABELS`) move to `packages/shared`, and the web imports them from there.
+- **The labels the wordings need** are the catalog's own (`AUDIT_SCALE_TYPES`, `AUDIT_SESSION_TYPES`, `AUDIT_PAYMENT_STATUSES`, `AUDIT_ROLES`, and the field names of each entity), not the web's: they are the append-only lists of §1, and renaming a chip in the UI must not reword the history.
 - **Deprecated codes** have `deprecated: true`, a generic wording and no parameters; writing one fails.
 - **An unknown action** renders as "Acción registrada", and **an unknown entity** with a neutral badge, never the raw code or another entity's badge (today a `SCALE` would show as "Paciente").
 - **The `PlatformAction` union in `packages/shared/src/index.ts`** is derived from the catalog instead of written by hand, and the web's `AuditLog` type follows the DTO.
@@ -232,7 +241,8 @@ Two releases, as `CLAUDE.md` requires for destructive migrations: Render migrate
 
 1. **Release 1 (additive).**
    - Migration A adds the enum values alone: Postgres does not allow a value added by `ALTER TYPE … ADD VALUE` to be used in the same transaction.
-   - Migration B adds `audit_params_are_codes`, `params` with its default and check, and drops `NOT NULL` from `description`. No column changes type: a type change breaks the pooler's cached plans (`docs/infra.md`).
+   - Migration B adds `audit_params_are_codes`, `params` and `actor_type` with their defaults and checks, and drops `NOT NULL` from `description`. No column changes type: a type change breaks the pooler's cached plans (`docs/infra.md`).
+   - Migration C adds `entity` / `entity_id` to `platform_audit_logs`, their check and the unique index.
    - The code writes the new format; `description` is `@ignore`d; the DTOs carry `params` and a computed `description`; the web renders from the catalog.
    - During the build, the old code keeps writing `description` and `CREATED`/…, which the database still accepts.
 2. **Release 2**: `DROP COLUMN description` on both tables, with its scan entry (reason: fictitious data, before the wipe) and guard; `description` leaves the DTOs and `schema.prisma`.
@@ -240,6 +250,11 @@ Two releases, as `CLAUDE.md` requires for destructive migrations: Render migrate
    - **It reaches `main` before the wipe (#223).** If delivery comes first, release 2 drops nothing: the column stays, empty and `@ignore`d, and the guard pins it as nullable instead of absent. Dropping audit text after delivery would erase a real record.
 
 **What an older API does with new codes.** Prisma throws on an enum value its client does not know. During Render's handover the old instance can briefly fail to read a timeline that already has a new code; a rollback of the API to before release 1 would keep failing on it. A rollback is replaced by a fix forward.
+
+**Next release: the database checks the object** (from the security review of 2026-10-12, deferred so release 1 fixes the model before go-live and these controls arrive on new rows after it):
+- an insert trigger on `platform_audit_logs`: the link exists, is the target's, was issued by this operator, is live and was created in this transaction (a `created_xact` column stamped on the link, not `xmin`, which any update refreshes); the alert likewise;
+- `password_reset_tokens` set once: issuer, target, hash and creation never change, use and retirement go from empty to a value once, no deletes outside maintenance, times stamped by the database, its foreign keys `RESTRICT`, and at most one live link per user (a unique index; a concurrent second generation answers 409, never retries);
+- the guards and the scan pin all of it; the IP and device blanked after a retention period, decided with the legal question of #186.
 
 The seed writes the new format. Rows already in `development`, `staging` and `ci` keep their old codes and render with the deprecated wordings from release 1 on; production loses them all in the wipe.
 
