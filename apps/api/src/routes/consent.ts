@@ -34,11 +34,10 @@ router.post<Params>('/', async (req, res) => {
   }
 
   const data = await consentRepo.sign(req.context, req.params.patientId, (c) => ({
+    action: 'CONSENT_SIGNED',
     patientId: req.params.patientId,
-    entity: 'CONSENT',
     entityId: c.id,
-    action: 'CREATED',
-    description: 'Consentimiento informado firmado',
+    params: {},
   }));
 
   res.status(201).json({ data });
@@ -55,11 +54,10 @@ router.delete<Params>('/', async (req, res) => {
   // Antes el update sin fila tiraba P2025 y el error handler lo convertía
   // en un 500.
   const data = await consentRepo.revoke(req.context, req.params.patientId, (c) => ({
+    action: 'CONSENT_REVOKED',
     patientId: req.params.patientId,
-    entity: 'CONSENT',
     entityId: c.id,
-    action: 'UPDATED',
-    description: 'Consentimiento informado revocado',
+    params: {},
   }));
 
   if (!data) {

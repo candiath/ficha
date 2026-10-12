@@ -9,6 +9,7 @@ import {
   type SysadminAlertRepository,
   type SysadminAlertsOverviewData,
 } from '../sysadminAlertRepository';
+import { recordPlatformAudit } from './recordPlatformAudit';
 
 // The base prisma client, like platformRepository: these tables have no
 // clinic to scope by. Rows are only ever inserted; the triggers reject
@@ -54,13 +55,7 @@ export const prismaSysadminAlertRepository: SysadminAlertRepository = {
         select: { id: true },
       });
       // An action on the platform itself: no clinic, no target (#186).
-      await tx.platformAuditLog.create({
-        data: {
-          operatorId: op.operatorId,
-          action: 'TEST_ALERT_SENT',
-          description: 'Envió una alerta de prueba',
-        },
-      });
+      await recordPlatformAudit(tx, op, { action: 'TEST_ALERT_SENT', entityId: alert.id, params: {} });
       return alert;
     });
   },

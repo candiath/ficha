@@ -90,7 +90,7 @@ const UpdateSchema = z.object({
  * reimplementar la zona horaria de la clínica ahí — con el detalle de que la
  * zona del navegador puede no ser la misma.
  */
-function serialize(a: AppointmentDTO, timezone: string) {
+function serialize<T extends Pick<AppointmentDTO, 'startsAt' | 'endsAt'>>(a: T, timezone: string) {
   const inicio = instantToClinicTime(new Date(a.startsAt), timezone);
   const fin = instantToClinicTime(new Date(a.endsAt), timezone);
   return { ...a, date: inicio.date, startTime: inicio.time, endTime: fin.time };
@@ -106,6 +106,19 @@ router.get('/', async (req, res) => {
   const turnos = await appointmentRepo.listInRange(req.context, desde, hasta);
 
   res.json({ data: turnos.map((t) => serialize(t, timezone)) });
+});
+
+// GET /api/appointments/:id — one appointment, with its notes. The range
+// above leaves them out: free text never travels in a response that spans
+// patients (#186, SPEC-list-minimization.md §2).
+router.get('/:id', async (req, res) => {
+  const turno = await appointmentRepo.getById(req.context, req.params.id);
+  if (!turno) {
+    res.status(404).json({ error: 'Turno no encontrado' });
+    return;
+  }
+  const { timezone } = await tenantRepo.get(req.context);
+  res.json({ data: serialize(turno, timezone) });
 });
 
 // POST /api/appointments — uno solo, o una serie si viene `repeat`.

@@ -223,7 +223,11 @@ describe('the platform operator generates a reset link', () => {
     expect(rows[0]).toMatchObject({
       operatorId: op.operator.id,
       tenantId: clinic.tenantId,
-      description: 'Generó un enlace para restablecer la contraseña',
+      action: 'PASSWORD_RESET_LINK_CREATED',
+      params: {},
+      // The row names exactly the link it generated.
+      entity: 'PASSWORD_RESET_TOKEN',
+      entityId: link.id,
     });
   });
 

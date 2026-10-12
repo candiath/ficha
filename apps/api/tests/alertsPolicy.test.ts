@@ -50,6 +50,21 @@ describe('alertas: vigencia del paciente', () => {
     expect(leaked).toBeNull();
   });
 
+  // Only the engine writes the other types, with its own fixed wording; by
+  // hand, an alert is a custom reminder (#186, SPEC-list-minimization.md §3).
+  it('accepts only custom alerts by hand', async () => {
+    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Con Alerta' }, patientAudit('CREATED'));
+
+    for (const type of ['FOLLOW_UP', 'NO_SHOW', 'PAYMENT']) {
+      const res = await request(app)
+        .post('/api/alerts')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ patientId: patient.id, type, message: 'Texto escrito a mano' });
+      expect(res.status, type).toBe(400);
+    }
+    expect(await prisma.clinicalAlert.count({ where: { patientId: patient.id } })).toBe(0);
+  });
+
   it('responde 404 al marcar como leída una alerta inexistente', async () => {
     // Antes markAsRead tiraba un Error genérico y esto era un 500.
     const res = await request(app)

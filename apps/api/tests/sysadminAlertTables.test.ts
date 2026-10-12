@@ -136,13 +136,12 @@ describe('sysadmin alert tables', () => {
         data: {
           operatorId: operator.operator.id,
           action: 'TEST_ALERT_SENT',
-          description: 'test: platform action',
         },
       });
 
       await expect(
         prisma.platformAuditLog.create({
-          data: { operatorId: operator.operator.id, action: 'TENANT_CREATED', description: 'test: no clinic' },
+          data: { operatorId: operator.operator.id, action: 'TENANT_CREATED' },
         }),
       ).rejects.toThrow(violates('platform_audit_logs_tenant_only_off_platform'));
       await expect(
@@ -151,7 +150,6 @@ describe('sysadmin alert tables', () => {
             operatorId: operator.operator.id,
             tenantId: clinic.tenantId,
             action: 'TEST_ALERT_SENT',
-            description: 'test: a clinic',
           },
         }),
       ).rejects.toThrow(violates('platform_audit_logs_tenant_only_off_platform'));
@@ -166,7 +164,6 @@ describe('sysadmin alert tables', () => {
             operatorId: operator.operator.id,
             targetUserId: user.id,
             action: 'TEST_ALERT_SENT',
-            description: 'test: a target without its clinic',
           },
         }),
       ).rejects.toThrow(violates('platform_audit_logs_target_needs_tenant'));

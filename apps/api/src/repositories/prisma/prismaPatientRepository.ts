@@ -1,9 +1,12 @@
+import { AUDIT_PATIENT_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
-import type { AuditBuilder, AuditEntry } from '../auditLogRepository';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import type { TenantContext } from '../types';
+import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 import type {
   PatientCreateInput,
+  PatientAuditField,
   PatientDTO,
   PatientRepository,
   PatientUpdateInput,
@@ -40,6 +43,8 @@ type PatientRow = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+const AUDIT_FIELDS = Object.keys(AUDIT_PATIENT_FIELDS) as PatientAuditField[];
 
 function toDTO(row: PatientRow): PatientDTO {
   return {
@@ -104,10 +109,19 @@ export const prismaPatientRepository: PatientRepository = {
     ctx: TenantContext,
     id: string,
     input: PatientUpdateInput,
-    audit: AuditBuilder<PatientDTO>,
+    audit: AuditUpdateBuilder<PatientDTO, PatientAuditField>,
   ): Promise<PatientDTO | null> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
+      // Locked and read first, to record which fields changed (#186): a
+      // concurrent edit waits for this one.
+      await lockRow(tx, 'patients', id, ctx.tenantId);
+      const before = await tx.patient.findFirst({
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
+        select: patientSelect,
+      });
+      if (!before) return null;
+
       // updateMany y no update: el where con deletedAt hace que existencia,
       // pertenencia y vigencia se decidan en la misma query que escribe
       // (count 0 = no había paciente vigente), sin ventana entre chequeo y update.
@@ -121,7 +135,8 @@ export const prismaPatientRepository: PatientRepository = {
         select: patientSelect,
       });
       const patient = toDTO(row);
-      await recordAudit(tx, ctx, audit(patient));
+      const changed = nonEmpty(changedFields(toDTO(before), patient, AUDIT_FIELDS));
+      if (changed) await recordAudit(tx, ctx, audit(patient, changed));
       return patient;
     });
   },

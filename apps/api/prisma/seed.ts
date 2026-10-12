@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
+import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
 import { foreignAccounts } from './seedGuard';
 
 const prisma = new PrismaClient();
@@ -12,6 +13,13 @@ const prisma = new PrismaClient();
 // it also needs the branch's maintenance flag, so the seed stops with
 // instructions instead of silently stamping "now".
 async function seedAuditRows(rows: Prisma.AuditLogCreateManyInput[]): Promise<void> {
+  // Checked against the catalog like any audit write (SPEC-audit-structured-entries.md §4).
+  for (const row of rows) {
+    const problem = auditEntryProblem('audit_logs', row.action, row.params ?? {});
+    if (problem || row.entity !== auditEntityOf('audit_logs', row.action)) {
+      throw new Error(`seed: audit row ${row.id ?? ''} does not match the catalog: ${problem ?? 'entity'}`);
+    }
+  }
   await prisma.$transaction(async (tx) => {
     const [state] = await tx.$queryRaw<{ hardened: boolean; flagged: boolean }[]>`
       SELECT to_regprocedure('public.audit_maintenance_on()') IS NOT NULL AS hardened,
@@ -218,13 +226,13 @@ async function main() {
   });
 
   // ── Registros de auditoría de ejemplo ──────────────────────────────────
-  // Descriptions name the action, never a value or a name (#186).
+  // Codes only, checked against the catalog (SPEC-audit-structured-entries.md).
   const demoAudit = { tenantId: tenant.id, userId: user.id, authSessionId: demoSession.id };
   await seedAuditRows([
-    { ...demoAudit, id: devId('dev-audit-001'), patientId: patient.id, entity: 'PATIENT', entityId: patient.id, action: 'CREATED', description: 'Paciente registrado en el sistema', createdAt: new Date('2026-02-01T09:00:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: patient.id, action: 'CREATED', description: 'Evaluación inicial registrada', createdAt: new Date('2026-02-01T09:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'CREATED', description: 'Sesión registrada', createdAt: new Date('2026-02-10T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'CREATED', description: 'Sesión registrada', createdAt: new Date('2026-02-24T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-001'), patientId: patient.id, entity: 'PATIENT', entityId: patient.id, action: 'PATIENT_CREATED', params: {}, createdAt: new Date('2026-02-01T09:00:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: devId('dev-eval-001'), action: 'EVALUATION_CREATED', params: {}, createdAt: new Date('2026-02-01T09:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-10T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-24T10:30:00.000Z') },
   ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
@@ -587,21 +595,21 @@ async function main() {
 
   // ── Auditoría ────────────────────────────────────────────────────────────
   const auditLogsP2 = [
-    { id: devId('dev-audit-p2-001'), entity: 'PATIENT',    entityId: p2.id,                  action: 'CREATED', description: 'Paciente registrado en el sistema',                  date: '2025-12-01T09:00:00.000Z' },
-    { id: devId('dev-audit-p2-002'), entity: 'CONSENT',    entityId: devId('dev-consent-002'),       action: 'CREATED', description: 'Consentimiento informado firmado',                    date: '2025-12-05T09:00:00.000Z' },
-    { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'CREATED', description: 'Evaluación inicial registrada',                       date: '2025-12-05T09:30:00.000Z' },
-    { id: devId('dev-audit-p2-004'), entity: 'SESSION',    entityId: devId('dev-session-p2-001'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2025-12-05T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-005'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-001'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2025-12-05T09:35:00.000Z' },
-    { id: devId('dev-audit-p2-006'), entity: 'SESSION',    entityId: devId('dev-session-p2-002'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2025-12-12T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-007'), entity: 'SESSION',    entityId: devId('dev-session-p2-003'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-09T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-008'), entity: 'SESSION',    entityId: devId('dev-session-p2-004'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-16T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-009'), entity: 'SESSION',    entityId: devId('dev-session-p2-005'),    action: 'CREATED', description: 'Nota clínica registrada',                            date: '2026-01-23T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-010'), entity: 'SESSION',    entityId: devId('dev-session-p2-006'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-01-30T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-011'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-002'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2026-01-30T10:35:00.000Z' },
-    { id: devId('dev-audit-p2-012'), entity: 'SESSION',    entityId: devId('dev-session-p2-007'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-02-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-013'), entity: 'SESSION',    entityId: devId('dev-session-p2-008'),    action: 'CREATED', description: 'Sesión registrada',                              date: '2026-03-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-014'), entity: 'EVALUATION', entityId: devId('dev-scale-p2-003'),      action: 'CREATED', description: 'Escala NDI aplicada',                                date: '2026-03-06T10:35:00.000Z' },
-    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'),          action: 'UPDATED', description: 'Evaluación inicial actualizada',                      date: '2026-01-30T10:00:00.000Z' },
+    { id: devId('dev-audit-p2-001'), entity: 'PATIENT', entityId: p2.id, action: 'PATIENT_CREATED', params: {}, date: '2025-12-01T09:00:00.000Z' },
+    { id: devId('dev-audit-p2-002'), entity: 'CONSENT', entityId: devId('dev-consent-002'), action: 'CONSENT_SIGNED', params: {}, date: '2025-12-05T09:00:00.000Z' },
+    { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_CREATED', params: {}, date: '2025-12-05T09:30:00.000Z' },
+    { id: devId('dev-audit-p2-004'), entity: 'SESSION', entityId: devId('dev-session-p2-001'), action: 'SESSION_RECORDED', params: {}, date: '2025-12-05T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-005'), entity: 'SCALE', entityId: devId('dev-scale-p2-001'), action: 'SCALE_APPLIED', params: { scaleType: 'NDI' }, date: '2025-12-05T09:35:00.000Z' },
+    { id: devId('dev-audit-p2-006'), entity: 'SESSION', entityId: devId('dev-session-p2-002'), action: 'SESSION_RECORDED', params: {}, date: '2025-12-12T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-007'), entity: 'SESSION', entityId: devId('dev-session-p2-003'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-09T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-008'), entity: 'SESSION', entityId: devId('dev-session-p2-004'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-16T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-009'), entity: 'SESSION', entityId: devId('dev-session-p2-005'), action: 'NOTE_RECORDED', params: {}, date: '2026-01-23T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-010'), entity: 'SESSION', entityId: devId('dev-session-p2-006'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-30T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-011'), entity: 'SCALE', entityId: devId('dev-scale-p2-002'), action: 'SCALE_APPLIED', params: { scaleType: 'NDI' }, date: '2026-01-30T10:35:00.000Z' },
+    { id: devId('dev-audit-p2-012'), entity: 'SESSION', entityId: devId('dev-session-p2-007'), action: 'SESSION_RECORDED', params: {}, date: '2026-02-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-013'), entity: 'SESSION', entityId: devId('dev-session-p2-008'), action: 'SESSION_RECORDED', params: {}, date: '2026-03-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-014'), entity: 'SCALE', entityId: devId('dev-scale-p2-003'), action: 'SCALE_APPLIED', params: { scaleType: 'NDI' }, date: '2026-03-06T10:35:00.000Z' },
+    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale', 'notes'] }, date: '2026-01-30T10:00:00.000Z' },
   ] as const;
 
   await seedAuditRows(
@@ -612,7 +620,7 @@ async function main() {
       entity: log.entity,
       entityId: log.entityId,
       action: log.action,
-      description: log.description,
+      params: log.params,
       createdAt: new Date(log.date),
     })),
   );

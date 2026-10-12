@@ -1,4 +1,5 @@
-import { Prisma, type UserRole } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { describeAuditEntry, readAuditParams } from '@ficha/shared';
 import { prisma } from '../../lib/prisma';
 import type { OperatorContext } from '../types';
 import type {
@@ -25,6 +26,7 @@ import {
   pendingPasswordResetExpiry,
   pendingPasswordResetSelect,
 } from './passwordResetLinks';
+import { recordPlatformAudit } from './recordPlatformAudit';
 import { whereConservaAdmin } from './userRules';
 
 // Usa el prisma base a conciencia, como authRepository: no hay TenantContext
@@ -85,31 +87,29 @@ const auditSelect = {
   tenantId: true,
   targetUserId: true,
   action: true,
-  description: true,
+  params: true,
   createdAt: true,
-  // Who was affected, read now and not copied into the description: an
-  // audit row can never change, so a name in it could never be erased (#186).
+  // Who was affected, read now and never copied into the row: an audit row
+  // can never change, so a name in it could never be erased (#186).
   targetUser: { select: { email: true, name: true } },
 } as const;
 
 type AuditRow = Prisma.PlatformAuditLogGetPayload<{ select: typeof auditSelect }>;
 
+// params are read leniently and the description is built from the catalog,
+// for a web that predates it (SPEC-audit-structured-entries.md §5).
 function toAuditDTO(row: AuditRow): PlatformAuditLogDTO {
-  return { ...row, createdAt: row.createdAt.toISOString() };
+  return {
+    ...row,
+    params: readAuditParams('platform_audit_logs', row.action, row.params),
+    description: describeAuditEntry('platform_audit_logs', row.action, row.params),
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
-
-// Cómo se nombra cada rol en la descripción de la auditoría, que es texto
-// para una persona y se muestra tal cual en la UI. "ADMIN" es el término
-// que usa toda la pantalla de plataforma ("Sin ADMIN", "Crear ADMIN"); el
-// otro rol, en castellano y no como el enum crudo.
-const ROLE_EN_AUDITORIA: Record<UserRole, string> = {
-  ADMIN: 'ADMIN',
-  THERAPIST: 'fisioterapeuta',
-};
 
 export const prismaPlatformRepository: PlatformRepository = {
   // ─── Operadores ────────────────────────────────────────────────────────────
@@ -167,14 +167,7 @@ export const prismaPlatformRepository: PlatformRepository = {
     try {
       const row = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({ data: input, select: tenantSelect });
-        await tx.platformAuditLog.create({
-          data: {
-            operatorId: op.operatorId,
-            tenantId: tenant.id,
-            action: 'TENANT_CREATED',
-            description: 'Creó la clínica',
-          },
-        });
+        await recordPlatformAudit(tx, op, { action: 'TENANT_CREATED', tenantId: tenant.id, params: {} });
         return tenant;
       });
       return toTenantDTO(row);
@@ -212,13 +205,10 @@ export const prismaPlatformRepository: PlatformRepository = {
       }
 
       if (count === 1) {
-        await tx.platformAuditLog.create({
-          data: {
-            operatorId: op.operatorId,
-            tenantId,
-            action: active ? 'TENANT_REACTIVATED' : 'TENANT_DEACTIVATED',
-            description: `${active ? 'Reactivó' : 'Desactivó'} la clínica`,
-          },
+        await recordPlatformAudit(tx, op, {
+          action: active ? 'TENANT_REACTIVATED' : 'TENANT_DEACTIVATED',
+          tenantId,
+          params: {},
         });
       }
       return toTenantDTO(tenant);
@@ -258,15 +248,7 @@ export const prismaPlatformRepository: PlatformRepository = {
           data: { ...input, tenantId, role: 'ADMIN' },
           select: userSelect,
         });
-        await tx.platformAuditLog.create({
-          data: {
-            operatorId: op.operatorId,
-            tenantId,
-            targetUserId: user.id,
-            action: 'ADMIN_CREATED',
-            description: 'Creó una ADMIN',
-          },
-        });
+        await recordPlatformAudit(tx, op, { action: 'ADMIN_CREATED', tenantId, targetUserId: user.id, params: {} });
         return { ok: true, user: toUserDTO(user) } as const;
       });
     } catch (err) {
@@ -322,23 +304,15 @@ export const prismaPlatformRepository: PlatformRepository = {
       // Una fila por campo que CAMBIÓ: "cambió el rol" y "cambió el estado"
       // son dos hechos distintos aunque lleguen en el mismo PATCH, y un campo
       // que llegó con el valor que ya tenía no es un hecho.
-      const base = { operatorId: op.operatorId, tenantId, targetUserId: user.id };
+      const target = { tenantId, targetUserId: user.id };
       if (input.role !== undefined && input.role !== antes.role) {
-        await tx.platformAuditLog.create({
-          data: {
-            ...base,
-            action: 'USER_ROLE_CHANGED',
-            description: `Cambió el rol a ${ROLE_EN_AUDITORIA[input.role]}`,
-          },
-        });
+        await recordPlatformAudit(tx, op, { action: 'USER_ROLE_CHANGED', ...target, params: { role: input.role } });
       }
       if (input.isActive !== undefined && input.isActive !== antes.isActive) {
-        await tx.platformAuditLog.create({
-          data: {
-            ...base,
-            action: 'USER_ACTIVE_CHANGED',
-            description: `${input.isActive ? 'Reactivó' : 'Desactivó'} a la usuaria`,
-          },
+        await recordPlatformAudit(tx, op, {
+          action: input.isActive ? 'USER_REACTIVATED' : 'USER_DEACTIVATED',
+          ...target,
+          params: {},
         });
       }
 
@@ -362,14 +336,11 @@ export const prismaPlatformRepository: PlatformRepository = {
       });
       // Audited even when she had no open session: the operator did act,
       // and the row does not say how many devices there were.
-      await tx.platformAuditLog.create({
-        data: {
-          operatorId: op.operatorId,
-          tenantId,
-          targetUserId: user.id,
-          action: 'USER_DEVICES_DISCONNECTED',
-          description: 'Desconectó los dispositivos de la usuaria',
-        },
+      await recordPlatformAudit(tx, op, {
+        action: 'USER_DEVICES_DISCONNECTED',
+        tenantId,
+        targetUserId: user.id,
+        params: {},
       });
       return true;
     });
@@ -392,16 +363,14 @@ export const prismaPlatformRepository: PlatformRepository = {
       if (!user.isActive) return { ok: false, reason: 'inactive' } as const;
 
       const link = await issuePasswordReset(tx, user.id, { operatorId: op.operatorId }, input);
-      await tx.platformAuditLog.create({
-        data: {
-          operatorId: op.operatorId,
-          tenantId,
-          targetUserId: user.id,
-          action: 'PASSWORD_RESET_LINK_CREATED',
-          description: 'Generó un enlace para restablecer la contraseña',
-        },
+      await recordPlatformAudit(tx, op, {
+        action: 'PASSWORD_RESET_LINK_CREATED',
+        tenantId,
+        targetUserId: user.id,
+        entityId: link.id,
+        params: {},
       });
-      return { ok: true, ...link } as const;
+      return { ok: true, token: link.token, expiresAt: link.expiresAt } as const;
     });
   },
 

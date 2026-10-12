@@ -94,6 +94,9 @@ describe('motor de alertas', () => {
     const alertas = await alertasDe(paciente.id, 'FOLLOW_UP');
     expect(alertas).toHaveLength(1);
     expect(alertas[0].message).toMatch(/Sin sesiones en 40 días/);
+    // The alerts list spans patients: the message names no complaint (#186,
+    // SPEC-list-minimization.md §3). The record shows which episode.
+    expect(alertas[0].message).not.toContain('Lumbalgia');
   });
 
   it('no alerta por un episodio con actividad reciente', async () => {

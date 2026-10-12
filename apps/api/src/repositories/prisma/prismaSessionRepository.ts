@@ -1,16 +1,19 @@
 import { Prisma } from '@prisma/client';
+import { AUDIT_SESSION_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type {
+  SessionAuditField,
   SessionCreateInput,
   SessionCreateResult,
   SessionDTO,
   SessionRepository,
   SessionUpdateInput,
-  SessionWithPatientDTO,
+  SessionIndexItemDTO,
 } from '../sessionRepository';
-import type { AuditBuilder, AuditEntry } from '../auditLogRepository';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
+import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 
 // Política del repositorio: todo método opera sobre sesiones vigentes. Una
@@ -44,15 +47,16 @@ const sessionSelect = {
   episodes: { select: { episodeId: true }, orderBy: { episodeId: 'asc' } },
 } as const;
 
-// El listado global suma el paciente y el motivo de cada episodio.
-const sessionWithPatientSelect = {
-  ...sessionSelect,
+// The clinic-wide index (GET /api/sessions): who and when, nothing clinical
+// (#186, SPEC-list-minimization.md §1). Selected column by column, so clinical
+// text never leaves the database for a list that spans patients.
+const sessionIndexSelect = {
+  id: true,
+  sessionType: true,
+  sessionDate: true,
+  createdAt: true,
+  updatedAt: true,
   patient: { select: { id: true, fullName: true } },
-  // Mismo criterio que sessionSelect: orden estable entre requests.
-  episodes: {
-    select: { episode: { select: { id: true, mainComplaint: true } } },
-    orderBy: { episodeId: 'asc' },
-  },
 } as const;
 
 type SessionRow = {
@@ -71,10 +75,9 @@ type SessionRow = {
   episodes: { episodeId: string }[];
 };
 
-type SessionWithPatientRow = Omit<SessionRow, 'episodes'> & {
-  patient: { id: string; fullName: string };
-  episodes: { episode: { id: string; mainComplaint: string | null } }[];
-};
+type SessionIndexRow = Prisma.SessionGetPayload<{ select: typeof sessionIndexSelect }>;
+
+const AUDIT_FIELDS = Object.keys(AUDIT_SESSION_FIELDS) as SessionAuditField[];
 
 function toDTO({ episodes, ...rest }: SessionRow): SessionDTO {
   return {
@@ -86,15 +89,12 @@ function toDTO({ episodes, ...rest }: SessionRow): SessionDTO {
   };
 }
 
-function toWithPatientDTO({ episodes, ...rest }: SessionWithPatientRow): SessionWithPatientDTO {
-  const linked = episodes.map((e) => e.episode);
+function toIndexItemDTO(row: SessionIndexRow): SessionIndexItemDTO {
   return {
-    ...rest,
-    sessionDate: rest.sessionDate.toISOString(),
-    createdAt: rest.createdAt.toISOString(),
-    updatedAt: rest.updatedAt.toISOString(),
-    episodes: linked,
-    episodeIds: linked.map((e) => e.id),
+    ...row,
+    sessionDate: row.sessionDate.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -145,14 +145,14 @@ export const prismaSessionRepository: SessionRepository = {
     return row ? toDTO(row) : null;
   },
 
-  async listAllForTenant(ctx: TenantContext): Promise<SessionWithPatientDTO[]> {
+  async listIndexForTenant(ctx: TenantContext): Promise<SessionIndexItemDTO[]> {
     const db = forTenant(ctx);
     const rows = await db.session.findMany({
       where: VIGENTE,
       orderBy: { sessionDate: 'desc' },
-      select: sessionWithPatientSelect,
+      select: sessionIndexSelect,
     });
-    return rows.map(toWithPatientDTO);
+    return rows.map(toIndexItemDTO);
   },
 
   async create(
@@ -257,7 +257,7 @@ export const prismaSessionRepository: SessionRepository = {
     patientId: string,
     id: string,
     input: SessionUpdateInput,
-    audit: AuditBuilder<SessionDTO>,
+    audit: AuditUpdateBuilder<SessionDTO, SessionAuditField>,
   ): Promise<SessionDTO | null> {
     const db = forTenant(ctx);
     const { episodeIds } = input;
@@ -266,6 +266,16 @@ export const prismaSessionRepository: SessionRepository = {
       // The audit row goes in the same transaction as the write (#188). A
       // P2025 thrown inside rolls it back and becomes null below.
       return await db.$transaction(async (tx) => {
+        // Locked and read first, to record which fields changed (#186): a
+        // concurrent edit waits for this one. No row (gone, deleted, another
+        // patient's) is the same 404 as the update's P2025 below.
+        await lockRow(tx, 'sessions', id, ctx.tenantId);
+        const before = await tx.session.findFirst({
+          where: { ...VIGENTE, id, patientId, tenantId: ctx.tenantId },
+          select: sessionSelect,
+        });
+        if (!before) return null;
+
         // patientId en el where del update (Prisma 5 acepta campos no únicos en
         // WhereUniqueInput): pertenencia y tenant se deciden en la misma query
         // que escribe. Si no matchea, Prisma tira P2025 y devolvemos null —
@@ -287,7 +297,8 @@ export const prismaSessionRepository: SessionRepository = {
           select: sessionSelect,
         });
         const session = toDTO(row);
-        await recordAudit(tx, ctx, audit(session));
+        const changed = nonEmpty(changedFields(toDTO(before), session, AUDIT_FIELDS));
+        if (changed) await recordAudit(tx, ctx, audit(session, changed));
         return session;
       });
     } catch (e) {

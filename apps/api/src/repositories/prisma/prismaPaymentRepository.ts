@@ -1,9 +1,11 @@
 import { Prisma } from '@prisma/client';
+import { AUDIT_PAYMENT_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type {
   LastBasePrice,
+  PaymentAuditField,
   PaymentCreateInput,
   PaymentCreateResult,
   PaymentDTO,
@@ -12,7 +14,8 @@ import type {
   PaymentUpdateInput,
   PaymentUpdateResult,
 } from '../paymentRepository';
-import type { AuditBuilder } from '../auditLogRepository';
+import type { AuditBuilder, AuditUpdateBuilder } from '../auditLogRepository';
+import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 
 // Días máximos de antigüedad para considerar vigente el último precio base.
@@ -58,6 +61,8 @@ type PaymentRow = {
   session: { id: string; sessionDate: Date; sessionType: PaymentDTO['session']['sessionType'] };
   package: { id: string; name: string } | null;
 };
+
+const AUDIT_FIELDS = Object.keys(AUDIT_PAYMENT_FIELDS) as PaymentAuditField[];
 
 function toDTO(row: PaymentRow): PaymentDTO {
   return {
@@ -179,46 +184,50 @@ export const prismaPaymentRepository: PaymentRepository = {
     ctx: TenantContext,
     id: string,
     input: PaymentUpdateInput,
-    audit: AuditBuilder<PaymentDTO>,
+    audit: AuditUpdateBuilder<PaymentDTO, PaymentAuditField>,
   ): Promise<PaymentUpdateResult> {
     const db = forTenant(ctx);
 
-    // Los montos existentes hacen falta para recalcular finalAmount cuando
-    // el update trae solo uno de los dos. El estado, para que settle() sepa
-    // si puede eximir: solo un PENDING se exime solo.
-    const existing = await db.payment.findFirst({
-      where: { id },
-      select: { baseAmount: true, discount: true, patientId: true, status: true },
-    });
-    if (!existing) return { ok: false, reason: 'not_found' };
+    // The audit row goes in the same transaction as the write (#188). The row
+    // is locked and read first: to record which fields changed (#186), and so
+    // the amounts settle() works from cannot change underneath it.
+    return db.$transaction(async (tx): Promise<PaymentUpdateResult> => {
+      await lockRow(tx, 'payments', id, ctx.tenantId);
 
-    // Mismo criterio que en create: el paquete debe ser del tenant y del
-    // paciente del pago.
-    if (input.packageId) {
-      const pkg = await db.sessionPackage.findFirst({
-        where: { id: input.packageId, patientId: existing.patientId },
-        select: { id: true },
+      // Los montos existentes hacen falta para recalcular finalAmount cuando
+      // el update trae solo uno de los dos. El estado, para que settle() sepa
+      // si puede eximir: solo un PENDING se exime solo.
+      const existing = await tx.payment.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: paymentSelect,
       });
-      if (!pkg) return { ok: false, reason: 'package_not_found' };
-    }
+      if (!existing) return { ok: false, reason: 'not_found' };
 
-    const newBase = input.baseAmount ?? Number(existing.baseAmount);
-    const newDiscount = input.discount ?? Number(existing.discount);
+      // Mismo criterio que en create: el paquete debe ser del tenant y del
+      // paciente del pago.
+      if (input.packageId) {
+        const pkg = await tx.sessionPackage.findFirst({
+          where: { id: input.packageId, patientId: existing.patientId, tenantId: ctx.tenantId },
+          select: { id: true },
+        });
+        if (!pkg) return { ok: false, reason: 'package_not_found' };
+      }
 
-    // Un descuento mayor al monto base dejaría finalAmount negativo: un cobro
-    // que devuelve plata. Se valida acá y no en el schema de la ruta porque el
-    // PATCH es parcial — mandar solo `discount` se compara contra el monto
-    // base guardado, que Zod no conoce (issue #73).
-    if (newDiscount > newBase) return { ok: false, reason: 'invalid_amounts' };
+      const newBase = input.baseAmount ?? Number(existing.baseAmount);
+      const newDiscount = input.discount ?? Number(existing.discount);
 
-    // Un descuento que lleva el cobro a 0 lo exime, pero solo si estaba
-    // PENDING: ni un PAID (ahí entró plata) ni un WAIVED puesto a mano se
-    // tocan. Un `status` explícito en el body gana sobre lo derivado — quien
-    // lo manda está diciendo qué quiere.
-    const { finalAmount, status } = settle(newBase, newDiscount, existing.status);
+      // Un descuento mayor al monto base dejaría finalAmount negativo: un cobro
+      // que devuelve plata. Se valida acá y no en el schema de la ruta porque el
+      // PATCH es parcial — mandar solo `discount` se compara contra el monto
+      // base guardado, que Zod no conoce (issue #73).
+      if (newDiscount > newBase) return { ok: false, reason: 'invalid_amounts' };
 
-    // The audit row goes in the same transaction as the write (#188).
-    const payment = await db.$transaction(async (tx) => {
+      // Un descuento que lleva el cobro a 0 lo exime, pero solo si estaba
+      // PENDING: ni un PAID (ahí entró plata) ni un WAIVED puesto a mano se
+      // tocan. Un `status` explícito en el body gana sobre lo derivado — quien
+      // lo manda está diciendo qué quiere.
+      const { finalAmount, status } = settle(newBase, newDiscount, existing.status);
+
       const row = await tx.payment.update({
         where: { id, tenantId: ctx.tenantId },
         data: {
@@ -234,9 +243,9 @@ export const prismaPaymentRepository: PaymentRepository = {
         select: paymentSelect,
       });
       const updated = toDTO(row);
-      await recordAudit(tx, ctx, audit(updated));
-      return updated;
+      const changed = nonEmpty(changedFields(toDTO(existing), updated, AUDIT_FIELDS));
+      if (changed) await recordAudit(tx, ctx, audit(updated, changed));
+      return { ok: true, payment: updated };
     });
-    return { ok: true, payment };
   },
 };

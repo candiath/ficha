@@ -10,7 +10,9 @@ router.param('id', idParam('Alerta no encontrada'));
 
 const AlertCreateSchema = z.object({
   patientId: IdSchema,
-  type: z.enum(['FOLLOW_UP', 'NO_SHOW', 'PAYMENT', 'CUSTOM']),
+  // By hand, only a custom reminder: the other types are the engine's, with
+  // its own fixed wording (#186, SPEC-list-minimization.md §3).
+  type: z.literal('CUSTOM'),
   message: requiredText(1, 'La alerta necesita un mensaje'),
 });
 

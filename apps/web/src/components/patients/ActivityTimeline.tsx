@@ -1,4 +1,6 @@
 import {
+  Activity,
+  CircleDot,
   ClipboardList,
   CreditCard,
   FileText,
@@ -10,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { auditDisplay } from '@/lib/auditDisplay';
 import { auditLogApi, auditLogKeys } from '@/services/auditLog';
 
 const ENTITY_CONFIG: Record<
@@ -46,12 +49,29 @@ const ENTITY_CONFIG: Record<
       'bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
     label: 'Consentimiento',
   },
+  SCALE: {
+    icon: Activity,
+    color:
+      'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
+    label: 'Escala',
+  },
 };
 
-const ACTION_LABELS: Record<string, string> = {
-  CREATED: 'Creación',
-  UPDATED: 'Actualización',
-  DELETED: 'Eliminación',
+// An entity this version does not know: neutral, never another entity's badge.
+const UNKNOWN_ENTITY = {
+  icon: CircleDot,
+  color: 'bg-muted text-muted-foreground',
+  label: 'Registro',
+};
+
+// The action's badge, by what it did.
+const KIND_CLASS: Record<string, string> = {
+  create:
+    'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300',
+  update:
+    'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  delete:
+    'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300',
 };
 
 function formatTimestamp(iso: string) {
@@ -99,7 +119,8 @@ export default function ActivityTimeline({ patientId }: Props) {
 
             <div className="space-y-0">
               {entries.map((entry, idx) => {
-                const config = ENTITY_CONFIG[entry.entity] ?? ENTITY_CONFIG.PATIENT;
+                const config = ENTITY_CONFIG[entry.entity] ?? UNKNOWN_ENTITY;
+                const shown = auditDisplay('audit_logs', entry);
                 const Icon = config.icon;
                 const ts = formatTimestamp(entry.createdAt);
                 const isLast = idx === entries.length - 1;
@@ -129,18 +150,16 @@ export default function ActivityTimeline({ patientId }: Props) {
                           variant="outline"
                           className={cn(
                             'text-[10px] px-1.5 py-0 font-normal',
-                            entry.action === 'CREATED'
-                              ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300'
-                              : 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300',
+                            shown.kind && KIND_CLASS[shown.kind],
                           )}
                         >
-                          {ACTION_LABELS[entry.action]}
+                          {shown.label}
                         </Badge>
                         <span className="text-[11px] text-muted-foreground">
                           {ts.date} · {ts.time}
                         </span>
                       </div>
-                      <p className="text-sm">{entry.description}</p>
+                      <p className="text-sm">{shown.text}</p>
                     </div>
                   </div>
                 );

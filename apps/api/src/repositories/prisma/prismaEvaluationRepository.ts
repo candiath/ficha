@@ -1,13 +1,16 @@
 import { Prisma } from '@prisma/client';
+import { AUDIT_EVALUATION_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
-import type { AuditBuilder } from '../auditLogRepository';
 import type {
+  EvaluationAuditBuilder,
+  EvaluationAuditField,
   EvaluationDTO,
   EvaluationRepository,
   EvaluationUpsertInput,
   EvaluationUpsertResult,
 } from '../evaluationRepository';
+import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 
 const evaluationSelect = {
@@ -39,6 +42,8 @@ type EvaluationRow = Omit<EvaluationDTO, 'evaluatedAt' | 'updatedAt'> & {
   evaluatedAt: Date;
   updatedAt: Date;
 };
+
+const AUDIT_FIELDS = Object.keys(AUDIT_EVALUATION_FIELDS) as EvaluationAuditField[];
 
 function toDTO(row: EvaluationRow): EvaluationDTO {
   return {
@@ -110,14 +115,17 @@ export const prismaEvaluationRepository: EvaluationRepository = {
     patientId: string,
     episodeId: string,
     input: EvaluationUpsertInput,
-    audit: AuditBuilder<EvaluationUpsertResult>,
+    audit: EvaluationAuditBuilder,
   ): Promise<EvaluationUpsertResult> {
     const db = forTenant(ctx);
     // The audit row goes in the same transaction as the write (#188).
     return db.$transaction(async (tx) => {
+      // Locked and read first, to record which fields an update changed
+      // (#186): a concurrent edit waits for this one.
+      await lockRow(tx, 'initial_evaluations', episodeId, ctx.tenantId);
       const existing = await tx.initialEvaluation.findUnique({
         where: { episodeId, tenantId: ctx.tenantId },
-        select: { id: true },
+        select: evaluationSelect,
       });
 
       const row = await tx.initialEvaluation.upsert({
@@ -137,7 +145,12 @@ export const prismaEvaluationRepository: EvaluationRepository = {
       });
 
       const result = { evaluation: toDTO(row), created: existing === null };
-      await recordAudit(tx, ctx, audit(result));
+      if (existing === null) {
+        await recordAudit(tx, ctx, audit(result, null));
+      } else {
+        const changed = nonEmpty(changedFields(toDTO(existing), result.evaluation, AUDIT_FIELDS));
+        if (changed) await recordAudit(tx, ctx, audit(result, changed));
+      }
       return result;
     });
   },

@@ -614,47 +614,47 @@ describe('CRUD de sesiones por HTTP', () => {
 
   // ── Auditoría ─────────────────────────────────────────────────────────────
 
-  it('crear, editar y borrar dejan su entrada de auditoría, con el dolor en la de alta', async () => {
+  it('crear, editar y borrar dejan su entrada de auditoría, sin el dolor', async () => {
     const creada = await crearSesion({ painScaleBefore: 7, painScaleAfter: 3 });
     await auth(request(app).patch(`${url()}/${creada.id}`)).send({ observations: 'x' });
     await auth(request(app).delete(`${url()}/${creada.id}`));
 
-    const buscar = (action: 'CREATED' | 'UPDATED' | 'DELETED') =>
+    const buscar = (action: 'SESSION_RECORDED' | 'SESSION_UPDATED' | 'SESSION_DELETED') =>
       waitFor(() =>
         prisma.auditLog.findFirst({
           where: { tenantId: clinic.tenantId, entity: 'SESSION', entityId: creada.id, action },
-          select: { patientId: true, userId: true, description: true },
+          select: { patientId: true, userId: true, params: true },
         }),
       );
 
     const [alta, edicion, borrado] = await Promise.all([
-      buscar('CREATED'),
-      buscar('UPDATED'),
-      buscar('DELETED'),
+      buscar('SESSION_RECORDED'),
+      buscar('SESSION_UPDATED'),
+      buscar('SESSION_DELETED'),
     ]);
 
     for (const entrada of [alta, edicion, borrado]) {
       expect(entrada).toMatchObject({ patientId: patient.id, userId: user.id });
     }
-    expect(alta.description).toBe('Sesión registrada');
+    // Codes only: the pain values stay in the session, never in the audit row.
+    expect(alta.params).toEqual({});
+    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'] });
   });
 
-  it('el alta de una NOTE y de un DISCHARGE se describen como tales', async () => {
+  it('una NOTE y un DISCHARGE se registran con su propia acción', async () => {
     const nota = await crearSesion({ sessionType: 'NOTE' });
     const alta = await crearSesion({ sessionType: 'DISCHARGE' });
 
-    const descripcion = (entityId: string) =>
+    const accion = (entityId: string) =>
       waitFor(() =>
         prisma.auditLog.findFirst({
-          where: { entity: 'SESSION', entityId, action: 'CREATED' },
-          select: { description: true },
+          where: { entity: 'SESSION', entityId },
+          select: { action: true },
         }),
       );
 
-    await expect(descripcion(nota.id)).resolves.toEqual({
-      description: 'Nota clínica registrada',
-    });
-    await expect(descripcion(alta.id)).resolves.toEqual({ description: 'Alta registrada' });
+    await expect(accion(nota.id)).resolves.toEqual({ action: 'NOTE_RECORDED' });
+    await expect(accion(alta.id)).resolves.toEqual({ action: 'DISCHARGE_RECORDED' });
   });
 
   // ── Autenticación ─────────────────────────────────────────────────────────

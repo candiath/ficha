@@ -42,15 +42,14 @@ describe('audit rows are append-only', () => {
     await clinic.cleanup();
   });
 
-  const row = (overrides: { createdAt?: Date; description?: string } = {}) => ({
+  const row = (overrides: { createdAt?: Date } = {}) => ({
     tenantId: clinic.tenantId,
     patientId,
     userId: user.id,
     authSessionId,
     entity: 'PATIENT' as const,
     entityId: patientId,
-    action: 'UPDATED' as const,
-    description: 'test: hardened row',
+    action: 'PATIENT_DELETED' as const,
     ...overrides,
   });
 
@@ -61,7 +60,7 @@ describe('audit rows are append-only', () => {
     const { id } = await insert();
 
     await expect(
-      prisma.auditLog.update({ where: { id }, data: { description: 'test: rewritten' } }),
+      prisma.auditLog.update({ where: { id }, data: { params: { changedFields: ['phone'] } } }),
     ).rejects.toThrow(APPEND_ONLY);
   });
 
@@ -274,11 +273,11 @@ describe("the session on an audit row is its author's", () => {
     tenantId: clinic.tenantId,
     patientId,
     userId,
+    actorType: userId ? ('USER' as const) : ('SYSTEM' as const),
     authSessionId,
     entity: 'PATIENT' as const,
     entityId: patientId,
-    action: 'UPDATED' as const,
-    description: 'test: session checked',
+    action: 'PATIENT_DELETED' as const,
   });
 
   it("accepts the author's own session, or none", async () => {
@@ -357,10 +356,10 @@ describe('audit rows keep who they name, within their clinic', () => {
     tenantId: clinic.tenantId,
     patientId: over.patientId ?? patientId,
     userId: over.userId === undefined ? author.id : over.userId,
+    actorType: over.userId === null ? ('SYSTEM' as const) : ('USER' as const),
     entity: 'PATIENT' as const,
     entityId: over.patientId ?? patientId,
-    action: 'UPDATED' as const,
-    description: 'test: kept',
+    action: 'PATIENT_DELETED' as const,
   });
 
   const platformRow = (targetUserId: string) => ({
@@ -368,7 +367,6 @@ describe('audit rows keep who they name, within their clinic', () => {
     tenantId: clinic.tenantId,
     targetUserId,
     action: 'USER_DEVICES_DISCONNECTED' as const,
-    description: 'test: kept',
   });
 
   // The audit key itself, by name: another restricting key on users or
@@ -525,6 +523,15 @@ describe('audit-guards.sql', () => {
       expect(await failure()).toMatch(
         /check constraint sysadmin_alerts_operator_only_on_tests on sysadmin_alerts is missing or changed/,
       );
+    });
+
+    // Nor indexes: the copies lack the params checks and the one-row-per-object
+    // index (SPEC-audit-structured-entries.md §2).
+    it('notices a missing params check and a missing index', async () => {
+      const message = await failure();
+      expect(message).toMatch(/check constraint audit_logs_params_are_codes on audit_logs is missing or changed/);
+      expect(message).toMatch(/check constraint platform_audit_logs_actor_is_operator on platform_audit_logs is missing/);
+      expect(message).toMatch(/index platform_audit_logs_action_entity_key on platform_audit_logs is missing or changed/);
     });
 
     it('notices a column that became nullable', async () => {

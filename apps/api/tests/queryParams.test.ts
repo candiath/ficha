@@ -56,11 +56,17 @@ describe('filtros de query validados', () => {
       '/api/alerts?type=FOLLOW_UP',
       '/api/alerts?isRead=false',
       '/api/alerts',
-      '/api/packages',
     ]) {
       const res = await auth(request(app).get(url));
       expect(res.status, url).toBe(200);
     }
+  });
+
+  // Packages are listed per patient only: no web code lists them for the
+  // whole clinic, and that list would span patients (#186,
+  // SPEC-list-minimization.md §5).
+  it('packages are listed only for one patient', async () => {
+    expect((await auth(request(app).get('/api/packages'))).status).toBe(400);
   });
 
   it('un filtro vacío se rechaza en vez de buscar por cadena vacía', async () => {

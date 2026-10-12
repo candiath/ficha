@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
+import type { PatientAuditField } from '../src/repositories/patientRepository';
 import {
   createTestAuthSession,
   createTestClinic,
@@ -53,7 +54,8 @@ describe('historial de auditoría de un paciente', () => {
   async function entrada(
     patientId: string,
     tenantId: string,
-    description: string,
+    // Which field the row says changed: what tells the rows apart.
+    field: PatientAuditField,
     createdAt: Date,
     userId: string | null = user.id,
   ) {
@@ -64,11 +66,13 @@ describe('historial de auditoría de un paciente', () => {
         tenantId,
         patientId,
         userId,
+        // A row with no author is the system's (a CHECK pins it).
+        actorType: userId ? 'USER' : 'SYSTEM',
         authSessionId: userId ? authSessionId : null,
         entity: 'PATIENT',
         entityId: patientId,
-        action: 'UPDATED',
-        description,
+        action: 'PATIENT_UPDATED',
+        params: { changedFields: [field] },
         createdAt,
       },
     ]);
@@ -80,26 +84,26 @@ describe('historial de auditoría de un paciente', () => {
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Orden' },
       select: { id: true },
     });
-    await entrada(propio.id, clinic.tenantId, 'Primero', new Date('2025-01-01T10:00:00Z'));
-    await entrada(propio.id, clinic.tenantId, 'Segundo', new Date('2025-02-01T10:00:00Z'));
-    await entrada(propio.id, clinic.tenantId, 'Tercero', new Date('2025-03-01T10:00:00Z'));
+    await entrada(propio.id, clinic.tenantId, 'fullName', new Date('2025-01-01T10:00:00Z'));
+    await entrada(propio.id, clinic.tenantId, 'phone', new Date('2025-02-01T10:00:00Z'));
+    await entrada(propio.id, clinic.tenantId, 'occupation', new Date('2025-03-01T10:00:00Z'));
 
     const res = await auth(request(app).get(url(propio.id)));
 
     expect(res.status).toBe(200);
-    expect((res.body.data as { description: string }[]).map((e) => e.description)).toEqual([
-      'Tercero',
-      'Segundo',
-      'Primero',
+    expect((res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0])).toEqual([
+      'occupation',
+      'phone',
+      'fullName',
     ]);
   });
 
-  it('cada entrada dice qué se tocó y quién, y no expone el tenant', async () => {
+  it('cada entrada dice qué se tocó y quién, con códigos, y no expone el tenant ni la sesión', async () => {
     const propio = await prisma.patient.create({
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Forma' },
       select: { id: true },
     });
-    await entrada(propio.id, clinic.tenantId, 'Datos actualizados', new Date());
+    await entrada(propio.id, clinic.tenantId, 'phone', new Date());
 
     const res = await auth(request(app).get(url(propio.id)));
 
@@ -109,11 +113,15 @@ describe('historial de auditoría de un paciente', () => {
       userId: user.id,
       entity: 'PATIENT',
       entityId: propio.id,
-      action: 'UPDATED',
-      description: 'Datos actualizados',
+      actorType: 'USER',
+      action: 'PATIENT_UPDATED',
+      params: { changedFields: ['phone'] },
+      // Built from the catalog, for a web that predates it.
+      description: 'Actualizó el teléfono',
     });
     expect(typeof res.body.data[0].createdAt).toBe('string');
     expect(res.body.data[0]).not.toHaveProperty('tenantId');
+    expect(res.body.data[0]).not.toHaveProperty('authSessionId');
   });
 
   it('no mezcla el historial de otro paciente de la misma clínica', async () => {
@@ -121,14 +129,14 @@ describe('historial de auditoría de un paciente', () => {
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Vecino' },
       select: { id: true },
     });
-    await entrada(patient.id, clinic.tenantId, 'Del paciente mirado', new Date());
-    await entrada(otro.id, clinic.tenantId, 'Del vecino', new Date());
+    await entrada(patient.id, clinic.tenantId, 'insurancePlan', new Date());
+    await entrada(otro.id, clinic.tenantId, 'insuranceNumber', new Date());
 
     const res = await auth(request(app).get(url(patient.id)));
 
-    const descripciones = (res.body.data as { description: string }[]).map((e) => e.description);
-    expect(descripciones).toContain('Del paciente mirado');
-    expect(descripciones).not.toContain('Del vecino');
+    const campos = (res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0]);
+    expect(campos).toContain('insurancePlan');
+    expect(campos).not.toContain('insuranceNumber');
   });
 
   it('el historial de un paciente de otra clínica se lee vacío', async () => {
@@ -138,7 +146,7 @@ describe('historial de auditoría de un paciente', () => {
         data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
         select: { id: true },
       });
-      await entrada(ajeno.id, otra.tenantId, 'Historia de otra clínica', new Date(), null);
+      await entrada(ajeno.id, otra.tenantId, 'fullName', new Date(), null);
 
       // Con el id exacto del paciente de la otra clínica: lo que filtra es el
       // guard de tenant, no que el id sea difícil de adivinar.
@@ -170,7 +178,7 @@ describe('historial de auditoría de un paciente', () => {
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado' },
       select: { id: true },
     });
-    await entrada(borrado.id, clinic.tenantId, 'Ficha creada', new Date());
+    await entrada(borrado.id, clinic.tenantId, 'referringDoctor', new Date());
     await prisma.patient.update({
       where: { id: borrado.id },
       data: { deletedAt: new Date() },
@@ -179,9 +187,7 @@ describe('historial de auditoría de un paciente', () => {
     const res = await auth(request(app).get(url(borrado.id)));
 
     expect(res.status).toBe(200);
-    expect((res.body.data as { description: string }[]).map((e) => e.description)).toContain(
-      'Ficha creada',
-    );
+    expect((res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0])).toContain('referringDoctor');
   });
 
   it('una escritura real aparece en el historial, con el usuario que la hizo', async () => {
@@ -198,7 +204,7 @@ describe('historial de auditoría de un paciente', () => {
     await waitFor(async () => {
       const res = await auth(request(app).get(url(id)));
       const acciones = (res.body.data as { action: string }[]).map((e) => e.action);
-      return acciones.includes('CREATED') && acciones.includes('UPDATED') ? res : null;
+      return acciones.includes('PATIENT_CREATED') && acciones.includes('PATIENT_UPDATED') ? res : null;
     });
 
     const res = await auth(request(app).get(url(id)));

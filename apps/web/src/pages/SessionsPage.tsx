@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -14,23 +21,16 @@ import {
 import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
 import { globalSessionApi, globalSessionKeys } from '@/services/globalSessions';
-import type { GlobalSession } from '@/types/globalSession';
+import { sessionApi, sessionKeys } from '@/services/sessions';
+import type { SessionIndexItem } from '@/types/globalSession';
 
-function PainDelta({ before, after }: { before: number | null; after: number | null }) {
-  if (before === null && after === null) return <span className="text-muted-foreground">—</span>;
-  const display = `${before ?? '—'} → ${after ?? '—'}`;
-  if (before !== null && after !== null && after < before) {
-    return <span className="text-green-600 dark:text-green-400 tabular-nums">{display}</span>;
-  }
-  if (before !== null && after !== null && after > before) {
-    return <span className="text-destructive tabular-nums">{display}</span>;
-  }
-  return <span className="tabular-nums text-muted-foreground">{display}</span>;
-}
-
+// Every session of the clinic, as an index: who and when (#186,
+// SPEC-list-minimization.md §1). The list carries no clinical text, so a
+// single request cannot take the whole clinic's notes; each session is read
+// from its patient's route when it is opened.
 export default function SessionsPage() {
   useEffect(() => { document.title = 'Sesiones'; }, []);
-  const [selected, setSelected] = useState<GlobalSession | null>(null);
+  const [selected, setSelected] = useState<SessionIndexItem | null>(null);
 
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: globalSessionKeys.all,
@@ -42,7 +42,8 @@ export default function SessionsPage() {
       <div className="mb-6">
         <h2 className="text-2xl font-semibold tracking-tight">Sesiones</h2>
         <p className="text-muted-foreground text-sm mt-1">
-          Historial de sesiones de todos los pacientes
+          Historial de sesiones de todos los pacientes. El detalle clínico de cada una se lee en su
+          ficha.
         </p>
       </div>
 
@@ -63,10 +64,7 @@ export default function SessionsPage() {
               <TableRow>
                 <TableHead>Fecha</TableHead>
                 <TableHead>Paciente</TableHead>
-                <TableHead>Episodio</TableHead>
                 <TableHead>Tipo</TableHead>
-                <TableHead>Dolor (antes → desp.)</TableHead>
-                <TableHead>Observaciones</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -92,21 +90,8 @@ export default function SessionsPage() {
                         {s.patient.fullName}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
-                      {s.episodes.length > 0 ? (
-                        s.episodes.map((e) => e.mainComplaint || 'Sin motivo').join(' · ')
-                      ) : (
-                        <span className="italic">Sin episodio</span>
-                      )}
-                    </TableCell>
                     <TableCell>
                       <SessionTypeBadge type={s.sessionType} />
-                    </TableCell>
-                    <TableCell>
-                      <PainDelta before={s.painScaleBefore} after={s.painScaleAfter} />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
-                      {s.observations ?? '—'}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" variant="outline" onClick={() => setSelected(s)}>
@@ -121,16 +106,48 @@ export default function SessionsPage() {
         </div>
       )}
 
-      {/* Ver una sesión registrada y editarla son la misma pantalla: se abre el
-          mismo formulario que la creó, con los datos cargados. */}
       {selected && (
-        <SessionFormDialog
-          open
-          onOpenChange={(o) => !o && setSelected(null)}
-          patientId={selected.patient.id}
-          session={selected}
-        />
+        <SessionDetail key={selected.id} item={selected} onClose={() => setSelected(null)} />
       )}
     </div>
+  );
+}
+
+// The session behind an index entry, read from its patient's route. Viewing
+// and editing are the same form that created it, and that form renders only
+// once the full session has arrived: fed the index entry, or nothing, it would
+// open empty (or as a new session) and save every field it lacks as erased.
+function SessionDetail({ item, onClose }: { item: SessionIndexItem; onClose: () => void }) {
+  const { data: session, isError } = useQuery({
+    queryKey: sessionKeys.detail(item.patient.id, item.id),
+    queryFn: () => sessionApi.get(item.patient.id, item.id),
+    retry: false,
+  });
+
+  if (isError) {
+    // The index keeps naming a deleted patient's sessions (history, #72), but
+    // the record is gone.
+    return (
+      <Dialog open onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>No se pudo abrir la sesión</DialogTitle>
+            <DialogDescription>
+              La ficha de este paciente ya no está disponible, o no se pudo cargar.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+  if (!session) return null;
+
+  return (
+    <SessionFormDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      patientId={item.patient.id}
+      session={session}
+    />
   );
 }

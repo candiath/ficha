@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Plus, Printer } from 'lucide-react';
-import type { Appointment } from '@ficha/shared';
+import type { AppointmentListItem } from '@ficha/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppointmentDetailDialog from '@/components/agenda/AppointmentDetailDialog';
@@ -46,7 +46,7 @@ export default function AgendaPage() {
   // pierda dónde estabas. null = hoy, resuelto cuando llega la configuración.
   const [ancla, setAncla] = useState<string | null>(null);
   const [diaElegido, setDiaElegido] = useState<string | null>(null);
-  const [seleccionado, setSeleccionado] = useState<Appointment | null>(null);
+  const [seleccionado, setSeleccionado] = useState<AppointmentListItem | null>(null);
   const [nuevo, setNuevo] = useState<{ date: string; time: string } | null>(null);
 
   const { data: tenant } = useQuery({
@@ -253,11 +253,6 @@ export default function AgendaPage() {
                       </span>
                     </div>
                     <p className="text-sm mt-1">{a.patientName}</p>
-                    {a.episodeMainComplaint && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {a.episodeMainComplaint}
-                      </p>
-                    )}
                   </button>
                 ))
               )}

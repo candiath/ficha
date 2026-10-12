@@ -5,12 +5,12 @@ import { createTestClinic, createTestOperator, type TestClinic, type TestOperato
 
 const PLATFORM = '/api/platform';
 
-// The operator's audit rows name the action, never a person or a clinic
-// (#186, docs/specs/SPEC-audit-hardening.md §4): audit rows can never change,
-// so an email or a name in one could never be erased. Who was affected is
+// The operator's audit rows record the action as codes, never a person or a
+// clinic (#186, SPEC-audit-structured-entries.md): audit rows can never
+// change, so an email or a name in one could never be erased. Who was affected is
 // resolved when the list is read, from the row's target, so an anonymized
 // user would show as anonymized.
-describe('platform audit descriptions carry no names', { timeout: 30_000 }, () => {
+describe('platform audit rows carry codes, never names', { timeout: 30_000 }, () => {
   let op: TestOperator;
   let clinic: TestClinic;
 
@@ -19,6 +19,7 @@ describe('platform audit descriptions carry no names', { timeout: 30_000 }, () =
 
   type AuditRow = {
     action: string;
+    params: Record<string, unknown>;
     description: string;
     targetUserId: string | null;
     targetUser: { email: string; name: string | null } | null;
@@ -76,21 +77,24 @@ describe('platform audit descriptions carry no names', { timeout: 30_000 }, () =
       'PASSWORD_RESET_LINK_CREATED',
       'TENANT_DEACTIVATED',
       'TENANT_REACTIVATED',
-      'USER_ACTIVE_CHANGED',
+      'USER_DEACTIVATED',
       'USER_DEVICES_DISCONNECTED',
       'USER_ROLE_CHANGED',
     ]);
   });
 
-  it('no description carries an email or the clinic name', () => {
+  it('no row carries an email or the clinic name, in its codes or its sentence', () => {
     for (const row of rows) {
+      expect(JSON.stringify(row.params)).not.toMatch(/@/);
+      expect(JSON.stringify(row.params)).not.toContain(clinic.name);
       expect(row.description).not.toMatch(/@/);
       expect(row.description).not.toContain(clinic.name);
     }
   });
 
-  it('the new role stays: it is what the audit must show', () => {
+  it('the new role stays, as a code: it is what the audit must show', () => {
     const roleChange = rows.find((r) => r.action === 'USER_ROLE_CHANGED');
+    expect(roleChange?.params).toEqual({ role: 'THERAPIST' });
     expect(roleChange?.description).toBe('Cambió el rol a fisioterapeuta');
   });
 
