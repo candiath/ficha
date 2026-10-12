@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { describeAuditEntry, readAuditParams } from '@ficha/shared';
+import { readAuditParams } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
@@ -21,14 +21,12 @@ const auditSelect = {
 
 type AuditRow = Prisma.AuditLogGetPayload<{ select: typeof auditSelect }>;
 
-// params are read leniently (a row may predate a parameter, or carry one this
-// version does not know) and the description is built from the catalog, for
-// a web that predates it (SPEC-audit-structured-entries.md §5).
+// params are read leniently: a row may predate a parameter, or carry one this
+// version does not know (SPEC-audit-structured-entries.md §5).
 function toDTO(row: AuditRow): AuditLogDTO {
   return {
     ...row,
     params: readAuditParams('audit_logs', row.action, row.params),
-    description: describeAuditEntry('audit_logs', row.action, row.params),
     createdAt: row.createdAt.toISOString(),
   };
 }

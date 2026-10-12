@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AuditAction, User } from '@prisma/client';
+import { describeAuditEntry } from '@ficha/shared';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
@@ -213,16 +214,17 @@ describe('audit rows record codes, never values', () => {
     ]);
   });
 
-  it("the patient's history carries codes and the sentence built from them", async () => {
+  it("the patient's history carries codes, which the catalog turns into a sentence", async () => {
     const res = await auth(request(app).get(`/api/patients/${patient.id}/audit-log`));
     expect(res.status).toBe(200);
 
-    const update = (res.body.data as { action: string; params: unknown; description: string }[]).find(
+    const update = (res.body.data as { action: string; params: unknown }[]).find(
       (e) => e.action === 'PATIENT_UPDATED',
     );
-    expect(update).toMatchObject({
-      params: { changedFields: ['phone', 'insuranceName'] },
-      description: 'Actualizó el teléfono y la obra social',
-    });
+    expect(update).toMatchObject({ params: { changedFields: ['phone', 'insuranceName'] } });
+    expect(update).not.toHaveProperty('description');
+    expect(describeAuditEntry('audit_logs', update!.action, update!.params)).toBe(
+      'Actualizó el teléfono y la obra social',
+    );
   });
 });

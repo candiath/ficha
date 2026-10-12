@@ -345,7 +345,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       });
       // The role is a code in params; the sentence is built from the catalog.
       expect(audit.body.data[0].params).toEqual({ role: 'ADMIN' });
-      expect(audit.body.data[0].description).toBe('Cambió el rol a ADMIN');
+      expect(audit.body.data[0]).not.toHaveProperty('description');
     });
 
     // Un PATCH que repite el valor actual matchea la fila igual (count 1);

@@ -14,9 +14,6 @@ export interface AuditLogDTO {
   // Codes only (#186, SPEC-audit-structured-entries.md): the screens read them
   // with readAuditParams / describeAuditEntry from @ficha/shared.
   params: Record<string, unknown>;
-  // Built from the catalog, for a web that predates it. Goes away with
-  // release 2 of SPEC-audit-structured-entries.md.
-  description: string;
   createdAt: string;
 }
 

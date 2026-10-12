@@ -59,6 +59,16 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261012030000_drop_audit_description': {
+    reason:
+      'Release 2 of audit rows as codes (SPEC-audit-structured-entries.md): the Spanish description ' +
+      'is dropped from both audit tables, once, before the pre-launch wipe (#223): every row that ' +
+      'has one holds fictitious data. No code since release 1 writes or reads it.',
+    violations: [
+      'DROP COLUMN: ALTER TABLE "audit_logs" DROP COLUMN "description"',
+      'DROP COLUMN: ALTER TABLE "platform_audit_logs" DROP COLUMN "description"',
+    ],
+  },
   '20261012010100_audit_params_and_actor': {
     reason:
       'Audit rows as codes (SPEC-audit-structured-entries.md): description stops being required on ' +

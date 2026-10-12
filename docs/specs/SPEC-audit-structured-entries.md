@@ -245,7 +245,7 @@ Two releases, as `CLAUDE.md` requires for destructive migrations: Render migrate
    - Migration C adds `entity` / `entity_id` to `platform_audit_logs`, their check and the unique index.
    - The code writes the new format; `description` is `@ignore`d; the DTOs carry `params` and a computed `description`; the web renders from the catalog.
    - During the build, the old code keeps writing `description` and `CREATED`/…, which the database still accepts.
-2. **Release 2**: `DROP COLUMN description` on both tables, with its scan entry (reason: fictitious data, before the wipe) and guard; `description` leaves the DTOs and `schema.prisma`.
+2. **Release 2**: `DROP COLUMN description` on both tables (`20261012030000_drop_audit_description`), with its scan entry (reason: fictitious data, before the wipe); `description` leaves the DTOs, the shared types and `schema.prisma`, and the web reads codes only. The scan already forbids a later `DROP COLUMN`, and a column that came back would be written by no code, so the guards do not pin its absence.
    - **Its PR is merged to `dev` only after release 1 is on `main`.** A release PR promotes everything on `dev` at once; if both were there, production would drop the column under code that still reads it.
    - **It reaches `main` before the wipe (#223).** If delivery comes first, release 2 drops nothing: the column stays, empty and `@ignore`d, and the guard pins it as nullable instead of absent. Dropping audit text after delivery would erase a real record.
 
