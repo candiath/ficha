@@ -67,6 +67,14 @@ describe('platform alerts', () => {
     await clinic.cleanup();
   });
 
+  // tests/setup.ts empties the variables; Prisma, loaded with the app, reads
+  // .env again and must not bring a real token back.
+  it('runs with no Telegram configuration, even after Prisma loads .env', () => {
+    expect(process.env.TELEGRAM_BOT_TOKEN).toBe('');
+    expect(process.env.TELEGRAM_CHAT_ID).toBe('');
+    expect(process.env.RENDER_SERVICE_NAME).toBe('');
+  });
+
   it('is for the operator only', async () => {
     const user = await clinic.createUser({ role: 'ADMIN' });
 

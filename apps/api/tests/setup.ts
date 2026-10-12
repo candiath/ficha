@@ -12,13 +12,15 @@ process.env.NODE_ENV = 'test';
 process.env.PLATFORM_JWT_SECRET ??= 'secreto-de-plataforma-solo-para-tests-0123456789';
 
 // Tests never reach Telegram (#186, SPEC-sysadmin-alerts.md §9). The local
-// .env may hold a real bot's token: the variables go, and any request to the
-// Bot API fails before it leaves this process. A test that needs Telegram
+// .env may hold a real bot's token: the variables are emptied, and any request
+// to the Bot API fails before it leaves this process. Emptied, not deleted:
+// Prisma loads .env again when its client is created, and like dotenv it only
+// skips variables that are already set, so a deleted one would come back. A test that needs Telegram
 // passes its own fetch, or stubs this one (vi.stubGlobal). The message does
 // not repeat the URL, which would carry the token.
-delete process.env.TELEGRAM_BOT_TOKEN;
-delete process.env.TELEGRAM_CHAT_ID;
-delete process.env.RENDER_SERVICE_NAME;
+process.env.TELEGRAM_BOT_TOKEN = '';
+process.env.TELEGRAM_CHAT_ID = '';
+process.env.RENDER_SERVICE_NAME = '';
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

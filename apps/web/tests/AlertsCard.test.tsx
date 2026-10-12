@@ -73,7 +73,7 @@ describe('AlertsCard', () => {
 
     renderCard();
 
-    const list = await screen.findByRole('list', { name: 'Últimas alertas' });
+    const list = await screen.findByRole('list', { name: 'Últimas alertas reales' });
     const item = within(list).getByRole('listitem');
     expect(item).toHaveTextContent('Chequeo de auditoría fallido');
     expect(item).toHaveTextContent('No se pudo contactar a Telegram');
@@ -96,7 +96,7 @@ describe('AlertsCard', () => {
       await screen.findByText(/No configurado: faltan TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en el servicio/),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enviar alerta de prueba' })).toBeDisabled();
-    expect(screen.getByText('Ninguna alerta todavía.')).toBeInTheDocument();
+    expect(screen.getByText(/Ninguna alerta real todavía. Las pruebas no se listan acá/)).toBeInTheDocument();
     expect(bot).not.toHaveBeenCalled();
   });
 
