@@ -148,6 +148,10 @@ model User {
 //
 // No tenantId column: the owner is the user and the tenant comes from the
 // join. A copied tenantId could drift from users.tenant_id.
+//
+// Retention: deleted 180 days after the session ended (revoked, expired, or
+// idle past the longest idle timeout), by lib/retention.ts (#178). Audit rows
+// keep the id, with no foreign key.
 // ─────────────────────────────────────────────────────────────────────────────
 model AuthSession {
   id        String    @id @default(uuid(7)) @db.Uuid
@@ -236,6 +240,7 @@ model PlatformOperator {
   auditLogs   PlatformAuditLog[]
   loginEvents LoginEvent[]
   passwordResetsIssued PasswordResetToken[]
+  testAlerts  SysadminAlert[]
 
   @@map("platform_operators")
 }
@@ -249,6 +254,9 @@ enum PlatformAction {
   USER_ACTIVE_CHANGED
   USER_DEVICES_DISCONNECTED
   PASSWORD_RESET_LINK_CREATED
+  // An action on the platform itself: the only one with no clinic (a CHECK
+  // on platform_audit_logs pins it). SPEC-sysadmin-alerts.md §2.
+  TEST_ALERT_SENT
 }
 
 // Cada acción del operador, con el operador como actor. Tabla propia y no
@@ -260,10 +268,14 @@ enum PlatformAction {
 // Tiene columna tenantId pero queda FUERA del guard de tenant, declarado en
 // TENANT_MODELS_FUERA_DEL_GUARD: la escribe alguien que no tiene tenant, y
 // el tenantId es el objetivo de la acción, no el dueño de la fila.
+//
+// The clinic is null only for an action on the platform itself
+// (TEST_ALERT_SENT), and a row with a target always names its clinic: two
+// CHECKs in the migration, pinned by prisma/audit-guards.sql.
 model PlatformAuditLog {
   id           String         @id @default(uuid(7)) @db.Uuid
   operatorId   String         @map("operator_id") @db.Uuid
-  tenantId     String         @map("tenant_id") @db.Uuid
+  tenantId     String?        @map("tenant_id") @db.Uuid
   targetUserId String?        @map("target_user_id") @db.Uuid
   action       PlatformAction
   description  String
@@ -275,12 +287,70 @@ model PlatformAuditLog {
   // lose its operator or target, and nobody it names can be deleted. The
   // target is a user of the row's own clinic.
   operator   PlatformOperator @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tenant     Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   targetUser User?            @relation(fields: [tenantId, targetUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([createdAt])
   @@map("platform_audit_logs")
+}
+
+// ─── Sysadmin alerts (#186, docs/specs/SPEC-sysadmin-alerts.md) ──────────────
+// What the platform operator is told by Telegram, and whether it reached her.
+// Both tables are audit tables: append-only, created_at stamped by the
+// database (the same triggers as platform_audit_logs), checked by
+// prisma/audit-guards.sql. A kind names a fixed message: rows carry no text,
+// no personal data and no values.
+//
+// No tenantId: an alert is about the platform, not a clinic. A producer that
+// adds one classifies the models in TENANT_MODELS_FUERA_DEL_GUARD.
+
+enum SysadminAlertKind {
+  AUDIT_GUARDS_FAILED            // audit-guards.sql failed at startup
+  AUDIT_MAINTENANCE_FLAG_PRESENT // no-audit-maintenance.sql failed at startup
+  TEST                           // sent by the operator from /platform
+}
+
+enum SysadminAlertOutcome {
+  SENT           // Telegram accepted it
+  REJECTED       // Telegram answered ok: false; error_code says why
+  UNREACHABLE    // no usable answer: network error, timeout, a body that is not Telegram's
+  NOT_CONFIGURED // token or chat missing or malformed: nothing was sent
+}
+
+model SysadminAlert {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  kind       SysadminAlertKind
+  // Who sent a test alert; null for every other kind (a CHECK enforces it).
+  operatorId String?           @map("operator_id") @db.Uuid
+  // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC.
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  operator   PlatformOperator? @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  deliveries SysadminAlertDelivery[]
+
+  @@index([createdAt])
+  @@map("sysadmin_alerts")
+}
+
+// One row per delivery attempt of an alert.
+model SysadminAlertDelivery {
+  id        String               @id @default(uuid(7)) @db.Uuid
+  alertId   String               @map("alert_id") @db.Uuid
+  outcome   SysadminAlertOutcome
+  // Telegram's error_code, only when it rejected the message (a CHECK).
+  errorCode Int?                 @map("error_code")
+  // Why it was not sent: Telegram's description, the network error's code, or
+  // the variables' names. Redacted (lib/telegram.ts) and cut to 200 characters.
+  detail    String?              @db.VarChar(200)
+  // Stamped by the database on insert, like the alert's.
+  createdAt DateTime             @default(now()) @map("created_at")
+
+  alert SysadminAlert @relation(fields: [alertId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([alertId, createdAt])
+  @@index([createdAt])
+  @@map("sysadmin_alert_deliveries")
 }
 
 // Telemetría de seguridad: cada intento de login, exitoso o fallido.

@@ -20,6 +20,7 @@ import globalSessionsRouter from './routes/globalSessions';
 import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
 import platformRouter from './routes/platform';
+import platformAlertsRouter from './routes/platformAlerts';
 import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
@@ -108,6 +109,9 @@ app.use('/api/auth', authRouter);
 // operador no vale acá abajo (otro secreto, otra forma) ni uno de usuario vale
 // acá arriba. Solo tocan clínicas y lo administrativo de sus usuarios.
 app.use('/api/platform/auth', platformAuthRouter);
+// Before /api/platform, whose router ends in a catch-all 404. Sysadmin
+// alerts (#186): the card, the bot and the test button.
+app.use('/api/platform/alerts', authenticateOperator, platformAlertsRouter);
 app.use('/api/platform', authenticateOperator, platformRouter);
 
 // Todo lo que se monta debajo de esta línea requiere un token válido.

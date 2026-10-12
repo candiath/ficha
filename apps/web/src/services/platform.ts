@@ -9,6 +9,9 @@ import type {
   PlatformTenant,
   PlatformTenantCreateInput,
   PlatformUser,
+  SysadminAlertBot,
+  SysadminAlertsOverview,
+  TestAlertResult,
   UpdateUserInput,
 } from '@ficha/shared';
 
@@ -57,4 +60,18 @@ export const platformTenantsApi = {
     ),
   auditLog: (tenantId: string) =>
     platformApi.get<PlatformAuditEntry[]>(`/api/platform/tenants/${tenantId}/audit-log`),
+};
+
+// Sysadmin alerts (#186): the card, the bot and the test button. The banner
+// reads the same query as the card.
+export const platformAlertKeys = {
+  overview: ['platform', 'alerts'] as const,
+  bot: ['platform', 'alerts', 'bot'] as const,
+};
+
+export const platformAlertsApi = {
+  overview: () => platformApi.get<SysadminAlertsOverview>('/api/platform/alerts'),
+  bot: () => platformApi.get<SysadminAlertBot>('/api/platform/alerts/bot'),
+  // Waits for Telegram: the answer, whatever it is, is the result.
+  sendTest: () => platformApi.post<TestAlertResult>('/api/platform/alerts/test', {}),
 };

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { KeyRound, LogOut, ShieldCheck } from 'lucide-react';
 import { Link, Outlet } from 'react-router-dom';
 import ChangePasswordDialog, { type PasswordSession } from '@/components/account/ChangePasswordDialog';
+import UndeliveredAlertBanner from '@/components/platform/UndeliveredAlertBanner';
 import { Button } from '@/components/ui/button';
 import { usePlatformAuth } from '@/contexts/PlatformAuthContext';
 import { platformApi } from '@/lib/api';
@@ -49,6 +50,7 @@ export default function PlatformLayout() {
           </Button>
         </div>
       </header>
+      <UndeliveredAlertBanner />
       <main className="mx-auto max-w-4xl px-4 py-6">
         <Outlet />
       </main>

@@ -425,8 +425,23 @@ describe('audit rows keep who they name, within their clinic', () => {
 describe('audit-guards.sql', () => {
   const guards = readFileSync(join(__dirname, '../prisma/audit-guards.sql'), 'utf8');
 
+  const swap = (sql: string, from: string, to: string) => {
+    expect(sql.split(from)).toHaveLength(2); // exactly one occurrence
+    return sql.replace(from, to);
+  };
+
   it('passes on the deployed tables', async () => {
     await expect(prisma.$executeRawUnsafe(guards)).resolves.toBeDefined();
+  });
+
+  // A dropped audit table is the worst failure there is, and must be reported
+  // as one, not error out as if the check could not run (SPEC-sysadmin-alerts.md §7).
+  it('reports a missing audit table', async () => {
+    const missing = swap(guards, "'public.sysadmin_alert_deliveries'", "'public.no_such_audit_table'");
+
+    await expect(prisma.$executeRawUnsafe(missing)).rejects.toThrow(
+      /audit guards failed:.*table sysadmin_alert_deliveries is missing/,
+    );
   });
 
   describe('on TEMP copies', () => {
@@ -434,14 +449,10 @@ describe('audit-guards.sql', () => {
     url.searchParams.set('connection_limit', '1');
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
-    const swap = (sql: string, from: string, to: string) => {
-      expect(sql.split(from)).toHaveLength(2); // exactly one occurrence
-      return sql.replace(from, to);
-    };
-    const onCopies = swap(
-      swap(guards, "'public.audit_logs'", "'pg_temp.audit_logs'"),
-      "'public.platform_audit_logs'",
-      "'pg_temp.platform_audit_logs'",
+    const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
+    const onCopies = TABLES.reduce(
+      (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
+      guards,
     );
 
     // The copies have no foreign keys (a TEMP table cannot reference a
@@ -459,7 +470,7 @@ describe('audit-guards.sql', () => {
     };
 
     beforeAll(async () => {
-      for (const table of ['audit_logs', 'platform_audit_logs']) {
+      for (const table of TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_created_at BEFORE INSERT ON pg_temp.${table}
           FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);
@@ -487,6 +498,38 @@ describe('audit-guards.sql', () => {
       } finally {
         await db.$executeRawUnsafe('ALTER TABLE pg_temp.audit_logs ENABLE TRIGGER audit_logs_append_only');
       }
+    });
+
+    it('notices a disabled trigger on an alert table', async () => {
+      await db.$executeRawUnsafe(
+        'ALTER TABLE pg_temp.sysadmin_alert_deliveries DISABLE TRIGGER sysadmin_alert_deliveries_append_only',
+      );
+      try {
+        expect(await failure()).toMatch(
+          /trigger sysadmin_alert_deliveries_append_only on sysadmin_alert_deliveries is not enabled/,
+        );
+      } finally {
+        await db.$executeRawUnsafe(
+          'ALTER TABLE pg_temp.sysadmin_alert_deliveries ENABLE TRIGGER sysadmin_alert_deliveries_append_only',
+        );
+      }
+    });
+
+    it('notices a missing trigger on an alert table', async () => {
+      await db.$executeRawUnsafe('DROP TRIGGER sysadmin_alerts_no_truncate ON pg_temp.sysadmin_alerts');
+      expect(await failure()).toMatch(/trigger set on sysadmin_alerts differs/);
+    });
+
+    it('notices a CHECK that is missing', async () => {
+      // LIKE copies no CHECK constraints: the copies lack all four.
+      expect(await failure()).toMatch(
+        /check constraint sysadmin_alerts_operator_only_on_tests on sysadmin_alerts is missing or changed/,
+      );
+    });
+
+    it('notices a column that became nullable', async () => {
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.sysadmin_alert_deliveries ALTER COLUMN alert_id DROP NOT NULL');
+      expect(await failure()).toMatch(/sysadmin_alert_deliveries\.alert_id is nullable/);
     });
 
     it('notices a WHEN condition', async () => {

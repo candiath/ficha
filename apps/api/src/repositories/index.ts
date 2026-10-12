@@ -18,3 +18,4 @@ export { prismaTenantRepository as tenantRepo } from './prisma/prismaTenantRepos
 export { prismaAppointmentRepository as appointmentRepo } from './prisma/prismaAppointmentRepository';
 export { prismaPlatformRepository as platformRepo } from './prisma/prismaPlatformRepository';
 export { prismaAuditGuardRepository as auditGuardRepo } from './prisma/prismaAuditGuardRepository';
+export { prismaSysadminAlertRepository as sysadminAlertRepo } from './prisma/prismaSysadminAlertRepository';

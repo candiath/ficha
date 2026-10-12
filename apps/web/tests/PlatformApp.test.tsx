@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformTenant } from '@ficha/shared';
 import PlatformApp from '@/pages/platform/PlatformApp';
-import { platformAuthApi, platformTenantsApi } from '@/services/platform';
+import { platformAlertsApi, platformAuthApi, platformTenantsApi } from '@/services/platform';
 
 // Se mockea la capa HTTP de plataforma; el provider de sesión, el guard de
 // ruta y las pantallas corren de verdad. La app clínica no aparece: este
@@ -15,6 +15,8 @@ vi.mock('@/services/platform', () => ({
     users: (id: string) => ['platform', 'tenants', id, 'users'],
     audit: (id: string) => ['platform', 'tenants', id, 'audit'],
   },
+  platformAlertKeys: { overview: ['platform', 'alerts'], bot: ['platform', 'alerts', 'bot'] },
+  platformAlertsApi: { overview: vi.fn(), bot: vi.fn(), sendTest: vi.fn() },
   platformAuthApi: { login: vi.fn(), me: vi.fn(), changePassword: vi.fn() },
   platformTenantsApi: {
     list: vi.fn(),
@@ -68,6 +70,16 @@ function renderAt(path: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // The layout's alert banner and the Alertas card (#186): nothing to report.
+  vi.mocked(platformAlertsApi.overview).mockResolvedValue({
+    environment: 'local',
+    configuration: 'not_configured',
+    variables: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'],
+    alerts: [],
+    lastTest: null,
+    lastDelivery: null,
+    undeliveredAlert: null,
+  });
 });
 
 describe('PlatformApp', () => {
