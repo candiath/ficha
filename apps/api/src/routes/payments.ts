@@ -73,11 +73,10 @@ router.post('/', async (req, res) => {
   const body = PaymentCreateSchema.parse(req.body);
 
   const result = await paymentRepo.create(req.context, body, (p) => ({
+    action: 'PAYMENT_CREATED',
     patientId: p.patientId,
-    entity: 'PAYMENT',
     entityId: p.id,
-    action: 'CREATED',
-    description: 'Cobro registrado',
+    params: { status: p.status },
   }));
 
   if (!result.ok) {
@@ -124,12 +123,11 @@ router.patch('/:id', async (req, res) => {
       packageId: body.packageId,
       notes: body.notes,
     },
-    (p) => ({
+    (p, changedFields) => ({
+      action: 'PAYMENT_UPDATED',
       patientId: p.patientId,
-      entity: 'PAYMENT',
       entityId: p.id,
-      action: 'UPDATED',
-      description: 'Cobro actualizado',
+      params: { status: p.status, changedFields },
     }),
   );
 

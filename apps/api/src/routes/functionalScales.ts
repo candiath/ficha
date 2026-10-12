@@ -119,11 +119,10 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
       ...(body.appliedAt ? { appliedAt: new Date(body.appliedAt) } : {}),
     },
     (s) => ({
+      action: 'SCALE_APPLIED',
       patientId: req.params.patientId,
-      entity: 'EVALUATION',
       entityId: s.id,
-      action: 'CREATED',
-      description: `Escala ${body.scaleType} aplicada`,
+      params: { scaleType: s.scaleType },
     }),
   );
 

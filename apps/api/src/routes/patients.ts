@@ -54,11 +54,10 @@ router.post('/', async (req, res) => {
   const body = PatientCreateSchema.parse(req.body);
 
   const patient = await patientRepo.create(req.context, body, (p) => ({
+    action: 'PATIENT_CREATED',
     patientId: p.id,
-    entity: 'PATIENT',
     entityId: p.id,
-    action: 'CREATED',
-    description: 'Paciente registrado en el sistema',
+    params: {},
   }));
 
   res.status(201).json({ data: patient });
@@ -70,12 +69,11 @@ router.patch('/:id', async (req, res) => {
 
   // null = no existe, es de otro tenant o está borrado: mismo 404 en los
   // tres casos, sin revelar cuál fue.
-  const patient = await patientRepo.update(req.context, req.params.id, body, (p) => ({
+  const patient = await patientRepo.update(req.context, req.params.id, body, (p, changedFields) => ({
+    action: 'PATIENT_UPDATED',
     patientId: p.id,
-    entity: 'PATIENT',
     entityId: p.id,
-    action: 'UPDATED',
-    description: 'Ficha del paciente actualizada',
+    params: { changedFields },
   }));
 
   if (!patient) {
@@ -91,11 +89,10 @@ router.patch('/:id', async (req, res) => {
 // perder historia clínica ni romper las FKs de sesiones, pagos y auditoría.
 router.delete('/:id', async (req, res) => {
   const deleted = await patientRepo.softDelete(req.context, req.params.id, {
+    action: 'PATIENT_DELETED',
     patientId: req.params.id,
-    entity: 'PATIENT',
     entityId: req.params.id,
-    action: 'DELETED',
-    description: 'Paciente eliminado (borrado lógico)',
+    params: {},
   });
 
   if (!deleted) {

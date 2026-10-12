@@ -59,6 +59,15 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261012010100_audit_params_and_actor': {
+    reason:
+      'Audit rows as codes (SPEC-audit-structured-entries.md): description stops being required on ' +
+      'both audit tables, because the code no longer writes it. Release 2 drops it.',
+    violations: [
+      'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "description" DROP NOT NULL',
+      'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "description" DROP NOT NULL',
+    ],
+  },
   '20261011193500_sysadmin_alerts': {
     reason:
       'The sysadmin alert tables (SPEC-sysadmin-alerts.md): six triggers that call the audit ' +
@@ -77,7 +86,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 };
 
 const AUDIT_NAMES =
-  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|AuditAction|AuditEntity|PlatformAction|SysadminAlertKind|SysadminAlertOutcome)\b/i;
+  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
 
 const FORBIDDEN: [string, RegExp][] = [
   ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],
@@ -158,6 +167,8 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TABLE "audit_logs" DROP COLUMN "description";')).toHaveLength(1);
     expect(auditDdlViolations('ALTER TABLE platform_audit_logs DISABLE TRIGGER USER;')).toHaveLength(1);
     expect(auditDdlViolations('CREATE OR REPLACE FUNCTION public.audit_maintenance_on() RETURNS boolean')).toHaveLength(1);
+    expect(auditDdlViolations('CREATE OR REPLACE FUNCTION public.audit_params_are_codes(p jsonb) RETURNS boolean')).toHaveLength(1);
+    expect(auditDdlViolations(`ALTER TYPE "PlatformAuditEntity" RENAME VALUE 'SYSADMIN_ALERT' TO 'ALERT';`)).toHaveLength(1);
     expect(auditDdlViolations('ALTER TYPE "AuditAction" RENAME VALUE \'CREATED\' TO \'ADDED\';')).toHaveLength(1);
     expect(auditDdlViolations('SET session_replication_role = replica;')).toHaveLength(1);
     expect(auditDdlViolations('ALTER TABLE audit_logs ENABLE ALWAYS TRIGGER audit_logs_append_only;')).toHaveLength(1);

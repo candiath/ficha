@@ -34,7 +34,8 @@ describe('sysadminAlertRepo', () => {
       where: { operatorId: operator.operator.id, action: 'TEST_ALERT_SENT' },
     });
     expect(actions).toEqual([
-      expect.objectContaining({ tenantId: null, targetUserId: null, description: 'Envió una alerta de prueba' }),
+      // The row names the alert it sent.
+      expect.objectContaining({ tenantId: null, targetUserId: null, entity: 'SYSADMIN_ALERT', entityId: id }),
     ]);
   });
 

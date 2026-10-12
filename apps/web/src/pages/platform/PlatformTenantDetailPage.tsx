@@ -5,7 +5,6 @@ import { ArrowLeft, ShieldPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
   PasswordResetLink,
-  PlatformAction,
   PlatformUser,
   UpdateUserInput,
   UserRole,
@@ -37,25 +36,11 @@ import {
 } from '@/components/ui/select';
 import { ROLE_LABELS } from '@/lib/labels';
 import { passwordResetConfirmation } from '@/lib/passwordReset';
+import { auditDisplay } from '@/lib/auditDisplay';
 import { cn } from '@/lib/utils';
 import { platformKeys, platformTenantsApi } from '@/services/platform';
 
 const ROLES: UserRole[] = ['ADMIN', 'THERAPIST'];
-
-// Tipado con la unión y no con string: si la API agrega una acción, el
-// typecheck avisa acá en vez de mostrar el enum crudo en el historial.
-const ACTION_LABELS: Record<PlatformAction, string> = {
-  TENANT_CREATED: 'Clínica creada',
-  TENANT_DEACTIVATED: 'Clínica desactivada',
-  TENANT_REACTIVATED: 'Clínica reactivada',
-  ADMIN_CREATED: 'ADMIN creada',
-  USER_ROLE_CHANGED: 'Cambio de rol',
-  USER_ACTIVE_CHANGED: 'Cambio de estado',
-  USER_DEVICES_DISCONNECTED: 'Dispositivos desconectados',
-  PASSWORD_RESET_LINK_CREATED: 'Enlace para restablecer contraseña',
-  // Never in a clinic's history (it names no clinic); here for the union.
-  TEST_ALERT_SENT: 'Alerta de prueba enviada',
-};
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return '—';
@@ -404,16 +389,19 @@ export default function PlatformTenantDetailPage() {
           )}
           {audit && audit.length > 0 && (
             <ul className="space-y-2">
-              {audit.map((a) => (
+              {audit.map((a) => {
+                // Label and sentence from the catalog (SPEC-audit-structured-entries.md).
+                const shown = auditDisplay('platform_audit_logs', a);
+                return (
                 <li key={a.id} className="text-sm flex flex-col sm:flex-row sm:gap-3">
                   <span className="text-xs text-muted-foreground shrink-0 sm:w-36">
                     {formatDateTime(a.createdAt)}
                   </span>
                   <span>
-                    <span className="font-medium">{ACTION_LABELS[a.action] ?? a.action}</span>
-                    <span className="text-muted-foreground"> · {a.description}</span>
-                    {/* The description never names the person (#186): who
-                        was affected comes from the row's target. */}
+                    <span className="font-medium">{shown.label}</span>
+                    <span className="text-muted-foreground"> · {shown.text}</span>
+                    {/* An audit row never names the person (#186): who was
+                        affected comes from the row's target. */}
                     {a.targetUser && (
                       <span className="text-muted-foreground">
                         {' · '}
@@ -426,7 +414,8 @@ export default function PlatformTenantDetailPage() {
                     )}
                   </span>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </CardContent>

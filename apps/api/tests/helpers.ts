@@ -5,6 +5,9 @@ import type { PlatformOperator, Prisma, User, UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 import type { TenantContext } from '../src/repositories/types';
+import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../src/repositories/auditLogRepository';
+import type { PatientAuditField } from '../src/repositories/patientRepository';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -198,24 +201,21 @@ export async function waitFor<T>(
 // Audited repository writes take their audit entry as an argument (#188);
 // tests that call them directly pass one of these.
 
+export function patientAudit(action: 'CREATED'): AuditBuilder<{ id: string }>;
+export function patientAudit(action: 'UPDATED'): AuditUpdateBuilder<{ id: string }, PatientAuditField>;
 export function patientAudit(action: 'CREATED' | 'UPDATED') {
-  return (p: { id: string }) => ({
-    patientId: p.id,
-    entity: 'PATIENT' as const,
-    entityId: p.id,
-    action,
-    description: `test: patient ${action.toLowerCase()}`,
-  });
+  return action === 'CREATED'
+    ? (p: { id: string }): AuditEntry => ({ action: 'PATIENT_CREATED', patientId: p.id, entityId: p.id, params: {} })
+    : (p: { id: string }, changedFields: [PatientAuditField, ...PatientAuditField[]]): AuditEntry => ({
+        action: 'PATIENT_UPDATED',
+        patientId: p.id,
+        entityId: p.id,
+        params: { changedFields },
+      });
 }
 
-export function patientDeleteAudit(patientId: string) {
-  return {
-    patientId,
-    entity: 'PATIENT' as const,
-    entityId: patientId,
-    action: 'DELETED' as const,
-    description: 'test: patient deleted',
-  };
+export function patientDeleteAudit(patientId: string): AuditEntry {
+  return { action: 'PATIENT_DELETED', patientId, entityId: patientId, params: {} };
 }
 
 // ─── Audit rows ─────────────────────────────────────────────────────────────
@@ -286,5 +286,14 @@ export type BackdatedAuditRow = Prisma.AuditLogCreateManyInput & { createdAt: Da
 
 export async function insertAuditRowsAt(rows: BackdatedAuditRow[]): Promise<{ id: string }[]> {
   if (rows.length === 0) throw new Error('insertAuditRowsAt needs at least one row');
+  // Checked against the catalog like any audit write, so a fixture cannot
+  // drift from it (SPEC-audit-structured-entries.md §4).
+  for (const row of rows) {
+    const problem = auditEntryProblem('audit_logs', row.action, row.params ?? {});
+    if (problem) throw new Error(`insertAuditRowsAt: ${problem}`);
+    if (row.entity !== auditEntityOf('audit_logs', row.action)) {
+      throw new Error(`insertAuditRowsAt: entity ${row.entity} does not match ${row.action}`);
+    }
+  }
   return inAuditMaintenance((tx) => tx.auditLog.createManyAndReturn({ data: rows, select: { id: true } }));
 }

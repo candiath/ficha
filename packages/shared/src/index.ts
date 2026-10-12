@@ -6,6 +6,8 @@
 // export type { Patient } from './types/patient';
 // export type { Session } from './types/session';
 
+import type { PlatformAction } from './auditActions';
+
 export interface ApiResponse<T> {
   data: T;
   error?: string;
@@ -24,6 +26,13 @@ export * from './postureFamilies';
 // Runtime también: la API deriva el slug con esto y la web muestra el mismo
 // resultado antes de mandar. Una sola implementación, o divergen.
 export * from './slug';
+
+// ── Auditoría ────────────────────────────────────────────────────────────────
+
+// Runtime as well: the catalog of audit actions (#186,
+// SPEC-audit-structured-entries.md). The API validates every audit row with
+// it, and the web builds each row's sentence from it.
+export * from './auditActions';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -294,17 +303,6 @@ export interface PlatformAdminCreateInput {
   password: string;
 }
 
-export type PlatformAction =
-  | 'TENANT_CREATED'
-  | 'TENANT_DEACTIVATED'
-  | 'TENANT_REACTIVATED'
-  | 'ADMIN_CREATED'
-  | 'USER_ROLE_CHANGED'
-  | 'USER_ACTIVE_CHANGED'
-  | 'USER_DEVICES_DISCONNECTED'
-  | 'PASSWORD_RESET_LINK_CREATED'
-  | 'TEST_ALERT_SENT';
-
 export interface PlatformAuditEntry {
   id: string;
   operatorId: string | null;
@@ -315,6 +313,10 @@ export interface PlatformAuditEntry {
   // Resolved when the list is read: descriptions never name the person (#186).
   targetUser: { email: string; name: string | null } | null;
   action: PlatformAction;
+  // Codes only (#186): read with readAuditParams / describeAuditEntry.
+  params: Record<string, unknown>;
+  // Built by the API from the catalog, for a web that predates it. Goes away
+  // with release 2 of SPEC-audit-structured-entries.md.
   description: string;
   createdAt: string;
 }

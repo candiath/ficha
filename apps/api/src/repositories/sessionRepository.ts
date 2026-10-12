@@ -1,6 +1,7 @@
 import type { SessionType } from '@prisma/client';
 import type { TenantContext } from './types';
-import type { AuditBuilder, AuditEntry } from './auditLogRepository';
+import type { AUDIT_SESSION_FIELDS } from '@ficha/shared';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,8 @@ export type SessionUpdateInput = Partial<SessionFields> & { episodeIds?: string[
 // sesión de otro paciente cuenta como inexistente. La vigencia del paciente
 // la exige la ruta con patientRepo.exists; la pertenencia de episodios y
 // paquete se valida antes con sus repos.
+export type SessionAuditField = keyof typeof AUDIT_SESSION_FIELDS;
+
 export interface SessionRepository {
   listByPatient(
     ctx: TenantContext,
@@ -130,6 +133,7 @@ export interface SessionRepository {
     patientId: string,
     id: string,
     input: SessionUpdateInput,
-    audit: AuditBuilder<SessionDTO>,
+    // Called only when a field changed, with the changed fields' names.
+    audit: AuditUpdateBuilder<SessionDTO, SessionAuditField>,
   ): Promise<SessionDTO | null>;
 }

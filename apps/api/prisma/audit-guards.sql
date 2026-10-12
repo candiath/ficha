@@ -145,7 +145,16 @@ BEGIN
       (alerts, 'sysadmin_alerts_operator_only_on_tests',
        $$CHECK (((kind = 'TEST'::"SysadminAlertKind") = (operator_id IS NOT NULL)))$$),
       (deliveries, 'sysadmin_alert_deliveries_error_code_on_rejected',
-       $$CHECK (((outcome = 'REJECTED'::"SysadminAlertOutcome") = (error_code IS NOT NULL)))$$)
+       $$CHECK (((outcome = 'REJECTED'::"SysadminAlertOutcome") = (error_code IS NOT NULL)))$$),
+      -- Audit rows as codes (SPEC-audit-structured-entries.md §2): params holds
+      -- codes only, who acted matches the actor columns, and a platform row's
+      -- object comes with its id.
+      (clinical, 'audit_logs_params_are_codes', $$CHECK (audit_params_are_codes(params))$$),
+      (platform, 'platform_audit_logs_params_are_codes', $$CHECK (audit_params_are_codes(params))$$),
+      (clinical, 'audit_logs_actor_matches_user',
+       $$CHECK (((actor_type <> 'OPERATOR'::"AuditActorType") AND ((actor_type = 'USER'::"AuditActorType") = (user_id IS NOT NULL))))$$),
+      (platform, 'platform_audit_logs_actor_is_operator', $$CHECK ((actor_type = 'OPERATOR'::"AuditActorType"))$$),
+      (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$)
     ) AS c(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -161,6 +170,10 @@ BEGIN
   -- Columns a CHECK or a key relies on: a CHECK with a null operand passes.
   FOR r IN SELECT * FROM (VALUES
       (platform, 'operator_id'),
+      (clinical, 'params'),
+      (clinical, 'actor_type'),
+      (platform, 'params'),
+      (platform, 'actor_type'),
       (alerts, 'kind'),
       (deliveries, 'alert_id'),
       (deliveries, 'outcome')
@@ -180,13 +193,31 @@ BEGIN
       ('public.audit_maintenance_on()', '475ea0b36f23ed709a26e54aa89fc4f2'),
       ('public.audit_rows_are_append_only()', 'c35b0c6e4047a5b148f0750d2e2f2065'),
       ('public.audit_rows_stamp_created_at()', '0faed1c7656e41e1c747993b78b23af1'),
-      ('public.audit_logs_check_session()', 'd6f9e9aa7014b9600e7c11f516f02af6')
+      ('public.audit_logs_check_session()', 'd6f9e9aa7014b9600e7c11f516f02af6'),
+      ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d')
     ) AS f(signature, hash)
   LOOP
     IF to_regprocedure(r.signature) IS NULL THEN
       problems := problems || format('function %s is missing', r.signature);
     ELSIF md5(replace(pg_get_functiondef(to_regprocedure(r.signature)), E'\r', '')) <> r.hash THEN
       problems := problems || format('function %s differs from the deployed one', r.signature);
+    END IF;
+  END LOOP;
+
+  -- Indexes a guarantee rests on, by exact definition: one platform row per
+  -- action on an object (SPEC-audit-structured-entries.md §2).
+  FOR r IN SELECT * FROM (VALUES
+      (platform, 'platform_audit_logs_action_entity_key',
+       'CREATE UNIQUE INDEX platform_audit_logs_action_entity_key ON public.platform_audit_logs USING btree (action, entity, entity_id) WHERE (entity IS NOT NULL)')
+    ) AS i(tbl, name, def)
+  LOOP
+    CONTINUE WHEN r.tbl IS NULL;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_index x
+       WHERE x.indrelid = r.tbl AND x.indexrelid::regclass::text = r.name AND x.indisvalid
+         AND pg_get_indexdef(x.indexrelid) = r.def
+    ) THEN
+      problems := problems || format('index %s on %s is missing or changed', r.name, r.tbl);
     END IF;
   END LOOP;
 

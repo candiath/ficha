@@ -343,9 +343,9 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
         targetUserId: fisio.id,
         operatorId: op.operator.id,
       });
-      // La descripción es para una persona: el rol va en castellano, no como
-      // el enum crudo.
-      expect(audit.body.data[0].description).toContain('a ADMIN');
+      // The role is a code in params; the sentence is built from the catalog.
+      expect(audit.body.data[0].params).toEqual({ role: 'ADMIN' });
+      expect(audit.body.data[0].description).toBe('Cambió el rol a ADMIN');
     });
 
     // Un PATCH que repite el valor actual matchea la fila igual (count 1);

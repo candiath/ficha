@@ -40,11 +40,11 @@ describe('CRUD de pacientes por HTTP', () => {
     return res.body.data as { id: string; [k: string]: unknown };
   }
 
-  function auditoria(patientId: string, action: 'CREATED' | 'UPDATED' | 'DELETED') {
+  function auditoria(patientId: string, action: 'PATIENT_CREATED' | 'PATIENT_UPDATED' | 'PATIENT_DELETED') {
     return waitFor(() =>
       prisma.auditLog.findFirst({
         where: { tenantId: clinic.tenantId, entity: 'PATIENT', entityId: patientId, action },
-        select: { patientId: true, userId: true, description: true },
+        select: { patientId: true, userId: true, params: true },
       }),
     );
   }
@@ -274,16 +274,16 @@ describe('CRUD de pacientes por HTTP', () => {
     await auth(request(app).delete(`/api/patients/${creado.id}`));
 
     const [creada, editada, borrada] = await Promise.all([
-      auditoria(creado.id, 'CREATED'),
-      auditoria(creado.id, 'UPDATED'),
-      auditoria(creado.id, 'DELETED'),
+      auditoria(creado.id, 'PATIENT_CREATED'),
+      auditoria(creado.id, 'PATIENT_UPDATED'),
+      auditoria(creado.id, 'PATIENT_DELETED'),
     ]);
 
     // Las tres apuntan al paciente y al usuario del token.
     for (const entrada of [creada, editada, borrada]) {
       expect(entrada).toMatchObject({ patientId: creado.id, userId: user.id });
     }
-    expect(borrada.description).toMatch(/borrado lógico/i);
+    expect(borrada.params).toEqual({});
   });
 
   // ── Autenticación ─────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
-import type { FamilyPainOption, PostureFamilies } from '@ficha/shared';
+import type { AUDIT_EVALUATION_FIELDS, FamilyPainOption, PostureFamilies } from '@ficha/shared';
 
 import type { TenantContext } from './types';
-import type { AuditBuilder } from './auditLogRepository';
+import type { AuditEntry } from './auditLogRepository';
 
 export interface EvaluationUpsertResult {
   evaluation: EvaluationDTO;
@@ -72,18 +72,29 @@ export interface EvaluationUpsertInput {
 // La evaluación inicial es 1:1 con el episodio (episodeId unique). La
 // existencia/pertenencia del EPISODIO no se chequea acá: eso es
 // episodeRepo.exists, y la ruta lo exige antes de llamar.
+export type EvaluationAuditField = keyof typeof AUDIT_EVALUATION_FIELDS;
+
+export type EvaluationAuditBuilder = (
+  result: EvaluationUpsertResult,
+  changedFields: [EvaluationAuditField, ...EvaluationAuditField[]] | null,
+) => AuditEntry;
+
 export interface EvaluationRepository {
   getByEpisode(
     ctx: TenantContext,
     patientId: string,
     episodeId: string,
   ): Promise<EvaluationDTO | null>;
-  /** Crea o reemplaza; `created` distingue el alta del update (auditoría). */
+  /**
+   * Crea o reemplaza; `created` distingue el alta del update (auditoría). The
+   * audit builder gets the changed fields' names on an update (null on a
+   * create); an update that changed nothing records no audit row.
+   */
   upsert(
     ctx: TenantContext,
     patientId: string,
     episodeId: string,
     input: EvaluationUpsertInput,
-    audit: AuditBuilder<EvaluationUpsertResult>,
+    audit: EvaluationAuditBuilder,
   ): Promise<EvaluationUpsertResult>;
 }

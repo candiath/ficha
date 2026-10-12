@@ -64,13 +64,15 @@ router.put<Params>('/', async (req, res) => {
     req.params.patientId,
     req.params.episodeId,
     body,
-    ({ evaluation: e, created }) => ({
-      patientId: req.params.patientId,
-      entity: 'EVALUATION',
-      entityId: e.id,
-      action: created ? 'CREATED' : 'UPDATED',
-      description: created ? 'Evaluación inicial registrada' : 'Evaluación inicial actualizada',
-    }),
+    ({ evaluation: e }, changedFields) =>
+      changedFields
+        ? {
+            action: 'EVALUATION_UPDATED',
+            patientId: req.params.patientId,
+            entityId: e.id,
+            params: { changedFields },
+          }
+        : { action: 'EVALUATION_CREATED', patientId: req.params.patientId, entityId: e.id, params: {} },
   );
 
   res.json({ data: evaluation });

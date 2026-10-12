@@ -1,6 +1,7 @@
 import type { PaymentMethod, PaymentStatus, SessionType } from '@prisma/client';
 import type { TenantContext } from './types';
-import type { AuditBuilder } from './auditLogRepository';
+import type { AUDIT_PAYMENT_FIELDS } from '@ficha/shared';
+import type { AuditBuilder, AuditUpdateBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,8 @@ export interface LastBasePrice {
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
+export type PaymentAuditField = keyof typeof AUDIT_PAYMENT_FIELDS;
+
 export interface PaymentRepository {
   list(ctx: TenantContext, filters?: PaymentListFilters): Promise<PaymentDTO[]>;
   /**
@@ -97,6 +100,7 @@ export interface PaymentRepository {
     ctx: TenantContext,
     id: string,
     input: PaymentUpdateInput,
-    audit: AuditBuilder<PaymentDTO>,
+    // Called only when a field changed, with the changed fields' names.
+    audit: AuditUpdateBuilder<PaymentDTO, PaymentAuditField>,
   ): Promise<PaymentUpdateResult>;
 }
