@@ -50,11 +50,11 @@ The rule every later module follows, and the reason for most of what is below:
 - **The same holds for parameter values.** The catalog keeps its own list of the values each parameter accepts (`AUDIT_SCALE_TYPES`…), separate from the domain enums and from request validation, and that list only grows: a scale type the clinic stops offering still renders in the rows that name it, and dropping it from the domain does not let anyone create one again.
 - **Parameters are additive, and optional for readers.** A new parameter may be required when writing, but every reader treats it as possibly missing: the rows written before it exist. Changing the meaning or type of an existing parameter is a new action.
 - **Every code that was ever written renders**, with whatever parameters its row has.
-- **The wording is presentation, the code is the record.** Rewording an action or a label changes how every past row reads, on purpose: the record never said "Sesión registrada", it said `SESSION_CREATED`.
+- **The wording is presentation, the code is the record.** Rewording an action or a label changes how every past row reads, on purpose: the record never said "Sesión registrada", it said `SESSION_RECORDED`.
 
 Stripe solves the same problem with a version stamped on every event (`api_version`). Additive-only makes that column unnecessary here; if a breaking change is ever unavoidable, a version column is the escape hatch, not a rewrite.
 
-**What is an action and what is a parameter.** A different verb, a different fact someone would look for, is an action: signing and revoking a consent. A classification of the object the fact is about is a parameter: the type of the scale applied, the type of the session, a payment's status (each is already a column of that object, and none is a measurement or an amount).
+**What is an action and what is a parameter.** A different verb, a different fact someone would look for, is an action: signing and revoking a consent. A classification of the object the fact is about is a parameter: the type of the scale applied, a payment's status (each is already a column of that object, and none is a measurement or an amount). A classification that is a fact of its own for the clinic is an action: recording a session, a clinical note and a discharge are three actions (decided 2026-10-11).
 
 **Codes are unique per table, not globally.** Each audit table has its own enum (`AuditAction`, `PlatformAction`, and `clinic-audit`'s future `ClinicAction`), and the same fact done by different actors may use the same code in two tables: the operator's `USER_ROLE_CHANGED` and, later, the ADMIN's.
 
@@ -161,20 +161,22 @@ export const AUDIT_ACTIONS = {
 | Action | Entity | Params | Replaces |
 |---|---|---|---|
 | `PATIENT_CREATED` ✱ | `PATIENT` | — | `PATIENT` + `CREATED` |
-| `PATIENT_UPDATED` ✱ | `PATIENT` | — | `PATIENT` + `UPDATED` |
+| `PATIENT_UPDATED` ✱ | `PATIENT` | `changedFields` | `PATIENT` + `UPDATED` |
 | `PATIENT_DELETED` ✱ | `PATIENT` | — | `PATIENT` + `DELETED` |
 | `EVALUATION_CREATED` ✱ | `EVALUATION` | — | initial evaluation, `CREATED` |
-| `EVALUATION_UPDATED` ✱ | `EVALUATION` | — | initial evaluation, `UPDATED` |
+| `EVALUATION_UPDATED` ✱ | `EVALUATION` | `changedFields` | initial evaluation, `UPDATED` |
 | `SCALE_APPLIED` ✱ | `SCALE` ✱ | `scaleType` | `EVALUATION` + `CREATED` + "Escala X aplicada" |
-| `SESSION_CREATED` ✱ | `SESSION` | `sessionType` | `SESSION` + `CREATED` (session, note or discharge) |
-| `SESSION_UPDATED` ✱ | `SESSION` | `sessionType` (after the update) | `SESSION` + `UPDATED` |
+| `SESSION_RECORDED` ✱ | `SESSION` | — | `SESSION` + `CREATED` + "Sesión registrada" |
+| `NOTE_RECORDED` ✱ | `SESSION` | — | `SESSION` + `CREATED` + "Nota clínica registrada" |
+| `DISCHARGE_RECORDED` ✱ | `SESSION` | — | `SESSION` + `CREATED` + "Alta registrada" |
+| `SESSION_UPDATED` ✱ | `SESSION` | `sessionType` (after the update), `changedFields` | `SESSION` + `UPDATED` |
 | `SESSION_DELETED` ✱ | `SESSION` | — | `SESSION` + `DELETED` |
 | `PAYMENT_CREATED` ✱ | `PAYMENT` | `status` | `PAYMENT` + `CREATED` |
-| `PAYMENT_UPDATED` ✱ | `PAYMENT` | `status` (after the update) | `PAYMENT` + `UPDATED` |
+| `PAYMENT_UPDATED` ✱ | `PAYMENT` | `status` (after the update), `changedFields` | `PAYMENT` + `UPDATED` |
 | `CONSENT_SIGNED` ✱ | `CONSENT` | — | `CONSENT` + `CREATED` |
 | `CONSENT_REVOKED` ✱ | `CONSENT` | — | `CONSENT` + `UPDATED` |
 
-The type and status *after* an update come from the write's own result, so a session turned into a discharge, or a payment marked paid, is findable (`params->>'sessionType' = 'DISCHARGE'`) without reading the previous state.
+The type and status *after* an update come from the write's own result, so a session turned into a discharge by editing it, or a payment marked paid, is findable (`params->>'sessionType' = 'DISCHARGE'`). `changedFields` names the fields the update changed (§4).
 
 `platform_audit_logs`: as today, except `USER_ROLE_CHANGED` takes `{ role }` (old rows have none and read "Cambió el rol") and `USER_ACTIVE_CHANGED` splits into `USER_DEACTIVATED` ✱ and `USER_REACTIVATED` ✱.
 
@@ -185,6 +187,9 @@ Later modules add their sections and actions to the same catalog.
 - **`AuditEntry` becomes `{ action, entityId, patientId, params }`**, typed from the catalog: `params` is inferred from the action, so a wrong parameter is a type error. The caller no longer passes `entity` or `description`.
 - **`recordAudit` validates before inserting**: the action is in the `audit_logs` section, is not deprecated, and its `params` pass the strict schema. It fills `entity` from the catalog.
 - **A validation failure is a server bug, not bad input.** `recordAudit` uses `safeParse` and throws a plain `AuditEntryError` — never a `ZodError`, which `errorHandler` would answer as a `400 Datos inválidos` with the parameter's details. It reaches `errorHandler` as an unknown error: logged, `500`, and the transaction rolls back with the action — the same guarantee as today when the audit insert fails.
+- **`changedFields`** on the `*_UPDATED` actions: the names of the fields whose value changed, never the values. The repository locks the row (`SELECT … FOR UPDATE`, raw SQL inside the transaction), reads it, writes the update and compares the two; a concurrent edit waits for the lock, so the list is exact. `clinical-history` will reuse the same read to store the previous version.
+  - The names are the API's field names, from an append-only allowlist per entity in the catalog, each with a Spanish label. A JSON column (the posture grid) is one name, compared deeply; a relation set (a session's episodes) is one name.
+  - An update that changes nothing writes no audit row, as the operator's role and status changes already do: a field that arrived with the value it had is not a fact. The route answers as today.
 - **`recordPlatformAudit(tx, op, entry)`** (new, `repositories/prisma/`) does the same for `platform_audit_logs`; the operator's repositories and `prismaSysadminAlertRepository` use it instead of `tx.platformAuditLog.create`.
 - **The seed and `tests/helpers.ts`** (`insertAuditRowsAt`) write rows directly; they validate with the catalog too, so a fixture cannot drift from it.
 
@@ -217,7 +222,6 @@ Later modules add their sections and actions to the same catalog.
 
 ### Out of scope
 
-- **`changedFields`** (which fields an update changed, names only). Computing it needs the exact previous state of the row, read under a lock, which `clinical-history` reads anyway to store the version. It arrives there, as an optional parameter of the `*_UPDATED` actions; the check of §2 already accepts it. Until then the timeline says "Actualizó la ficha". *(See Open Questions.)*
 - **`request_id`**: with #220.
 - **Tying `entity` to `action` in the database.** `recordAudit` derives one from the other; a `CHECK` listing every pair would change with every new action.
 - **Translations**: the catalog has Spanish only; a second language is a second wording table, not a schema change.
@@ -248,7 +252,7 @@ As in [`SPEC-sysadmin-alerts.md`](SPEC-sysadmin-alerts.md): `npm test`, `npm tes
 - **Database** (`auditHardening.test.ts` style): each rejected `params` of §2 fails the check on both tables, each accepted one passes.
 - **Catalog**: `auditCatalog.test.ts` (§6); each write schema rejects unknown keys and free strings; the lenient reader accepts `{}`, unknown keys, unknown values and garbage without throwing, and every `describe` handles each parameter missing.
 - **Writing**: `recordAudit` and `recordPlatformAudit` with a deprecated action or bad params answer `500`, log, and roll the action back (extends `auditTransactional.test.ts`).
-- **Each route** records its new action and params: replaces the wording assertions of `auditDescriptions.test.ts` and `platformAuditDescriptions.test.ts` (a session with pain values records `SESSION_CREATED` with `{ sessionType }` and nothing else; a payment with an amount records `{ status }` and nothing else), and the exact-text assertions in the `sessionsCrud`, `disconnectDevices`, `passwordReset` and `platform` tests.
+- **Each route** records its new action and params: replaces the wording assertions of `auditDescriptions.test.ts` and `platformAuditDescriptions.test.ts` (a session with pain values records `SESSION_RECORDED` with `{}`; an edit records exactly the fields it changed; a payment with an amount records `{ status }` and nothing else), and the exact-text assertions in the `sessionsCrud`, `disconnectDevices`, `passwordReset` and `platform` tests.
 - **Web**: `ActivityTimeline` and the platform list render the wording of each action, a deprecated one, a row with missing params, a row with only a `description` (old API), and the fallbacks for an unknown action and entity.
 
 ## Boundaries
@@ -280,10 +284,11 @@ Two fresh-context adversarial reviews. What changed because of them:
 
 ## Open Questions
 
-1. **`changedFields` in `clinical-history`, not here** (Out of scope): agreed? Bringing it here means reading each row under a lock before every update, which `clinical-history` would do again.
-2. **The session type as a parameter** (`SESSION_CREATED { sessionType: "DISCHARGE" }`) and not three actions (`DISCHARGE_RECORDED`…): it follows the rule of §1, but a discharge is clinically significant. Agreed?
+None.
 
 ## Decisions (2026-10-11)
 
 - `actor_type` is added here, not with the first system writer: no row is ever written without it.
 - Old rows in `staging` losing their sentence from release 1 is accepted; `staging` can be wiped too.
+- A session, a clinical note and a discharge are three actions (`SESSION_RECORDED`, `NOTE_RECORDED`, `DISCHARGE_RECORDED`), not one with a type parameter.
+- `changedFields` is recorded here, not in `clinical-history`: no update is ever written without it.
