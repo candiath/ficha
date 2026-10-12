@@ -20,6 +20,8 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 - **Netlify** — la web. Un sitio (`fichita`) con dos contextos de deploy.
 - **Neon** — Postgres. Proyecto `ficha`, una branch por entorno.
 
+**Production holds real clinical data since 2026-10-12** (the pre-launch wipe, #223). `staging`, `development` and `ci` hold only test data, and no branch is ever created from `production` except a temporary rehearsal branch, deleted when the rehearsal ends (see `docs/infra.md`).
+
 | | Producción | Testing | Desarrollo |
 | --- | --- | --- | --- |
 | Rama | `main` | `dev` | working tree local |
@@ -45,7 +47,7 @@ Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platf
 
 ### Backups
 
-El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en un repo privado aparte, disparado también al **abrir** el PR de release (`.github/workflows/backup-antes-del-release.yml`). La credencial de producción vive solo allá. Acá solo está `BACKUP_DISPATCH_TOKEN`, un PAT fine-grained con **Actions: write** (y no Contents, que daría lectura de los dumps) que usa el endpoint `workflow_dispatch`.
+El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en un repo privado aparte, disparado también al **abrir** el PR de release (`.github/workflows/backup-antes-del-release.yml`). La credencial de producción vive solo allá. The dumps hold real clinical data since 2026-10-12; the history before that (fictitious data) was dropped when it was restarted after the wipe. Acá solo está `BACKUP_DISPATCH_TOKEN`, un PAT fine-grained con **Actions: write** (y no Contents, que daría lectura de los dumps) que usa el endpoint `workflow_dispatch`.
 
 ## Base de datos
 

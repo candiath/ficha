@@ -31,7 +31,9 @@ Esa branch se creó desde `production` y después se le borró el esquema, así 
 
 **Release PRs to `main` rebuild it from scratch** (`prisma migrate reset --force --skip-seed` before the tests): the whole migration chain is proven to apply on an empty database — what a brand new environment does — right before production, and the leftover test rows are cleared. Feature PRs skip it to keep CI short; a manual run can force it (Actions → Tests → Run workflow → "reset_ci_db"). Because `migrate reset` destroys everything, the step first refuses to run if the database holds any account that is not `@test.ficha.local`: every other environment has one (checked 2026-10-05: production 2, staging 3, development 2; ci 0), so a `CI_DATABASE_URL` pointed elsewhere by mistake fails the run instead of wiping that database. The guard needs no configuration; its one blind spot is a database with no accounts at all, which has nothing to lose.
 
-Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
+Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen.
+
+**Since 2026-10-12 `production` holds real clinical data**, so no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
 
 ## El ciclo de vida de un cambio
 
@@ -86,7 +88,9 @@ Corre diario a las 06:00 UTC, a mano, y desde este repo al abrir el PR de releas
 
 Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{id}/dispatches`), no por el de `repository_dispatch` (`/dispatches`), y la diferencia es de permisos: en un PAT fine-grained el segundo exige **Contents: write** sobre el repo privado, y Contents incluye lectura — o sea que el token del repo público podría bajarse los dumps con las historias clínicas. El primero se conforma con **Actions: write**, que permite pedir un backup pero no leerlo.
 
-Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
+Se respalda **solo producción**: `staging` y `development` hold only test data, nothing there needs a backup.
+
+The backups repository's history was restarted on 2026-10-12, right after the wipe (#223): the dumps of the fictitious data were dropped, and the history begins with the empty database. Every dump from then on holds real clinical data in plain text, protected only by the repository being private.
 
 ## Audit tables
 
@@ -127,14 +131,21 @@ Interrupted test runs leave test clinics behind, and their audit rows now block 
 
 ### The pre-launch wipe
 
-Production's data is fictitious until delivery. The wipe before delivery drops the schema, which no trigger sees, and rebuilds it:
+Done on 2026-10-12 (#223). Production's data was fictitious until then; the wipe dropped the schema, which no trigger sees, and rebuilt it:
 
 ```sql
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `prisma migrate deploy`. Run it where the production credential lives (the backups repository), never from a laptop. Never use `migrate reset` with the seed on a deployed database.
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy` and `audit-guards.sql`, as in the Render build). It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+
+- it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
+- for `production` it first runs the backup and stops if the backup fails;
+- the rehearsal refuses a URL whose endpoint is production's;
+- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Redeploy the API afterwards: new connections, and the startup audit checks run again.
+
+It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. **With real data, it is never run on production again.** Never use `migrate reset` with the seed on a deployed database.
 
 ### Restoring a backup
 
