@@ -85,14 +85,16 @@ async function episodiosInactivos(ctx: TenantContext): Promise<AlertaPropuesta[]
       const dias = Math.floor(
         (Date.now() - Date.parse(e.lastActivityAt as string)) / 86_400_000,
       );
-      const motivo = e.mainComplaint ? `"${e.mainComplaint}"` : 'el episodio activo';
+      // No complaint in the message: the alerts list spans patients, and it
+      // carries no clinical text (#186, SPEC-list-minimization.md §3). The
+      // alert points at the patient, whose record shows the episode.
       return {
         patientId: e.patientId,
         // Seguimiento y no inasistencia: faltar es no venir a un turno
         // agendado, y eso ahora lo detecta la agenda.
         type: 'FOLLOW_UP' as const,
         message:
-          `Sin sesiones en ${dias} días (episodio ${motivo}). ` +
+          `Sin sesiones en ${dias} días en un episodio abierto. ` +
           'Considerá contactar al paciente o marcar el episodio como abandonado.',
       };
     });

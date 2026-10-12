@@ -104,21 +104,21 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     expect(ids).not.toContain(sessionDeB);
   });
 
-  it('cada sesión trae el paciente y sus episodios con el motivo', async () => {
-    const res = await auth(request(app).get('/api/sessions'));
-    const porId = new Map(res.body.data.map((s: { id: string }) => [s.id, s]));
+  // An index, not the record (#186, SPEC-list-minimization.md §1): who and
+  // when, nothing clinical. The clinical fields and the episodes' complaints
+  // are read from the patient's own routes.
+  it('each session carries only who and when', async () => {
+    await prisma.session.update({
+      where: { id: sessionConEpisodio },
+      data: { observations: 'MKobs', patientResponse: 'MKresp', painScaleBefore: 7 },
+    });
 
-    expect(porId.get(sessionConEpisodio)).toMatchObject({
-      patientId: patient.id,
-      patient: { id: patient.id, fullName: 'Paciente Global' },
-      episodes: [{ id: episode.id, mainComplaint: 'Dorsalgia' }],
-      episodeIds: [episode.id],
-    });
-    expect(porId.get(sessionSinEpisodio)).toMatchObject({
-      patient: { id: patient.id, fullName: 'Paciente Global' },
-      episodes: [],
-      episodeIds: [],
-    });
+    const res = await auth(request(app).get('/api/sessions'));
+    const item = res.body.data.find((s: { id: string }) => s.id === sessionConEpisodio);
+
+    expect(Object.keys(item).sort()).toEqual(['createdAt', 'id', 'patient', 'sessionDate', 'sessionType', 'updatedAt']);
+    expect(item.patient).toEqual({ id: patient.id, fullName: 'Paciente Global' });
+    expect(res.text).not.toMatch(/MKobs|MKresp|Dorsalgia/);
   });
 
   it('viene ordenado de la más reciente a la más vieja', async () => {

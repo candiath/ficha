@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
-import type { Appointment } from '@ficha/shared';
+import type { AppointmentListItem } from '@ficha/shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -41,7 +41,7 @@ export default function AppointmentDialog({
   onClose: () => void;
   date: string;
   time: string;
-  sameDay: Appointment[];
+  sameDay: AppointmentListItem[];
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -70,7 +70,7 @@ function NewAppointmentForm({
 }: {
   date: string;
   time: string;
-  sameDay: Appointment[];
+  sameDay: AppointmentListItem[];
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();

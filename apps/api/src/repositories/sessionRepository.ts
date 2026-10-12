@@ -22,12 +22,16 @@ export interface SessionDTO {
   episodeIds: string[];
 }
 
-// El listado global (GET /api/sessions) agrega el paciente y el detalle de
-// los episodios: es la vista de agenda, sin un paciente en la URL.
-export interface SessionWithPatientDTO extends Omit<SessionDTO, 'episodeIds'> {
+// The clinic-wide index (GET /api/sessions): who and when, nothing clinical
+// (#186, SPEC-list-minimization.md §1). A response that spans patients carries
+// no clinical text; the session itself is read from the patient's routes.
+export interface SessionIndexItemDTO {
+  id: string;
+  sessionType: SessionType;
+  sessionDate: string;
+  createdAt: string;
+  updatedAt: string;
   patient: { id: string; fullName: string };
-  episodes: { id: string; mainComplaint: string | null }[];
-  episodeIds: string[];
 }
 
 export interface SessionFields {
@@ -89,8 +93,8 @@ export interface SessionRepository {
   ): Promise<SessionDTO[]>;
   /** null si la sesión no existe, es de otro paciente o de otro tenant. */
   getById(ctx: TenantContext, patientId: string, id: string): Promise<SessionDTO | null>;
-  /** Todas las sesiones del tenant con nombre de paciente (vista de agenda). */
-  listAllForTenant(ctx: TenantContext): Promise<SessionWithPatientDTO[]>;
+  /** Every current session of the clinic, as an index: no clinical field. */
+  listIndexForTenant(ctx: TenantContext): Promise<SessionIndexItemDTO[]>;
   /**
    * Crea sesión + cobro + cierre de episodios en una transacción: si algo
    * falla no queda una sesión a medias. La sesión se atribuye al usuario del

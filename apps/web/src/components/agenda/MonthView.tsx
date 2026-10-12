@@ -1,4 +1,4 @@
-import type { Appointment } from '@ficha/shared';
+import type { AppointmentListItem } from '@ficha/shared';
 import { dayNumber, isSameMonth } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -27,7 +27,7 @@ export default function MonthView({
   grid: string[];
   year: number;
   month: number;
-  appointments: Appointment[];
+  appointments: AppointmentListItem[];
   today: string;
   selected: string;
   onSelectDay: (date: string) => void;
@@ -35,7 +35,7 @@ export default function MonthView({
   // Los cancelados también se muestran, tachados. Esconderlos hacía que un
   // turno "desapareciera" del mes sin explicación, y en una agenda eso se lee
   // como que se perdió — peor que una celda un poco más cargada.
-  const porDia = new Map<string, Appointment[]>();
+  const porDia = new Map<string, AppointmentListItem[]>();
   for (const a of appointments) {
     const previos = porDia.get(a.date);
     if (previos) previos.push(a);

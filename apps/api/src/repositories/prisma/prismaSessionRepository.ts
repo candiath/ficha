@@ -8,7 +8,7 @@ import type {
   SessionDTO,
   SessionRepository,
   SessionUpdateInput,
-  SessionWithPatientDTO,
+  SessionIndexItemDTO,
 } from '../sessionRepository';
 import type { AuditBuilder, AuditEntry } from '../auditLogRepository';
 import { recordAudit } from './recordAudit';
@@ -44,15 +44,16 @@ const sessionSelect = {
   episodes: { select: { episodeId: true }, orderBy: { episodeId: 'asc' } },
 } as const;
 
-// El listado global suma el paciente y el motivo de cada episodio.
-const sessionWithPatientSelect = {
-  ...sessionSelect,
+// The clinic-wide index (GET /api/sessions): who and when, nothing clinical
+// (#186, SPEC-list-minimization.md §1). Selected column by column, so clinical
+// text never leaves the database for a list that spans patients.
+const sessionIndexSelect = {
+  id: true,
+  sessionType: true,
+  sessionDate: true,
+  createdAt: true,
+  updatedAt: true,
   patient: { select: { id: true, fullName: true } },
-  // Mismo criterio que sessionSelect: orden estable entre requests.
-  episodes: {
-    select: { episode: { select: { id: true, mainComplaint: true } } },
-    orderBy: { episodeId: 'asc' },
-  },
 } as const;
 
 type SessionRow = {
@@ -71,10 +72,7 @@ type SessionRow = {
   episodes: { episodeId: string }[];
 };
 
-type SessionWithPatientRow = Omit<SessionRow, 'episodes'> & {
-  patient: { id: string; fullName: string };
-  episodes: { episode: { id: string; mainComplaint: string | null } }[];
-};
+type SessionIndexRow = Prisma.SessionGetPayload<{ select: typeof sessionIndexSelect }>;
 
 function toDTO({ episodes, ...rest }: SessionRow): SessionDTO {
   return {
@@ -86,15 +84,12 @@ function toDTO({ episodes, ...rest }: SessionRow): SessionDTO {
   };
 }
 
-function toWithPatientDTO({ episodes, ...rest }: SessionWithPatientRow): SessionWithPatientDTO {
-  const linked = episodes.map((e) => e.episode);
+function toIndexItemDTO(row: SessionIndexRow): SessionIndexItemDTO {
   return {
-    ...rest,
-    sessionDate: rest.sessionDate.toISOString(),
-    createdAt: rest.createdAt.toISOString(),
-    updatedAt: rest.updatedAt.toISOString(),
-    episodes: linked,
-    episodeIds: linked.map((e) => e.id),
+    ...row,
+    sessionDate: row.sessionDate.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -145,14 +140,14 @@ export const prismaSessionRepository: SessionRepository = {
     return row ? toDTO(row) : null;
   },
 
-  async listAllForTenant(ctx: TenantContext): Promise<SessionWithPatientDTO[]> {
+  async listIndexForTenant(ctx: TenantContext): Promise<SessionIndexItemDTO[]> {
     const db = forTenant(ctx);
     const rows = await db.session.findMany({
       where: VIGENTE,
       orderBy: { sessionDate: 'desc' },
-      select: sessionWithPatientSelect,
+      select: sessionIndexSelect,
     });
-    return rows.map(toWithPatientDTO);
+    return rows.map(toIndexItemDTO);
   },
 
   async create(

@@ -89,7 +89,7 @@ describe('turnos', () => {
       endTime: '10:00',
       status: 'SCHEDULED',
       patientName: 'Paciente Turnos',
-      episodeMainComplaint: 'Lumbalgia',
+      episodeId: episode.id,
       seriesId: null,
       sessionId: null,
     });
@@ -457,6 +457,9 @@ describe('turnos', () => {
       const ids = listado.body.data.map((t: { id: string }) => t.id);
       expect(ids).not.toContain(ajenoId);
 
+      // ...ni se lee uno por uno...
+      expect((await auth(request(app).get('/api/appointments/' + ajenoId))).status).toBe(404);
+
       // ...ni se puede modificar.
       const intento = await auth(request(app).patch(`/api/appointments/${ajenoId}`)).send({
         status: 'CANCELLED',
@@ -467,5 +470,50 @@ describe('turnos', () => {
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });
       await otra.cleanup();
     }
+  });
+
+  // ── No clinical text in the agenda (#186, SPEC-list-minimization.md §2) ───
+
+  it('the range carries no complaint and no notes', async () => {
+    const date = fechaClinica(4);
+    const creado = await agendar({ date, time: '11:00', episodeId: episode.id, notes: 'MKnote' });
+    expect(creado.status).toBe(201);
+    expect(creado.body.data[0]).not.toHaveProperty('episodeMainComplaint');
+
+    const res = await listar(date, date);
+    const turno = res.body.data.find((t: { id: string }) => t.id === creado.body.data[0].id);
+
+    expect(turno).toBeDefined();
+    expect(turno).not.toHaveProperty('notes');
+    expect(turno).not.toHaveProperty('episodeMainComplaint');
+    expect(turno.episodeId).toBe(episode.id);
+    expect(res.text).not.toMatch(/MKnote|Lumbalgia/);
+  });
+
+  it('one appointment is read with its notes, and still no complaint', async () => {
+    const date = fechaClinica(5);
+    const creado = await agendar({ date, time: '12:00', episodeId: episode.id, notes: 'Viene con estudios' });
+    const id = creado.body.data[0].id as string;
+
+    const res = await auth(request(app).get(`/api/appointments/${id}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      id,
+      date,
+      startTime: '12:00',
+      notes: 'Viene con estudios',
+      episodeId: episode.id,
+    });
+    expect(res.body.data).not.toHaveProperty('episodeMainComplaint');
+  });
+
+  it('one appointment with a malformed or unknown id is a 404', async () => {
+    const malformed = await auth(request(app).get('/api/appointments/no-es-un-id'));
+    const unknown = await auth(request(app).get('/api/appointments/01900000-0000-7000-8000-000000000000'));
+
+    expect(malformed.status).toBe(404);
+    expect(malformed.body).toEqual({ error: 'Turno no encontrado' });
+    expect(unknown.status).toBe(404);
   });
 });

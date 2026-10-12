@@ -5,11 +5,14 @@ import type { TenantContext } from '../types';
 import type {
   AppointmentCreateInput,
   AppointmentDTO,
+  AppointmentListItemDTO,
   AppointmentRepository,
   AppointmentUpdateInput,
 } from '../appointmentRepository';
 
-const appointmentSelect = {
+// The range the agenda reads spans patients: no clinical text and no free
+// text (#186, SPEC-list-minimization.md §2). Selected column by column.
+const appointmentListSelect = {
   id: true,
   patientId: true,
   userId: true,
@@ -19,44 +22,34 @@ const appointmentSelect = {
   startsAt: true,
   endsAt: true,
   status: true,
-  notes: true,
   cancelledAt: true,
   patient: { select: { fullName: true } },
-  episode: { select: { mainComplaint: true } },
 } as const;
 
-type Row = {
-  id: string;
-  patientId: string;
-  userId: string;
-  episodeId: string | null;
-  sessionId: string | null;
-  seriesId: string | null;
-  startsAt: Date;
-  endsAt: Date;
-  status: AppointmentDTO['status'];
-  notes: string | null;
-  cancelledAt: Date | null;
-  patient: { fullName: string };
-  episode: { mainComplaint: string | null } | null;
-};
+// One appointment: the list's columns and its notes.
+const appointmentSelect = { ...appointmentListSelect, notes: true } as const;
 
-function toDTO(row: Row): AppointmentDTO {
+type ListRow = Prisma.AppointmentGetPayload<{ select: typeof appointmentListSelect }>;
+type Row = Prisma.AppointmentGetPayload<{ select: typeof appointmentSelect }>;
+
+function toListItemDTO(row: ListRow): AppointmentListItemDTO {
   return {
     id: row.id,
     patientId: row.patientId,
     patientName: row.patient.fullName,
     userId: row.userId,
     episodeId: row.episodeId,
-    episodeMainComplaint: row.episode?.mainComplaint ?? null,
     sessionId: row.sessionId,
     seriesId: row.seriesId,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     status: row.status,
-    notes: row.notes,
     cancelledAt: row.cancelledAt?.toISOString() ?? null,
   };
+}
+
+function toDTO(row: Row): AppointmentDTO {
+  return { ...toListItemDTO(row), notes: row.notes };
 }
 
 export const prismaAppointmentRepository: AppointmentRepository = {
@@ -64,16 +57,16 @@ export const prismaAppointmentRepository: AppointmentRepository = {
     ctx: TenantContext,
     desde: Date,
     hasta: Date,
-  ): Promise<AppointmentDTO[]> {
+  ): Promise<AppointmentListItemDTO[]> {
     const db = forTenant(ctx);
     const rows = await db.appointment.findMany({
       // Medio abierto: el fin de una semana es exactamente el comienzo de la
       // siguiente, así que un turno a medianoche aparece en una sola.
       where: { startsAt: { gte: desde, lt: hasta } },
       orderBy: { startsAt: 'asc' },
-      select: appointmentSelect,
+      select: appointmentListSelect,
     });
-    return rows.map(toDTO);
+    return rows.map(toListItemDTO);
   },
 
   async getById(ctx: TenantContext, id: string): Promise<AppointmentDTO | null> {

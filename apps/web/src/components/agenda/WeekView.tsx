@@ -1,4 +1,4 @@
-import type { Appointment } from '@ficha/shared';
+import type { AppointmentListItem } from '@ficha/shared';
 import { dayNumber, hourSlotOf, shortWeekday, weekdayOf } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -21,16 +21,16 @@ export default function WeekView({
 }: {
   days: string[];
   hours: string[];
-  appointments: Appointment[];
+  appointments: AppointmentListItem[];
   today: string;
   /** Días de atención de la clínica, para señalar los que no lo son. */
   workdays: number[];
-  onSelect: (a: Appointment) => void;
+  onSelect: (a: AppointmentListItem) => void;
   onEmptySlot: (date: string, time: string) => void;
 }) {
   // Los turnos de cada casilla, indexados una sola vez en vez de filtrar el
   // arreglo entero dentro del doble bucle de la grilla.
-  const porCasilla = new Map<string, Appointment[]>();
+  const porCasilla = new Map<string, AppointmentListItem[]>();
   for (const a of appointments) {
     const clave = `${a.date}T${hourSlotOf(a.startTime)}`;
     const previos = porCasilla.get(clave);

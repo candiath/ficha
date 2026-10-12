@@ -21,7 +21,6 @@ export interface EpisodeDTO {
 export interface StaleEpisodeDTO {
   patientId: string;
   episodeId: string;
-  mainComplaint: string | null;
   /** null si el episodio nunca tuvo una sesión. */
   lastActivityAt: string | null;
 }

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,15 +30,18 @@ function Probe() {
     <>
       <p>{auth.user ? `logged in as ${auth.user.email}` : 'logged out'}</p>
       <button onClick={auth.logout}>Log out</button>
+      <button onClick={() => void auth.login(USER.email, 'clave')}>Log in</button>
     </>
   );
 }
 
-async function renderLoggedIn() {
+async function renderLoggedIn(queryClient = new QueryClient()) {
   render(
-    <AuthProvider>
-      <Probe />
-    </AuthProvider>,
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    </QueryClientProvider>,
   );
   await screen.findByText(`logged in as ${USER.email}`);
 }
@@ -87,5 +91,50 @@ describe('logout', () => {
     expect(localStorage.getItem('ficha_token')).toBeNull();
     // Let the rejected request settle: it must not surface as an error.
     await waitFor(() => expect(localStorage.getItem('ficha_token')).toBeNull());
+  });
+
+  // The next person on the same tab must not see the previous user's records
+  // from the cache, which no access log would ever see (#186,
+  // SPEC-list-minimization.md §7).
+  it('forgets every cached record', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(url.endsWith('/api/auth/me') ? response(200, { data: USER }) : response(204)),
+      ),
+    );
+    const queryClient = new QueryClient();
+    await renderLoggedIn(queryClient);
+    queryClient.setQueryData(['patients', 'p1', 'sessions'], [{ observations: 'Notas clínicas' }]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Log out' }));
+
+    expect(await screen.findByText('logged out')).toBeInTheDocument();
+    expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
+  });
+});
+
+describe('login', () => {
+  // A session that expired (a 401) leaves the cache behind: logging in starts
+  // the next user from an empty one.
+  it('starts from an empty cache', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.endsWith('/api/auth/login')
+            ? response(200, { data: { token: 'new-token', user: USER } })
+            : response(200, { data: USER }),
+        ),
+      ),
+    );
+    const queryClient = new QueryClient();
+    await renderLoggedIn(queryClient);
+    queryClient.setQueryData(['patients', 'p1', 'sessions'], [{ observations: 'Notas clínicas' }]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }));
+
+    await waitFor(() => expect(localStorage.getItem('ficha_token')).toBe('new-token'));
+    expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
   });
 });

@@ -6,13 +6,16 @@ import type { TenantContext } from './types';
 // startsAt/endsAt salen como instantes ISO. La hora de pared de la clínica la
 // agrega la ruta con lib/clinicTime y Tenant.timezone: convertir es
 // presentación, y el repositorio no tiene por qué conocer la configuración.
+//
+// No episode complaint: the agenda spans patients, and a response that spans
+// patients carries no clinical text (#186, SPEC-list-minimization.md §2). The
+// complaint is read from the patient's episodes, inside the record.
 export interface AppointmentDTO {
   id: string;
   patientId: string;
   patientName: string;
   userId: string;
   episodeId: string | null;
-  episodeMainComplaint: string | null;
   /** La sesión que salió de este turno, si el paciente vino y se registró. */
   sessionId: string | null;
   /** Compartido por los turnos de una misma serie recurrente. */
@@ -23,6 +26,10 @@ export interface AppointmentDTO {
   notes: string | null;
   cancelledAt: string | null;
 }
+
+// An appointment in the agenda's range: without its free-text notes, which
+// only the appointment's own view shows (GET /api/appointments/:id).
+export type AppointmentListItemDTO = Omit<AppointmentDTO, 'notes'>;
 
 /** Un hueco de agenda. La recurrencia se materializa como varios de éstos. */
 export interface AppointmentSlot {
@@ -56,7 +63,7 @@ export interface AppointmentRepository {
    * Incluye los cancelados: la agenda decide si los pinta o no, y esconderlos
    * acá haría imposible mostrar "este turno se canceló" sin otra query.
    */
-  listInRange(ctx: TenantContext, desde: Date, hasta: Date): Promise<AppointmentDTO[]>;
+  listInRange(ctx: TenantContext, desde: Date, hasta: Date): Promise<AppointmentListItemDTO[]>;
 
   /** null si no existe o es de otra clínica. */
   getById(ctx: TenantContext, id: string): Promise<AppointmentDTO | null>;

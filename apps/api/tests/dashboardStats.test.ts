@@ -93,6 +93,14 @@ describe('GET /api/dashboard/stats', () => {
           status: 'ACTIVE',
           mainComplaint: '',
         },
+        // A deleted patient's complaint stays out of the donut, as the
+        // patient stays out of every other count (SPEC-list-minimization.md §4).
+        {
+          tenantId: clinicA.tenantId,
+          patientId: patientDeleted.id,
+          status: 'DISCHARGED',
+          mainComplaint: 'Hombro de paciente borrado',
+        },
       ],
     });
 

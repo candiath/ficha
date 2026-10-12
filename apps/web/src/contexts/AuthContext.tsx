@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { getToken, setToken, UNAUTHORIZED_EVENT } from '@/lib/api';
 import { authApi } from '@/services/auth';
 import type { AuthUser } from '@ficha/shared';
@@ -26,6 +27,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthUser | null>(null);
   // Arranca en true solo si hay token guardado: hasta validar contra /me
   // no sabemos si esa sesión sigue viva, y ProtectedRoute no debe
@@ -64,9 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string, trustDevice = false) => {
     const { token, user: loggedUser } = await authApi.login(email, password, trustDevice);
+    // A session that ended with a 401 leaves its cache behind: the next user
+    // starts from an empty one (#186, SPEC-list-minimization.md §7).
+    queryClient.clear();
     setToken(token);
     setUser(loggedUser);
-  }, []);
+  }, [queryClient]);
 
   // Revokes the session on the server, then forgets it locally whatever the
   // outcome: a failed request (offline, API down, session already gone) must
@@ -78,7 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setToken(null);
     setUser(null);
-  }, []);
+    // Records read in this session stay out of reach of the next person on
+    // this tab, whose views no access log would ever see (#186).
+    queryClient.clear();
+  }, [queryClient]);
 
   // Si /me falla con 401 el cliente HTTP ya limpió el token y disparó el
   // evento de arriba; no hay nada más que hacer acá.

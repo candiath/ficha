@@ -140,6 +140,14 @@ Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()
 
 Every `POST`, `PUT`, `PATCH` and `DELETE` route is in `apps/api/tests/auditCoverageManifest.ts`, as `audited` (with its audit table), `exempt` (with a reason) or `debt` (with the module that closes it). A new write route either writes its audit row in the same transaction (see *Acceso a datos*) or is added as `exempt` with a reason, reviewed in the PR. Never add a new route as `debt`. `tests/auditCoverage.test.ts` breaks the CI when a route is missing from the manifest or an entry outlives its route. Spec: [`docs/specs/SPEC-audit-coverage.md`](docs/specs/SPEC-audit-coverage.md).
 
+### Global lists carry no clinical text
+
+A response that spans patients carries no clinical text (#186, [`docs/specs/SPEC-list-minimization.md`](docs/specs/SPEC-list-minimization.md)): no column of `Session`, `ClinicalEpisode`, `InitialEvaluation`, `FunctionalScale`, `InformedConsent` or their photos, nor text derived from one (an episode's complaint in an alert). Clinical detail is read from routes under `/api/patients/:patientId/…`, the record, which `record-access-log` will log.
+
+- Every `GET` outside the record is classified in `apps/api/tests/listScopeManifest.ts`: *probed* (called against a clinic whose clinical columns hold markers; its keys are pinned) or *exempt* with a reason. `tests/listMinimization.test.ts` fails on an unclassified `GET`, a marker in a probed response, or a key added to one.
+- A list selects only the columns it returns.
+- An edit form renders only from the full record, never from a list item: under "un solo vacío", a partial object saves its missing fields as erased.
+
 ### Un solo vacío, y lo decide la API
 
 Hay una sola forma de decir "este campo no tiene dato" y es `null`. Como un formulario web no tiene `null` sino `""`, la API acepta las dos y normaliza; el front manda lo que el control tiene en la mano y no traduce nada.
