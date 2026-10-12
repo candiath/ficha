@@ -367,9 +367,10 @@ export const prismaPlatformRepository: PlatformRepository = {
         action: 'PASSWORD_RESET_LINK_CREATED',
         tenantId,
         targetUserId: user.id,
+        entityId: link.id,
         params: {},
       });
-      return { ok: true, ...link } as const;
+      return { ok: true, token: link.token, expiresAt: link.expiresAt } as const;
     });
   },
 

@@ -55,7 +55,7 @@ export const prismaSysadminAlertRepository: SysadminAlertRepository = {
         select: { id: true },
       });
       // An action on the platform itself: no clinic, no target (#186).
-      await recordPlatformAudit(tx, op, { action: 'TEST_ALERT_SENT', params: {} });
+      await recordPlatformAudit(tx, op, { action: 'TEST_ALERT_SENT', entityId: alert.id, params: {} });
       return alert;
     });
   },

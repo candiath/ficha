@@ -36,7 +36,7 @@ export async function recordAudit(
     data: {
       tenantId: ctx.tenantId,
       patientId: entry.patientId,
-      entity: auditEntityOf(entry.action)!,
+      entity: auditEntityOf('audit_logs', entry.action)!,
       entityId: entry.entityId,
       action: entry.action,
       params: entry.params,

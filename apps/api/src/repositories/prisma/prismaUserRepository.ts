@@ -138,7 +138,7 @@ export const prismaUserRepository: UserRepository = {
       if (!user.isActive) return { ok: false, reason: 'inactive' } as const;
 
       const link = await issuePasswordReset(tx, user.id, { userId: ctx.userId }, input);
-      return { ok: true, ...link } as const;
+      return { ok: true, token: link.token, expiresAt: link.expiresAt } as const;
     });
   },
 };

@@ -132,6 +132,10 @@ export type AuditReadParamsOf<S extends ParamShape> = Partial<AuditParamsOf<S>>;
 
 export type AuditEntity = 'PATIENT' | 'EVALUATION' | 'SCALE' | 'SESSION' | 'PAYMENT' | 'CONSENT';
 
+// The object a platform_audit_logs row acted on, when it is neither the clinic
+// (tenant_id) nor a user (target_user_id), which have columns of their own.
+export type PlatformAuditEntity = 'PASSWORD_RESET_TOKEN' | 'SYSADMIN_ALERT';
+
 /** Who acted: a person of a clinic, the platform operator, or the system. */
 export type AuditActorType = 'USER' | 'OPERATOR' | 'SYSTEM';
 
@@ -139,8 +143,12 @@ export type AuditActorType = 'USER' | 'OPERATOR' | 'SYSTEM';
 export type AuditKind = 'create' | 'update' | 'delete';
 
 export interface AuditActionDef<S extends ParamShape = ParamShape> {
-  /** The entity the row's entity_id points at (audit_logs only). */
-  readonly entity?: AuditEntity;
+  /**
+   * The type of object the row's entity_id points at. Required on every
+   * audit_logs action; on platform_audit_logs only when the object is neither
+   * the clinic nor a user.
+   */
+  readonly entity?: AuditEntity | PlatformAuditEntity;
   readonly kind: AuditKind;
   readonly params: S;
   /** Short: badges and filters. */
@@ -151,7 +159,11 @@ export interface AuditActionDef<S extends ParamShape = ParamShape> {
   readonly deprecated?: true;
 }
 
-const action = <const S extends ParamShape>(def: AuditActionDef<S>) => def;
+// Keeps the entity literal in the type, so AuditTakesEntity can tell which
+// actions need an entity id.
+const action = <const S extends ParamShape, const E extends AuditEntity | PlatformAuditEntity | undefined = undefined>(
+  def: AuditActionDef<S> & { readonly entity?: E },
+) => def as AuditActionDef<S> & (E extends string ? { readonly entity: E } : unknown);
 
 // "el teléfono", "el teléfono y la obra social", "a, b y c".
 function joinFields(names: readonly string[] | undefined, labels: Labels): string | null {
@@ -371,6 +383,8 @@ export const AUDIT_ACTIONS = {
       describe: () => 'Desconectó los dispositivos de la usuaria',
     }),
     PASSWORD_RESET_LINK_CREATED: action({
+      // The link generated, so a row names exactly one link.
+      entity: 'PASSWORD_RESET_TOKEN',
       kind: 'create',
       params: {},
       label: 'Enlace para restablecer contraseña',
@@ -378,6 +392,7 @@ export const AUDIT_ACTIONS = {
     }),
     // An action on the platform itself: the only one with no clinic.
     TEST_ALERT_SENT: action({
+      entity: 'SYSADMIN_ALERT',
       kind: 'create',
       params: {},
       label: 'Alerta de prueba enviada',
@@ -416,6 +431,13 @@ type ShapeOf<T extends AuditTable, A extends AuditActionCode<T>> = Catalog[T][A]
   ? S
   : never;
 
+/** Whether an action's row points at an object (and so needs an entity id). */
+export type AuditTakesEntity<T extends AuditTable, A extends AuditActionCode<T>> = Catalog[T][A] extends {
+  entity: string;
+}
+  ? true
+  : false;
+
 /** The parameters a writer passes for an action. */
 export type AuditParams<T extends AuditTable, A extends AuditActionCode<T>> = AuditParamsOf<ShapeOf<T, A>>;
 
@@ -453,9 +475,11 @@ export function auditEntryProblem(table: AuditTable, actionCode: string, params:
   return null;
 }
 
-/** The entity an audit_logs action points at. */
-export function auditEntityOf(actionCode: string): AuditEntity | undefined {
-  return lookup('audit_logs', actionCode)?.entity;
+/** The type of object an action's row points at, if it points at one. */
+export function auditEntityOf(table: 'audit_logs', actionCode: string): AuditEntity | undefined;
+export function auditEntityOf(table: 'platform_audit_logs', actionCode: string): PlatformAuditEntity | undefined;
+export function auditEntityOf(table: AuditTable, actionCode: string): AuditEntity | PlatformAuditEntity | undefined {
+  return lookup(table, actionCode)?.entity;
 }
 
 // ─── Reading (lenient) ──────────────────────────────────────────────────────

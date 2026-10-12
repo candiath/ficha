@@ -245,6 +245,13 @@ model PlatformOperator {
   @@map("platform_operators")
 }
 
+// The object a platform_audit_logs row acted on (SPEC-audit-structured-entries.md).
+// Codes are permanent.
+enum PlatformAuditEntity {
+  PASSWORD_RESET_TOKEN
+  SYSADMIN_ALERT
+}
+
 // Declared with its parameters and wording in packages/shared/src/auditActions.ts
 // (SPEC-audit-structured-entries.md). Codes are permanent.
 enum PlatformAction {
@@ -287,6 +294,12 @@ model PlatformAuditLog {
   params       Json           @default("{}")
   // Always OPERATOR for now (a CHECK in the migration).
   actorType    AuditActorType @default(OPERATOR) @map("actor_type")
+  // The object the action was on, when it is neither the clinic nor a user
+  // (they have columns of their own): the reset link generated, the test
+  // alert sent. Set from the catalog by recordPlatformAudit; no foreign key,
+  // since it points at a different table by type. Both or neither (a CHECK).
+  entity       PlatformAuditEntity?
+  entityId     String?        @map("entity_id") @db.Uuid
   // The sentence before the catalog; ignored, as in audit_logs.
   description  String?        @ignore
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
@@ -302,6 +315,8 @@ model PlatformAuditLog {
 
   @@index([tenantId])
   @@index([createdAt])
+  // One row per action on an object (a partial unique index in the
+  // migration, WHERE entity IS NOT NULL; Prisma cannot express it).
   @@map("platform_audit_logs")
 }
 
