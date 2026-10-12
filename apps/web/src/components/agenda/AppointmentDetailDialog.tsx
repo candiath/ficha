@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CalendarX, Check, FileText, Repeat, User, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { Appointment, AppointmentStatus } from '@ficha/shared';
+import type { AppointmentListItem, AppointmentStatus } from '@ficha/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,16 +20,37 @@ import { formatLongDate } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS, APPOINTMENT_STATUS_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { appointmentApi, appointmentKeys } from '@/services/appointments';
+import { episodeApi, episodeKeys } from '@/services/episodes';
 
 export default function AppointmentDetailDialog({
   appointment,
   onClose,
 }: {
-  appointment: Appointment | null;
+  appointment: AppointmentListItem | null;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const [registrando, setRegistrando] = useState(false);
+  const [verMotivo, setVerMotivo] = useState(false);
+
+  // The agenda's range carries no notes and no complaint (#186,
+  // SPEC-list-minimization.md §2). The notes come from the appointment itself.
+  const { data: detalle } = useQuery({
+    queryKey: appointmentKeys.detail(appointment?.id ?? ''),
+    queryFn: () => appointmentApi.get(appointment?.id ?? ''),
+    enabled: !!appointment,
+  });
+
+  // The complaint is the record's, and read only when asked: people open this
+  // dialog to confirm, cancel or mark a no-show, and each look into the record
+  // is a clinical read.
+  const episodios = useQuery({
+    queryKey: episodeKeys.list(appointment?.patientId ?? ''),
+    queryFn: () => episodeApi.list(appointment?.patientId ?? ''),
+    enabled: verMotivo && !!appointment?.episodeId,
+    retry: false,
+  });
+  const motivo = episodios.data?.find((e) => e.id === appointment?.episodeId);
 
   const invalidar = () =>
     queryClient.invalidateQueries({ queryKey: appointmentKeys.all });
@@ -94,11 +115,29 @@ export default function AppointmentDetailDialog({
                 {a.patientName}
               </Link>
 
-              {a.episodeMainComplaint && (
-                <p className="text-sm text-muted-foreground">{a.episodeMainComplaint}</p>
-              )}
+              {a.episodeId &&
+                (!verMotivo ? (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-muted-foreground"
+                    onClick={() => setVerMotivo(true)}
+                  >
+                    Ver motivo
+                  </Button>
+                ) : episodios.isError ? (
+                  <p className="text-sm text-destructive">
+                    No se pudo leer el motivo: la ficha de este paciente no está disponible.
+                  </p>
+                ) : episodios.isLoading ? (
+                  <p className="text-sm text-muted-foreground">Cargando motivo...</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {motivo?.mainComplaint || 'Sin motivo registrado'}
+                  </p>
+                ))}
 
-              {a.notes && <p className="text-sm">{a.notes}</p>}
+              {detalle?.notes && <p className="text-sm">{detalle.notes}</p>}
 
               {a.seriesId && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">

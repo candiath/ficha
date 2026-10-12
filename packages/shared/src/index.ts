@@ -199,13 +199,16 @@ export type AppointmentStatus =
  * clínica ahí — con el detalle de que la zona del navegador puede no ser la
  * misma.
  */
-export interface Appointment {
+// An appointment of the agenda's range (GET /api/appointments): no episode
+// complaint and no notes, since the range spans patients (#186,
+// SPEC-list-minimization.md §2). The complaint is read from the patient's
+// episodes; the notes from the appointment itself.
+export interface AppointmentListItem {
   id: string;
   patientId: string;
   patientName: string;
   userId: string;
   episodeId: string | null;
-  episodeMainComplaint: string | null;
   /** La sesión que salió de este turno, si el paciente vino y se registró. */
   sessionId: string | null;
   /** Compartido por los turnos de una misma serie recurrente. */
@@ -217,8 +220,12 @@ export interface Appointment {
   startTime: string;
   endTime: string;
   status: AppointmentStatus;
-  notes: string | null;
   cancelledAt: string | null;
+}
+
+// One appointment (GET /api/appointments/:id, and what a write returns).
+export interface Appointment extends AppointmentListItem {
+  notes: string | null;
 }
 
 export interface AppointmentCreateInput {

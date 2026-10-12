@@ -36,7 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Appointment } from '@ficha/shared'
+import type { AppointmentListItem } from '@ficha/shared'
 import { appointmentKeys } from '@/services/appointments'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi } from '@/services/sessions'
@@ -90,7 +90,7 @@ interface SessionFormModalWideProps {
   onSuccess?: () => void
   /** El turno del que sale esta sesión, si se abre desde la agenda. Precarga
    *  la fecha y hora, y al guardar deja el turno marcado como atendido. */
-  appointment?: Appointment
+  appointment?: AppointmentListItem
 }
 
 function getPainColor(value: number | null) {
