@@ -18,7 +18,9 @@ const PackageCreateSchema = z.object({
   notes: OptionalTextSchema,
 });
 
-const PackageFiltersSchema = z.object({ patientId: IdSchema.optional() });
+// patientId is required: a list of every package of the clinic would span
+// patients, and package names are free text (#186, SPEC-list-minimization.md §5).
+const PackageFiltersSchema = z.object({ patientId: IdSchema });
 
 // GET /api/packages?patientId=xxx  — lista paquetes de un paciente con sesiones usadas
 router.get('/', async (req, res) => {

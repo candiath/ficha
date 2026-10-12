@@ -46,7 +46,8 @@ export const prismaDashboardRepository: DashboardRepository = {
       // mainComplaint es texto libre: se agrupa por string exacto, sin normalizar.
       db.clinicalEpisode.groupBy({
         by: ['mainComplaint'],
-        where: { NOT: [{ mainComplaint: null }, { mainComplaint: '' }] },
+        // A deleted patient stays out, as in every other count.
+        where: { NOT: [{ mainComplaint: null }, { mainComplaint: '' }], patient: { deletedAt: null } },
         _count: { mainComplaint: true },
         orderBy: { _count: { mainComplaint: 'desc' } },
         take: params.pathologiesTop,

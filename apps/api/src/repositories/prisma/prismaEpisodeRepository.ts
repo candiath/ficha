@@ -155,7 +155,6 @@ export const prismaEpisodeRepository: EpisodeRepository = {
       select: {
         id: true,
         patientId: true,
-        mainComplaint: true,
         sessions: {
           where: { session: { deletedAt: null } },
           orderBy: { session: { sessionDate: 'desc' } },
@@ -169,7 +168,6 @@ export const prismaEpisodeRepository: EpisodeRepository = {
       .map((row) => ({
         patientId: row.patientId,
         episodeId: row.id,
-        mainComplaint: row.mainComplaint,
         lastActivityAt: row.sessions[0]?.session.sessionDate ?? null,
       }))
       .filter((e) => e.lastActivityAt === null || e.lastActivityAt < cutoff)
