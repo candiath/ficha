@@ -1,6 +1,6 @@
 # Spec: list-minimization
 
-Module of the [audit capability map](audit-map.md) (issue #186), decision 6: **global lists carry no clinical text**. Status: reviewed. An adversarial review ran before implementation (2026-10-11), and its findings are folded in, marked *(review)*.
+Module of the [audit capability map](audit-map.md) (issue #186), decision 6: **global lists carry no clinical text**. Status: approved 2026-10-11. An adversarial review ran before implementation; its findings are folded in, marked *(review)*. Nath answered the open questions (see *Decisions*).
 
 ## Objective
 
@@ -33,7 +33,7 @@ It also covers anything derived from those columns: the complaint inside an engi
 | `GET /api/alerts` | Follow-up messages embed the episode's complaint. Custom alerts are free text. |
 | `GET /api/alerts/stats` | Nothing returned, but the engine it triggers reads every stale episode's complaint *(review)*. |
 | `GET /api/dashboard/stats` | `pathologies[].name` is each episode's complaint verbatim, and a group of one is one patient's text *(review)*. Its `groupBy` does not skip deleted patients. |
-| `GET /api/patients` | `referringDoctor`: free text that often carries a specialty *(review)*. See Open Question 2. |
+| `GET /api/patients` | `referringDoctor`: free text that often carries a specialty *(review)*. It stays, allowlisted as administrative (Decision 2). |
 | `GET /api/packages` without `patientId` | Package names are free text ("RPG escoliosis x10") *(review)*. No web code calls it without a patient. |
 | `GET /api/payments` | Payment `notes` and package names (free text). |
 
@@ -73,7 +73,7 @@ It also covers anything derived from those columns: the complaint inside an engi
 ### 4. Dashboard
 
 - The complaints donut ignores deleted patients, as the other counts do.
-- Whether to show small groups is Open Question 1.
+- Its groups stay as they are, small ones included (Decision 1).
 
 ### 5. Packages
 
@@ -101,7 +101,9 @@ A new `GET` without an entry fails the test.
   - The exact key set of every item, recursively, on every array element, matches the manifest.
 - **Numbers.** Numeric clinical columns (pain, `evaScale`, scores) cannot hold a marker. The key pinning is their guard, and the manifest says so.
 
-The dashboard's `pathologies[].name` is the one allowlisted path, governed by Open Question 1.
+Two paths are allowlisted for clinical-looking text: the dashboard's `pathologies[].name` (an aggregate that names no patient, Decision 1) and `GET /api/patients`' `referringDoctor` (administrative, Decision 2). The fixture puts no marker in them.
+
+**Hints.** Payment notes, package names and custom alerts stay in the lists (Decision 3). Their forms say: "No escribas datos clínicos acá: van en la ficha del paciente."
 
 ### 7. Logout clears the query cache *(review)*
 
@@ -165,14 +167,8 @@ npm run check              # lint + typecheck
 - [ ] *Sesiones* and the agenda work as before for what they show. Their detail views load clinical text from the patient's routes, and an untouched save changes nothing.
 - [ ] `npm test`, `npm test -w apps/web` and `npm run check` pass locally, and the CI passes.
 
-## Open Questions
+## Decisions (2026-10-11)
 
-1. **The dashboard's complaints donut.** It shows each complaint verbatim, with its count. A group of one is one patient's text, though with no name attached.
-   - **I recommend keeping it as it is, allowlisted in the test as an aggregate.** It names no patient, and today everyone who sees the dashboard can open every record anyway: there is no secretary role yet.
-   - **The alternative:** hide groups below 3 patients, under "Otros". That is safer when a secretary role exists, but in a small clinic it empties the donut.
-2. **`referringDoctor` in the patient list.** It is free text ("Dr. Pérez, traumatología"), returned for every patient. The list hides that column by default.
-   - **I recommend moving it to `GET /api/patients/:id`**, and taking the optional column out of the list.
-3. **Free text on administrative entities: payment `notes`, package names, custom alerts.** They are about money or a reminder, but a user can type anything into them.
-   - **I recommend keeping them in the lists**, each with a hint in its form: "No escribas datos clínicos acá: van en la ficha del paciente."
-   - Hiding payment notes would also require the edit dialog to fetch each payment. Today it takes its notes from the list item, so hiding them without that fetch would erase them on every edit (the §1 hazard).
-   - Appointment notes are moved out (§2), because no list view shows them.
+1. **The complaints donut stays as it is**, small groups included. It is an aggregate that names no patient, and today everyone who sees the dashboard can open every record. It is revisited with the secretary role.
+2. **`referringDoctor` stays in the patient list**, allowlisted as administrative.
+3. **Free text on administrative entities stays in the lists** (payment notes, package names, custom alerts), with a hint in each form. Appointment notes leave the agenda (§2), since no list view shows them.
