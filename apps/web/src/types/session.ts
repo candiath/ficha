@@ -9,7 +9,7 @@ export interface Session {
   sessionDate: string;
   preSesionState: string | null;
   reEvaluationNotes: string | null;
-  patientResponse: string | null;
+  patientExercises: string | null;
   painScaleBefore: number | null;
   painScaleAfter: number | null;
   observations: string | null;

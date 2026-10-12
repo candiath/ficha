@@ -200,7 +200,7 @@ async function main() {
       painScaleAfter: 4,
       preSesionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
       reEvaluationNotes: 'Mejora leve en rango de flexión lumbar respecto a evaluación inicial. Persiste tensión en cadena posterior.',
-      patientResponse: 'Buena respuesta a la postura rana en el suelo. Dificultad inicial para soltar el diafragma.',
+      patientExercises: 'Rana en el suelo 10 minutos por día. Respiración diafragmática acostada antes de dormir.',
       observations: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
     },
   });
@@ -220,7 +220,7 @@ async function main() {
       painScaleAfter: 2,
       preSesionState: 'Paciente reporta mejoría notable. Dolor aparece recién después de 1 hora sentada. Duerme mejor.',
       reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable. Cabeza sigue adelantada.',
-      patientResponse: 'Excelente respuesta. Se incorporó postura parado en la pared sin dificultad.',
+      patientExercises: 'Parado en la pared 5 minutos, mañana y tarde. Seguir con la rana en el suelo.',
       observations: 'Sesión combinada: rana en el suelo + parado en la pared. Trabajo específico sobre sector cervical.',
     },
   });
@@ -397,8 +397,8 @@ async function main() {
         'Primera sesión de tratamiento. Paciente refiere dolor cervical 8/10, irradiación a brazo derecho. Noche previa sin poder dormir de costado.',
       reevalNotes:
         'Posturas adoptadas típicas de usuario de computadora. Observación de patrón respiratorio torácico superior en reposo.',
-      response:
-        'Buena predisposición. Se sorprendió con la intensidad de la postura sentado en silla. Costo respiratorio elevado al inicio.',
+      exercises:
+        'Sentado en silla 5 minutos en cada pausa del trabajo. Respiración diafragmática 3 veces por día.',
       obs: 'Postura sentado en silla con foco en debloqueo del diafragma. Trabajo de conciencia propioceptiva cervical. Tiempo total: 45 min.',
       type: 'SESSION' as const,
     },
@@ -411,7 +411,7 @@ async function main() {
         'Refiere leve mejoría en cefaleas (solo 2 episodios en la semana). Dolor cervical persiste al final del día de trabajo.',
       reevalNotes:
         'Mejora incipiente en amplitud de rotación cervical izquierda (+5°). Hombros ligeramente menos elevados.',
-      response: 'Mejor tolerancia a la postura. Logra mantener respiración diafragmática 10 minutos sostenidos.',
+      exercises: 'Respiración diafragmática 10 minutos sostenidos, una vez por día.',
       obs: 'Postura sentado en silla + introducción de rana en el suelo para cadena posterior. Corrección de posición escapular.',
       type: 'SESSION' as const,
     },
@@ -424,7 +424,7 @@ async function main() {
         'Pasó vacaciones de verano. Refiere que caminó y estuvo menos frente a la pantalla: notó clara mejoría. Retomó trabajo y en 3 días volvió el dolor.',
       reevalNotes:
         'Reevaluación programada (3ª sesión). Rotación cervical D: 52° / I: 48°. Mejora objetivable en postura de cabeza (+2 cm).',
-      response: 'Excelente respuesta. Incorpora rana en el suelo con mayor facilidad. Refiere sentir el debloqueo.',
+      exercises: 'Sumar la rana en el suelo 10 minutos, día por medio.',
       obs: 'Postura rana en el suelo foco lumbar + sentado en silla. Se explicó la correlación postura laboral–síntomas cervicales.',
       type: 'SESSION' as const,
     },
@@ -437,7 +437,7 @@ async function main() {
         'Sin cefaleas en la semana. Dolor cervical solo aparece al final de jornadas > 8 horas de pantalla. Duerme bien.',
       reevalNotes:
         'Posición de cabeza corregida ~3 cm respecto a inicial. Protracción escapular reducida visiblemente.',
-      response: 'Motivado por la evolución. Refiere que su pareja notó el cambio postural.',
+      exercises: 'Mantener la rutina. Cuidar la postura cervical frente a la pantalla.',
       obs: 'Parado en la pared + rana en el suelo. Incorporación de autopostura diaria de 5 min indicada como tarea.',
       type: 'SESSION' as const,
     },
@@ -449,7 +449,7 @@ async function main() {
       preSesion:
         'Episodio de reagudización por reunión con mucho stress laboral (8 horas frente a pantalla sin pausas). Decide venir igual.',
       reevalNotes: null,
-      response: null,
+      exercises: null,
       obs: 'NOTA CLÍNICA: Episodio de reagudización leve asociado a estrés laboral y uso prolongado de pantalla. Se refuerza educación postural y se indica pausas activas cada 45 min. No se realizó postura por tensión muscular elevada.',
       type: 'NOTE' as const,
     },
@@ -461,7 +461,7 @@ async function main() {
       preSesion: 'Recuperado del episodio. Cumplió con las pausas activas indicadas. Cierre del Ciclo 1.',
       reevalNotes:
         'Reevaluación cierre ciclo 1. Rotación cervical D: 60° / I: 55° (dentro de rangos normales). Test dedos-suelo: −8 cm (↑7 cm). NDI a reevaluar hoy.',
-      response: 'Muy contento con la evolución. Comprometido a continuar.',
+      exercises: 'Parado en la pared 5 minutos al terminar la jornada.',
       obs: 'Sesión de cierre de ciclo 1. Postura parado en la pared + sentado en silla. Reevaluación completa. Se planifica ciclo 2 de mantenimiento.',
       type: 'SESSION' as const,
     },
@@ -472,7 +472,7 @@ async function main() {
       painAfter: 1,
       preSesion: 'Inicio de ciclo 2. Sin cefaleas en las últimas 2 semanas. Dolor cervical esporádico.',
       reevalNotes: 'Postura laboral mejorada según autoreporte. Continúa con pausas activas diarias.',
-      response: 'Tolerancia excelente a todas las posturas. Maneja respiración diafragmática de forma autónoma.',
+      exercises: 'Rutina completa en casa: rana en el suelo, parado en la pared y sentado en silla.',
       obs: 'Rana en el aire + parado en la pared. Incorporación de cadena maestra anterior. Foco en estabilización.',
       type: 'SESSION' as const,
     },
@@ -484,7 +484,7 @@ async function main() {
       preSesion: 'Sin cefaleas hace 5 semanas. Dolor solo en contexto de jornadas excepcionales > 10 horas.',
       reevalNotes:
         'Rotación cervical D: 65° / I: 60° (supranormal). Cabeza en plomada. Postura de trabajo corregida. NDI a reevaluar.',
-      response: 'Refiere haber recuperado calidad de vida. Trabaja más cómodo y con más energía al final del día.',
+      exercises: 'Rutina de mantenimiento dos veces por semana.',
       obs: 'Rana en el aire + sentado en silla. Refuerzo de autoposturas para alta progresiva. Se plantea espaciar sesiones a mensual.',
       type: 'SESSION' as const,
     },
@@ -507,7 +507,7 @@ async function main() {
         painScaleAfter: s.painAfter,
         preSesionState: s.preSesion,
         reEvaluationNotes: s.reevalNotes,
-        patientResponse: s.response,
+        patientExercises: s.exercises,
         observations: s.obs,
       },
     });

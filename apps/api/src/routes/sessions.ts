@@ -46,7 +46,7 @@ const SessionFieldsSchema = z.object({
   episodeIds: episodeIdsField,
   preSesionState: OptionalTextSchema,
   reEvaluationNotes: OptionalTextSchema,
-  patientResponse: OptionalTextSchema,
+  patientExercises: OptionalTextSchema,
   painScaleBefore: z.number().int().min(0).max(10).optional().nullable(),
   painScaleAfter: z.number().int().min(0).max(10).optional().nullable(),
   observations: OptionalTextSchema,

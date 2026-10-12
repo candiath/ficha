@@ -549,7 +549,7 @@ model Session {
   sessionDate      DateTime    @map("session_date")
   preSesionState   String?     @map("pre_session_state")
   reEvaluationNotes String?    @map("re_evaluation_notes")
-  patientResponse  String?     @map("patient_response")
+  patientExercises String?     @map("patient_exercises")
   painScaleBefore  Int?        @map("pain_scale_before")
   painScaleAfter   Int?        @map("pain_scale_after")
   observations     String?

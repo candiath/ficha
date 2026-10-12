@@ -61,7 +61,7 @@ const SESSION: Session = {
   sessionDate: '2026-10-01T13:00:00.000Z',
   preSesionState: 'Llegó con dolor lumbar',
   reEvaluationNotes: null,
-  patientResponse: 'Respondió bien a la postura',
+  patientExercises: 'Rana en el suelo 10 minutos',
   painScaleBefore: 7,
   painScaleAfter: 3,
   observations: 'Trabajo de cadena posterior',
@@ -128,7 +128,7 @@ describe('SessionsPage', () => {
     expect(update.mock.calls[0][2]).toMatchObject({
       observations: 'Trabajo de cadena posterior y diafragma',
       preSesionState: 'Llegó con dolor lumbar',
-      patientResponse: 'Respondió bien a la postura',
+      patientExercises: 'Rana en el suelo 10 minutos',
       painScaleBefore: 7,
       painScaleAfter: 3,
     });
