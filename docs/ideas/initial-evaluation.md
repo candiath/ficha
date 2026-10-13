@@ -24,31 +24,31 @@ This is the same split as FHIR's: `Condition.onset` is when the problem began, i
 
 Linking a treatment to the events behind it ("this treatment is for that pain") is not needed by any part of the system today, and it only adds: it can come later.
 
-### RPG as its own record, inside the treatment
+### RPG extends the session
 
 RPG depends on the therapist, not the clinic. Two separate questions:
 
 - **Who may record RPG data**: the user's specialty. `User` gets `specialties` (an enum, `RPG` for now), set by the ADMIN in *Clínica → Usuarios*.
-- **Which treatments hold RPG data**: the records themselves, forever. A therapist without RPG reads them and does not edit them (decided 2026-10-13).
+- **Which records hold RPG data**: the records themselves, forever. A therapist without RPG reads them and does not edit them (decided 2026-10-13).
 
-An RPG assessment is recorded once, and again when there is no improvement (the client, 2026-10-13). So it is not an extension of the initial evaluation but its own dated record, many per treatment, like a functional scale:
+**The session is the base of every visit, and specialties extend it** (Nath, 2026-10-13). The session holds what every visit has: date, therapist, episodes, payment. An RPG assessment is recorded at the start of an RPG treatment, and again when the chosen treatment does not work (the client, 2026-10-13); either way it is recorded in a session, as an extension of it, keyed by the session's id:
 
 ```prisma
 model RpgAssessment {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  episodeId  String   @map("episode_id") @db.Uuid
-  userId     String   @map("user_id") @db.Uuid        // the RPG therapist who recorded it
-  assessedAt DateTime @map("assessed_at")
+  sessionId String @id @map("session_id") @db.Uuid  // PK = FK: at most one per session
+  tenantId  String @map("tenant_id") @db.Uuid
   // global posture, morphotype, breathing pattern and detail, family pain,
   // posture families (Json, shape in packages/shared)
+  session Session @relation(fields: [tenantId, sessionId], references: [tenantId, id], onDelete: Restrict)
   @@map("rpg_assessments")
 }
 ```
 
-- Typed columns rather than one JSON blob (as `FunctionalScale` keeps its `responses`): Postgres validates the columns, not what is inside a JSON.
+- Date, author and episode come from the session, so they cannot disagree with it. Many assessments per treatment follow from many sessions.
+- In the sessions list, ordered by date, a session with an RPG assessment shows it; RPG has its own view for the detail.
+- Another specialty is another extension of the session, and the session table does not change.
 - A new assessment can start as a copy of the previous one, so a re-assessment records what changed.
-- Composite keys with `tenant_id` keep it inside its clinic; the model goes in `TENANT_SCOPED_MODELS`, with its own audit entity and catalog actions.
+- Composite keys with `tenant_id` keep it inside its clinic; the model goes in `TENANT_SCOPED_MODELS`.
 
 **Timing**: it only adds, so it is not part of the relaunch. The removed code (`packages/shared/src/postureFamilies.ts`, `PostureFamiliesTables.tsx`) is recoverable from git.
 
@@ -71,7 +71,7 @@ Everything above keeps the evaluation's form as typed columns. The alternative c
   ```
 
 - A correction of the form is a new template version. Old evaluations keep rendering with theirs.
-- The RPG assessment is another template instead of a typed `rpg_assessments` table, and the user's specialty decides which templates she can fill.
+- The RPG assessment is a template filled in a session instead of a typed `rpg_assessments` table, and the user's specialty decides which templates she can fill. Every future specialty is another template, with no table of its own.
 
 **What stays typed.** Everything the system computes with, filters by or shows elsewhere: patients, episodes, sessions, appointments, payments, packages, the patient's events with their partial dates, the EVA and the functional scales, consent, users, audit. Of the ~23 models, the initial evaluation gets a JSON column, and later the RPG assessment. JSON is not new in Ficha: `postureFamilies`, `familyPain*`, `retractionMap` and `FunctionalScale.responses` already are.
 
@@ -99,7 +99,7 @@ None of them can be declared in `schema.prisma`; they go as hand-written SQL in 
 | Querying one field | a plain column | `jsonb` operators, an index when needed, across versions |
 | Work before the relaunch | smaller: remove and rename columns, the events | larger: the template engine in `shared`, a generic form in the web, validation per version, the audit's `changedFields` as template field ids |
 | The client's pending answers (map, flexibility, feet) | hold the relaunch | do not: they become versions |
-| RPG | a typed `rpg_assessments` table, later | another template, later |
+| RPG and other specialties | a typed table per specialty, extending the session, later | a template per specialty, filled in the session, later |
 | Renames ("Relato del paciente", "Otros antecedentes") | renames of columns and codes | field ids chosen once, in the first version |
 
 ## Directions discarded
@@ -113,6 +113,7 @@ None of them can be declared in `schema.prisma`; they go as hand-written SQL in 
 - The client starts using Ficha only when everything pending only adds: whatever removes or renames goes before the relaunch, because afterwards audit rows and real clinical data make it permanent.
 - Events belong to the patient, and an event may have no date. Treatments are a separate thing.
 - RPG is the therapist's specialty; a therapist without it only reads RPG data. RPG assessments are many per treatment, and belong to the treatment (the episode), not to the patient.
+- The session is the base of every visit (date, therapist, episodes, payment); RPG, and any specialty that comes, extends it.
 - The events list is called "Antecedentes" in the UI.
 - "Historia clínica" (`medicalHistory`) stays, for the exceptional, renamed "Otros antecedentes".
 - The two "Motivo de consulta": the episode's (`mainComplaint`) stays as the treatment's short name; the evaluation's (`reasonForConsultation`) becomes "Relato del paciente" (what happened and how it started).
