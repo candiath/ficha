@@ -15,7 +15,7 @@ Two things are wrong today:
 
 **What the patient lived is one thing; the treatments are another.**
 
-- **Events** belong to the patient: a fracture, a surgery, a trauma, a diagnosis, the onset of a pain. Each has a kind (`FRACTURE`, `SURGERY`, `TRAUMA`, `DIAGNOSIS`, `PAIN_ONSET`, `OTHER`), a description and an optional partial date. An event without a date is allowed. Entered once, seen from every treatment.
+- **Events** ("Antecedentes" in the UI) belong to the patient: a fracture, a surgery, a trauma, a diagnosis, the onset of a pain. Each has a kind (`FRACTURE`, `SURGERY`, `TRAUMA`, `DIAGNOSIS`, `PAIN_ONSET`, `OTHER`), a description and an optional partial date. An event without a date is allowed. Entered once, seen from every treatment.
 - **Treatments** are the episodes (`ClinicalEpisode`), with what is recorded inside them: the initial evaluation, the RPG assessments, the sessions, the scales. A treatment does not store when the problem began.
 - **Partial dates**: a date, its precision (day, month or year) and an "approximate" mark. The form accepts "hace 2 meses" and stores "~agosto 2026", computed from the day it is written, so it never ages. One schema in `packages/shared`.
 - **"Momento de aparición del dolor" is removed** from the evaluation. The onset is a `PAIN_ONSET` event, which the evaluation form can create without leaving it.
@@ -62,7 +62,8 @@ model RpgAssessment {
 
 - The client starts using Ficha only when everything pending only adds: whatever removes or renames goes before the relaunch, because afterwards audit rows and real clinical data make it permanent.
 - Events belong to the patient, and an event may have no date. Treatments are a separate thing.
-- RPG is the therapist's specialty; a therapist without it only reads RPG data. RPG assessments are many per treatment.
+- RPG is the therapist's specialty; a therapist without it only reads RPG data. RPG assessments are many per treatment, and belong to the treatment (the episode), not to the patient.
+- The events list is called "Antecedentes" in the UI.
 - "Historia clínica" (`medicalHistory`) stays, for the exceptional, renamed "Otros antecedentes".
 - The two "Motivo de consulta": the episode's (`mainComplaint`) stays as the treatment's short name; the evaluation's (`reasonForConsultation`) becomes "Relato del paciente" (what happened and how it started).
 - Everything removed goes in one release, an exception to the two-release rule for destructive migrations: nobody uses the app until the relaunch and production is wiped anyway. Written down in the PR that does it.
@@ -71,7 +72,6 @@ model RpgAssessment {
 
 - [ ] The client enters dates if the field accepts "hace X". *How*: show her that one field before building the rest.
 - [ ] The events she records today have a date, even an approximate one, more often than not. *How*: ask which ones she writes down.
-- [ ] An RPG assessment belongs to one treatment. *How*: ask her whether a new treatment starts from the last assessment or from scratch.
 
 ## MVP scope (before the relaunch)
 
@@ -90,12 +90,10 @@ Each new piece follows the usual rules: catalog actions, the audit and list mani
 - **A problem list with status** (FHIR's active / resolved conditions, with an end date): events cover what the client asked; an end date only adds.
 - **Precautions and contraindications banner** in sessions (pacemaker, metal implants, pregnancy, osteoporosis, anticoagulation, oncological history): it only adds; first candidate after the relaunch.
 - **Acute / subacute / chronic label** from the onset event: display only.
-- **Final notes**: tools like Cliniko let a note be saved as a draft, editable, or as final, locked, with corrections as addenda. It fits the law's demand that an electronic record be unalterable (Ley 26.529, art. 13), and it only adds. Worth its own issue.
+- **Final notes**: tools like Cliniko let a note be saved as a draft, editable, or as final, locked, with corrections as addenda. It fits the law's demand that an electronic record be unalterable (Ley 26.529, art. 13), and it only adds: #241.
 - **SOAP structure with objective measures** (goniometry, strength 0–5, special tests) and generic scales such as the PSFS: the most expensive, and it only adds.
 - **ICD-10 coding of diagnoses**: useful for insurers, and it only adds.
 
 ## Open questions
 
-- **The name of the events list in the UI**: "Antecedentes" (next to "Otros antecedentes") or "Eventos".
-- **For the client**: the retraction map (proposal: it becomes a pain body chart, the conventional one), the flexibility / shortening test, the foot evaluation.
-- **For the RPG assessments, later**: whether they belong to one treatment or to the patient.
+- **For the client**: for the retraction map, the flexibility / shortening test and the foot evaluation, whether each one is used in conventional physiotherapy (it stays in the initial evaluation), only in RPG (it moves to the RPG assessment), or not at all (it is removed). For the map, a conventional alternative: a pain body chart.
