@@ -33,7 +33,7 @@ const sessionSelect = {
   sessionDate: true,
   preSesionState: true,
   reEvaluationNotes: true,
-  patientResponse: true,
+  patientExercises: true,
   painScaleBefore: true,
   painScaleAfter: true,
   observations: true,
@@ -66,7 +66,7 @@ type SessionRow = {
   sessionDate: Date;
   preSesionState: string | null;
   reEvaluationNotes: string | null;
-  patientResponse: string | null;
+  patientExercises: string | null;
   painScaleBefore: number | null;
   painScaleAfter: number | null;
   observations: string | null;
@@ -105,7 +105,7 @@ function sessionData(input: Partial<SessionCreateInput>) {
     ...(input.sessionDate !== undefined && { sessionDate: input.sessionDate }),
     ...(input.preSesionState !== undefined && { preSesionState: input.preSesionState }),
     ...(input.reEvaluationNotes !== undefined && { reEvaluationNotes: input.reEvaluationNotes }),
-    ...(input.patientResponse !== undefined && { patientResponse: input.patientResponse }),
+    ...(input.patientExercises !== undefined && { patientExercises: input.patientExercises }),
     ...(input.painScaleBefore !== undefined && { painScaleBefore: input.painScaleBefore }),
     ...(input.painScaleAfter !== undefined && { painScaleAfter: input.painScaleAfter }),
     ...(input.observations !== undefined && { observations: input.observations }),

@@ -110,7 +110,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   it('each session carries only who and when', async () => {
     await prisma.session.update({
       where: { id: sessionConEpisodio },
-      data: { observations: 'MKobs', patientResponse: 'MKresp', painScaleBefore: 7 },
+      data: { observations: 'MKobs', patientExercises: 'MKresp', painScaleBefore: 7 },
     });
 
     const res = await auth(request(app).get('/api/sessions'));

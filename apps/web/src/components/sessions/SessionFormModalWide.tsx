@@ -65,7 +65,7 @@ const schema = z.object({
   painScaleAfter: z.number().min(0).max(10).nullable(),
   preSesionState: z.string(),
   reEvaluationNotes: z.string(),
-  patientResponse: z.string(),
+  patientExercises: z.string(),
   observations: z.string(),
   baseAmount: z.string().optional().or(z.literal('')),
   discount: z.string().optional().or(z.literal('')),
@@ -193,7 +193,7 @@ export default function SessionFormModalWide({
       painScaleAfter: null,
       preSesionState: '',
       reEvaluationNotes: '',
-      patientResponse: '',
+      patientExercises: '',
       observations: '',
       baseAmount: '',
       discount: '',
@@ -213,7 +213,7 @@ export default function SessionFormModalWide({
         painScaleAfter: session.painScaleAfter ?? null,
         preSesionState: session.preSesionState ?? '',
         reEvaluationNotes: session.reEvaluationNotes ?? '',
-        patientResponse: session.patientResponse ?? '',
+        patientExercises: session.patientExercises ?? '',
         observations: session.observations ?? '',
         baseAmount: '',
         discount: '',
@@ -231,7 +231,7 @@ export default function SessionFormModalWide({
         painScaleAfter: null,
         preSesionState: '',
         reEvaluationNotes: '',
-        patientResponse: '',
+        patientExercises: '',
         observations: '',
         baseAmount: '',
         discount: '',
@@ -267,7 +267,7 @@ export default function SessionFormModalWide({
         painScaleAfter: values.painScaleAfter,
         preSesionState: values.preSesionState,
         reEvaluationNotes: values.reEvaluationNotes,
-        patientResponse: values.patientResponse,
+        patientExercises: values.patientExercises,
         observations: values.observations,
       }
 
@@ -736,12 +736,12 @@ export default function SessionFormModalWide({
                     />
                     <FormField
                       control={form.control}
-                      name="patientResponse"
+                      name="patientExercises"
                       render={({ field }) => (
-                        <DirtyFieldItem dirty={dirtyFields.patientResponse} label="Respuesta del paciente">
+                        <DirtyFieldItem dirty={dirtyFields.patientExercises} label="Ejercicios">
                           <FormControl>
                             <Textarea
-                              placeholder="¿Cómo respondió a las posturas trabajadas?"
+                              placeholder="¿Qué ejercicios debe hacer?"
                               rows={3}
                               {...field}
                             />

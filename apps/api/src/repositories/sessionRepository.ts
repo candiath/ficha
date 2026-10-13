@@ -14,7 +14,7 @@ export interface SessionDTO {
   sessionDate: string;
   preSesionState: string | null;
   reEvaluationNotes: string | null;
-  patientResponse: string | null;
+  patientExercises: string | null;
   painScaleBefore: number | null;
   painScaleAfter: number | null;
   observations: string | null;
@@ -40,7 +40,7 @@ export interface SessionFields {
   sessionDate: Date;
   preSesionState?: string | null;
   reEvaluationNotes?: string | null;
-  patientResponse?: string | null;
+  patientExercises?: string | null;
   painScaleBefore?: number | null;
   painScaleAfter?: number | null;
   observations?: string | null;

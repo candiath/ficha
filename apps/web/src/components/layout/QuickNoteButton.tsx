@@ -92,7 +92,7 @@ export default function QuickNoteButton() {
         painScaleAfter: null,
         preSesionState: null,
         reEvaluationNotes: null,
-        patientResponse: null,
+        patientExercises: null,
         observations: note,
       }),
     onSuccess: () => {

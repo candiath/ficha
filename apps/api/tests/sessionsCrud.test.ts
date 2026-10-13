@@ -142,7 +142,7 @@ describe('CRUD de sesiones por HTTP', () => {
       episodeIds: [episodeA.id],
       preSesionState: 'Rigidez matinal',
       reEvaluationNotes: 'Mejora el rango',
-      patientResponse: 'Bien tolerado',
+      patientExercises: 'Parado en la pared',
       painScaleBefore: 7,
       painScaleAfter: 3,
       observations: 'Trabajo de cadena posterior',
@@ -156,7 +156,7 @@ describe('CRUD de sesiones por HTTP', () => {
       episodeIds: [episodeA.id],
       preSesionState: 'Rigidez matinal',
       reEvaluationNotes: 'Mejora el rango',
-      patientResponse: 'Bien tolerado',
+      patientExercises: 'Parado en la pared',
       painScaleBefore: 7,
       painScaleAfter: 3,
       observations: 'Trabajo de cadena posterior',
@@ -189,7 +189,7 @@ describe('CRUD de sesiones por HTTP', () => {
       episodeIds: [],
       preSesionState: null,
       reEvaluationNotes: null,
-      patientResponse: null,
+      patientExercises: null,
       painScaleBefore: null,
       painScaleAfter: null,
       observations: null,
@@ -407,7 +407,7 @@ describe('CRUD de sesiones por HTTP', () => {
       painScaleBefore: 6,
       painScaleAfter: 2,
       observations: 'después',
-      patientResponse: 'Refiere alivio',
+      patientExercises: 'Rana en el suelo',
     });
 
     expect(res.status).toBe(200);
@@ -415,7 +415,7 @@ describe('CRUD de sesiones por HTTP', () => {
       painScaleBefore: 6,
       painScaleAfter: 2,
       observations: 'después',
-      patientResponse: 'Refiere alivio',
+      patientExercises: 'Rana en el suelo',
     });
   });
 
@@ -639,6 +639,19 @@ describe('CRUD de sesiones por HTTP', () => {
     // Codes only: the pain values stay in the session, never in the audit row.
     expect(alta.params).toEqual({});
     expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'] });
+  });
+
+  it('editing the exercises records the field name, never the text', async () => {
+    const creada = await crearSesion();
+    await auth(request(app).patch(`${url()}/${creada.id}`)).send({ patientExercises: 'Rana en el suelo' });
+
+    const edicion = await waitFor(() =>
+      prisma.auditLog.findFirst({
+        where: { tenantId: clinic.tenantId, entityId: creada.id, action: 'SESSION_UPDATED' },
+        select: { params: true },
+      }),
+    );
+    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['patientExercises'] });
   });
 
   it('una NOTE y un DISCHARGE se registran con su propia acción', async () => {
