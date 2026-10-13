@@ -13,90 +13,89 @@ Two things are wrong today:
 
 ## Recommended direction
 
-**Patient history, and the episode's onset, as dated facts** (direction B below, to confirm).
+**What the patient lived is one thing; the treatments are another.**
 
-- **Patient history ("Antecedentes")**: a list on the patient, not on the episode, so a fracture from years ago is entered once and seen from every episode. Each entry has a kind (`FRACTURE`, `SURGERY`, `TRAUMA`, `DIAGNOSIS`, `OTHER`), a description and an optional partial date. An entry without a date is allowed.
-- **Episode onset**: the episode gets an onset date, which replaces "Momento de aparición del dolor" (the client uses it as the onset, not as a time of day). One per episode, by construction.
-- **Partial dates**: a date, its precision (day, month or year) and an "approximate" mark. The form accepts "hace 2 meses" and stores "~agosto 2026", computed from the day it is written, so it never ages. One schema in `packages/shared`, used by both.
-- **RPG leaves the base evaluation** before the relaunch. It comes back, when a therapist needs it, as an extension (below).
+- **Events** belong to the patient: a fracture, a surgery, a trauma, a diagnosis, the onset of a pain. Each has a kind (`FRACTURE`, `SURGERY`, `TRAUMA`, `DIAGNOSIS`, `PAIN_ONSET`, `OTHER`), a description and an optional partial date. An event without a date is allowed. Entered once, seen from every treatment.
+- **Treatments** are the episodes (`ClinicalEpisode`), with what is recorded inside them: the initial evaluation, the RPG assessments, the sessions, the scales. A treatment does not store when the problem began.
+- **Partial dates**: a date, its precision (day, month or year) and an "approximate" mark. The form accepts "hace 2 meses" and stores "~agosto 2026", computed from the day it is written, so it never ages. One schema in `packages/shared`.
+- **"Momento de aparición del dolor" is removed** from the evaluation. The onset is a `PAIN_ONSET` event, which the evaluation form can create without leaving it.
 
-### RPG as an extension
+This is the same split as FHIR's: `Condition.onset` is when the problem began, in the clinician's opinion, and `EpisodeOfCare.period` is when someone was responsible for its care; one is not derived from the other. A patient who comes back a year later for the same back pain starts a new treatment, and the onset of the pain is still the same event.
+
+Linking a treatment to the events behind it ("this treatment is for that pain") is not needed by any part of the system today, and it only adds: it can come later.
+
+### RPG as its own record, inside the treatment
 
 RPG depends on the therapist, not the clinic. Two separate questions:
 
 - **Who may record RPG data**: the user's specialty. `User` gets `specialties` (an enum, `RPG` for now), set by the ADMIN in *Clínica → Usuarios*.
-- **Which records hold RPG data**: the record itself, forever. A therapist without RPG reads the RPG data of a record and does not edit it (decided 2026-10-13).
+- **Which treatments hold RPG data**: the records themselves, forever. A therapist without RPG reads them and does not edit them (decided 2026-10-13).
 
-The data goes in its own table whose primary key is the evaluation's id (one table per subtype):
+An RPG assessment is recorded once, and again when there is no improvement (the client, 2026-10-13). So it is not an extension of the initial evaluation but its own dated record, many per treatment, like a functional scale:
 
 ```prisma
-model RpgEvaluation {
-  evaluationId String @id @map("evaluation_id") @db.Uuid  // PK = FK: one-to-one by construction
-  tenantId     String @map("tenant_id") @db.Uuid
+model RpgAssessment {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  episodeId  String   @map("episode_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid        // the RPG therapist who recorded it
+  assessedAt DateTime @map("assessed_at")
   // global posture, morphotype, breathing pattern and detail, family pain,
   // posture families (Json, shape in packages/shared)
-  evaluation InitialEvaluation @relation(fields: [tenantId, evaluationId],
-                                         references: [tenantId, id], onDelete: Restrict)
-  @@map("rpg_evaluations")
+  @@map("rpg_assessments")
 }
 ```
 
-- The row existing is what makes an evaluation RPG: no modality column to keep in sync.
-- The base table does not change when another specialty arrives.
-- The composite key keeps the row inside its clinic; the model goes in `TENANT_SCOPED_MODELS`.
-- For audit it is still the evaluation: its fields are `changedFields` of the evaluation's update, no new entity.
+- Typed columns rather than one JSON blob (as `FunctionalScale` keeps its `responses`): Postgres validates the columns, not what is inside a JSON.
+- A new assessment can start as a copy of the previous one, so a re-assessment records what changed.
+- Composite keys with `tenant_id` keep it inside its clinic; the model goes in `TENANT_SCOPED_MODELS`, with its own audit entity and catalog actions.
 
-The opposite direction (a nullable `rpg_data_id` on the evaluation) needs a `UNIQUE` to stay one-to-one, allows RPG rows nobody points to, and adds a column to the base table per specialty. A JSON column with a discriminator was also discarded: Postgres validates nothing inside it.
+**Timing**: it only adds, so it is not part of the relaunch. The removed code (`packages/shared/src/postureFamilies.ts`, `PostureFamiliesTables.tsx`) is recoverable from git.
 
-**Timing**: building the extension only adds, so it costs the same before or after the relaunch. It is not part of the relaunch. The removed code (`packages/shared/src/postureFamilies.ts`, `PostureFamiliesTables.tsx`) is recoverable from git.
+## Directions discarded
 
-## Directions considered
-
-**A. Everything is an event.** One list of patient events; the pain onset is one more event (`PAIN_ONSET`) linked to its episode. One concept fewer, but "the onset of this episode" becomes a search that can find zero, two, or an onset with no episode, unless a partial unique index forbids it.
-
-**B. Patient history plus the episode's onset** (recommended). The onset is a field of the episode, so there is exactly one or none, and the time since onset is a column read. The history list stays clean.
-
-Both use the same partial date and accept "hace X".
+- **The onset as a field of the episode** (recommended in an earlier draft, to guarantee one onset per treatment). It mixes the patient's history with the treatment: no part of the system needs that guarantee, and a second treatment for the same problem would copy the onset.
+- **RPG as a one-to-one extension of the initial evaluation** (primary key = the evaluation's id). An RPG assessment is repeated, so it cannot be one per evaluation.
+- **A JSON column with a specialty discriminator**: Postgres validates nothing inside it.
 
 ## Decisions (2026-10-13)
 
 - The client starts using Ficha only when everything pending only adds: whatever removes or renames goes before the relaunch, because afterwards audit rows and real clinical data make it permanent.
-- Patient history belongs to the patient.
-- An entry without a date is allowed.
-- "Historia clínica" (`medicalHistory`) stays, for the exceptional, with a new label.
-- RPG is the therapist's specialty; a therapist without it only reads RPG data.
+- Events belong to the patient, and an event may have no date. Treatments are a separate thing.
+- RPG is the therapist's specialty; a therapist without it only reads RPG data. RPG assessments are many per treatment.
+- "Historia clínica" (`medicalHistory`) stays, for the exceptional, renamed "Otros antecedentes".
+- The two "Motivo de consulta": the episode's (`mainComplaint`) stays as the treatment's short name; the evaluation's (`reasonForConsultation`) becomes "Relato del paciente" (what happened and how it started).
 - Everything removed goes in one release, an exception to the two-release rule for destructive migrations: nobody uses the app until the relaunch and production is wiped anyway. Written down in the PR that does it.
 
 ## Key assumptions to validate
 
 - [ ] The client enters dates if the field accepts "hace X". *How*: show her that one field before building the rest.
-- [ ] An episode has one onset, and a relapse is a new episode. *How*: ask her.
-- [ ] The history entries she records today have a date, even an approximate one. *How*: ask which ones she writes down.
+- [ ] The events she records today have a date, even an approximate one, more often than not. *How*: ask which ones she writes down.
+- [ ] An RPG assessment belongs to one treatment. *How*: ask her whether a new treatment starts from the last assessment or from scratch.
 
 ## MVP scope (before the relaunch)
 
-- Patient history, with partial dates.
-- Episode onset, replacing "Momento de aparición del dolor".
+- Patient events, with partial dates.
+- "Momento de aparición del dolor" removed; the onset recorded as an event.
 - RPG fields removed from `initial_evaluations` and from the form, with `postureFamilies.ts`, its component, and the JSON section of `CLAUDE.md` rewritten around another example.
-- The two "Motivo de consulta" fields resolved, and the new label of "Historia clínica".
+- The renames: "Relato del paciente", "Otros antecedentes".
 - Whatever the client decides about the retraction map, the flexibility test and the foot evaluation, if it removes or renames.
 
 Each new piece follows the usual rules: catalog actions, the audit and list manifests, the tenant guard, `idParam`.
 
 ## Not doing (and why)
 
-- **The RPG extension** (`rpg_evaluations`, user specialties): it only adds; built when a therapist needs it.
+- **RPG assessments and user specialties**: they only add; built when a therapist needs them.
+- **Linking treatments to events**: nothing needs it yet, and it only adds.
+- **A problem list with status** (FHIR's active / resolved conditions, with an end date): events cover what the client asked; an end date only adds.
 - **Precautions and contraindications banner** in sessions (pacemaker, metal implants, pregnancy, osteoporosis, anticoagulation, oncological history): it only adds; first candidate after the relaunch.
-- **Acute / subacute / chronic label** from the onset date: display only, cheap once the date exists.
-- **Onset mechanism** (traumatic, insidious, post-surgical) and linking an onset to a history entry: they only add.
+- **Acute / subacute / chronic label** from the onset event: display only.
+- **Final notes**: tools like Cliniko let a note be saved as a draft, editable, or as final, locked, with corrections as addenda. It fits the law's demand that an electronic record be unalterable (Ley 26.529, art. 13), and it only adds. Worth its own issue.
 - **SOAP structure with objective measures** (goniometry, strength 0–5, special tests) and generic scales such as the PSFS: the most expensive, and it only adds.
 - **ICD-10 coding of diagnoses**: useful for insurers, and it only adds.
-- **Templates per specialty**: the extension pattern covers the one specialty there is.
 
 ## Open questions
 
-- **Direction A or B.**
-- **Two "Motivo de consulta"**: the episode's (`ClinicalEpisode.mainComplaint`, asked when the episode is created; it names the episode and feeds the dashboard's chart) and the evaluation's (`InitialEvaluation.reasonForConsultation`), with the same label and never synchronized. Proposal: the episode's stays as the short name ("Lumbalgia"), the evaluation's becomes "Relato del paciente" (what happened and how it started).
-- **New label for "Historia clínica"**. Proposal: "Otros antecedentes".
+- **The name of the events list in the UI**: "Antecedentes" (next to "Otros antecedentes") or "Eventos".
 - **For the client**: the retraction map (proposal: it becomes a pain body chart, the conventional one), the flexibility / shortening test, the foot evaluation.
-- **For the RPG extension, later**: whether an RPG session records something of its own (the postures worked, the time in each). If it does, the session gets the same kind of extension.
+- **For the RPG assessments, later**: whether they belong to one treatment or to the patient.
