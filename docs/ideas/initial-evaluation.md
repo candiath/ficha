@@ -31,20 +31,27 @@ RPG depends on the therapist, not the clinic. Two separate questions:
 - **Who may record RPG data**: the user's specialty. `User` gets `specialties` (an enum, `RPG` for now), set by the ADMIN in *Clínica → Usuarios*.
 - **Which records hold RPG data**: the records themselves, forever. A therapist without RPG reads them and does not edit them (decided 2026-10-13).
 
-**The session is the base of every visit, and specialties extend it** (Nath, 2026-10-13). The session holds what every visit has: date, therapist, episodes, payment. An RPG assessment is recorded at the start of an RPG treatment, and again when the chosen treatment does not work (the client, 2026-10-13); either way it is recorded in a session, as an extension of it, keyed by the session's id:
+**The session is the base of every visit, and specialties extend it** (Nath, 2026-10-13). The session holds what every visit has: date, therapist, episodes, payment. An RPG assessment is recorded at the start of an RPG treatment, and again when the chosen treatment does not work (the client, 2026-10-13); either way it is recorded in a session, as an extension of it.
+
+A session can treat several episodes, each with its own block (`session_episodes`, decided 2026-10-13), so an extension belongs to the session's block for one episode. One generic table serves every specialty (decided 2026-10-13), with the content as JSON validated by the schema of its kind and version in `packages/shared`:
 
 ```prisma
-model RpgAssessment {
-  sessionId String @id @map("session_id") @db.Uuid  // PK = FK: at most one per session
+model SessionExtension {
   tenantId  String @map("tenant_id") @db.Uuid
-  // global posture, morphotype, breathing pattern and detail, family pain,
-  // posture families (Json, shape in packages/shared)
-  session Session @relation(fields: [tenantId, sessionId], references: [tenantId, id], onDelete: Restrict)
-  @@map("rpg_assessments")
+  sessionId String @map("session_id") @db.Uuid
+  episodeId String @map("episode_id") @db.Uuid
+  kind      SessionExtensionKind               // RPG for now
+  version   Int
+  data      Json
+  block SessionEpisode @relation(fields: [tenantId, sessionId, episodeId],
+                                 references: [tenantId, sessionId, episodeId], onDelete: Restrict)
+  @@id([sessionId, episodeId, kind])           // at most one RPG assessment per block
+  @@map("session_extensions")
 }
 ```
 
-- Date, author and episode come from the session, so they cannot disagree with it. Many assessments per treatment follow from many sessions.
+- Date, author and episode come from the session and its block, so they cannot disagree with them. Many assessments per treatment follow from many sessions.
+- Which kinds a user may fill follows from her specialties, in the API.
 - In the sessions list, ordered by date, a session with an RPG assessment shows it; RPG has its own view for the detail.
 - Another specialty is another extension of the session, and the session table does not change.
 - A new assessment can start as a copy of the previous one, so a re-assessment records what changed.
@@ -53,6 +60,8 @@ model RpgAssessment {
 **Timing**: it only adds, so it is not part of the relaunch. The removed code (`packages/shared/src/postureFamilies.ts`, `PostureFamiliesTables.tsx`) is recoverable from git.
 
 ## Third direction: the form as a versioned template
+
+**Not taken for now** (2026-10-13): the evaluation stays in typed columns. Kept here for when the form changes again.
 
 Everything above keeps the evaluation's form as typed columns. The alternative changes how the form itself is stored; events and treatments stay as described.
 
@@ -113,7 +122,9 @@ None of them can be declared in `schema.prisma`; they go as hand-written SQL in 
 - The client starts using Ficha only when everything pending only adds: whatever removes or renames goes before the relaunch, because afterwards audit rows and real clinical data make it permanent.
 - Events belong to the patient, and an event may have no date. Treatments are a separate thing.
 - RPG is the therapist's specialty; a therapist without it only reads RPG data. RPG assessments are many per treatment, and belong to the treatment (the episode), not to the patient.
-- The session is the base of every visit (date, therapist, episodes, payment); RPG, and any specialty that comes, extends it.
+- The session is the base of every visit (date, therapist, episodes, payment); RPG, and any specialty that comes, extends it, in one generic table.
+- The initial evaluation stays its own record, not an extension of a session: a first visit may be only the evaluation (the patient asks prices or has doubts), and treating and charging the same day is allowed, never required.
+- The evaluation's form stays in typed columns for now.
 - The events list is called "Antecedentes" in the UI.
 - "Historia clínica" (`medicalHistory`) stays, for the exceptional, renamed "Otros antecedentes".
 - The two "Motivo de consulta": the episode's (`mainComplaint`) stays as the treatment's short name; the evaluation's (`reasonForConsultation`) becomes "Relato del paciente" (what happened and how it started).
@@ -147,5 +158,4 @@ Each new piece follows the usual rules: catalog actions, the audit and list mani
 
 ## Open questions
 
-- **The form: typed columns or a versioned template** (third direction), and, with a template, JSON answers or one row per answer.
 - **For the client**: for the retraction map, the flexibility / shortening test and the foot evaluation, whether each one is used in conventional physiotherapy (it stays in the initial evaluation), only in RPG (it moves to the RPG assessment), or not at all (it is removed). For the map, a conventional alternative: a pain body chart.
