@@ -52,6 +52,55 @@ model RpgAssessment {
 
 **Timing**: it only adds, so it is not part of the relaunch. The removed code (`packages/shared/src/postureFamilies.ts`, `PostureFamiliesTables.tsx`) is recoverable from git.
 
+## Third direction: the form as a versioned template
+
+Everything above keeps the evaluation's form as typed columns. The alternative changes how the form itself is stored; events and treatments stay as described.
+
+**Why.** Nothing outside the evaluation's own route, repository and form reads its ~20 columns (checked 2026-10-13). Typed columns buy little there, and they make every correction of the form a migration: after the relaunch, a dead column and an audit code kept forever. That is the problem behind this whole document, and the client's next correction will hit it again.
+
+**What.**
+
+- The form is defined in `packages/shared`: sections and fields, each with a kind (text, choice, scale, date). It generalizes what `POSTURE_TABLES` already does for one grid.
+- An evaluation stores the template it was filled with and the answers:
+
+  ```
+  initial_evaluations: id, tenant_id, patient_id, episode_id,
+                       template_code 'INITIAL_EVALUATION', template_version 3,   ← typed
+                       eva_scale 6,                                             ← typed
+                       answers {"patientNarrative": "...", "painFrequency": "..."}
+  ```
+
+- A correction of the form is a new template version. Old evaluations keep rendering with theirs.
+- The RPG assessment is another template instead of a typed `rpg_assessments` table, and the user's specialty decides which templates she can fill.
+
+**What stays typed.** Everything the system computes with, filters by or shows elsewhere: patients, episodes, sessions, appointments, payments, packages, the patient's events with their partial dates, the EVA and the functional scales, consent, users, audit. Of the ~23 models, the initial evaluation gets a JSON column, and later the RPG assessment. JSON is not new in Ficha: `postureFamilies`, `familyPain*`, `retractionMap` and `FunctionalScale.responses` already are.
+
+**What keeps it robust when Postgres does not look inside.**
+
+- Each template version has a strict schema (`strictObject`, as `postureFamilies` today): an unknown key or a wrong type is a `400`.
+- Versions only grow: a test pins the published versions and fails if one changes or disappears, like the audit catalog codes.
+- `template_code` and `template_version` are typed columns, and a `CHECK` requires `answers` to be an object.
+
+**Querying.** Prisma stores `Json` as `jsonb`, parsed once on write, so reading a key (`answers->>'painFrequency'`) does not re-parse the row. Without an index, filtering on a key scans every row, as with an unindexed column. When a key needs it:
+
+- an expression index on that key (`CREATE INDEX … ((answers->>'painFrequency'))`);
+- a GIN index on `answers`, for containment (`@>`) and key existence (`?`);
+- a stored generated column with the key cast to its type (`GENERATED ALWAYS AS ((answers->>'x')::int) STORED`), indexed like any column. A value that does not cast makes the write fail, so it also gives that one key a check in the database.
+
+None of them can be declared in `schema.prisma`; they go as hand-written SQL in the migration, like the audit triggers. The real difficulty is not speed but meaning: a key may not exist in older versions, or may change between them, so a query across versions has to account for that, and Prisma's JSON filters are limited (a complex one needs `$queryRaw`, inside the repository).
+
+**A middle ground**, if JSON is too loose: one row per answer, `(evaluation_id, field_code, value_text, value_number, value_date)`, with a `CHECK` that exactly one value is set. The database checks each answer's type without JSON; the cost is more rows, and assembling the form and auditing its changes gets harder.
+
+| | Typed columns (the plan above) | Versioned template |
+| --- | --- | --- |
+| A correction after the relaunch | a migration; a dead column and an audit code forever | a new template version |
+| Validation | each column's type, in the database | the object in the database; each field in the API, per version |
+| Querying one field | a plain column | `jsonb` operators, an index when needed, across versions |
+| Work before the relaunch | smaller: remove and rename columns, the events | larger: the template engine in `shared`, a generic form in the web, validation per version, the audit's `changedFields` as template field ids |
+| The client's pending answers (map, flexibility, feet) | hold the relaunch | do not: they become versions |
+| RPG | a typed `rpg_assessments` table, later | another template, later |
+| Renames ("Relato del paciente", "Otros antecedentes") | renames of columns and codes | field ids chosen once, in the first version |
+
 ## Directions discarded
 
 - **The onset as a field of the episode** (recommended in an earlier draft, to guarantee one onset per treatment). It mixes the patient's history with the treatment: no part of the system needs that guarantee, and a second treatment for the same problem would copy the onset.
@@ -96,4 +145,5 @@ Each new piece follows the usual rules: catalog actions, the audit and list mani
 
 ## Open questions
 
+- **The form: typed columns or a versioned template** (third direction), and, with a template, JSON answers or one row per answer.
 - **For the client**: for the retraction map, the flexibility / shortening test and the foot evaluation, whether each one is used in conventional physiotherapy (it stays in the initial evaluation), only in RPG (it moves to the RPG assessment), or not at all (it is removed). For the map, a conventional alternative: a pain body chart.
