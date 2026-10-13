@@ -80,6 +80,7 @@ Everything above keeps the evaluation's form as typed columns. The alternative c
 - Each template version has a strict schema (`strictObject`, as `postureFamilies` today): an unknown key or a wrong type is a `400`.
 - Versions only grow: a test pins the published versions and fails if one changes or disappears, like the audit catalog codes.
 - `template_code` and `template_version` are typed columns, and a `CHECK` requires `answers` to be an object.
+- Size is bounded twice: each text field has a maximum length in the version's schema, and a `CHECK (octet_length(answers::text) <= 65536)` is the net in the database. Today nothing bounds the evaluation's text but `express.json()`'s default 100 kB body. Like any long value, `answers` over ~2 kB is compressed and stored out of the row (TOAST); editing one field rewrites the whole document, which costs nothing at a few kB. Photos are never inside it: they stay files, as `EvaluationPhoto` already is.
 
 **Querying.** Prisma stores `Json` as `jsonb`, parsed once on write, so reading a key (`answers->>'painFrequency'`) does not re-parse the row. Without an index, filtering on a key scans every row, as with an unindexed column. When a key needs it:
 
