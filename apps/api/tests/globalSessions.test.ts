@@ -49,13 +49,15 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     };
 
     sessionConEpisodio = await crear(patient.id, {
-      episodeIds: [episode.id],
+      episodes: [{ episodeId: episode.id }],
       sessionDate: new Date(Date.now() - 2 * DAY_MS).toISOString(),
     });
+    // Only a note may treat no episode (#238).
     sessionSinEpisodio = await crear(patient.id, {
+      sessionType: 'NOTE',
       sessionDate: new Date(Date.now() - 1 * DAY_MS).toISOString(),
     });
-    sessionBorrada = await crear(patient.id);
+    sessionBorrada = await crear(patient.id, { episodes: [{ episodeId: episode.id }] });
     expect(
       (await auth(request(app).delete(`/api/patients/${patient.id}/sessions/${sessionBorrada}`)))
         .status,
@@ -86,6 +88,8 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     const tenantIds = [clinic.tenantId, clinicB.tenantId];
     await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -110,7 +114,11 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   it('each session carries only who and when', async () => {
     await prisma.session.update({
       where: { id: sessionConEpisodio },
-      data: { observations: 'MKobs', patientExercises: 'MKresp', painScaleBefore: 7 },
+      data: { observations: 'MKobs' },
+    });
+    await prisma.sessionEpisode.updateMany({
+      where: { sessionId: sessionConEpisodio },
+      data: { patientExercises: 'MKresp', painScaleBefore: 7 },
     });
 
     const res = await auth(request(app).get('/api/sessions'));
@@ -138,6 +146,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
       select: { id: true },
     });
     const sesion = await auth(request(app).post(`/api/patients/${borrado.id}/sessions`)).send({
+      sessionType: 'NOTE',
       sessionDate: new Date().toISOString(),
     });
     expect(sesion.status).toBe(201);

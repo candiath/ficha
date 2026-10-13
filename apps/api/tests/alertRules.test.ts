@@ -27,6 +27,8 @@ describe('motor de alertas', () => {
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });

@@ -57,6 +57,8 @@ describe('creación atómica de sesión con pago', () => {
     const tenantIds = [clinicA.tenantId];
     await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -66,7 +68,7 @@ describe('creación atómica de sesión con pago', () => {
 
   it('crea sesión + pago en un solo request', async () => {
     const res = await postSession({
-      episodeIds: [episodeA.id],
+      episodes: [{ episodeId: episodeA.id }],
       payment: { packageId: packageA.id, baseAmount: 100, discount: 20, notes: 'seña' },
     });
 
@@ -91,7 +93,10 @@ describe('creación atómica de sesión con pago', () => {
     // Monto fuera del Decimal(10,2) de payments: pasa la validación de la ruta
     // (solo exige nonnegative) y revienta al insertar el pago, ya con la sesión
     // creada — el rollback debe llevarse las dos filas.
-    const res = await postSession({ payment: { baseAmount: 99_999_999_999 } });
+    const res = await postSession({
+      episodes: [{ episodeId: episodeA.id }],
+      payment: { baseAmount: 99_999_999_999 },
+    });
 
     expect(res.status).toBeGreaterThanOrEqual(500);
     const after = await prisma.session.count({ where: { patientId: patientA.id } });
@@ -101,7 +106,7 @@ describe('creación atómica de sesión con pago', () => {
   it('un alta cierra el episodio en el mismo request', async () => {
     const res = await postSession({
       sessionType: 'DISCHARGE',
-      episodeIds: [episodeA.id],
+      episodes: [{ episodeId: episodeA.id }],
     });
 
     expect(res.status).toBe(201);

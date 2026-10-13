@@ -37,6 +37,8 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
     await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });

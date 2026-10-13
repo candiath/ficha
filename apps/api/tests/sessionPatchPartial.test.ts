@@ -9,7 +9,7 @@ import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, 
 
 // Regresión del issue #97: SessionUpdateSchema se deriva con .partial() de
 // SessionFieldsSchema, y en Zod un .default() del schema base SOBREVIVE al
-// .partial(). Mientras sessionType y episodeIds tuvieron default, un PATCH
+// .partial(). Mientras sessionType y los episodios tuvieron default, un PATCH
 // que los omitía reseteaba el tipo a SESSION y desvinculaba todos los
 // episodios ([] es truthy y entraba en la rama del deleteMany).
 //
@@ -34,7 +34,8 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
   afterAll(async () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
-    await prisma.sessionEpisode.deleteMany({ where: { session: { tenantId: clinic.tenantId } } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -44,7 +45,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
   // Un alta vinculada a un episodio: el caso donde el bug hacía más daño
   // (DISCHARGE es lo que dispara el cierre de episodios, y NOTE queda fuera
   // de los conteos del dashboard).
-  async function crearAltaConEpisodio() {
+  async function crearConEpisodio(sessionType: 'DISCHARGE' | 'NOTE' = 'DISCHARGE') {
     const episode = await prisma.clinicalEpisode.create({
       data: {
         tenantId: clinic.tenantId,
@@ -58,20 +59,20 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
       .post(`/api/patients/${patient.id}/sessions`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        sessionType: 'DISCHARGE',
+        sessionType,
         sessionDate: new Date().toISOString(),
-        episodeIds: [episode.id],
+        episodes: [{ episodeId: episode.id }],
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.sessionType).toBe('DISCHARGE');
-    expect(res.body.data.episodeIds).toEqual([episode.id]);
+    expect(res.body.data.sessionType).toBe(sessionType);
+    expect(res.body.data.episodes.map((b: { episodeId: string }) => b.episodeId)).toEqual([episode.id]);
 
     return { sessionId: res.body.data.id as string, episodeId: episode.id };
   }
 
   it('un PATCH de solo observations conserva sessionType y los episodios', async () => {
-    const { sessionId, episodeId } = await crearAltaConEpisodio();
+    const { sessionId, episodeId } = await crearConEpisodio();
 
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
@@ -82,25 +83,26 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     expect(res.body.data.observations).toBe('solo edito notas');
     // Antes del fix: 'SESSION' y [].
     expect(res.body.data.sessionType).toBe('DISCHARGE');
-    expect(res.body.data.episodeIds).toEqual([episodeId]);
+    expect(res.body.data.episodes.map((b: { episodeId: string }) => b.episodeId)).toEqual([episodeId]);
   });
 
-  it('un episodeIds vacío explícito sí desvincula todos los episodios', async () => {
-    const { sessionId } = await crearAltaConEpisodio();
+  // Solo una nota puede quedar sin episodios (#238).
+  it('una lista de episodios vacía explícita sí desvincula todos los episodios', async () => {
+    const { sessionId } = await crearConEpisodio('NOTE');
 
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ episodeIds: [] });
+      .send({ episodes: [] });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.episodeIds).toEqual([]);
+    expect(res.body.data.episodes).toEqual([]);
     // El tipo sigue intacto: el PATCH no lo mencionó.
-    expect(res.body.data.sessionType).toBe('DISCHARGE');
+    expect(res.body.data.sessionType).toBe('NOTE');
   });
 
   it('un PATCH que sí manda sessionType lo cambia', async () => {
-    const { sessionId } = await crearAltaConEpisodio();
+    const { sessionId } = await crearConEpisodio();
 
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)

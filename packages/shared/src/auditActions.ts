@@ -84,8 +84,8 @@ export const AUDIT_EVALUATION_FIELDS = {
 export const AUDIT_SESSION_FIELDS = {
   sessionType: 'el tipo',
   sessionDate: 'la fecha',
-  episodeIds: 'el motivo de consulta',
-  preSesionState: 'el estado previo',
+  episodeIds: 'los motivos de consulta',
+  preSessionState: 'el estado previo',
   reEvaluationNotes: 'la reevaluación',
   patientExercises: 'los ejercicios',
   painScaleBefore: 'el dolor al inicio',

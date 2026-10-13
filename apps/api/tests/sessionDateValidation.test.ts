@@ -21,6 +21,7 @@ describe('validación de fecha de sesión en la API', () => {
   let user: User;
   let token: string;
   let patient: { id: string };
+  let episode: { id: string };
 
   const url = () => `/api/patients/${patient.id}/sessions`;
 
@@ -28,7 +29,7 @@ describe('validación de fecha de sesión en la API', () => {
     return request(app)
       .post(url())
       .set('Authorization', `Bearer ${token}`)
-      .send({ sessionDate });
+      .send({ sessionDate, episodes: [{ episodeId: episode.id }] });
   }
 
   beforeAll(async () => {
@@ -39,12 +40,20 @@ describe('validación de fecha de sesión en la API', () => {
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Fecha' },
       select: { id: true },
     });
+    // Every session treats an episode (#238).
+    episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id },
+      select: { id: true },
+    });
   });
 
   afterAll(async () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
   });

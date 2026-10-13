@@ -44,6 +44,8 @@ afterAll(async () => {
   // Los hijos no deberían existir (el test de sub-rutas verifica justamente
   // que no se creen), pero si ese test falla las FKs bloquearían el borrado
   // del paciente y el fallo se disfrazaría de error de limpieza.
+  // A session's blocks (#238) restrict its deletion: they go first.
+  await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });

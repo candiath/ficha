@@ -3,13 +3,18 @@ import { AUDIT_SESSION_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
+import type { SessionType } from '@prisma/client';
 import type {
   SessionAuditField,
   SessionCreateInput,
   SessionCreateResult,
   SessionDTO,
+  SessionEpisodeBlockDTO,
+  SessionEpisodeBlockInput,
+  SessionEpisodeRuleViolation,
   SessionRepository,
   SessionUpdateInput,
+  SessionUpdateResult,
   SessionIndexItemDTO,
 } from '../sessionRepository';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
@@ -26,26 +31,39 @@ const VIGENTE = { deletedAt: null } as const;
 // transacción interactiva sin que el error salga como un 500.
 class TurnoYaRegistrado extends Error {}
 
+const blockSelect = {
+  episodeId: true,
+  painScaleBefore: true,
+  painScaleAfter: true,
+  patientExercises: true,
+  reEvaluationNotes: true,
+} as const;
+
 const sessionSelect = {
   id: true,
   patientId: true,
   sessionType: true,
   sessionDate: true,
-  preSesionState: true,
-  reEvaluationNotes: true,
-  patientExercises: true,
-  painScaleBefore: true,
-  painScaleAfter: true,
+  preSessionState: true,
   observations: true,
   createdAt: true,
   updatedAt: true,
   // orderBy explícito: sin él, una sesión con varios episodios devuelve los
-  // episodeIds en orden indefinido (Postgres no garantiza ninguno sin ORDER
-  // BY) y el mismo GET puede responder distinto entre llamadas. El pivote no
-  // tiene timestamp, así que se ordena por episodeId: arbitrario, pero
-  // estable y cubierto por la PK compuesta.
-  episodes: { select: { episodeId: true }, orderBy: { episodeId: 'asc' } },
+  // bloques en orden indefinido (Postgres no garantiza ninguno sin ORDER BY)
+  // y el mismo GET puede responder distinto entre llamadas. Por episodeId:
+  // los ids son UUIDv7, así que es el orden en que se abrieron los episodios.
+  episodes: { select: blockSelect, orderBy: { episodeId: 'asc' } },
 } as const;
+
+// The fields of a block, without its episode.
+type BlockField = Exclude<keyof SessionEpisodeBlockDTO, 'episodeId'>;
+
+const EMPTY_BLOCK: Record<BlockField, null> = {
+  painScaleBefore: null,
+  painScaleAfter: null,
+  patientExercises: null,
+  reEvaluationNotes: null,
+};
 
 // The clinic-wide index (GET /api/sessions): who and when, nothing clinical
 // (#186, SPEC-list-minimization.md §1). Selected column by column, so clinical
@@ -59,34 +77,73 @@ const sessionIndexSelect = {
   patient: { select: { id: true, fullName: true } },
 } as const;
 
-type SessionRow = {
-  id: string;
-  patientId: string;
-  sessionType: SessionDTO['sessionType'];
-  sessionDate: Date;
-  preSesionState: string | null;
-  reEvaluationNotes: string | null;
-  patientExercises: string | null;
-  painScaleBefore: number | null;
-  painScaleAfter: number | null;
-  observations: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  episodes: { episodeId: string }[];
-};
+type SessionRow = Prisma.SessionGetPayload<{ select: typeof sessionSelect }>;
 
 type SessionIndexRow = Prisma.SessionGetPayload<{ select: typeof sessionIndexSelect }>;
 
 const AUDIT_FIELDS = Object.keys(AUDIT_SESSION_FIELDS) as SessionAuditField[];
 
-function toDTO({ episodes, ...rest }: SessionRow): SessionDTO {
+function toDTO(row: SessionRow): SessionDTO {
   return {
-    ...rest,
-    sessionDate: rest.sessionDate.toISOString(),
-    createdAt: rest.createdAt.toISOString(),
-    updatedAt: rest.updatedAt.toISOString(),
-    episodeIds: episodes.map((e) => e.episodeId),
+    ...row,
+    sessionDate: row.sessionDate.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+// The session as the audit compares it: one value per catalog field. A block
+// field becomes the list of (episode, value) pairs that hold a value, so adding
+// an empty block changes only episodeIds, and a value that changes in any
+// block changes its field.
+function auditView(s: SessionDTO): Record<SessionAuditField, unknown> {
+  const valuesOf = (field: BlockField) =>
+    s.episodes.filter((b) => b[field] !== null).map((b) => [b.episodeId, b[field]]);
+  return {
+    sessionType: s.sessionType,
+    sessionDate: s.sessionDate,
+    preSessionState: s.preSessionState,
+    observations: s.observations,
+    episodeIds: s.episodes.map((b) => b.episodeId),
+    painScaleBefore: valuesOf('painScaleBefore'),
+    painScaleAfter: valuesOf('painScaleAfter'),
+    patientExercises: valuesOf('patientExercises'),
+    reEvaluationNotes: valuesOf('reEvaluationNotes'),
+  };
+}
+
+function episodeRuleViolation(
+  sessionType: SessionType,
+  episodeCount: number,
+): SessionEpisodeRuleViolation | null {
+  if (sessionType === 'DISCHARGE' && episodeCount !== 1) return 'discharge_needs_one_episode';
+  if (sessionType === 'SESSION' && episodeCount === 0) return 'needs_episode';
+  return null;
+}
+
+// The fields a block input brings; one that does not come is left out.
+function blockData(block: SessionEpisodeBlockInput) {
+  return {
+    ...(block.painScaleBefore !== undefined && { painScaleBefore: block.painScaleBefore }),
+    ...(block.painScaleAfter !== undefined && { painScaleAfter: block.painScaleAfter }),
+    ...(block.patientExercises !== undefined && { patientExercises: block.patientExercises }),
+    ...(block.reEvaluationNotes !== undefined && { reEvaluationNotes: block.reEvaluationNotes }),
+  };
+}
+
+// The blocks a session ends up with: each one in the input, over what that
+// block held before (or empty, for a new one).
+function mergeBlocks(
+  before: SessionEpisodeBlockDTO[],
+  input: SessionEpisodeBlockInput[],
+): SessionEpisodeBlockDTO[] {
+  const previous = new Map(before.map((b) => [b.episodeId, b]));
+  return input.map((block) => ({
+    ...EMPTY_BLOCK,
+    ...previous.get(block.episodeId),
+    ...blockData(block),
+    episodeId: block.episodeId,
+  }));
 }
 
 function toIndexItemDTO(row: SessionIndexRow): SessionIndexItemDTO {
@@ -98,23 +155,14 @@ function toIndexItemDTO(row: SessionIndexRow): SessionIndexItemDTO {
   };
 }
 
-// Los campos propios de la sesión, sin los ids de episodio ni las relaciones.
+// Los campos propios de la sesión, sin los bloques ni las relaciones.
 function sessionData(input: Partial<SessionCreateInput>) {
   return {
     ...(input.sessionType !== undefined && { sessionType: input.sessionType }),
     ...(input.sessionDate !== undefined && { sessionDate: input.sessionDate }),
-    ...(input.preSesionState !== undefined && { preSesionState: input.preSesionState }),
-    ...(input.reEvaluationNotes !== undefined && { reEvaluationNotes: input.reEvaluationNotes }),
-    ...(input.patientExercises !== undefined && { patientExercises: input.patientExercises }),
-    ...(input.painScaleBefore !== undefined && { painScaleBefore: input.painScaleBefore }),
-    ...(input.painScaleAfter !== undefined && { painScaleAfter: input.painScaleAfter }),
+    ...(input.preSessionState !== undefined && { preSessionState: input.preSessionState }),
     ...(input.observations !== undefined && { observations: input.observations }),
   };
-}
-
-// Filas del pivote sesión↔episodio a partir de los ids.
-function episodeLinks(episodeIds: string[]) {
-  return episodeIds.map((episodeId) => ({ episode: { connect: { id: episodeId } } }));
 }
 
 export const prismaSessionRepository: SessionRepository = {
@@ -162,7 +210,10 @@ export const prismaSessionRepository: SessionRepository = {
     audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionCreateResult> {
     const db = forTenant(ctx);
-    const { episodeIds, payment, appointmentId } = input;
+    const { episodes, payment, appointmentId } = input;
+
+    const violation = episodeRuleViolation(input.sessionType, episodes.length);
+    if (violation) return { ok: false, reason: violation };
 
     // Todo lo que dispara el registro de una sesión es atómico: si el pago o
     // el cierre de episodios fallan, no queda una sesión a medias (sin pago
@@ -175,7 +226,7 @@ export const prismaSessionRepository: SessionRepository = {
     // updateMany de episodios, el filtro de seguridad real. En runtime el tx
     // además arrastra la extension (el objeto es el cliente extendido), como
     // defensa en profundidad.
-    const row = await db.$transaction(async (tx) => {
+    const session = await db.$transaction(async (tx) => {
       const created = await tx.session.create({
         data: {
           ...sessionData(input),
@@ -185,9 +236,22 @@ export const prismaSessionRepository: SessionRepository = {
           tenantId: ctx.tenantId,
           // La sesión queda atribuida al usuario autenticado que la registra.
           userId: ctx.userId,
-          episodes: { create: episodeLinks(episodeIds) },
         },
-        select: sessionSelect,
+        select: { id: true },
+      });
+
+      // One block per episode the session treated. Its keys name the
+      // session's clinic and patient, so the database refuses an episode of
+      // another one.
+      await tx.sessionEpisode.createMany({
+        data: episodes.map((block) => ({
+          ...EMPTY_BLOCK,
+          ...blockData(block),
+          tenantId: ctx.tenantId,
+          patientId,
+          sessionId: created.id,
+          episodeId: block.episodeId,
+        })),
       });
 
       if (payment) {
@@ -209,12 +273,12 @@ export const prismaSessionRepository: SessionRepository = {
         });
       }
 
-      // Cierre automático del/los episodio(s) al registrar alta. Dentro de la
-      // transacción: antes era fire-and-forget y un fallo dejaba el alta
-      // registrada con el episodio todavía abierto.
-      if (input.sessionType === 'DISCHARGE' && episodeIds.length > 0) {
+      // Cierre automático del episodio al registrar el alta: un alta cierra
+      // exactamente uno. Dentro de la transacción: antes era fire-and-forget
+      // y un fallo dejaba el alta registrada con el episodio todavía abierto.
+      if (input.sessionType === 'DISCHARGE') {
         await tx.clinicalEpisode.updateMany({
-          where: { id: { in: episodeIds }, tenantId: ctx.tenantId },
+          where: { id: { in: episodes.map((b) => b.episodeId) }, tenantId: ctx.tenantId },
           data: { status: 'DISCHARGED', closedAt: new Date() },
         });
       }
@@ -237,10 +301,17 @@ export const prismaSessionRepository: SessionRepository = {
         if (count === 0) throw new TurnoYaRegistrado();
       }
 
-      // The audit row goes in the same transaction as everything above (#188).
-      await recordAudit(tx, ctx, audit(toDTO(created)));
+      const dto = toDTO(
+        await tx.session.findUniqueOrThrow({
+          where: { id: created.id, tenantId: ctx.tenantId },
+          select: sessionSelect,
+        }),
+      );
 
-      return created;
+      // The audit row goes in the same transaction as everything above (#188).
+      await recordAudit(tx, ctx, audit(dto));
+
+      return dto;
     }).catch((e: unknown) => {
       // El único caso en que la transacción se aborta a propósito: el turno
       // ya tenía sesión. Todo lo demás sigue siendo un error de verdad.
@@ -248,8 +319,8 @@ export const prismaSessionRepository: SessionRepository = {
       throw e;
     });
 
-    if (row === null) return { ok: false, reason: 'appointment_taken' };
-    return { ok: true, session: toDTO(row) };
+    if (session === null) return { ok: false, reason: 'appointment_taken' };
+    return { ok: true, session };
   },
 
   async update(
@@ -258,52 +329,82 @@ export const prismaSessionRepository: SessionRepository = {
     id: string,
     input: SessionUpdateInput,
     audit: AuditUpdateBuilder<SessionDTO, SessionAuditField>,
-  ): Promise<SessionDTO | null> {
+  ): Promise<SessionUpdateResult> {
     const db = forTenant(ctx);
-    const { episodeIds } = input;
+    const notFound = { ok: false, reason: 'not_found' } as const;
 
     try {
       // The audit row goes in the same transaction as the write (#188). A
-      // P2025 thrown inside rolls it back and becomes null below.
-      return await db.$transaction(async (tx) => {
+      // P2025 thrown inside rolls it back and becomes not_found below.
+      return await db.$transaction(async (tx): Promise<SessionUpdateResult> => {
         // Locked and read first, to record which fields changed (#186): a
         // concurrent edit waits for this one. No row (gone, deleted, another
         // patient's) is the same 404 as the update's P2025 below.
         await lockRow(tx, 'sessions', id, ctx.tenantId);
-        const before = await tx.session.findFirst({
+        const beforeRow = await tx.session.findFirst({
           where: { ...VIGENTE, id, patientId, tenantId: ctx.tenantId },
           select: sessionSelect,
         });
-        if (!before) return null;
+        if (!beforeRow) return notFound;
+        const before = toDTO(beforeRow);
+
+        // `episodes` is the whole set of blocks when it comes (issue #97: a
+        // missing field is "leave it", never "empty it").
+        const blocks =
+          input.episodes === undefined ? before.episodes : mergeBlocks(before.episodes, input.episodes);
+        const violation = episodeRuleViolation(input.sessionType ?? before.sessionType, blocks.length);
+        if (violation) return { ok: false, reason: violation };
 
         // patientId en el where del update (Prisma 5 acepta campos no únicos en
         // WhereUniqueInput): pertenencia y tenant se deciden en la misma query
-        // que escribe. Si no matchea, Prisma tira P2025 y devolvemos null —
-        // el reemplazo de episodios es anidado y no se puede hacer con
-        // updateMany, así que este es el equivalente sin ventana.
-        const row = await tx.session.update({
-          // deletedAt en el where: una sesión borrada no se edita. Si no
-          // matchea, Prisma tira P2025 y esto devuelve null → 404.
+        // que escribe. deletedAt también: una sesión borrada no se edita. Si no
+        // matchea, Prisma tira P2025 y esto devuelve not_found → 404.
+        await tx.session.update({
           where: { ...VIGENTE, id, patientId, tenantId: ctx.tenantId },
-          data: {
-            ...sessionData(input),
-            // Reemplaza el conjunto de episodios vinculados solo si se envía.
-            // !== undefined y no truthy: [] significa "desvincular todos" y es
-            // distinto de "el campo no vino" (issue #97).
-            ...(episodeIds !== undefined
-              ? { episodes: { deleteMany: {}, create: episodeLinks(episodeIds) } }
-              : {}),
-          },
-          select: sessionSelect,
+          // updatedAt by hand: an edit that touches only the blocks writes no
+          // column of the session, and the session still changed.
+          data: { ...sessionData(input), updatedAt: new Date() },
+          select: { id: true },
         });
-        const session = toDTO(row);
-        const changed = nonEmpty(changedFields(toDTO(before), session, AUDIT_FIELDS));
+
+        if (input.episodes !== undefined) {
+          // A block left out is removed, a new one added, a kept one rewritten
+          // with its merged fields.
+          const kept = new Set(blocks.map((b) => b.episodeId));
+          const existing = new Set(before.episodes.map((b) => b.episodeId));
+          const removed = before.episodes.map((b) => b.episodeId).filter((e) => !kept.has(e));
+          if (removed.length > 0) {
+            await tx.sessionEpisode.deleteMany({
+              where: { tenantId: ctx.tenantId, sessionId: id, episodeId: { in: removed } },
+            });
+          }
+          for (const { episodeId, ...fields } of blocks) {
+            if (existing.has(episodeId)) {
+              await tx.sessionEpisode.update({
+                where: { sessionId_episodeId: { sessionId: id, episodeId }, tenantId: ctx.tenantId },
+                data: fields,
+              });
+            } else {
+              await tx.sessionEpisode.create({
+                data: { ...fields, tenantId: ctx.tenantId, patientId, sessionId: id, episodeId },
+              });
+            }
+          }
+        }
+
+        const session = toDTO(
+          await tx.session.findUniqueOrThrow({
+            where: { id, tenantId: ctx.tenantId },
+            select: sessionSelect,
+          }),
+        );
+        const changed = nonEmpty(changedFields(auditView(before), auditView(session), AUDIT_FIELDS));
         if (changed) await recordAudit(tx, ctx, audit(session, changed));
-        return session;
+        return { ok: true, session };
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-        return null;
+        return notFound;
       }
       throw e;
     }
