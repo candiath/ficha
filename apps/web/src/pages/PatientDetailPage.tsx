@@ -6,7 +6,7 @@ import {
   postureFamiliesSchema,
 } from '@ficha/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
@@ -52,7 +52,7 @@ import {
   SEX_LABELS,
 } from '@/lib/labels';
 import type { BodyMarker } from '@/types/evaluation';
-import type { Session } from '@/types/session';
+import { blockFor, type Session } from '@/types/session';
 
 const evalSchema = z.object({
   occupation: z.string(),
@@ -795,6 +795,14 @@ function SessionsTab({
     queryFn: () => sessionApi.list(patientId, episodeId),
   });
 
+  // To name the other problems a shared session treated.
+  const { data: episodes = [] } = useQuery({
+    queryKey: episodeKeys.list(patientId),
+    queryFn: () => episodeApi.list(patientId),
+  });
+  const complaintOf = (id: string) =>
+    episodes.find((ep) => ep.id === id)?.mainComplaint || 'Otro motivo';
+
   const reopenMutation = useMutation({
     mutationFn: () => episodeApi.update(patientId, episodeId, { status: 'ACTIVE', closedAt: null }),
     onSuccess: () => {
@@ -831,7 +839,7 @@ function SessionsTab({
   return (
     <>
       {/* Gráfico de evolución del dolor */}
-      <PainEvolutionChart sessions={sessions} />
+      <PainEvolutionChart sessions={sessions} episodeId={episodeId} />
 
       {/* Header de sección */}
       <div className="flex items-center justify-between mb-4">
@@ -920,8 +928,12 @@ function SessionsTab({
               timeZone: 'UTC',
             });
             const sessionNumber = sessions.length - globalIdx;
+            // This episode's block: the pain of a visit that treated several
+            // problems is the pain of each one.
+            const block = blockFor(session, episodeId);
             const hasPain =
-              session.painScaleBefore !== null || session.painScaleAfter !== null;
+              !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
+            const otherEpisodes = session.episodes.filter((b) => b.episodeId !== episodeId);
 
             return (
               <button
@@ -946,6 +958,16 @@ function SessionsTab({
                               {session.observations}
                             </p>
                           )}
+                          {/* The same visit also treated other problems: it is
+                              in their histories too, with their own block. */}
+                          {otherEpisodes.length > 0 && (
+                            <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                              <Link2 className="h-3 w-3 shrink-0" />
+                              <span className="truncate max-w-xs">
+                                También: {otherEpisodes.map((b) => complaintOf(b.episodeId)).join(', ')}
+                              </span>
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -953,9 +975,9 @@ function SessionsTab({
                         {/* Escalas de dolor */}
                         {hasPain && (
                           <span className="text-xs text-muted-foreground tabular-nums">
-                            {session.painScaleBefore ?? '—'}
+                            {block?.painScaleBefore ?? '—'}
                             {' → '}
-                            {session.painScaleAfter ?? '—'}
+                            {block?.painScaleAfter ?? '—'}
                           </span>
                         )}
                         <SessionTypeBadge type={session.sessionType} />

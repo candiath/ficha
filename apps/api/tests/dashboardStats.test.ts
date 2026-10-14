@@ -215,6 +215,8 @@ describe('GET /api/dashboard/stats', () => {
   afterAll(async () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });

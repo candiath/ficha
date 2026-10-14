@@ -49,6 +49,29 @@ function devId(name: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+// A session's block for one episode it treated (#238): what belongs to that
+// problem alone.
+async function seedBlock(
+  session: { id: string; tenantId: string; patientId: string },
+  episodeId: string,
+  fields: Pick<
+    Prisma.SessionEpisodeUncheckedCreateInput,
+    'painScaleBefore' | 'painScaleAfter' | 'patientExercises' | 'reEvaluationNotes'
+  > = {},
+): Promise<void> {
+  await prisma.sessionEpisode.upsert({
+    where: { sessionId_episodeId: { sessionId: session.id, episodeId } },
+    update: {},
+    create: {
+      tenantId: session.tenantId,
+      patientId: session.patientId,
+      sessionId: session.id,
+      episodeId,
+      ...fields,
+    },
+  });
+}
+
 async function main() {
   // ── Guardia de producción ────────────────────────────────────────────────
   // Desde que se eliminaron los catálogos de técnicas, el seed no tiene nada
@@ -155,7 +178,10 @@ async function main() {
     },
   });
 
-  // ── Episodio clínico del paciente de prueba ───────────────────────────────
+  // ── Episodios clínicos del paciente de prueba ─────────────────────────────
+  // Two problems treated in parallel (#238): the back, still active, and an
+  // ankle sprain that started later and was discharged. One session treats
+  // both, each with its own block.
   const episode1 = await prisma.clinicalEpisode.upsert({
     where: { id: devId('dev-episode-001') },
     update: {},
@@ -164,8 +190,22 @@ async function main() {
       tenantId: tenant.id,
       patientId: patient.id,
       status: 'ACTIVE',
-      mainComplaint: 'Dolor lumbar crónico y contracturas cervicales',
+      mainComplaint: 'Lumbalgia crónica',
       openedAt: new Date('2026-02-01T00:00:00.000Z'),
+    },
+  });
+
+  const episodeAnkle = await prisma.clinicalEpisode.upsert({
+    where: { id: devId('dev-episode-002') },
+    update: {},
+    create: {
+      id: devId('dev-episode-002'),
+      tenantId: tenant.id,
+      patientId: patient.id,
+      status: 'DISCHARGED',
+      mainComplaint: 'Esguince de tobillo derecho',
+      openedAt: new Date('2026-02-20T00:00:00.000Z'),
+      closedAt: new Date('2026-03-17T10:00:00.000Z'),
     },
   });
 
@@ -178,52 +218,116 @@ async function main() {
       tenantId: tenant.id,
       patientId: patient.id,
       episodeId: episode1.id,
-      reasonForConsultation: 'Dolor lumbar crónico y contracturas cervicales',
+      reasonForConsultation: 'Dolor lumbar crónico, peor al estar sentada',
       globalPosture: 'Hiperlordosis lumbar, cabeza adelantada',
       breathingPattern: 'Costal superior predominante',
     },
   });
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
-  await prisma.session.upsert({
-    where: { id: devId('dev-session-001') },
-    update: {},
-    create: {
+  // The back alone, then both problems in one visit, then the ankle alone,
+  // the ankle's discharge, and a note that belongs to no episode.
+  const p1Sessions = [
+    {
       id: devId('dev-session-001'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      episodes: { create: { episode: { connect: { id: episode1.id } } } },
-      sessionType: 'SESSION',
-      sessionDate: new Date('2026-02-10T10:00:00.000Z'),
-      painScaleBefore: 7,
-      painScaleAfter: 4,
-      preSesionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
-      reEvaluationNotes: 'Mejora leve en rango de flexión lumbar respecto a evaluación inicial. Persiste tensión en cadena posterior.',
-      patientExercises: 'Rana en el suelo 10 minutos por día. Respiración diafragmática acostada antes de dormir.',
+      type: 'SESSION' as const,
+      date: '2026-02-10T10:00:00.000Z',
+      preSessionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
       observations: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
+      blocks: [
+        {
+          episodeId: episode1.id,
+          painScaleBefore: 7,
+          painScaleAfter: 4,
+          reEvaluationNotes: 'Mejora leve en rango de flexión lumbar respecto a evaluación inicial. Persiste tensión en cadena posterior.',
+          patientExercises: 'Rana en el suelo 10 minutos por día. Respiración diafragmática acostada antes de dormir.',
+        },
+      ],
     },
-  });
-
-  await prisma.session.upsert({
-    where: { id: devId('dev-session-002') },
-    update: {},
-    create: {
+    {
       id: devId('dev-session-002'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      episodes: { create: { episode: { connect: { id: episode1.id } } } },
-      sessionType: 'SESSION',
-      sessionDate: new Date('2026-02-24T10:00:00.000Z'),
-      painScaleBefore: 5,
-      painScaleAfter: 2,
-      preSesionState: 'Paciente reporta mejoría notable. Dolor aparece recién después de 1 hora sentada. Duerme mejor.',
-      reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable. Cabeza sigue adelantada.',
-      patientExercises: 'Parado en la pared 5 minutos, mañana y tarde. Seguir con la rana en el suelo.',
-      observations: 'Sesión combinada: rana en el suelo + parado en la pared. Trabajo específico sobre sector cervical.',
+      type: 'SESSION' as const,
+      date: '2026-02-24T10:00:00.000Z',
+      preSessionState: 'Mejoría notable de la espalda: el dolor aparece recién después de 1 hora sentada. Llega rengueando: se torció el tobillo derecho bajando una escalera hace cuatro días.',
+      observations: 'Sesión combinada: rana en el suelo y parado en la pared para la espalda; movilización suave y drenaje del tobillo. 50 minutos.',
+      blocks: [
+        {
+          episodeId: episode1.id,
+          painScaleBefore: 5,
+          painScaleAfter: 2,
+          reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable.',
+          patientExercises: 'Parado en la pared 5 minutos, mañana y tarde. Seguir con la rana en el suelo.',
+        },
+        {
+          episodeId: episodeAnkle.id,
+          painScaleBefore: 6,
+          painScaleAfter: 4,
+          reEvaluationNotes: 'Edema leve en maléolo externo. Dorsiflexión limitada por dolor. Sin inestabilidad.',
+          patientExercises: 'Hielo 15 minutos tres veces por día. Movilidad activa de tobillo sin carga.',
+        },
+      ],
     },
-  });
+    {
+      id: devId('dev-session-003'),
+      type: 'SESSION' as const,
+      date: '2026-03-03T10:00:00.000Z',
+      preSessionState: 'Viene solo por el tobillo: la espalda está tranquila esta semana.',
+      observations: 'Propiocepción en superficie estable, fortalecimiento de peroneos con banda elástica.',
+      blocks: [
+        {
+          episodeId: episodeAnkle.id,
+          painScaleBefore: 3,
+          painScaleAfter: 1,
+          reEvaluationNotes: 'Edema resuelto. Dorsiflexión completa. Apoyo monopodal 20 segundos.',
+          patientExercises: 'Apoyo monopodal 3 series de 30 segundos. Banda elástica para eversión.',
+        },
+      ],
+    },
+    {
+      id: devId('dev-session-004'),
+      type: 'DISCHARGE' as const,
+      date: '2026-03-17T10:00:00.000Z',
+      preSessionState: 'Sin dolor de tobillo al caminar ni al bajar escaleras.',
+      observations: 'Alta del esguince: función completa, sin dolor. La lumbalgia sigue en tratamiento.',
+      blocks: [
+        {
+          episodeId: episodeAnkle.id,
+          painScaleBefore: 0,
+          painScaleAfter: 0,
+          reEvaluationNotes: 'Apoyo monopodal 45 segundos con ojos cerrados. Salto monopodal sin dolor.',
+          patientExercises: 'Propiocepción dos veces por semana durante un mes.',
+        },
+      ],
+    },
+    {
+      id: devId('dev-note-001'),
+      type: 'NOTE' as const,
+      date: '2026-03-19T15:00:00.000Z',
+      preSessionState: null,
+      observations: 'Llamó para avisar que viaja dos semanas. Retoma la lumbalgia a la vuelta.',
+      blocks: [],
+    },
+  ];
+
+  for (const s of p1Sessions) {
+    const session = await prisma.session.upsert({
+      where: { id: s.id },
+      update: {},
+      create: {
+        id: s.id,
+        tenantId: tenant.id,
+        patientId: patient.id,
+        userId: user.id,
+        sessionType: s.type,
+        sessionDate: new Date(s.date),
+        preSessionState: s.preSessionState,
+        observations: s.observations,
+      },
+    });
+    for (const { episodeId, ...fields } of s.blocks) {
+      await seedBlock(session, episodeId, fields);
+    }
+  }
 
   // ── Registros de auditoría de ejemplo ──────────────────────────────────
   // Codes only, checked against the catalog (SPEC-audit-structured-entries.md).
@@ -233,6 +337,9 @@ async function main() {
     { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: devId('dev-eval-001'), action: 'EVALUATION_CREATED', params: {}, createdAt: new Date('2026-02-01T09:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-10T10:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-24T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-005'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-003'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-03-03T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-006'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-004'), action: 'DISCHARGE_RECORDED', params: {}, createdAt: new Date('2026-03-17T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-007'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-note-001'), action: 'NOTE_RECORDED', params: {}, createdAt: new Date('2026-03-19T15:05:00.000Z') },
   ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
@@ -500,16 +607,17 @@ async function main() {
         tenantId: tenant.id,
         patientId: p2.id,
         userId: user.id,
-        episodes: { create: { episode: { connect: { id: episodeP2.id } } } },
         sessionType: s.type,
         sessionDate: new Date(s.date),
-        painScaleBefore: s.painBefore,
-        painScaleAfter: s.painAfter,
-        preSesionState: s.preSesion,
-        reEvaluationNotes: s.reevalNotes,
-        patientExercises: s.exercises,
+        preSessionState: s.preSesion,
         observations: s.obs,
       },
+    });
+    await seedBlock(session, episodeP2.id, {
+      painScaleBefore: s.painBefore,
+      painScaleAfter: s.painAfter,
+      reEvaluationNotes: s.reevalNotes,
+      patientExercises: s.exercises,
     });
     createdSessionsP2.push({ id: session.id, sessionDate: session.sessionDate });
   }

@@ -294,9 +294,7 @@ describe('global lists carry no clinical text', () => {
         patientId,
         userId: user.id,
         sessionDate: new Date(Date.now() - 40 * DAY_MS),
-        painScaleBefore: 7,
-        painScaleAfter: 3,
-        episodes: { create: [{ episodeId: episode.id }] },
+        episodes: { create: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3 }] },
         ...marked('Session'),
       },
       select: { id: true },
@@ -369,6 +367,8 @@ describe('global lists carry no clinical text', () => {
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
     await prisma.sessionPhoto.deleteMany({ where: { session: where } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
     await prisma.evaluationPhoto.deleteMany({ where: { initialEvaluation: where } });
     await prisma.initialEvaluation.deleteMany({ where });

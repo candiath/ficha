@@ -56,15 +56,19 @@ const ITEM: SessionIndexItem = {
 const SESSION: Session = {
   id: 's1',
   patientId: 'p1',
-  episodeIds: [],
   sessionType: 'SESSION',
   sessionDate: '2026-10-01T13:00:00.000Z',
-  preSesionState: 'Llegó con dolor lumbar',
-  reEvaluationNotes: null,
-  patientExercises: 'Rana en el suelo 10 minutos',
-  painScaleBefore: 7,
-  painScaleAfter: 3,
+  preSessionState: 'Llegó con dolor lumbar',
   observations: 'Trabajo de cadena posterior',
+  episodes: [
+    {
+      episodeId: 'e1',
+      reEvaluationNotes: null,
+      patientExercises: 'Rana en el suelo 10 minutos',
+      painScaleBefore: 7,
+      painScaleAfter: 3,
+    },
+  ],
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
 };
@@ -127,10 +131,10 @@ describe('SessionsPage', () => {
     expect(update.mock.calls[0][1]).toBe('s1');
     expect(update.mock.calls[0][2]).toMatchObject({
       observations: 'Trabajo de cadena posterior y diafragma',
-      preSesionState: 'Llegó con dolor lumbar',
-      patientExercises: 'Rana en el suelo 10 minutos',
-      painScaleBefore: 7,
-      painScaleAfter: 3,
+      preSessionState: 'Llegó con dolor lumbar',
+      episodes: [
+        { episodeId: 'e1', patientExercises: 'Rana en el suelo 10 minutos', painScaleBefore: 7, painScaleAfter: 3 },
+      ],
     });
   });
 

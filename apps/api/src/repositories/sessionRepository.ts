@@ -5,22 +5,28 @@ import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRep
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
-// Una sesión puede abordar varios episodios (motivos) a la vez: el pivote se
-// aplana a episodeIds para que el cliente trabaje con un arreglo plano.
+// One problem the session treated: its episode, and what belongs to that
+// problem alone (#238). A visit that treats the back and an ankle has two.
+export interface SessionEpisodeBlockDTO {
+  episodeId: string;
+  painScaleBefore: number | null;
+  painScaleAfter: number | null;
+  patientExercises: string | null;
+  reEvaluationNotes: string | null;
+}
+
+// The session holds what the visit has once; `episodes`, one block per
+// problem it treated, ordered by episode.
 export interface SessionDTO {
   id: string;
   patientId: string;
   sessionType: SessionType;
   sessionDate: string;
-  preSesionState: string | null;
-  reEvaluationNotes: string | null;
-  patientExercises: string | null;
-  painScaleBefore: number | null;
-  painScaleAfter: number | null;
+  preSessionState: string | null;
   observations: string | null;
   createdAt: string;
   updatedAt: string;
-  episodeIds: string[];
+  episodes: SessionEpisodeBlockDTO[];
 }
 
 // The clinic-wide index (GET /api/sessions): who and when, nothing clinical
@@ -38,12 +44,18 @@ export interface SessionIndexItemDTO {
 export interface SessionFields {
   sessionType: SessionType;
   sessionDate: Date;
-  preSesionState?: string | null;
-  reEvaluationNotes?: string | null;
-  patientExercises?: string | null;
+  preSessionState?: string | null;
+  observations?: string | null;
+}
+
+// A block as written. A field that does not come is left as it was (a new
+// block starts empty), the same rule as the session's own fields.
+export interface SessionEpisodeBlockInput {
+  episodeId: string;
   painScaleBefore?: number | null;
   painScaleAfter?: number | null;
-  observations?: string | null;
+  patientExercises?: string | null;
+  reEvaluationNotes?: string | null;
 }
 
 export interface SessionPaymentInput {
@@ -57,7 +69,7 @@ export interface SessionPaymentInput {
 // encadenaba varios requests y un fallo intermedio dejaba sesiones sin pago
 // (invisibles en Cobros).
 export interface SessionCreateInput extends SessionFields {
-  episodeIds: string[];
+  episodes: SessionEpisodeBlockInput[];
   payment?: SessionPaymentInput;
   /**
    * El turno del que salió esta sesión, si se registra desde la agenda.
@@ -70,15 +82,26 @@ export interface SessionCreateInput extends SessionFields {
   appointmentId?: string | null;
 }
 
+// Which episodes a session may treat (#238): a session treats at least one, a
+// discharge closes exactly one, and a note may stand alone.
+export type SessionEpisodeRuleViolation = 'needs_episode' | 'discharge_needs_one_episode';
+
 export type SessionCreateResult =
   | { ok: true; session: SessionDTO }
   // El turno ya produjo su sesión. Pasa si se aprieta dos veces "registrar
   // sesión" o si otra pestaña ganó de mano: la sesión NO se crea, para no
   // duplicar el registro clínico de una misma visita.
-  | { ok: false; reason: 'appointment_taken' };
+  | { ok: false; reason: 'appointment_taken' | SessionEpisodeRuleViolation };
+
+export type SessionUpdateResult =
+  | { ok: true; session: SessionDTO }
+  // No current session of that patient with that id.
+  | { ok: false; reason: 'not_found' | SessionEpisodeRuleViolation };
 
 // payment queda afuera a propósito: el pago se edita por /api/payments.
-export type SessionUpdateInput = Partial<SessionFields> & { episodeIds?: string[] };
+// `episodes`, when it comes, is the whole set of blocks: a block left out is
+// removed, a new one is added, and each kept one is updated field by field.
+export type SessionUpdateInput = Partial<SessionFields> & { episodes?: SessionEpisodeBlockInput[] };
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
@@ -135,5 +158,5 @@ export interface SessionRepository {
     input: SessionUpdateInput,
     // Called only when a field changed, with the changed fields' names.
     audit: AuditUpdateBuilder<SessionDTO, SessionAuditField>,
-  ): Promise<SessionDTO | null>;
+  ): Promise<SessionUpdateResult>;
 }

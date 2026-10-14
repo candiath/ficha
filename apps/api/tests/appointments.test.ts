@@ -55,6 +55,8 @@ describe('turnos', () => {
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -303,7 +305,7 @@ describe('turnos', () => {
       request(app).post(`/api/patients/${patient.id}/sessions`),
     ).send({
       sessionDate: new Date().toISOString(),
-      episodeIds: [episode.id],
+      episodes: [{ episodeId: episode.id }],
       appointmentId: turno.id,
       observations: 'Trabajo de cadena posterior',
     });
@@ -326,14 +328,22 @@ describe('turnos', () => {
 
     const primera = await auth(
       request(app).post(`/api/patients/${patient.id}/sessions`),
-    ).send({ sessionDate: new Date().toISOString(), appointmentId: turno.id });
+    ).send({
+      sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: episode.id }],
+      appointmentId: turno.id,
+    });
     expect(primera.status).toBe(201);
 
     const antes = await prisma.session.count({ where: { patientId: patient.id } });
 
     const segunda = await auth(
       request(app).post(`/api/patients/${patient.id}/sessions`),
-    ).send({ sessionDate: new Date().toISOString(), appointmentId: turno.id });
+    ).send({
+      sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: episode.id }],
+      appointmentId: turno.id,
+    });
 
     expect(segunda.status).toBe(409);
     const despues = await prisma.session.count({ where: { patientId: patient.id } });

@@ -93,6 +93,7 @@ model Tenant {
   clinicalAlerts      ClinicalAlert[]
   functionalScales    FunctionalScale[]
   clinicalEpisodes    ClinicalEpisode[]
+  sessionEpisodes     SessionEpisode[]
   loginEvents         LoginEvent[]
   appointments        Appointment[]
   platformAuditLogs   PlatformAuditLog[]
@@ -481,6 +482,9 @@ model ClinicalEpisode {
   functionalScales  FunctionalScale[]
   appointments      Appointment[]
 
+  // Referenced by SessionEpisode, so a block cannot name another clinic's or
+  // another patient's episode.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("clinical_episodes")
@@ -547,11 +551,9 @@ model Session {
   userId           String      @map("user_id") @db.Uuid
   sessionType      SessionType @default(SESSION) @map("session_type")
   sessionDate      DateTime    @map("session_date")
-  preSesionState   String?     @map("pre_session_state")
-  reEvaluationNotes String?    @map("re_evaluation_notes")
-  patientExercises String?     @map("patient_exercises")
-  painScaleBefore  Int?        @map("pain_scale_before")
-  painScaleAfter   Int?        @map("pain_scale_after")
+  // What the visit has once, whatever it treated. What belongs to each
+  // problem it treated (pain, exercises, re-evaluation) is in SessionEpisode.
+  preSessionState  String?     @map("pre_session_state")
   observations     String?
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
@@ -572,25 +574,42 @@ model Session {
   payment     Payment?
   appointment Appointment?
 
+  // Referenced by SessionEpisode, so a block cannot name another clinic's or
+  // another patient's session.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("sessions")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pivote sesión ↔ episodio (M:N): una misma sesión puede abordar varios motivos
-// de consulta a la vez (p. ej. cervicalgia y lumbalgia en la misma visita), y un
-// episodio agrupa todas las sesiones que trabajaron ese motivo.
+// A session's block for one of the episodes it treated (#238). One visit can
+// treat several problems (the back and an ankle sprain, say): the session holds
+// what the visit has once, and each block what belongs to one problem, so each
+// episode's history and pain chart show only its own.
+//
+// The keys include tenant and patient, so a block cannot join a session and an
+// episode of different clinics or patients. Restrict, not cascade: sessions
+// are deleted logically and episodes are not deleted, so a hard delete that
+// would take blocks with it is a mistake to stop.
 // ─────────────────────────────────────────────────────────────────────────────
 model SessionEpisode {
+  tenantId          String  @map("tenant_id") @db.Uuid
+  patientId         String  @map("patient_id") @db.Uuid
   sessionId String @map("session_id") @db.Uuid
   episodeId String @map("episode_id") @db.Uuid
+  painScaleBefore   Int?    @map("pain_scale_before")
+  painScaleAfter    Int?    @map("pain_scale_after")
+  patientExercises  String? @map("patient_exercises")
+  reEvaluationNotes String? @map("re_evaluation_notes")
 
-  session Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  episode ClinicalEpisode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  session Session         @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  episode ClinicalEpisode @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@id([sessionId, episodeId])
   @@index([episodeId])
+  @@index([tenantId])
   @@map("session_episodes")
 }
 

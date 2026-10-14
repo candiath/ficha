@@ -53,6 +53,8 @@ describe('pago duplicado por sesión', () => {
     await sleep(300);
     await deleteAuditRows([clinicA.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinicA.tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinicA.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinicA.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinicA.tenantId } });
     await clinicA.cleanup();

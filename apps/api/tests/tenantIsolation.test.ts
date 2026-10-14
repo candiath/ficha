@@ -6,7 +6,7 @@ import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // Aislamiento entre clínicas en las rutas de dominio: los ids que viajan en
-// el body (episodeIds, packageId, patientId) no deben poder apuntar a datos
+// el body (episodios, packageId, patientId) no deben poder apuntar a datos
 // de otro tenant ni de otro paciente. Estos tests cubren los agujeros
 // corregidos: episodios en sesiones, paciente/paquete en pagos y paciente
 // en alertas.
@@ -30,11 +30,12 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
 
   const sessionsUrl = (patientId: string) => `/api/patients/${patientId}/sessions`;
 
+  // A session of patient A treating her episode A, unless the body says otherwise.
   function createSession(patientId: string, body: Record<string, unknown> = {}) {
     return request(app)
       .post(sessionsUrl(patientId))
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionDate: new Date().toISOString(), ...body });
+      .send({ sessionDate: new Date().toISOString(), episodes: [{ episodeId: episodeA.id }], ...body });
   }
 
   beforeAll(async () => {
@@ -98,7 +99,8 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     await deleteAuditRows(tenantIds);
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    // Borrar sesiones arrastra session_episodes por el onDelete: Cascade.
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -107,35 +109,35 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     await clinicB.cleanup();
   });
 
-  it('rechaza episodeIds de otro tenant al crear una sesión', async () => {
-    const res = await createSession(patientA.id, { episodeIds: [episodeB.id] });
+  it('rechaza episodios de otro tenant al crear una sesión', async () => {
+    const res = await createSession(patientA.id, { episodes: [{ episodeId: episodeB.id }] });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });
   });
 
-  it('rechaza episodeIds de otro paciente del mismo tenant', async () => {
-    const res = await createSession(patientA.id, { episodeIds: [episodeA2.id] });
+  it('rechaza episodios de otro paciente del mismo tenant', async () => {
+    const res = await createSession(patientA.id, { episodes: [{ episodeId: episodeA2.id }] });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });
   });
 
   it('acepta y vincula episodios del propio paciente', async () => {
-    const res = await createSession(patientA.id, { episodeIds: [episodeA.id] });
+    const res = await createSession(patientA.id, { episodes: [{ episodeId: episodeA.id }] });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.episodeIds).toEqual([episodeA.id]);
+    expect(res.body.data.episodes.map((b: { episodeId: string }) => b.episodeId)).toEqual([episodeA.id]);
   });
 
-  it('rechaza episodeIds ajenos también en el PATCH', async () => {
+  it('rechaza episodios ajenos también en el PATCH', async () => {
     const created = await createSession(patientA.id);
     expect(created.status).toBe(201);
 
     const res = await request(app)
       .patch(`${sessionsUrl(patientA.id)}/${created.body.data.id}`)
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ episodeIds: [episodeB.id] });
+      .send({ episodes: [{ episodeId: episodeB.id }] });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });

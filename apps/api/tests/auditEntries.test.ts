@@ -34,6 +34,8 @@ describe('audit rows record codes, never values', () => {
     const tenantId = clinic.tenantId;
     await deleteAuditRows([tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
     await prisma.functionalScale.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });
@@ -54,17 +56,24 @@ describe('audit rows record codes, never values', () => {
   const actionsOf = async (entityId: string): Promise<{ action: AuditAction; params: unknown }[]> =>
     (await rowsOf(entityId)).map(({ action, params }) => ({ action, params }));
 
-  async function createSession(body: Record<string, unknown> = {}) {
+  // Each session treats an episode of its own (#238), with `block` as its
+  // block: a discharge closes that episode and no other.
+  async function createSession(body: Record<string, unknown> = {}, block: Record<string, unknown> = {}) {
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id },
+      select: { id: true },
+    });
     const res = await auth(request(app).post(`/api/patients/${patient.id}/sessions`)).send({
       sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: episode.id, ...block }],
       ...body,
     });
     expect(res.status).toBe(201);
-    return res.body.data as { id: string };
+    return { ...(res.body.data as { id: string }), episodeId: episode.id };
   }
 
   it('a session with pain values records its action and nothing else', async () => {
-    const session = await createSession({ painScaleBefore: 7, painScaleAfter: 3 });
+    const session = await createSession({}, { painScaleBefore: 7, painScaleAfter: 3 });
 
     expect(await rowsOf(session.id)).toEqual([
       { action: 'SESSION_RECORDED', params: {}, actorType: 'USER', userId: user.id },
@@ -80,11 +89,11 @@ describe('audit rows record codes, never values', () => {
   });
 
   it('a session update names the fields it changed, and its type after the change', async () => {
-    const session = await createSession({ painScaleAfter: 3 });
+    const session = await createSession({}, { painScaleAfter: 3 });
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}/sessions/${session.id}`)).send({
       sessionType: 'DISCHARGE',
-      painScaleAfter: 1,
+      episodes: [{ episodeId: session.episodeId, painScaleAfter: 1 }],
       observations: null,
     });
     expect(res.status).toBe(200);

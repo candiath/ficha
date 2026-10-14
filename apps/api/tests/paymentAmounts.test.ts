@@ -18,6 +18,7 @@ describe('cobros: montos coherentes', () => {
   let user: User;
   let token: string;
   let patient: { id: string };
+  let episode: { id: string };
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
 
@@ -29,13 +30,21 @@ describe('cobros: montos coherentes', () => {
       data: { tenantId: clinic.tenantId, fullName: 'Paciente Cobros' },
       select: { id: true },
     });
+    // Every session treats an episode (#238).
+    episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id },
+      select: { id: true },
+    });
   });
 
   afterAll(async () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
   });
@@ -46,6 +55,7 @@ describe('cobros: montos coherentes', () => {
       request(app).post(`/api/patients/${patient.id}/sessions`),
     ).send({
       sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: episode.id }],
       payment: { baseAmount, discount },
     });
     expect(sesion.status).toBe(201);
@@ -61,6 +71,7 @@ describe('cobros: montos coherentes', () => {
       request(app).post(`/api/patients/${patient.id}/sessions`),
     ).send({
       sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: episode.id }],
       payment: { baseAmount: 10000, discount: 15000 },
     });
 

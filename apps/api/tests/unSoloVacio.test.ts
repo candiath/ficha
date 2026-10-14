@@ -30,6 +30,8 @@ describe('un solo vacío: "" entra como null', () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -153,9 +155,14 @@ describe('un solo vacío: "" entra como null', () => {
 
   it('el cobro embebido en el alta de sesión sigue la misma regla', async () => {
     const patient = await crearPaciente();
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id },
+      select: { id: true },
+    });
 
     const res = await auth(request(app).post(`/api/patients/${patient.id}/sessions`)).send({
       sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: episode.id }],
       payment: { packageId: '', baseAmount: 100, notes: '   ' },
     });
 
