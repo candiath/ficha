@@ -179,9 +179,10 @@ async function main() {
   });
 
   // ── Episodios clínicos del paciente de prueba ─────────────────────────────
-  // Two problems treated in parallel (#238): the back, still active, and an
-  // ankle sprain that started later and was discharged. One session treats
-  // both, each with its own block.
+  // Two problems treated in parallel (#238), both open: the back, and an
+  // ankle sprain that started later. One session treats both, each with its
+  // own block, so a new session can pick both too. A shoulder tendinitis from
+  // the year before is the closed episode, with its discharge.
   const episode1 = await prisma.clinicalEpisode.upsert({
     where: { id: devId('dev-episode-001') },
     update: {},
@@ -202,10 +203,23 @@ async function main() {
       id: devId('dev-episode-002'),
       tenantId: tenant.id,
       patientId: patient.id,
-      status: 'DISCHARGED',
+      status: 'ACTIVE',
       mainComplaint: 'Esguince de tobillo derecho',
       openedAt: new Date('2026-02-20T00:00:00.000Z'),
-      closedAt: new Date('2026-03-17T10:00:00.000Z'),
+    },
+  });
+
+  const episodeShoulder = await prisma.clinicalEpisode.upsert({
+    where: { id: devId('dev-episode-003') },
+    update: {},
+    create: {
+      id: devId('dev-episode-003'),
+      tenantId: tenant.id,
+      patientId: patient.id,
+      status: 'DISCHARGED',
+      mainComplaint: 'Tendinitis de hombro derecho',
+      openedAt: new Date('2025-09-01T00:00:00.000Z'),
+      closedAt: new Date('2025-10-15T10:00:00.000Z'),
     },
   });
 
@@ -225,9 +239,42 @@ async function main() {
   });
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
-  // The back alone, then both problems in one visit, then the ankle alone,
-  // the ankle's discharge, and a note that belongs to no episode.
+  // The shoulder and its discharge, the year before; then the back alone,
+  // both open problems in one visit, the ankle alone, and a note that belongs
+  // to no episode.
   const p1Sessions = [
+    {
+      id: devId('dev-session-005'),
+      type: 'SESSION' as const,
+      date: '2025-09-10T10:00:00.000Z',
+      preSessionState: 'Dolor de hombro derecho al levantar el brazo por encima de la cabeza.',
+      observations: 'Movilidad pasiva y activa asistida. Trabajo excéntrico de supraespinoso.',
+      blocks: [
+        {
+          episodeId: episodeShoulder.id,
+          painScaleBefore: 6,
+          painScaleAfter: 4,
+          reEvaluationNotes: 'Arco doloroso entre 70° y 110° de abducción.',
+          patientExercises: 'Péndulo de Codman 3 veces por día. Banda elástica en rotación externa.',
+        },
+      ],
+    },
+    {
+      id: devId('dev-session-004'),
+      type: 'DISCHARGE' as const,
+      date: '2025-10-15T10:00:00.000Z',
+      preSessionState: 'Sin dolor de hombro en las actividades diarias.',
+      observations: 'Alta de la tendinitis: rango completo, sin arco doloroso.',
+      blocks: [
+        {
+          episodeId: episodeShoulder.id,
+          painScaleBefore: 1,
+          painScaleAfter: 0,
+          reEvaluationNotes: 'Abducción completa sin dolor. Fuerza de rotadores conservada.',
+          patientExercises: 'Mantener la banda elástica dos veces por semana.',
+        },
+      ],
+    },
     {
       id: devId('dev-session-001'),
       type: 'SESSION' as const,
@@ -284,22 +331,6 @@ async function main() {
       ],
     },
     {
-      id: devId('dev-session-004'),
-      type: 'DISCHARGE' as const,
-      date: '2026-03-17T10:00:00.000Z',
-      preSessionState: 'Sin dolor de tobillo al caminar ni al bajar escaleras.',
-      observations: 'Alta del esguince: función completa, sin dolor. La lumbalgia sigue en tratamiento.',
-      blocks: [
-        {
-          episodeId: episodeAnkle.id,
-          painScaleBefore: 0,
-          painScaleAfter: 0,
-          reEvaluationNotes: 'Apoyo monopodal 45 segundos con ojos cerrados. Salto monopodal sin dolor.',
-          patientExercises: 'Propiocepción dos veces por semana durante un mes.',
-        },
-      ],
-    },
-    {
       id: devId('dev-note-001'),
       type: 'NOTE' as const,
       date: '2026-03-19T15:00:00.000Z',
@@ -338,8 +369,9 @@ async function main() {
     { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-10T10:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-24T10:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-005'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-003'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-03-03T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-006'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-004'), action: 'DISCHARGE_RECORDED', params: {}, createdAt: new Date('2026-03-17T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-006'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-004'), action: 'DISCHARGE_RECORDED', params: {}, createdAt: new Date('2025-10-15T10:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-007'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-note-001'), action: 'NOTE_RECORDED', params: {}, createdAt: new Date('2026-03-19T15:05:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-008'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-005'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2025-09-10T10:30:00.000Z') },
   ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────

@@ -191,6 +191,11 @@ export default function SessionFormModalWide({
   const selectableEpisodes = episodes.filter(
     (ep) => ep.status === 'ACTIVE' || initialEpisodeIds.has(ep.id),
   )
+  // Un episodio cerrado no recibe sesiones nuevas: se dice, para que no
+  // parezca que falta.
+  const hidesClosedEpisodes = episodes.some(
+    (ep) => ep.status !== 'ACTIVE' && !initialEpisodeIds.has(ep.id),
+  )
   const complaintOf = (id: string) =>
     episodes.find((ep) => ep.id === id)?.mainComplaint || 'Sin motivo'
 
@@ -537,6 +542,11 @@ export default function SessionFormModalWide({
                           })}
                         </div>
                       )}
+                      {!motivesFixed && hidesClosedEpisodes && (
+                        <p className="text-xs text-muted-foreground">
+                          Los episodios cerrados no aparecen: para sumar uno, reabrilo primero.
+                        </p>
+                      )}
                       {form.formState.errors.blocks?.message && (
                         <p className="text-sm text-destructive">{form.formState.errors.blocks.message}</p>
                       )}
@@ -725,83 +735,90 @@ export default function SessionFormModalWide({
                 historial de cada episodio se ve el bloque de ese episodio. */}
             {blockFields.length > 0 && (
               <div className={`mt-6 grid grid-cols-1 gap-6 ${blockFields.length > 1 ? 'lg:grid-cols-2' : ''}`}>
-                {blockFields.map((blockField, index) => (
-                  <Card key={blockField.id}>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <ListChecks className="h-4 w-4 text-muted-foreground" />
-                        {complaintOf(blockField.episodeId)}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div>
-                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                          Evaluación del dolor
-                        </Label>
-                        {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
-                          {(['painScaleBefore', 'painScaleAfter'] as const).map((name) => (
-                            <FormField
-                              key={name}
-                              control={form.control}
-                              name={`blocks.${index}.${name}`}
-                              render={({ field }) => {
-                                const dirty = dirtyFields.blocks?.[index]?.[name]
-                                return (
-                                  <DirtyFieldItem dirty={dirty}>
-                                    <div className="flex items-center justify-between">
-                                      <DirtyLabel label={name === 'painScaleBefore' ? 'Antes' : 'Después'} dirty={dirty} />
-                                      <span className={`text-2xl font-bold ${getPainColor(field.value)}`}>
-                                        {field.value ?? '?'}
-                                      </span>
-                                    </div>
-                                    <FormControl>
-                                      <Slider
-                                        value={[field.value ?? 0]}
-                                        onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
-                                        max={10}
-                                        step={1}
-                                      />
-                                    </FormControl>
-                                    <div className="flex justify-between text-xs text-muted-foreground">
-                                      <span>Sin dolor</span>
-                                      <span>Máximo</span>
-                                    </div>
-                                  </DirtyFieldItem>
-                                )
-                              }}
-                            />
-                          ))}
+                {blockFields.map((blockField, index) => {
+                  // Un motivo recién tildado es nuevo entero: la marca de
+                  // "modificado" campo por campo solo dice algo en uno que ya estaba.
+                  const blockDirty = initialEpisodeIds.has(blockField.episodeId)
+                    ? dirtyFields.blocks?.[index]
+                    : undefined
+                  return (
+                    <Card key={blockField.id}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <ListChecks className="h-4 w-4 text-muted-foreground" />
+                          {complaintOf(blockField.episodeId)}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                            Evaluación del dolor
+                          </Label>
+                          {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
+                            {(['painScaleBefore', 'painScaleAfter'] as const).map((name) => (
+                              <FormField
+                                key={name}
+                                control={form.control}
+                                name={`blocks.${index}.${name}`}
+                                render={({ field }) => {
+                                  const dirty = blockDirty?.[name]
+                                  return (
+                                    <DirtyFieldItem dirty={dirty}>
+                                      <div className="flex items-center justify-between">
+                                        <DirtyLabel label={name === 'painScaleBefore' ? 'Antes' : 'Después'} dirty={dirty} />
+                                        <span className={`text-2xl font-bold ${getPainColor(field.value)}`}>
+                                          {field.value ?? '?'}
+                                        </span>
+                                      </div>
+                                      <FormControl>
+                                        <Slider
+                                          value={[field.value ?? 0]}
+                                          onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
+                                          max={10}
+                                          step={1}
+                                        />
+                                      </FormControl>
+                                      <div className="flex justify-between text-xs text-muted-foreground">
+                                        <span>Sin dolor</span>
+                                        <span>Máximo</span>
+                                      </div>
+                                    </DirtyFieldItem>
+                                  )
+                                }}
+                              />
+                            ))}
+                          </div>
                         </div>
-                      </div>
 
-                      <FormField
-                        control={form.control}
-                        name={`blocks.${index}.reEvaluationNotes`}
-                        render={({ field }) => (
-                          <DirtyFieldItem dirty={dirtyFields.blocks?.[index]?.reEvaluationNotes} label="Re-evaluación">
-                            <FormControl>
-                              <Textarea placeholder="Evaluación del dolor" rows={3} {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </DirtyFieldItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`blocks.${index}.patientExercises`}
-                        render={({ field }) => (
-                          <DirtyFieldItem dirty={dirtyFields.blocks?.[index]?.patientExercises} label="Ejercicios">
-                            <FormControl>
-                              <Textarea placeholder="¿Qué ejercicios debe hacer?" rows={3} {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </DirtyFieldItem>
-                        )}
-                      />
-                    </CardContent>
-                  </Card>
-                ))}
+                        <FormField
+                          control={form.control}
+                          name={`blocks.${index}.reEvaluationNotes`}
+                          render={({ field }) => (
+                            <DirtyFieldItem dirty={blockDirty?.reEvaluationNotes} label="Re-evaluación">
+                              <FormControl>
+                                <Textarea placeholder="Evaluación del dolor" rows={3} {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </DirtyFieldItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`blocks.${index}.patientExercises`}
+                          render={({ field }) => (
+                            <DirtyFieldItem dirty={blockDirty?.patientExercises} label="Ejercicios">
+                              <FormControl>
+                                <Textarea placeholder="¿Qué ejercicios debe hacer?" rows={3} {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </DirtyFieldItem>
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  )
+                })}
               </div>
             )}
 
