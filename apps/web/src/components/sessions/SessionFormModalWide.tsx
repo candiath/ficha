@@ -61,13 +61,15 @@ const schema = z.object({
         ctx.addIssue({ code: 'custom', message: 'La fecha no es válida' })
       }
     }),
-  preSessionState: z.string(),
+  // The text of a note: everything clinical about a problem is in its block.
   observations: z.string(),
-  // One block per problem the session treats (#238): what belongs to that
-  // problem alone. The form edits the whole set; the API stores it as sent.
+  // One block per problem the session treats (#238): everything clinical about
+  // that problem. The form edits the whole set; the API stores it as sent.
   blocks: z.array(
     z.object({
       episodeId: z.string(),
+      preSessionState: z.string(),
+      treatment: z.string(),
       painScaleBefore: z.number().min(0).max(10).nullable(),
       painScaleAfter: z.number().min(0).max(10).nullable(),
       reEvaluationNotes: z.string(),
@@ -84,12 +86,22 @@ type FormValues = z.infer<typeof schema>
 type BlockValues = FormValues['blocks'][number]
 
 function emptyBlock(episodeId: string): BlockValues {
-  return { episodeId, painScaleBefore: null, painScaleAfter: null, reEvaluationNotes: '', patientExercises: '' }
+  return {
+    episodeId,
+    preSessionState: '',
+    treatment: '',
+    painScaleBefore: null,
+    painScaleAfter: null,
+    reEvaluationNotes: '',
+    patientExercises: '',
+  }
 }
 
 function blockValues(block: SessionEpisodeBlock): BlockValues {
   return {
     episodeId: block.episodeId,
+    preSessionState: block.preSessionState ?? '',
+    treatment: block.treatment ?? '',
     painScaleBefore: block.painScaleBefore,
     painScaleAfter: block.painScaleAfter,
     reEvaluationNotes: block.reEvaluationNotes ?? '',
@@ -196,6 +208,8 @@ export default function SessionFormModalWide({
   const hidesClosedEpisodes = episodes.some(
     (ep) => ep.status !== 'ACTIVE' && !initialEpisodeIds.has(ep.id),
   )
+  // Al lado de la sesión van el cobro (solo al crearla) y el texto de una nota.
+  const hasSideColumn = !isEditing || effectiveType === 'NOTE'
   const complaintOf = (id: string) =>
     episodes.find((ep) => ep.id === id)?.mainComplaint || 'Sin motivo'
 
@@ -219,7 +233,6 @@ export default function SessionFormModalWide({
     resolver: zodResolver(schema),
     defaultValues: {
       sessionDate: toLocalDateTimeInput(new Date()),
-      preSessionState: '',
       observations: '',
       blocks: [],
       baseAmount: '',
@@ -255,7 +268,6 @@ export default function SessionFormModalWide({
         sessionDate: session.sessionDate
           ? toLocalDateTimeInput(new Date(session.sessionDate))
           : toLocalDateTimeInput(new Date()),
-        preSessionState: session.preSessionState ?? '',
         observations: session.observations ?? '',
         blocks: session.episodes.map(blockValues),
         baseAmount: '',
@@ -270,7 +282,6 @@ export default function SessionFormModalWide({
         sessionDate: toLocalDateTimeInput(
           appointment ? new Date(appointment.startsAt) : new Date(),
         ),
-        preSessionState: '',
         observations: '',
         blocks: episodeId ? [emptyBlock(episodeId)] : [],
         baseAmount: '',
@@ -305,10 +316,11 @@ export default function SessionFormModalWide({
       // sesión trata ahora (un motivo que falta se desvincula).
       const sessionData = {
         sessionDate: new Date(values.sessionDate).toISOString(),
-        preSessionState: values.preSessionState,
         observations: values.observations,
         episodes: values.blocks.map((b) => ({
           episodeId: b.episodeId,
+          preSessionState: b.preSessionState,
+          treatment: b.treatment,
           painScaleBefore: b.painScaleBefore,
           painScaleAfter: b.painScaleAfter,
           reEvaluationNotes: b.reEvaluationNotes,
@@ -471,7 +483,7 @@ export default function SessionFormModalWide({
             })}
             className="p-4 sm:p-6"
           >
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className={`grid grid-cols-1 gap-6 ${hasSideColumn ? 'lg:grid-cols-2' : ''}`}>
               {/* Columna izquierda */}
               <div className="space-y-6">
                 {/* Información básica */}
@@ -554,187 +566,171 @@ export default function SessionFormModalWide({
                   </CardContent>
                 </Card>
 
-                {/* Cobro (solo en creación) */}
-                {!isEditing && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-muted-foreground" />
-                        Cobro de sesión
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {activePackages.length > 0 && (
-                        <FormField
-                          control={form.control}
-                          name="packageId"
-                          render={({ field }) => (
-                            <DirtyFieldItem dirty={dirtyFields.packageId} label="Paquete">
-                              <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Sin paquete (precio individual)" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="">Sin paquete</SelectItem>
-                                  {activePackages.map((pkg) => (
-                                    <SelectItem key={pkg.id} value={pkg.id}>
-                                      {pkg.name} — {pkg.remainingSessions} sesión
-                                      {pkg.remainingSessions !== 1 ? 'es' : ''} restante
-                                      {pkg.remainingSessions !== 1 ? 's' : ''}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </DirtyFieldItem>
-                          )}
-                        />
-                      )}
+              </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="baseAmount"
-                          render={({ field }) => (
-                            <DirtyFieldItem
-                              dirty={dirtyFields.baseAmount}
-                              label={
-                                <>
-                                  Monto base <span className="text-destructive">*</span>
-                                  {lastPriceData?.isStale === false && (
-                                    <span className="text-muted-foreground font-normal text-xs">
-                                      (último precio)
-                                    </span>
-                                  )}
-                                </>
-                              }
-                            >
-                              <FormControl>
-                                <div className="relative">
-                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                    $
-                                  </span>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step={0.01}
-                                    placeholder="0.00"
-                                    className="pl-7"
-                                    {...field}
-                                  />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </DirtyFieldItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="discount"
-                          render={({ field }) => (
-                            <DirtyFieldItem dirty={dirtyFields.discount} label="Descuento">
-                              <FormControl>
-                                <div className="relative">
-                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                    $
-                                  </span>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step={0.01}
-                                    placeholder="0.00"
-                                    className="pl-7"
-                                    {...field}
-                                  />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </DirtyFieldItem>
-                          )}
-                        />
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name="paymentNotes"
-                        render={({ field }) => (
-                          <DirtyFieldItem dirty={dirtyFields.paymentNotes} label="Notas de pago">
-                            <FormControl>
-                              <Input
-                                placeholder="Ej: pagó mitad hoy, resto próxima semana"
-                                {...field}
-                              />
-                            </FormControl>
-                            {/* Payment notes travel in the clinic-wide Cobros
-                                list (#186, SPEC-list-minimization.md, Decision 3). */}
-                            <p className="text-xs text-muted-foreground">
-                              No escribas datos clínicos acá: van en la ficha del paciente.
-                            </p>
-                            <FormMessage />
-                          </DirtyFieldItem>
+              {/* Columna derecha: el cobro al crear, y el texto de una nota */}
+              {hasSideColumn && (
+                <div className="space-y-6">
+                  {/* Cobro (solo en creación) */}
+                  {!isEditing && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          Cobro de sesión
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {activePackages.length > 0 && (
+                          <FormField
+                            control={form.control}
+                            name="packageId"
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={dirtyFields.packageId} label="Paquete">
+                                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Sin paquete (precio individual)" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="">Sin paquete</SelectItem>
+                                    {activePackages.map((pkg) => (
+                                      <SelectItem key={pkg.id} value={pkg.id}>
+                                        {pkg.name} — {pkg.remainingSessions} sesión
+                                        {pkg.remainingSessions !== 1 ? 'es' : ''} restante
+                                        {pkg.remainingSessions !== 1 ? 's' : ''}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
                         )}
-                      />
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
 
-              {/* Columna derecha - Notas clínicas */}
-              <div className="space-y-6">
-                <Card className="h-full">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      Notas de la visita
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="preSessionState"
-                      render={({ field }) => (
-                        <DirtyFieldItem dirty={dirtyFields.preSessionState} label="Evaluación (estado pre-sesión)">
-                          <FormControl>
-                            <Textarea
-                              placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </DirtyFieldItem>
-                      )}
-                    />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="baseAmount"
+                            render={({ field }) => (
+                              <DirtyFieldItem
+                                dirty={dirtyFields.baseAmount}
+                                label={
+                                  <>
+                                    Monto base <span className="text-destructive">*</span>
+                                    {lastPriceData?.isStale === false && (
+                                      <span className="text-muted-foreground font-normal text-xs">
+                                        (último precio)
+                                      </span>
+                                    )}
+                                  </>
+                                }
+                              >
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                      $
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step={0.01}
+                                      placeholder="0.00"
+                                      className="pl-7"
+                                      {...field}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="discount"
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={dirtyFields.discount} label="Descuento">
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                      $
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step={0.01}
+                                      placeholder="0.00"
+                                      className="pl-7"
+                                      {...field}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                        </div>
 
-                    {/* Observaciones / técnicas */}
-                    <FormField
-                      control={form.control}
-                      name="observations"
-                      render={({ field }) => (
-                        <DirtyFieldItem dirty={dirtyFields.observations} label="Tratamiento">
-                          <FormControl>
-                            <Textarea
-                              placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </DirtyFieldItem>
-                      )}
-                    />
+                        <FormField
+                          control={form.control}
+                          name="paymentNotes"
+                          render={({ field }) => (
+                            <DirtyFieldItem dirty={dirtyFields.paymentNotes} label="Notas de pago">
+                              <FormControl>
+                                <Input
+                                  placeholder="Ej: pagó mitad hoy, resto próxima semana"
+                                  {...field}
+                                />
+                              </FormControl>
+                              {/* Payment notes travel in the clinic-wide Cobros
+                                  list (#186, SPEC-list-minimization.md, Decision 3). */}
+                              <p className="text-xs text-muted-foreground">
+                                No escribas datos clínicos acá: van en la ficha del paciente.
+                              </p>
+                              <FormMessage />
+                            </DirtyFieldItem>
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
 
-                  </CardContent>
-                </Card>
-              </div>
+                  {/* Una nota puede no tener motivo: su texto es de la sesión. */}
+                  {effectiveType === 'NOTE' && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          Nota
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <FormField
+                          control={form.control}
+                          name="observations"
+                          render={({ field }) => (
+                            <DirtyFieldItem dirty={dirtyFields.observations}>
+                              <FormControl>
+                                <Textarea rows={4} {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </DirtyFieldItem>
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Un bloque por motivo: lo que es de ese problema solo. En el
-                historial de cada episodio se ve el bloque de ese episodio. */}
+            {/* Un bloque por motivo: todo lo clínico de ese problema (el
+                tratamiento de un pie no tiene nada que ver con el de una mano).
+                En el historial de cada episodio se ve el bloque de ese episodio. */}
             {blockFields.length > 0 && (
-              <div className={`mt-6 grid grid-cols-1 gap-6 ${blockFields.length > 1 ? 'lg:grid-cols-2' : ''}`}>
+              <div className="mt-6 space-y-6">
                 {blockFields.map((blockField, index) => {
                   // Un motivo recién tildado es nuevo entero: la marca de
                   // "modificado" campo por campo solo dice algo en uno que ya estaba.
@@ -749,72 +745,110 @@ export default function SessionFormModalWide({
                           {complaintOf(blockField.episodeId)}
                         </CardTitle>
                       </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div>
-                          <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                            Evaluación del dolor
-                          </Label>
-                          {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
-                            {(['painScaleBefore', 'painScaleAfter'] as const).map((name) => (
-                              <FormField
-                                key={name}
-                                control={form.control}
-                                name={`blocks.${index}.${name}`}
-                                render={({ field }) => {
-                                  const dirty = blockDirty?.[name]
-                                  return (
-                                    <DirtyFieldItem dirty={dirty}>
-                                      <div className="flex items-center justify-between">
-                                        <DirtyLabel label={name === 'painScaleBefore' ? 'Antes' : 'Después'} dirty={dirty} />
-                                        <span className={`text-2xl font-bold ${getPainColor(field.value)}`}>
-                                          {field.value ?? '?'}
-                                        </span>
-                                      </div>
-                                      <FormControl>
-                                        <Slider
-                                          value={[field.value ?? 0]}
-                                          onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
-                                          max={10}
-                                          step={1}
-                                        />
-                                      </FormControl>
-                                      <div className="flex justify-between text-xs text-muted-foreground">
-                                        <span>Sin dolor</span>
-                                        <span>Máximo</span>
-                                      </div>
-                                    </DirtyFieldItem>
-                                  )
-                                }}
-                              />
-                            ))}
+                      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        {/* Cómo llegó y cuánto le dolía */}
+                        <div className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.preSessionState`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.preSessionState} label="Evaluación (estado pre-sesión)">
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
+                                    rows={3}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <div>
+                            <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                              Evaluación del dolor
+                            </Label>
+                            {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
+                              {(['painScaleBefore', 'painScaleAfter'] as const).map((name) => (
+                                <FormField
+                                  key={name}
+                                  control={form.control}
+                                  name={`blocks.${index}.${name}`}
+                                  render={({ field }) => {
+                                    const dirty = blockDirty?.[name]
+                                    return (
+                                      <DirtyFieldItem dirty={dirty}>
+                                        <div className="flex items-center justify-between">
+                                          <DirtyLabel label={name === 'painScaleBefore' ? 'Antes' : 'Después'} dirty={dirty} />
+                                          <span className={`text-2xl font-bold ${getPainColor(field.value)}`}>
+                                            {field.value ?? '?'}
+                                          </span>
+                                        </div>
+                                        <FormControl>
+                                          <Slider
+                                            value={[field.value ?? 0]}
+                                            onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
+                                            max={10}
+                                            step={1}
+                                          />
+                                        </FormControl>
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                          <span>Sin dolor</span>
+                                          <span>Máximo</span>
+                                        </div>
+                                      </DirtyFieldItem>
+                                    )
+                                  }}
+                                />
+                              ))}
+                            </div>
                           </div>
                         </div>
 
-                        <FormField
-                          control={form.control}
-                          name={`blocks.${index}.reEvaluationNotes`}
-                          render={({ field }) => (
-                            <DirtyFieldItem dirty={blockDirty?.reEvaluationNotes} label="Re-evaluación">
-                              <FormControl>
-                                <Textarea placeholder="Evaluación del dolor" rows={3} {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </DirtyFieldItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name={`blocks.${index}.patientExercises`}
-                          render={({ field }) => (
-                            <DirtyFieldItem dirty={blockDirty?.patientExercises} label="Ejercicios">
-                              <FormControl>
-                                <Textarea placeholder="¿Qué ejercicios debe hacer?" rows={3} {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </DirtyFieldItem>
-                          )}
-                        />
+                        {/* Qué se hizo y qué sigue */}
+                        <div className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.treatment`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.treatment} label="Tratamiento">
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
+                                    rows={3}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.reEvaluationNotes`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.reEvaluationNotes} label="Re-evaluación">
+                                <FormControl>
+                                  <Textarea placeholder="Evaluación del dolor" rows={3} {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.patientExercises`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.patientExercises} label="Ejercicios">
+                                <FormControl>
+                                  <Textarea placeholder="¿Qué ejercicios debe hacer?" rows={3} {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                        </div>
                       </CardContent>
                     </Card>
                   )

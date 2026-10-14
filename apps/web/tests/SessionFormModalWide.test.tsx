@@ -101,26 +101,58 @@ describe('SessionFormModalWide: several motives', () => {
       patientId: 'p1',
       sessionType: 'SESSION',
       sessionDate: '2026-02-24T13:00:00.000Z',
-      preSessionState: null,
-      observations: 'Espalda y tobillo',
+      observations: null,
       createdAt: '2026-02-24T13:00:00.000Z',
       updatedAt: '2026-02-24T13:00:00.000Z',
       episodes: [
-        { episodeId: BACK.id, painScaleBefore: 5, painScaleAfter: 2, patientExercises: 'Pared', reEvaluationNotes: null },
-        { episodeId: ANKLE.id, painScaleBefore: 6, painScaleAfter: 4, patientExercises: 'Hielo', reEvaluationNotes: null },
+        {
+          episodeId: BACK.id,
+          preSessionState: null,
+          treatment: 'Rana en el suelo',
+          painScaleBefore: 5,
+          painScaleAfter: 2,
+          patientExercises: 'Pared',
+          reEvaluationNotes: null,
+        },
+        {
+          episodeId: ANKLE.id,
+          preSessionState: 'Llega rengueando',
+          treatment: 'Drenaje',
+          painScaleBefore: 6,
+          painScaleAfter: 4,
+          patientExercises: 'Hielo',
+          reEvaluationNotes: null,
+        },
       ],
     };
     update.mockResolvedValue(session);
     renderForm({ session });
     const dialog = await screen.findByRole('dialog');
 
-    await userEvent.type(within(dialog).getByDisplayValue('Hielo'), ' y movilidad');
+    await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    // Each motive keeps its own treatment: editing the ankle's leaves the back's.
     expect(update.mock.calls[0][2].episodes).toEqual([
-      { episodeId: BACK.id, painScaleBefore: 5, painScaleAfter: 2, patientExercises: 'Pared', reEvaluationNotes: '' },
-      { episodeId: ANKLE.id, painScaleBefore: 6, painScaleAfter: 4, patientExercises: 'Hielo y movilidad', reEvaluationNotes: '' },
+      {
+        episodeId: BACK.id,
+        preSessionState: '',
+        treatment: 'Rana en el suelo',
+        painScaleBefore: 5,
+        painScaleAfter: 2,
+        patientExercises: 'Pared',
+        reEvaluationNotes: '',
+      },
+      {
+        episodeId: ANKLE.id,
+        preSessionState: 'Llega rengueando',
+        treatment: 'Drenaje y movilidad',
+        painScaleBefore: 6,
+        painScaleAfter: 4,
+        patientExercises: 'Hielo',
+        reEvaluationNotes: '',
+      },
     ]);
   });
 });
