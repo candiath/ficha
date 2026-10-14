@@ -5,8 +5,8 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
-    // Tests share one real database (a Neon branch, or the Docker one of
-    // `npm run test:docker`): running files one at a time keeps the suites
+    // Tests share one real database (the Docker one of `npm test`, or a Neon
+    // branch with `npm run test:neon`): running files one at a time keeps the suites
     // from stepping on each other. Each file still gets a fresh app (and so a
     // fresh rate limiter).
     fileParallelism: false,

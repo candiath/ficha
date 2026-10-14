@@ -208,13 +208,13 @@ The card lists the last 20 real alerts with the outcome of their last attempt; t
 
 ## Local test database
 
-`npm run test:docker` runs the API suite against a throwaway Postgres in Docker instead of the `development` branch: every round-trip to Neon crosses the network, and the suite makes thousands. On 2026-10-14 the full suite (789 tests) took about 2.5 minutes. Arguments go to vitest: `npm run test:docker -- tests/login.test.ts`.
+`npm test` runs the API suite against a throwaway Postgres in Docker, not a Neon branch: every round-trip to Neon crosses the network, and the suite makes thousands. On 2026-10-14 the full suite (789 tests) took about 2.5 minutes. Arguments go to vitest: `npm test -- tests/login.test.ts`; `npm run test:watch` is the same in watch mode. `npm run test:neon` is plain vitest against `DATABASE_URL`: what CI runs, and locally a run against `development` when one is needed. A bare `npx vitest` does the same, so it skips the container.
 
 - **What it is**: the `test-db` service of `docker-compose.yml`: Postgres 16 with C.UTF-8 collation and GMT (like the Neon branches), on `127.0.0.1:5433`, with durability off. Its data lives on tmpfs: `docker compose down` (or restarting Docker) leaves it empty, which is also how orphans from interrupted runs are cleared.
 - **The maintenance flag** is created by `docker/test-db/init.sql` when the container starts empty, as on `development` and `ci`.
 - **What the script does** (`apps/api/scripts/test-docker.ts`): starts the container if it is not running, runs `prisma migrate deploy` and `audit-guards.sql`, then vitest. The URL is a constant in the script, not a variable: it is set in the environment, where it wins over `apps/api/.env`, so `.env` is never edited and nothing else can point the script at another database.
-- **What it does not catch**: it has no pooler, and its latency is near zero. Failures that come from Neon's PgBouncer (`P1002` on a migration, `cache lookup failed for type` after a reset) or from latency (an interactive transaction past its timeout, `P2028`) only show on Neon. That is why CI stays on the `ci` branch.
-- The dev server, the seed and `db:migrate` keep using `development`: the container is only for tests.
+- **What it does not catch**: it has no pooler, and its latency is near zero. Failures that come from Neon's PgBouncer (`P1002` on a migration, `cache lookup failed for type` after a reset) or from latency (an interactive transaction past its timeout, `P2028`) only show on Neon. That is why CI stays on the `ci` branch (`npm run test:neon`), and a PR green locally can still fail there.
+- The dev server, the seed and `db:migrate` keep using `development`: the container is only for tests. Without Docker running, `npm test` stops and says so.
 
 ## Cómo se llegó acá (2026-08-29)
 

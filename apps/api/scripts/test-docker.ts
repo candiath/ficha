@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-// Runs the API's integration tests against the throwaway Postgres of
-// docker-compose.yml instead of Neon (docs/infra.md#local-test-database).
-// Arguments go to vitest: `npm run test:docker -- tests/login.test.ts`.
+// `npm test` and `npm run test:watch`: the API's integration tests against the
+// throwaway Postgres of docker-compose.yml (docs/infra.md#local-test-database).
+// Arguments go to vitest: `npm test -- tests/login.test.ts`. `npm run test:neon`
+// runs plain vitest instead, against DATABASE_URL (CI, or apps/api/.env).
 //
 // The URL is fixed on purpose: this script migrates whatever it points at and
 // the tests' cleanup runs there, so no environment variable can send it
@@ -21,13 +22,20 @@ const bin = (pkg: string, file: string) => path.join(path.dirname(require.resolv
 const PRISMA = bin('prisma', 'build/index.js');
 const VITEST = bin('vitest', 'vitest.mjs');
 
-function run(command: string, args: string[], cwd: string): void {
+function run(command: string, args: string[], cwd: string, hint?: string): void {
   const { status, error } = spawnSync(command, args, { cwd, env, stdio: 'inherit' });
   if (error) console.error(error.message);
-  if (status !== 0) process.exit(status ?? 1);
+  if (status === 0) return;
+  if (hint) console.error(hint);
+  process.exit(status ?? 1);
 }
 
-run('docker', ['compose', 'up', '--detach', '--wait', 'test-db'], REPO);
+run(
+  'docker',
+  ['compose', 'up', '--detach', '--wait', 'test-db'],
+  REPO,
+  'The test database did not start: is Docker running? `npm run test:neon` runs the suite against apps/api/.env.',
+);
 run(process.execPath, [PRISMA, 'migrate', 'deploy'], API);
 run(process.execPath, [PRISMA, 'db', 'execute', '--file', 'prisma/audit-guards.sql', '--schema', 'prisma/schema.prisma'], API);
-run(process.execPath, [VITEST, 'run', ...process.argv.slice(2)], API);
+run(process.execPath, [VITEST, ...process.argv.slice(2)], API);
