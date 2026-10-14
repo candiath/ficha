@@ -4,6 +4,7 @@ import {
   ClipboardList,
   CreditCard,
   FileText,
+  History,
   ShieldCheck,
   Stethoscope,
   UserPlus,
@@ -54,6 +55,12 @@ const ENTITY_CONFIG: Record<
     color:
       'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
     label: 'Escala',
+  },
+  PATIENT_EVENT: {
+    icon: History,
+    color:
+      'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300',
+    label: 'Antecedente',
   },
 };
 

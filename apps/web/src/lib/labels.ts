@@ -1,5 +1,6 @@
 import type { PaymentMethod } from '@/types/payment';
 import type { UserRole } from '@ficha/shared';
+import type { PatientEventKind } from '@/types/patientEvent';
 
 export const SEX_LABELS: Record<string, string> = {
   MALE: 'Masculino',
@@ -23,6 +24,16 @@ export const EPISODE_STATUS_CLASS: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   DISCHARGED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   ABANDONED: 'bg-gray-100 text-gray-600',
+};
+
+// An entry of the patient's history (#238).
+export const PATIENT_EVENT_KIND_LABELS: Record<PatientEventKind, string> = {
+  FRACTURE: 'Fractura',
+  SURGERY: 'Cirugía',
+  TRAUMA: 'Traumatismo',
+  DIAGNOSIS: 'Diagnóstico',
+  PAIN_ONSET: 'Inicio del dolor',
+  OTHER: 'Otro',
 };
 
 export const SESSION_TYPE_LABELS: Record<string, string> = {

@@ -26,6 +26,7 @@ import { DirtyLabel } from '@/components/ui/dirty-label';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
+import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
@@ -292,101 +293,144 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
   }
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))}>
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base">Evaluación inicial</CardTitle>
-            {evaluation && (
-              <p className="text-xs text-muted-foreground">
-                Última actualización:{' '}
-                {new Date(evaluation.updatedAt).toLocaleDateString('es-AR', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric',
-                })}
-              </p>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-5">
-
-            <FormField
-              control={form.control}
-              name="patientNarrative"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Relato del paciente" dirty={dirtyFields.patientNarrative} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="¿Qué le pasó? ¿Cómo empezó? ¿A qué lo atribuye?"
-                      className="resize-none"
-                      rows={3}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+    <div className="space-y-6">
+      {/* The patient's history: hers, not the episode's, with its own saves. */}
+      <PatientHistoryCard patientId={patientId} />
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))}>
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Evaluación inicial</CardTitle>
+              {evaluation && (
+                <p className="text-xs text-muted-foreground">
+                  Última actualización:{' '}
+                  {new Date(evaluation.updatedAt).toLocaleDateString('es-AR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
+                </p>
               )}
-            />
+            </CardHeader>
+            <CardContent className="space-y-5">
 
-            <FormField
-              control={form.control}
-              name="otherHistory"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Otros antecedentes" dirty={dirtyFields.otherHistory} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Lo excepcional que no entra en la lista de antecedentes: medicación, hábitos..."
-                      className="resize-none"
-                      rows={3}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="occupation"
+                name="patientNarrative"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel><DirtyLabel label="Ocupación" dirty={dirtyFields.occupation} /></FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ej: Docente, oficinista, deportista..." {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="physicalActivity"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Realiza actividad física" dirty={dirtyFields.physicalActivity} /></FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ej: Natación dos veces por semana..." {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="painFrequency"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Frecuencia del dolor" dirty={dirtyFields.painFrequency} /></FormLabel>
+                    <FormLabel><DirtyLabel label="Relato del paciente" dirty={dirtyFields.patientNarrative} /></FormLabel>
                     <FormControl>
                       <Textarea
-                        placeholder="Ej: Diario, intermitente, solo al moverse..."
+                        placeholder="¿Qué le pasó? ¿Cómo empezó? ¿A qué lo atribuye?"
+                        className="resize-none"
+                        rows={3}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="otherHistory"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><DirtyLabel label="Otros antecedentes" dirty={dirtyFields.otherHistory} /></FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Lo excepcional que no entra en la lista de antecedentes: medicación, hábitos..."
+                        className="resize-none"
+                        rows={3}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="occupation"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel><DirtyLabel label="Ocupación" dirty={dirtyFields.occupation} /></FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: Docente, oficinista, deportista..." {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="physicalActivity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel><DirtyLabel label="Realiza actividad física" dirty={dirtyFields.physicalActivity} /></FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: Natación dos veces por semana..." {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="painFrequency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel><DirtyLabel label="Frecuencia del dolor" dirty={dirtyFields.painFrequency} /></FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Ej: Diario, intermitente, solo al moverse..."
+                          className="resize-none"
+                          rows={2}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="evaScale"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="10"
+                          placeholder="0-10"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Evaluación de pies */}
+              <FormField
+                control={form.control}
+                name="footEvaluation"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><DirtyLabel label="Evaluación de pies" dirty={dirtyFields.footEvaluation} /></FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Pie plano, cavo, valgo, varo..."
                         className="resize-none"
                         rows={2}
                         {...field}
@@ -396,18 +440,19 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   </FormItem>
                 )}
               />
+
+              {/* Notas de flexibilidad y acortamientos */}
               <FormField
                 control={form.control}
-                name="evaScale"
+                name="flexibilityNotes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
+                    <FormLabel><DirtyLabel label="Test de flexibilidad / acortamientos" dirty={dirtyFields.flexibilityNotes} /></FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="10"
-                        placeholder="0-10"
+                      <Textarea
+                        placeholder="Isquiotibiales, psoas, trapecio superior..."
+                        className="resize-none"
+                        rows={2}
                         {...field}
                       />
                     </FormControl>
@@ -415,116 +460,76 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   </FormItem>
                 )}
               />
-            </div>
-
-            {/* Evaluación de pies */}
-            <FormField
-              control={form.control}
-              name="footEvaluation"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Evaluación de pies" dirty={dirtyFields.footEvaluation} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Pie plano, cavo, valgo, varo..."
-                      className="resize-none"
-                      rows={2}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Notas de flexibilidad y acortamientos */}
-            <FormField
-              control={form.control}
-              name="flexibilityNotes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Test de flexibilidad / acortamientos" dirty={dirtyFields.flexibilityNotes} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Isquiotibiales, psoas, trapecio superior..."
-                      className="resize-none"
-                      rows={2}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
 
 
-            <Separator />
+              <Separator />
 
-            {/* Mapa corporal */}
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">Mapa corporal — Retracciones</h3>
-              <p className="text-xs text-muted-foreground">
-                Marcá zonas de retracción, dolor o alteración en el diagrama.
-                Los cambios se guardan junto con la evaluación.
-              </p>
-              <BodyDiagram
-                markers={retractionMap}
-                onAddMarker={(marker) => {
-                  setRetractionMap((prev) => [...prev, { ...marker, id: crypto.randomUUID() }]);
-                  setRetractionMapDirty(true);
-                }}
-                onRemoveMarker={(id) => {
-                  setRetractionMap((prev) => prev.filter((m) => m.id !== id));
-                  setRetractionMapDirty(true);
-                }}
+              {/* Mapa corporal */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">Mapa corporal — Retracciones</h3>
+                <p className="text-xs text-muted-foreground">
+                  Marcá zonas de retracción, dolor o alteración en el diagrama.
+                  Los cambios se guardan junto con la evaluación.
+                </p>
+                <BodyDiagram
+                  markers={retractionMap}
+                  onAddMarker={(marker) => {
+                    setRetractionMap((prev) => [...prev, { ...marker, id: crypto.randomUUID() }]);
+                    setRetractionMapDirty(true);
+                  }}
+                  onRemoveMarker={(id) => {
+                    setRetractionMap((prev) => prev.filter((m) => m.id !== id));
+                    setRetractionMapDirty(true);
+                  }}
+                />
+              </div>
+
+              <Separator />
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><DirtyLabel label="Notas adicionales" dirty={dirtyFields.notes} /></FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Cualquier otra observación relevante..."
+                        className="resize-none"
+                        rows={3}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-
-            <Separator />
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Notas adicionales" dirty={dirtyFields.notes} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Cualquier otra observación relevante..."
-                      className="resize-none"
-                      rows={3}
-                      {...field}
+              <div className="flex justify-end pt-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span className="inline-flex">
+                          <Button type="submit" disabled={mutation.isPending || !hasUnsavedChanges}>
+                            {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
+                          </Button>
+                        </span>
+                      }
                     />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex justify-end pt-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className="inline-flex">
-                        <Button type="submit" disabled={mutation.isPending || !hasUnsavedChanges}>
-                          {mutation.isPending ? 'Guardando...' : 'Guardar evaluación'}
-                        </Button>
-                      </span>
-                    }
-                  />
-                  {!hasUnsavedChanges && (
-                    <TooltipContent>
-                      <p>No hay cambios para guardar</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          </CardContent>
-        </Card>
-      </form>
+                    {!hasUnsavedChanges && (
+                      <TooltipContent>
+                        <p>No hay cambios para guardar</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </CardContent>
+          </Card>
+        </form>
 
-    </Form>
+      </Form>
+    </div>
   );
 }
 
