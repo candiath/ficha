@@ -62,22 +62,14 @@ export const AUDIT_PATIENT_FIELDS = {
 } as const;
 
 export const AUDIT_EVALUATION_FIELDS = {
-  reasonForConsultation: 'el motivo de consulta',
-  medicalHistory: 'los antecedentes',
-  globalPosture: 'la postura global',
-  breathingPattern: 'el patrón respiratorio',
-  breathingPatternDetail: 'el detalle del patrón respiratorio',
+  patientNarrative: 'el relato del paciente',
+  otherHistory: 'los otros antecedentes',
   notes: 'las notas',
-  morphotype: 'el morfotipo',
   retractionMap: 'el mapa de retracciones',
   footEvaluation: 'la evaluación del pie',
   flexibilityNotes: 'la flexibilidad',
   physicalActivity: 'la actividad física',
-  painAppearanceMoment: 'el momento de aparición del dolor',
   painFrequency: 'la frecuencia del dolor',
-  familyPainAppearance: 'la aparición del dolor por familia',
-  familyPainDisappearance: 'la desaparición del dolor por familia',
-  postureFamilies: 'las familias de posturas',
   evaScale: 'la escala EVA',
 } as const;
 

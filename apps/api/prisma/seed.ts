@@ -237,9 +237,7 @@ async function main() {
       tenantId: tenant.id,
       patientId: patient.id,
       episodeId: episode1.id,
-      reasonForConsultation: 'Dolor lumbar crónico, peor al estar sentada',
-      globalPosture: 'Hiperlordosis lumbar, cabeza adelantada',
-      breathingPattern: 'Costal superior predominante',
+      patientNarrative: 'Dolor lumbar desde hace meses, peor al estar sentada. Lo atribuye a la silla nueva del trabajo.',
     },
   });
 
@@ -460,15 +458,9 @@ async function main() {
       tenantId: tenant.id,
       patientId: p2.id,
       episodeId: episodeP2.id,
-      reasonForConsultation:
+      patientNarrative:
         'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana. Los síntomas empeoran al final de la jornada laboral frente a la pantalla.',
-      medicalHistory:
-        'Hernia discal C5-C6 leve confirmada por RMN (febrero 2024). Sin cirugías previas. Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
-      globalPosture:
-        'Hipercifosis dorsal marcada. Cabeza adelantada ~5 cm respecto a la plomada de referencia. Hombros caídos hacia adelante con protracción escapular bilateral. Ligera escoliosis funcional lumbar hacia la derecha.',
-      breathingPattern:
-        'Respiración torácica superficial. Escasa participación diafragmática. Tendencia a retener el aliento durante el trabajo de concentración.',
-      morphotype: 'Tipo cifo-lordótico con proyección anterior de cabeza',
+      otherHistory: 'Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
       retractionMap: [
         {
           id: 'rm-1',
@@ -500,7 +492,6 @@ async function main() {
       ],
       footEvaluation:
         'Pie plano grado I bilateral con pronación leve. No compensaciones posturales significativas desde pie.',
-      breathingPatternDetail: 'costal_superior',
       flexibilityNotes:
         'Isquiotibiales cortos: test dedos-suelo −15 cm. Rotación cervical D: 45° / I: 40° (reducida). Flexión cervical limitada, mentón–esternón 3 dedos. Rotadores externos de cadera acortados.',
       evaluatedAt: new Date('2025-12-05T09:30:00.000Z'),

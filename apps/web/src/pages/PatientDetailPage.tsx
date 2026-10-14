@@ -1,10 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  FAMILY_PAIN_OPTIONS,
-  familyPainSchema,
-  isPostureFamiliesEmpty,
-  postureFamiliesSchema,
-} from '@ficha/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -23,18 +17,15 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { PulseDot } from '@/components/ui/pulse-dot';
 import { DirtyLabel } from '@/components/ui/dirty-label';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
-import { PostureFamiliesTables } from '@/components/patients/PostureFamiliesTables';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
@@ -56,23 +47,13 @@ import { blockFor, type Session } from '@/types/session';
 
 const evalSchema = z.object({
   occupation: z.string(),
-  reasonForConsultation: z.string(),
-  medicalHistory: z.string(),
-  globalPosture: z.string(),
-  breathingPattern: z.string(),
+  patientNarrative: z.string(),
+  otherHistory: z.string(),
   notes: z.string(),
-  morphotype: z.string(),
   footEvaluation: z.string(),
-  breathingPatternDetail: z.string(),
   flexibilityNotes: z.string(),
   physicalActivity: z.string(),
-  painAppearanceMoment: z.string(),
   painFrequency: z.string(),
-  // Los tres usan el mismo schema con el que valida la API: si el formulario
-  // arma algo que el servidor rechazaría, se ve acá y no en un 400.
-  familyPainAppearance: familyPainSchema.optional(),
-  familyPainDisappearance: familyPainSchema.optional(),
-  postureFamilies: postureFamiliesSchema.optional(),
   evaScale: z.string().optional().or(z.literal('')),
 });
 
@@ -232,21 +213,13 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
     resolver: zodResolver(evalSchema),
     defaultValues: {
       occupation: '',
-      reasonForConsultation: '',
-      medicalHistory: '',
-      globalPosture: '',
-      breathingPattern: '',
+      patientNarrative: '',
+      otherHistory: '',
       notes: '',
-      morphotype: '',
       footEvaluation: '',
-      breathingPatternDetail: '',
       flexibilityNotes: '',
       physicalActivity: '',
-      painAppearanceMoment: '',
       painFrequency: '',
-      familyPainAppearance: [],
-      familyPainDisappearance: [],
-      postureFamilies: {},
       evaScale: '',
     },
   });
@@ -273,21 +246,13 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
     if (evaluation) {
       form.reset({
         occupation: occupation ?? '',
-        reasonForConsultation: evaluation.reasonForConsultation ?? '',
-        medicalHistory: evaluation.medicalHistory ?? '',
-        globalPosture: evaluation.globalPosture ?? '',
-        breathingPattern: evaluation.breathingPattern ?? '',
+        patientNarrative: evaluation.patientNarrative ?? '',
+        otherHistory: evaluation.otherHistory ?? '',
         notes: evaluation.notes ?? '',
-        morphotype: evaluation.morphotype ?? '',
         footEvaluation: evaluation.footEvaluation ?? '',
-        breathingPatternDetail: evaluation.breathingPatternDetail ?? '',
         flexibilityNotes: evaluation.flexibilityNotes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
-        painAppearanceMoment: evaluation.painAppearanceMoment ?? '',
         painFrequency: evaluation.painFrequency ?? '',
-        familyPainAppearance: evaluation.familyPainAppearance ?? [],
-        familyPainDisappearance: evaluation.familyPainDisappearance ?? [],
-        postureFamilies: evaluation.postureFamilies ?? {},
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -299,26 +264,14 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
   const mutation = useMutation({
     mutationFn: async (values: EvalFormValues) => {
       const evalPromise = evaluationApi.upsert(patientId, episodeId, {
-        reasonForConsultation: values.reasonForConsultation,
-        medicalHistory: values.medicalHistory,
-        globalPosture: values.globalPosture,
-        breathingPattern: values.breathingPattern,
+        patientNarrative: values.patientNarrative,
+        otherHistory: values.otherHistory,
         notes: values.notes,
-        morphotype: values.morphotype,
         retractionMap: retractionMap.length > 0 ? retractionMap : null,
         footEvaluation: values.footEvaluation,
-        breathingPatternDetail: values.breathingPatternDetail,
         flexibilityNotes: values.flexibilityNotes,
         physicalActivity: values.physicalActivity,
-        painAppearanceMoment: values.painAppearanceMoment,
         painFrequency: values.painFrequency,
-        familyPainAppearance: values.familyPainAppearance?.length ? values.familyPainAppearance : null,
-        familyPainDisappearance: values.familyPainDisappearance?.length ? values.familyPainDisappearance : null,
-        // Grilla sparse: sin celdas marcadas se guarda NULL, igual que familyPain
-        postureFamilies:
-          values.postureFamilies && !isPostureFamiliesEmpty(values.postureFamilies)
-            ? values.postureFamilies
-            : null,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
       });
       if (values.occupation !== (occupation ?? '')) {
@@ -359,15 +312,15 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
 
             <FormField
               control={form.control}
-              name="physicalActivity"
+              name="patientNarrative"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel><DirtyLabel label="Realiza actividad física" dirty={dirtyFields.physicalActivity} /></FormLabel>
+                  <FormLabel><DirtyLabel label="Relato del paciente" dirty={dirtyFields.patientNarrative} /></FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Descripción de la actividad física que realiza..."
+                      placeholder="¿Qué le pasó? ¿Cómo empezó? ¿A qué lo atribuye?"
                       className="resize-none"
-                      rows={2}
+                      rows={3}
                       {...field}
                     />
                   </FormControl>
@@ -378,12 +331,17 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
 
             <FormField
               control={form.control}
-              name="occupation"
+              name="otherHistory"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel><DirtyLabel label="Ocupación" dirty={dirtyFields.occupation} /></FormLabel>
+                  <FormLabel><DirtyLabel label="Otros antecedentes" dirty={dirtyFields.otherHistory} /></FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Docente, oficinista, deportista..." {...field} />
+                    <Textarea
+                      placeholder="Lo excepcional que no entra en la lista de antecedentes: medicación, hábitos..."
+                      className="resize-none"
+                      rows={3}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -393,22 +351,33 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="painAppearanceMoment"
+                name="occupation"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel><DirtyLabel label="Momento de aparición del dolor" dirty={dirtyFields.painAppearanceMoment} /></FormLabel>
+                    <FormLabel><DirtyLabel label="Ocupación" dirty={dirtyFields.occupation} /></FormLabel>
                     <FormControl>
-                      <Textarea
-                        placeholder="Ej: Por las mañanas, después de actividad, en reposo..."
-                        className="resize-none"
-                        rows={2}
-                        {...field}
-                      />
+                      <Input placeholder="Ej: Docente, oficinista, deportista..." {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              <FormField
+                control={form.control}
+                name="physicalActivity"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><DirtyLabel label="Realiza actividad física" dirty={dirtyFields.physicalActivity} /></FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ej: Natación dos veces por semana..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="painFrequency"
@@ -427,238 +396,26 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   </FormItem>
                 )}
               />
-            </div>
-
-                        {/* Escala EVA */}
-            <FormField
-              control={form.control}
-              name="evaScale"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="10"
-                      placeholder="0-10"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Card demo — Dolor en familia (columnas) */}
-            <Card className="border-dashed">
-              <CardHeader className="pb-3 pt-4 px-4">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  Dolor en familia — columnas
-                  <PulseDot variant="demo" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="familyPainAppearance"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs text-muted-foreground">Aparición</FormLabel>
-                        <FormControl>
-                          <div className="space-y-2">
-                            {FAMILY_PAIN_OPTIONS.map((id) => {
-                              const active = field.value?.includes(id);
-                              return (
-                                <div
-                                  key={id}
-                                  className={`flex items-center space-x-2 p-2 rounded-md border cursor-pointer transition-colors ${
-                                    active ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
-                                  }`}
-                                  onClick={() =>
-                                    field.onChange(
-                                      active
-                                        ? (field.value ?? []).filter((v) => v !== id)
-                                        : [...(field.value ?? []), id]
-                                    )
-                                  }
-                                >
-                                  <span className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
-                                    {active && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                                  </span>
-                                  <span className="text-sm flex-1">{id}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="familyPainDisappearance"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs text-muted-foreground">Desaparición</FormLabel>
-                        <FormControl>
-                          <div className="space-y-2">
-                            {FAMILY_PAIN_OPTIONS.map((id) => {
-                              const active = field.value?.includes(id);
-                              return (
-                                <div
-                                  key={id}
-                                  className={`flex items-center space-x-2 p-2 rounded-md border cursor-pointer transition-colors ${
-                                    active ? 'bg-primary/5 border-primary/30' : 'hover:bg-muted/50'
-                                  }`}
-                                  onClick={() =>
-                                    field.onChange(
-                                      active
-                                        ? (field.value ?? []).filter((v) => v !== id)
-                                        : [...(field.value ?? []), id]
-                                    )
-                                  }
-                                >
-                                  <span className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
-                                    {active && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                                  </span>
-                                  <span className="text-sm flex-1">{id}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Familias de posturas (dos tablas de doble entrada) */}
-            <FormField
-              control={form.control}
-              name="postureFamilies"
-              render={({ field }) => (
-                <PostureFamiliesTables value={field.value ?? {}} onChange={field.onChange} />
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="reasonForConsultation"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Motivo de consulta" dirty={dirtyFields.reasonForConsultation} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="¿Por qué consulta el paciente?"
-                      className="resize-none"
-                      rows={3}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="medicalHistory"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Historia clínica" dirty={dirtyFields.medicalHistory} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Antecedentes relevantes, diagnósticos previos..."
-                      className="resize-none"
-                      rows={4}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="globalPosture"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Postura global" dirty={dirtyFields.globalPosture} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Observaciones posturales..."
-                      className="resize-none"
-                      rows={3}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            {/* Agrupar morphotype y breathingPatternDetail en columnas */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="morphotype"
+                name="evaScale"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel><DirtyLabel label="Morfotipo" dirty={dirtyFields.morphotype} /></FormLabel>
+                    <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
                     <FormControl>
-                      <Input placeholder="Inspiratorio-retraído, abierto..." {...field} />
+                      <Input
+                        type="number"
+                        min="0"
+                        max="10"
+                        placeholder="0-10"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="breathingPatternDetail"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Patrón respiratorio detallado" dirty={dirtyFields.breathingPatternDetail} /></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ''}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar..." />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="costal_superior">Costal superior</SelectItem>
-                        <SelectItem value="diafragmatico">Diafragmático</SelectItem>
-                        <SelectItem value="abdominal">Abdominal</SelectItem>
-                        <SelectItem value="paradojico">Paradójico</SelectItem>
-                        <SelectItem value="mixto">Mixto</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             </div>
-
-            {/* Patrón respiratorio (notas) */}
-            <FormField
-              control={form.control}
-              name="breathingPattern"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel><DirtyLabel label="Patrón respiratorio (notas)" dirty={dirtyFields.breathingPattern} /></FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Detalles adicionales sobre la respiración..."
-                      className="resize-none"
-                      rows={2}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             {/* Evaluación de pies */}
             <FormField
