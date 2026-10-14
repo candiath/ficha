@@ -10,25 +10,29 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingDown } from 'lucide-react';
-import type { Session } from '@/types/session';
+import { blockFor, type Session } from '@/types/session';
 
 interface Props {
   sessions: Session[];
+  /** The episode whose pain is charted: a session that treated several
+   *  problems has a pain per problem, and only this one's is drawn. */
+  episodeId: string;
 }
 
-export default function PainEvolutionChart({ sessions }: Props) {
+export default function PainEvolutionChart({ sessions, episodeId }: Props) {
   const data = sessions
-    .filter((s) => s.painScaleBefore !== null || s.painScaleAfter !== null)
+    .map((s) => ({ sessionDate: s.sessionDate, block: blockFor(s, episodeId) }))
+    .filter(({ block }) => block && (block.painScaleBefore !== null || block.painScaleAfter !== null))
     .sort((a, b) => new Date(a.sessionDate).getTime() - new Date(b.sessionDate).getTime())
-    .map((s, i) => ({
-      name: new Date(s.sessionDate).toLocaleDateString('es-AR', {
+    .map(({ sessionDate, block }, i) => ({
+      name: new Date(sessionDate).toLocaleDateString('es-AR', {
         day: '2-digit',
         month: 'short',
         timeZone: 'UTC',
       }),
       session: i + 1,
-      antes: s.painScaleBefore,
-      despues: s.painScaleAfter,
+      antes: block?.painScaleBefore ?? null,
+      despues: block?.painScaleAfter ?? null,
     }));
 
   if (data.length < 2) return null;

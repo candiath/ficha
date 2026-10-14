@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useBeforeUnload } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, CreditCard, FileText, ListChecks, Trash2 } from 'lucide-react'
+import { Calendar, Check, CreditCard, FileText, ListChecks, Plus, Trash2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -48,7 +48,7 @@ import {
   useSessionDateTolerances,
 } from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
-import type { Session, SessionType } from '@/types/session'
+import type { Session, SessionEpisodeBlock, SessionType } from '@/types/session'
 
 const schema = z.object({
   sessionDate: z
@@ -61,12 +61,19 @@ const schema = z.object({
         ctx.addIssue({ code: 'custom', message: 'La fecha no es válida' })
       }
     }),
-  painScaleBefore: z.number().min(0).max(10).nullable(),
-  painScaleAfter: z.number().min(0).max(10).nullable(),
-  preSesionState: z.string(),
-  reEvaluationNotes: z.string(),
-  patientExercises: z.string(),
+  preSessionState: z.string(),
   observations: z.string(),
+  // One block per problem the session treats (#238): what belongs to that
+  // problem alone. The form edits the whole set; the API stores it as sent.
+  blocks: z.array(
+    z.object({
+      episodeId: z.string(),
+      painScaleBefore: z.number().min(0).max(10).nullable(),
+      painScaleAfter: z.number().min(0).max(10).nullable(),
+      reEvaluationNotes: z.string(),
+      patientExercises: z.string(),
+    }),
+  ),
   baseAmount: z.string().optional().or(z.literal('')),
   discount: z.string().optional().or(z.literal('')),
   packageId: z.string().optional().or(z.literal('')),
@@ -74,6 +81,21 @@ const schema = z.object({
 })
 
 type FormValues = z.infer<typeof schema>
+type BlockValues = FormValues['blocks'][number]
+
+function emptyBlock(episodeId: string): BlockValues {
+  return { episodeId, painScaleBefore: null, painScaleAfter: null, reEvaluationNotes: '', patientExercises: '' }
+}
+
+function blockValues(block: SessionEpisodeBlock): BlockValues {
+  return {
+    episodeId: block.episodeId,
+    painScaleBefore: block.painScaleBefore,
+    painScaleAfter: block.painScaleAfter,
+    reEvaluationNotes: block.reEvaluationNotes ?? '',
+    patientExercises: block.patientExercises ?? '',
+  }
+}
 
 interface SessionFormModalWideProps {
   open: boolean
@@ -155,19 +177,22 @@ export default function SessionFormModalWide({
     queryFn: () => episodeApi.list(patientId),
   })
 
-  // El motivo no se elige: una sesión aborda un único episodio, y cuál es ya
-  // quedó decidido antes de abrir el modal. Al crear viene del episodio en el
-  // que está parado el usuario; al editar, del que la sesión ya tiene.
-  //
-  // El M:N sigue existiendo en la base, pero la API ya no acepta más de un
-  // episodio por sesión (ver episodeIdsField en routes/sessions.ts), así que
-  // este [0] no puede descartar nada: no puede haber un segundo.
-  //
-  // Acá decía que había sesiones viejas con varios motivos, y no era cierto:
-  // al poner el límite se contaron las filas de session_episodes agrupadas por
-  // sesión en producción y en development, y el máximo era 1 en las dos.
-  const effectiveEpisodeId = (isEditing ? session?.episodeIds[0] : episodeId) ?? ''
-  const effectiveEpisode = episodes.find((ep) => ep.id === effectiveEpisodeId)
+  // Una sesión puede tratar varios motivos (#238), cada uno con su bloque. Al
+  // crear arranca con el episodio en el que está parado el usuario; al editar,
+  // con los que la sesión ya tiene. Se pueden sumar los episodios abiertos del
+  // paciente, y los que la sesión ya trataba aunque hoy estén cerrados.
+  const effectiveType = isEditing ? session.sessionType : sessionType
+  // Un alta cierra el episodio desde el que se abrió: su motivo no se cambia.
+  const motivesFixed = effectiveType === 'DISCHARGE'
+  const initialEpisodeIds = useMemo(
+    () => new Set(isEditing ? session.episodes.map((b) => b.episodeId) : episodeId ? [episodeId] : []),
+    [isEditing, session, episodeId],
+  )
+  const selectableEpisodes = episodes.filter(
+    (ep) => ep.status === 'ACTIVE' || initialEpisodeIds.has(ep.id),
+  )
+  const complaintOf = (id: string) =>
+    episodes.find((ep) => ep.id === id)?.mainComplaint || 'Sin motivo'
 
   const { data: lastPriceData } = useQuery({
     queryKey: paymentKeys.lastBasePrice,
@@ -189,12 +214,9 @@ export default function SessionFormModalWide({
     resolver: zodResolver(schema),
     defaultValues: {
       sessionDate: toLocalDateTimeInput(new Date()),
-      painScaleBefore: null,
-      painScaleAfter: null,
-      preSesionState: '',
-      reEvaluationNotes: '',
-      patientExercises: '',
+      preSessionState: '',
       observations: '',
+      blocks: [],
       baseAmount: '',
       discount: '',
       packageId: '',
@@ -202,19 +224,35 @@ export default function SessionFormModalWide({
     },
   })
 
+  const { fields: blockFields, append, remove } = useFieldArray({ control: form.control, name: 'blocks' })
+  const watchedBlocks = form.watch('blocks')
+  const selectedEpisodeIds = new Set(watchedBlocks.map((b) => b.episodeId))
+  // Lo cargado en un motivo que se destilda vuelve si se lo tilda de nuevo
+  // antes de guardar: destildar por error no borra lo escrito.
+  const removedBlocks = useRef(new Map<string, BlockValues>())
+
+  function toggleEpisode(id: string) {
+    const index = form.getValues('blocks').findIndex((b) => b.episodeId === id)
+    if (index >= 0) {
+      removedBlocks.current.set(id, form.getValues(`blocks.${index}`))
+      remove(index)
+    } else {
+      append(removedBlocks.current.get(id) ?? emptyBlock(id))
+    }
+    form.clearErrors('blocks')
+  }
+
   useEffect(() => {
     if (!open) return
+    removedBlocks.current.clear()
     if (isEditing) {
       form.reset({
         sessionDate: session.sessionDate
           ? toLocalDateTimeInput(new Date(session.sessionDate))
           : toLocalDateTimeInput(new Date()),
-        painScaleBefore: session.painScaleBefore ?? null,
-        painScaleAfter: session.painScaleAfter ?? null,
-        preSesionState: session.preSesionState ?? '',
-        reEvaluationNotes: session.reEvaluationNotes ?? '',
-        patientExercises: session.patientExercises ?? '',
+        preSessionState: session.preSessionState ?? '',
         observations: session.observations ?? '',
+        blocks: session.episodes.map(blockValues),
         baseAmount: '',
         discount: '',
         packageId: '',
@@ -227,12 +265,9 @@ export default function SessionFormModalWide({
         sessionDate: toLocalDateTimeInput(
           appointment ? new Date(appointment.startsAt) : new Date(),
         ),
-        painScaleBefore: null,
-        painScaleAfter: null,
-        preSesionState: '',
-        reEvaluationNotes: '',
-        patientExercises: '',
+        preSessionState: '',
         observations: '',
+        blocks: episodeId ? [emptyBlock(episodeId)] : [],
         baseAmount: '',
         discount: '',
         packageId: '',
@@ -261,26 +296,26 @@ export default function SessionFormModalWide({
 
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
+      // Los bloques viajan completos: la API toma el conjunto como lo que la
+      // sesión trata ahora (un motivo que falta se desvincula).
       const sessionData = {
         sessionDate: new Date(values.sessionDate).toISOString(),
-        painScaleBefore: values.painScaleBefore,
-        painScaleAfter: values.painScaleAfter,
-        preSesionState: values.preSesionState,
-        reEvaluationNotes: values.reEvaluationNotes,
-        patientExercises: values.patientExercises,
+        preSessionState: values.preSessionState,
         observations: values.observations,
+        episodes: values.blocks.map((b) => ({
+          episodeId: b.episodeId,
+          painScaleBefore: b.painScaleBefore,
+          painScaleAfter: b.painScaleAfter,
+          reEvaluationNotes: b.reEvaluationNotes,
+          patientExercises: b.patientExercises,
+        })),
       }
-
-      // El motivo viaja siempre como un arreglo de a lo sumo uno: es lo que
-      // espera la API (el pivote sigue siendo M:N) y, al editar una sesión
-      // vieja con varios, desvincula los que sobran.
-      const episodeIds = effectiveEpisodeId ? [effectiveEpisodeId] : []
 
       // El PATCH no lleva sessionType: el schema de la API es partial, así que
       // omitirlo deja intacto el tipo con el que se registró la sesión (una
       // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
-        return sessionApi.update(patientId, session.id, { ...sessionData, episodeIds })
+        return sessionApi.update(patientId, session.id, sessionData)
       }
 
       // Un solo request: la API crea sesión + pago en una transacción, así un
@@ -289,7 +324,6 @@ export default function SessionFormModalWide({
       return sessionApi.create(patientId, {
         ...sessionData,
         sessionType,
-        episodeIds,
         // Va en el mismo request: la API crea la sesión y vincula el turno en
         // una transacción, así no puede quedar una sesión registrada con el
         // turno todavía pidiendo que se registre.
@@ -367,9 +401,6 @@ export default function SessionFormModalWide({
     },
   })
 
-  const painBefore = form.watch('painScaleBefore')
-  const painAfter = form.watch('painScaleAfter')
-
   const hasUnsavedChanges = form.formState.isDirty
   // Qué campos cambiaron respecto de los valores con que se abrió el modal:
   // alimenta la marca ámbar de cada campo. RHF los compara contra el último
@@ -426,6 +457,11 @@ export default function SessionFormModalWide({
                 form.setError('baseAmount', { message: 'El monto base es requerido' })
                 return
               }
+              // Solo una nota puede no tratar ningún motivo (la API lo exige igual).
+              if (effectiveType !== 'NOTE' && v.blocks.length === 0) {
+                form.setError('blocks', { message: 'Elegí al menos un motivo' })
+                return
+              }
               mutation.mutate(v)
             })}
             className="p-4 sm:p-6"
@@ -442,106 +478,68 @@ export default function SessionFormModalWide({
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="sessionDate"
-                        render={({ field }) => {
-                          const dateWarnings = getSessionDateWarnings(
-                            field.value,
-                            dateTolerances,
-                          )
-                          return (
-                            <DirtyFieldItem dirty={dirtyFields.sessionDate} label="Fecha y hora">
-                              <FormControl>
-                                <Input type="datetime-local" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                              {dateWarnings.map((warning) => (
-                                <p key={warning} className="text-sm text-amber-600 dark:text-amber-500">
-                                  {warning}
-                                </p>
-                              ))}
-                            </DirtyFieldItem>
-                          )
-                        }}
-                      />
-                      {/* El motivo no se elige acá: lo fija el episodio desde el
-                          que se abrió el modal. Se muestra para que quede claro
-                          contra qué motivo se está registrando. */}
-                      <div className="space-y-2">
-                        <Label>Motivo</Label>
+                    <FormField
+                      control={form.control}
+                      name="sessionDate"
+                      render={({ field }) => {
+                        const dateWarnings = getSessionDateWarnings(
+                          field.value,
+                          dateTolerances,
+                        )
+                        return (
+                          <DirtyFieldItem dirty={dirtyFields.sessionDate} label="Fecha y hora">
+                            <FormControl>
+                              <Input type="datetime-local" className="sm:max-w-xs" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                            {dateWarnings.map((warning) => (
+                              <p key={warning} className="text-sm text-amber-600 dark:text-amber-500">
+                                {warning}
+                              </p>
+                            ))}
+                          </DirtyFieldItem>
+                        )
+                      }}
+                    />
+                    {/* Los motivos que la sesión trata: cada uno suma su bloque
+                        abajo. Un alta cierra el motivo desde el que se abrió,
+                        así que ahí no se elige. */}
+                    <div className="space-y-2">
+                      <Label>{motivesFixed ? 'Motivo' : 'Motivos'}</Label>
+                      {motivesFixed ? (
                         <div className="flex h-9 items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3">
                           <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="min-w-0 flex-1 truncate text-sm">
-                            {effectiveEpisode
-                              ? effectiveEpisode.mainComplaint || 'Sin motivo'
-                              : 'Sin motivo asociado'}
+                            {blockFields[0] ? complaintOf(blockFields[0].episodeId) : 'Sin motivo asociado'}
                           </span>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Evaluación del dolor */}
-                    <div className="pt-2">
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                        Evaluación del dolor
-                      </Label>
-                      {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
-                        <FormField
-                          control={form.control}
-                          name="painScaleBefore"
-                          render={({ field }) => (
-                            <DirtyFieldItem dirty={dirtyFields.painScaleBefore}>
-                              <div className="flex items-center justify-between">
-                                <DirtyLabel label="Antes" dirty={dirtyFields.painScaleBefore} />
-                                <span className={`text-2xl font-bold ${getPainColor(painBefore)}`}>
-                                  {painBefore ?? '?'}
-                                </span>
-                              </div>
-                              <FormControl>
-                                <Slider
-                                  value={[field.value ?? 0]}
-                                  onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
-                                  max={10}
-                                  step={1}
-                                />
-                              </FormControl>
-                              <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>Sin dolor</span>
-                                <span>Máximo</span>
-                              </div>
-                            </DirtyFieldItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="painScaleAfter"
-                          render={({ field }) => (
-                            <DirtyFieldItem dirty={dirtyFields.painScaleAfter}>
-                              <div className="flex items-center justify-between">
-                                <DirtyLabel label="Después" dirty={dirtyFields.painScaleAfter} />
-                                <span className={`text-2xl font-bold ${getPainColor(painAfter)}`}>
-                                  {painAfter ?? '?'}
-                                </span>
-                              </div>
-                              <FormControl>
-                                <Slider
-                                  value={[field.value ?? 0]}
-                                  onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
-                                  max={10}
-                                  step={1}
-                                />
-                              </FormControl>
-                              <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>Sin dolor</span>
-                                <span>Máximo</span>
-                              </div>
-                            </DirtyFieldItem>
-                          )}
-                        />
-                      </div>
+                      ) : selectableEpisodes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          El paciente no tiene episodios abiertos. Abrí uno para registrar la sesión.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {selectableEpisodes.map((ep) => {
+                            const selected = selectedEpisodeIds.has(ep.id)
+                            return (
+                              <Button
+                                key={ep.id}
+                                type="button"
+                                size="sm"
+                                variant={selected ? 'default' : 'outline'}
+                                aria-pressed={selected}
+                                onClick={() => toggleEpisode(ep.id)}
+                              >
+                                {selected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                                {ep.mainComplaint || 'Sin motivo'}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {form.formState.errors.blocks?.message && (
+                        <p className="text-sm text-destructive">{form.formState.errors.blocks.message}</p>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -679,15 +677,15 @@ export default function SessionFormModalWide({
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
                       <FileText className="h-4 w-4 text-muted-foreground" />
-                      Notas clínicas
+                      Notas de la visita
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <FormField
                       control={form.control}
-                      name="preSesionState"
+                      name="preSessionState"
                       render={({ field }) => (
-                        <DirtyFieldItem dirty={dirtyFields.preSesionState} label="Evaluación (estado pre-sesión)">
+                        <DirtyFieldItem dirty={dirtyFields.preSessionState} label="Evaluación (estado pre-sesión)">
                           <FormControl>
                             <Textarea
                               placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
@@ -718,43 +716,94 @@ export default function SessionFormModalWide({
                       )}
                     />
 
-                    <FormField
-                      control={form.control}
-                      name="reEvaluationNotes"
-                      render={({ field }) => (
-                        <DirtyFieldItem dirty={dirtyFields.reEvaluationNotes} label="Re-evaluación">
-                          <FormControl>
-                            <Textarea
-                              placeholder="Evaluación del dolor"
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </DirtyFieldItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="patientExercises"
-                      render={({ field }) => (
-                        <DirtyFieldItem dirty={dirtyFields.patientExercises} label="Ejercicios">
-                          <FormControl>
-                            <Textarea
-                              placeholder="¿Qué ejercicios debe hacer?"
-                              rows={3}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </DirtyFieldItem>
-                      )}
-                    />
-                    
                   </CardContent>
                 </Card>
               </div>
             </div>
+
+            {/* Un bloque por motivo: lo que es de ese problema solo. En el
+                historial de cada episodio se ve el bloque de ese episodio. */}
+            {blockFields.length > 0 && (
+              <div className={`mt-6 grid grid-cols-1 gap-6 ${blockFields.length > 1 ? 'lg:grid-cols-2' : ''}`}>
+                {blockFields.map((blockField, index) => (
+                  <Card key={blockField.id}>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <ListChecks className="h-4 w-4 text-muted-foreground" />
+                        {complaintOf(blockField.episodeId)}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                          Evaluación del dolor
+                        </Label>
+                        {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
+                          {(['painScaleBefore', 'painScaleAfter'] as const).map((name) => (
+                            <FormField
+                              key={name}
+                              control={form.control}
+                              name={`blocks.${index}.${name}`}
+                              render={({ field }) => {
+                                const dirty = dirtyFields.blocks?.[index]?.[name]
+                                return (
+                                  <DirtyFieldItem dirty={dirty}>
+                                    <div className="flex items-center justify-between">
+                                      <DirtyLabel label={name === 'painScaleBefore' ? 'Antes' : 'Después'} dirty={dirty} />
+                                      <span className={`text-2xl font-bold ${getPainColor(field.value)}`}>
+                                        {field.value ?? '?'}
+                                      </span>
+                                    </div>
+                                    <FormControl>
+                                      <Slider
+                                        value={[field.value ?? 0]}
+                                        onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
+                                        max={10}
+                                        step={1}
+                                      />
+                                    </FormControl>
+                                    <div className="flex justify-between text-xs text-muted-foreground">
+                                      <span>Sin dolor</span>
+                                      <span>Máximo</span>
+                                    </div>
+                                  </DirtyFieldItem>
+                                )
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name={`blocks.${index}.reEvaluationNotes`}
+                        render={({ field }) => (
+                          <DirtyFieldItem dirty={dirtyFields.blocks?.[index]?.reEvaluationNotes} label="Re-evaluación">
+                            <FormControl>
+                              <Textarea placeholder="Evaluación del dolor" rows={3} {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </DirtyFieldItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name={`blocks.${index}.patientExercises`}
+                        render={({ field }) => (
+                          <DirtyFieldItem dirty={dirtyFields.blocks?.[index]?.patientExercises} label="Ejercicios">
+                            <FormControl>
+                              <Textarea placeholder="¿Qué ejercicios debe hacer?" rows={3} {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </DirtyFieldItem>
+                        )}
+                      />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
 
             <DialogFooter className="mt-6 pt-4 border-t gap-2 flex-col-reverse sm:flex-row">
               {/* Solo al editar: una sesión que todavía no existe no se borra.
