@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { type DatePrecision, type PatientEventKind, Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
@@ -73,6 +73,29 @@ async function seedBlock(
       sessionId: session.id,
       episodeId,
       ...fields,
+    },
+  });
+}
+
+// An entry of a patient's history (#238), with its partial date.
+async function seedEvent(
+  id: string,
+  owner: { tenantId: string; patientId: string },
+  kind: PatientEventKind,
+  description: string,
+  occurred: { date: string; precision: DatePrecision; approximate?: boolean } | null,
+): Promise<void> {
+  await prisma.patientEvent.upsert({
+    where: { id },
+    update: {},
+    create: {
+      id,
+      ...owner,
+      kind,
+      description,
+      occurredOn: occurred ? new Date(`${occurred.date}T00:00:00.000Z`) : null,
+      occurredPrecision: occurred?.precision ?? null,
+      occurredApproximate: occurred?.approximate ?? false,
     },
   });
 }
@@ -237,11 +260,28 @@ async function main() {
       tenantId: tenant.id,
       patientId: patient.id,
       episodeId: episode1.id,
-      reasonForConsultation: 'Dolor lumbar crónico, peor al estar sentada',
-      globalPosture: 'Hiperlordosis lumbar, cabeza adelantada',
-      breathingPattern: 'Costal superior predominante',
+      patientNarrative: 'Dolor lumbar desde hace meses, peor al estar sentada. Lo atribuye a la silla nueva del trabajo.',
     },
   });
+
+  // ── Antecedentes ───────────────────────────────────────────────────────
+  // Each kind of date: a year, a month (approximate, as "hace unos meses"
+  // becomes), a day, and none.
+  const mariaOwner = { tenantId: tenant.id, patientId: patient.id };
+  await seedEvent(devId('dev-event-001'), mariaOwner, 'FRACTURE', 'Fractura de muñeca izquierda, tratada con yeso', {
+    date: '2019-01-01',
+    precision: 'YEAR',
+  });
+  await seedEvent(devId('dev-event-002'), mariaOwner, 'PAIN_ONSET', 'Dolor lumbar al estar sentada', {
+    date: '2025-11-01',
+    precision: 'MONTH',
+    approximate: true,
+  });
+  await seedEvent(devId('dev-event-003'), mariaOwner, 'TRAUMA', 'Torcedura de tobillo derecho bajando una escalera', {
+    date: '2026-02-20',
+    precision: 'DAY',
+  });
+  await seedEvent(devId('dev-event-004'), mariaOwner, 'SURGERY', 'Cesárea', null);
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
   // The shoulder and its discharge, the year before; then the back alone,
@@ -460,15 +500,9 @@ async function main() {
       tenantId: tenant.id,
       patientId: p2.id,
       episodeId: episodeP2.id,
-      reasonForConsultation:
+      patientNarrative:
         'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana. Los síntomas empeoran al final de la jornada laboral frente a la pantalla.',
-      medicalHistory:
-        'Hernia discal C5-C6 leve confirmada por RMN (febrero 2024). Sin cirugías previas. Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
-      globalPosture:
-        'Hipercifosis dorsal marcada. Cabeza adelantada ~5 cm respecto a la plomada de referencia. Hombros caídos hacia adelante con protracción escapular bilateral. Ligera escoliosis funcional lumbar hacia la derecha.',
-      breathingPattern:
-        'Respiración torácica superficial. Escasa participación diafragmática. Tendencia a retener el aliento durante el trabajo de concentración.',
-      morphotype: 'Tipo cifo-lordótico con proyección anterior de cabeza',
+      otherHistory: 'Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
       retractionMap: [
         {
           id: 'rm-1',
@@ -500,11 +534,27 @@ async function main() {
       ],
       footEvaluation:
         'Pie plano grado I bilateral con pronación leve. No compensaciones posturales significativas desde pie.',
-      breathingPatternDetail: 'costal_superior',
       flexibilityNotes:
         'Isquiotibiales cortos: test dedos-suelo −15 cm. Rotación cervical D: 45° / I: 40° (reducida). Flexión cervical limitada, mentón–esternón 3 dedos. Rotadores externos de cadera acortados.',
       evaluatedAt: new Date('2025-12-05T09:30:00.000Z'),
     },
+  });
+
+  // ── Antecedentes ─────────────────────────────────────────────────────────
+  const javierOwner = { tenantId: tenant.id, patientId: p2.id };
+  await seedEvent(devId('dev-event-101'), javierOwner, 'DIAGNOSIS', 'Hernia discal C5-C6 leve, confirmada por RMN', {
+    date: '2024-02-01',
+    precision: 'MONTH',
+  });
+  await seedEvent(devId('dev-event-102'), javierOwner, 'PAIN_ONSET', 'Cervicalgia con cefaleas tensionales', {
+    date: '2025-06-01',
+    precision: 'MONTH',
+    approximate: true,
+  });
+  await seedEvent(devId('dev-event-103'), javierOwner, 'SURGERY', 'Apendicectomía', {
+    date: '2010-01-01',
+    precision: 'YEAR',
+    approximate: true,
   });
 
   // ── Consentimiento informado ─────────────────────────────────────────────

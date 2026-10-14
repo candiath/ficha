@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { familyPainSchema, postureFamiliesSchema } from '@ficha/shared';
 import { z } from 'zod';
 import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, evaluationRepo } from '../repositories';
@@ -11,25 +10,17 @@ type Params = { patientId: string; episodeId: string };
 // exigir que el episodio exista y registrar auditoría.
 const router = Router({ mergeParams: true });
 
-const EvaluationSchema = z.object({
-  reasonForConsultation: OptionalTextSchema,
-  medicalHistory: OptionalTextSchema,
-  globalPosture: OptionalTextSchema,
-  breathingPattern: OptionalTextSchema,
+// Strict: a field that is not the evaluation's is a 400, not dropped in
+// silence (the RPG fields and the pain's onset left it in #238).
+const EvaluationSchema = z.strictObject({
+  patientNarrative: OptionalTextSchema,
+  otherHistory: OptionalTextSchema,
   notes: OptionalTextSchema,
-  morphotype: OptionalTextSchema,
   retractionMap: z.unknown().optional().nullable(),
   footEvaluation: OptionalTextSchema,
-  breathingPatternDetail: OptionalTextSchema,
   flexibilityNotes: OptionalTextSchema,
   physicalActivity: OptionalTextSchema,
-  painAppearanceMoment: OptionalTextSchema,
   painFrequency: OptionalTextSchema,
-  // Los tres campos de la sección de familias se validan de verdad: su forma
-  // vive en @ficha/shared, que es también la que dibuja la grilla en la web.
-  familyPainAppearance: familyPainSchema.optional().nullable(),
-  familyPainDisappearance: familyPainSchema.optional().nullable(),
-  postureFamilies: postureFamiliesSchema.optional().nullable(),
   evaScale: z.number().min(0).max(10).optional().nullable(),
 });
 

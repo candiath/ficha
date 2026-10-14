@@ -13,6 +13,7 @@ export { prismaFunctionalScaleRepository as functionalScaleRepo } from './prisma
 export { prismaPackageRepository as packageRepo } from './prisma/prismaPackageRepository';
 export { prismaPaymentRepository as paymentRepo } from './prisma/prismaPaymentRepository';
 export { prismaSessionRepository as sessionRepo } from './prisma/prismaSessionRepository';
+export { prismaPatientEventRepository as patientEventRepo } from './prisma/prismaPatientEventRepository';
 export { prismaDashboardRepository as dashboardRepo } from './prisma/prismaDashboardRepository';
 export { prismaTenantRepository as tenantRepo } from './prisma/prismaTenantRepository';
 export { prismaAppointmentRepository as appointmentRepo } from './prisma/prismaAppointmentRepository';
