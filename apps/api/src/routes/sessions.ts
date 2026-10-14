@@ -31,11 +31,13 @@ router.param('sessionId', idParam('Sesión no encontrada'));
 
 const painField = z.number().int().min(0).max(10).optional().nullable();
 
-// A session can treat several episodes, one block each with what belongs to
-// that problem alone (#238). Which episodes a session may have (at least one;
-// a discharge, exactly one) is the repository's rule.
+// A session can treat several episodes, one block each with everything
+// clinical about that problem (#238). Which episodes a session may have (at
+// least one; a discharge, exactly one) is the repository's rule.
 const EpisodeBlockSchema = z.strictObject({
   episodeId: IdSchema,
+  preSessionState: OptionalTextSchema,
+  treatment: OptionalTextSchema,
   painScaleBefore: painField,
   painScaleAfter: painField,
   patientExercises: OptionalTextSchema,
@@ -55,7 +57,7 @@ const SessionFieldsSchema = z.strictObject({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
   episodes: episodesField,
-  preSessionState: OptionalTextSchema,
+  // The text of a note, which may belong to no episode.
   observations: OptionalTextSchema,
 });
 

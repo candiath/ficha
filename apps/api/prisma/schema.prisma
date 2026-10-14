@@ -551,9 +551,9 @@ model Session {
   userId           String      @map("user_id") @db.Uuid
   sessionType      SessionType @default(SESSION) @map("session_type")
   sessionDate      DateTime    @map("session_date")
-  // What the visit has once, whatever it treated. What belongs to each
-  // problem it treated (pain, exercises, re-evaluation) is in SessionEpisode.
-  preSessionState  String?     @map("pre_session_state")
+  // Everything clinical about a problem the visit treated is in its block
+  // (SessionEpisode). The session keeps the text of a note, which may belong
+  // to no episode.
   observations     String?
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
@@ -585,8 +585,10 @@ model Session {
 // ─────────────────────────────────────────────────────────────────────────────
 // A session's block for one of the episodes it treated (#238). One visit can
 // treat several problems (the back and an ankle sprain, say): the session holds
-// what the visit has once, and each block what belongs to one problem, so each
-// episode's history and pain chart show only its own.
+// the date, therapist, type and payment, and each block everything clinical
+// about one problem (how it arrived, the treatment, the pain, the
+// re-evaluation, the exercises), so each episode's history and pain chart show
+// only its own.
 //
 // The keys include tenant and patient, so a block cannot join a session and an
 // episode of different clinics or patients. Restrict, not cascade: sessions
@@ -596,10 +598,12 @@ model Session {
 model SessionEpisode {
   tenantId          String  @map("tenant_id") @db.Uuid
   patientId         String  @map("patient_id") @db.Uuid
-  sessionId String @map("session_id") @db.Uuid
-  episodeId String @map("episode_id") @db.Uuid
+  sessionId         String  @map("session_id") @db.Uuid
+  episodeId         String  @map("episode_id") @db.Uuid
   painScaleBefore   Int?    @map("pain_scale_before")
   painScaleAfter    Int?    @map("pain_scale_after")
+  preSessionState   String? @map("pre_session_state")
+  treatment         String?
   patientExercises  String? @map("patient_exercises")
   reEvaluationNotes String? @map("re_evaluation_notes")
 

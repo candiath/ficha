@@ -86,11 +86,12 @@ export const AUDIT_SESSION_FIELDS = {
   sessionDate: 'la fecha',
   episodeIds: 'los motivos de consulta',
   preSessionState: 'el estado previo',
+  treatment: 'el tratamiento',
   reEvaluationNotes: 'la reevaluación',
   patientExercises: 'los ejercicios',
   painScaleBefore: 'el dolor al inicio',
   painScaleAfter: 'el dolor al final',
-  observations: 'las observaciones',
+  observations: 'la nota',
 } as const;
 
 export const AUDIT_PAYMENT_FIELDS = {

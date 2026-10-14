@@ -111,6 +111,7 @@ const CLINICAL_MODELS = [
   'InitialEvaluation',
   'EvaluationPhoto',
   'Session',
+  'SessionEpisode',
   'SessionPhoto',
   'FunctionalScale',
   'InformedConsent',
@@ -122,7 +123,6 @@ const NOT_CLINICAL: Record<string, string> = {
   SessionPackage: 'Money. Its name is administrative (Decision 3).',
   ClinicalAlert: 'Work to do. Engine messages carry no clinical text; custom ones are the user\'s (Decision 3).',
   AuditLog: 'Read only inside a patient\'s record (GET /api/patients/:patientId/audit-log).',
-  SessionEpisode: 'A pivot with ids only.',
 };
 
 // Free text that is not clinical but must stay out of a list anyway.
@@ -294,12 +294,16 @@ describe('global lists carry no clinical text', () => {
         patientId,
         userId: user.id,
         sessionDate: new Date(Date.now() - 40 * DAY_MS),
-        episodes: { create: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3 }] },
+        // A session's clinical text is in its blocks (#238): marked too.
+        episodes: {
+          create: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
+        },
         ...marked('Session'),
       },
       select: { id: true },
     });
     createdClinicalModels.add('Session');
+    createdClinicalModels.add('SessionEpisode');
     await prisma.sessionPhoto.create({
       data: { sessionId: session.id, ...(marked('SessionPhoto') as { storageKey: string }) },
     });

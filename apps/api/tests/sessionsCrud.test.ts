@@ -143,11 +143,11 @@ describe('CRUD de sesiones por HTTP', () => {
     const res = await auth(request(app).post(url())).send({
       sessionType: 'SESSION',
       sessionDate: fecha,
-      preSessionState: 'Rigidez matinal',
-      observations: 'Trabajo de cadena posterior',
       episodes: [
         {
           episodeId: episodeA.id,
+          preSessionState: 'Rigidez matinal',
+          treatment: 'Trabajo de cadena posterior',
           reEvaluationNotes: 'Mejora el rango',
           patientExercises: 'Parado en la pared',
           painScaleBefore: 7,
@@ -162,13 +162,14 @@ describe('CRUD de sesiones por HTTP', () => {
       patientId: patient.id,
       sessionType: 'SESSION',
       sessionDate: fecha,
-      preSessionState: 'Rigidez matinal',
-      observations: 'Trabajo de cadena posterior',
+      observations: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       episodes: [
         {
           episodeId: episodeA.id,
+          preSessionState: 'Rigidez matinal',
+          treatment: 'Trabajo de cadena posterior',
           reEvaluationNotes: 'Mejora el rango',
           patientExercises: 'Parado en la pared',
           painScaleBefore: 7,
@@ -201,11 +202,12 @@ describe('CRUD de sesiones por HTTP', () => {
 
     expect(creada).toMatchObject({
       sessionType: 'SESSION',
-      preSessionState: null,
       observations: null,
       episodes: [
         {
           episodeId: episodeA.id,
+          preSessionState: null,
+          treatment: null,
           reEvaluationNotes: null,
           patientExercises: null,
           painScaleBefore: null,
