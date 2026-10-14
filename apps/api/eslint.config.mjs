@@ -24,6 +24,7 @@ export default defineConfig([
             'scripts/create-admin.ts',
             'scripts/create-operator.ts',
             'scripts/purge-test-audit.ts',
+            'scripts/test-docker.ts',
           ],
         },
         // Monorepo: fija la raíz a esta carpeta para que el ESLint del IDE

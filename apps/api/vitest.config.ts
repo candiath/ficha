@@ -5,12 +5,12 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
-    // Los tests van contra la DB real (Neon, no hay Docker): correr los
-    // archivos en serie evita presión de conexiones y que las suites se
-    // pisen entre sí. Cada archivo igual tiene su app fresca (y por lo
-    // tanto su rate limiter fresco).
+    // Tests share one real database (a Neon branch, or the Docker one of
+    // `npm run test:docker`): running files one at a time keeps the suites
+    // from stepping on each other. Each file still gets a fresh app (and so a
+    // fresh rate limiter).
     fileParallelism: false,
-    // Timeouts generosos: cada query viaja a Neon por la red.
+    // Generous timeouts: on Neon every query crosses the network.
     testTimeout: 15000,
     hookTimeout: 30000,
   },

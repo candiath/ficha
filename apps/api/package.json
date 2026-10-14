@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.check.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:docker": "ts-node --transpile-only scripts/test-docker.ts",
     "start": "node dist/index.js",
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "npm run db:check:no-audit-maintenance && prisma migrate deploy && npm run db:check:audit-guards",
