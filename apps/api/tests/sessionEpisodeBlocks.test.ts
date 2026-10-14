@@ -6,9 +6,10 @@ import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // A visit can treat several problems, the back and an ankle sprain say (#238).
-// The session holds what the visit has once; each episode it treated gets a
-// block with what belongs to that problem alone (pain, exercises,
-// re-evaluation), so each episode's history and pain chart show only its own.
+// The session holds the visit itself; each episode it treated gets a block with
+// everything clinical about that problem (how it arrived, the treatment, the
+// pain, the re-evaluation, the exercises), so each episode's history and pain
+// chart show only its own.
 describe('A session treats several episodes, each with its own block', () => {
   let clinic: TestClinic;
   let user: User;
@@ -68,19 +69,34 @@ describe('A session treats several episodes, each with its own block', () => {
 
   it('records one visit with a block per episode', async () => {
     const res = await post({
-      observations: 'Espalda y tobillo',
       episodes: [
-        { episodeId: back, painScaleBefore: 5, painScaleAfter: 2, patientExercises: 'Rana en el suelo' },
-        { episodeId: ankle, painScaleBefore: 6, painScaleAfter: 4, reEvaluationNotes: 'Edema leve' },
+        { episodeId: back, treatment: 'Rana en el suelo', painScaleBefore: 5, painScaleAfter: 2 },
+        { episodeId: ankle, preSessionState: 'Llega rengueando', painScaleBefore: 6, reEvaluationNotes: 'Edema leve' },
       ],
     });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.observations).toBe('Espalda y tobillo');
+    expect(res.body.data.observations).toBeNull();
     // Ordered by episode: the episodes' ids are UUIDv7, so the back comes first.
     expect(res.body.data.episodes).toEqual([
-      { episodeId: back, painScaleBefore: 5, painScaleAfter: 2, patientExercises: 'Rana en el suelo', reEvaluationNotes: null },
-      { episodeId: ankle, painScaleBefore: 6, painScaleAfter: 4, patientExercises: null, reEvaluationNotes: 'Edema leve' },
+      {
+        episodeId: back,
+        preSessionState: null,
+        treatment: 'Rana en el suelo',
+        painScaleBefore: 5,
+        painScaleAfter: 2,
+        patientExercises: null,
+        reEvaluationNotes: null,
+      },
+      {
+        episodeId: ankle,
+        preSessionState: 'Llega rengueando',
+        treatment: null,
+        painScaleBefore: 6,
+        painScaleAfter: null,
+        patientExercises: null,
+        reEvaluationNotes: 'Edema leve',
+      },
     ]);
   });
 
@@ -115,7 +131,7 @@ describe('A session treats several episodes, each with its own block', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.observations).toBe('Sin cambios');
-    expect(res.body.data.episodes).toEqual([
+    expect(res.body.data.episodes).toMatchObject([
       { episodeId: back, painScaleBefore: 7, painScaleAfter: 3, patientExercises: 'Pared', reEvaluationNotes: null },
       { episodeId: ankle, painScaleBefore: 4, painScaleAfter: null, patientExercises: null, reEvaluationNotes: null },
     ]);
@@ -128,7 +144,15 @@ describe('A session treats several episodes, each with its own block', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.episodes).toEqual([
-      { episodeId: ankle, painScaleBefore: 2, painScaleAfter: null, patientExercises: null, reEvaluationNotes: null },
+      {
+        episodeId: ankle,
+        preSessionState: null,
+        treatment: null,
+        painScaleBefore: 2,
+        painScaleAfter: null,
+        patientExercises: null,
+        reEvaluationNotes: null,
+      },
     ]);
     expect(await prisma.sessionEpisode.count({ where: { sessionId: id } })).toBe(1);
   });
@@ -213,6 +237,9 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(
       (await patch(id, { episodes: [{ episodeId: back }, { episodeId: ankle }] })).status,
     ).toBe(200);
+    expect(
+      (await patch(id, { episodes: [{ episodeId: back }, { episodeId: ankle, treatment: 'Drenaje' }] })).status,
+    ).toBe(200);
 
     const rows = await prisma.auditLog.findMany({
       where: { tenantId: clinic.tenantId, entityId: id, action: 'SESSION_UPDATED' },
@@ -222,6 +249,7 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(rows.map((r) => r.params)).toEqual([
       { sessionType: 'SESSION', changedFields: ['painScaleBefore'] },
       { sessionType: 'SESSION', changedFields: ['episodeIds'] },
+      { sessionType: 'SESSION', changedFields: ['treatment'] },
     ]);
   });
 });

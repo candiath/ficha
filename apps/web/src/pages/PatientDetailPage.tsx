@@ -934,6 +934,8 @@ function SessionsTab({
             const hasPain =
               !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
             const otherEpisodes = session.episodes.filter((b) => b.episodeId !== episodeId);
+            // This episode's treatment; a note shows its own text.
+            const preview = block?.treatment ?? session.observations;
 
             return (
               <button
@@ -952,10 +954,10 @@ function SessionsTab({
                         </span>
                         <div className="min-w-0">
                           <p className="text-sm font-medium capitalize">{formattedDate}</p>
-                          {/* Preview de observaciones */}
-                          {session.observations && (
+                          {/* Preview del tratamiento */}
+                          {preview && (
                             <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">
-                              {session.observations}
+                              {preview}
                             </p>
                           )}
                           {/* The same visit also treated other problems: it is

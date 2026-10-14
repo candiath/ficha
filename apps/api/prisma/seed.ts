@@ -56,7 +56,12 @@ async function seedBlock(
   episodeId: string,
   fields: Pick<
     Prisma.SessionEpisodeUncheckedCreateInput,
-    'painScaleBefore' | 'painScaleAfter' | 'patientExercises' | 'reEvaluationNotes'
+    | 'preSessionState'
+    | 'treatment'
+    | 'painScaleBefore'
+    | 'painScaleAfter'
+    | 'patientExercises'
+    | 'reEvaluationNotes'
   > = {},
 ): Promise<void> {
   await prisma.sessionEpisode.upsert({
@@ -247,11 +252,12 @@ async function main() {
       id: devId('dev-session-005'),
       type: 'SESSION' as const,
       date: '2025-09-10T10:00:00.000Z',
-      preSessionState: 'Dolor de hombro derecho al levantar el brazo por encima de la cabeza.',
-      observations: 'Movilidad pasiva y activa asistida. Trabajo excéntrico de supraespinoso.',
+      note: null,
       blocks: [
         {
           episodeId: episodeShoulder.id,
+          preSessionState: 'Dolor de hombro derecho al levantar el brazo por encima de la cabeza.',
+          treatment: 'Movilidad pasiva y activa asistida. Trabajo excéntrico de supraespinoso.',
           painScaleBefore: 6,
           painScaleAfter: 4,
           reEvaluationNotes: 'Arco doloroso entre 70° y 110° de abducción.',
@@ -263,11 +269,12 @@ async function main() {
       id: devId('dev-session-004'),
       type: 'DISCHARGE' as const,
       date: '2025-10-15T10:00:00.000Z',
-      preSessionState: 'Sin dolor de hombro en las actividades diarias.',
-      observations: 'Alta de la tendinitis: rango completo, sin arco doloroso.',
+      note: null,
       blocks: [
         {
           episodeId: episodeShoulder.id,
+          preSessionState: 'Sin dolor de hombro en las actividades diarias.',
+          treatment: 'Alta de la tendinitis: rango completo, sin arco doloroso.',
           painScaleBefore: 1,
           painScaleAfter: 0,
           reEvaluationNotes: 'Abducción completa sin dolor. Fuerza de rotadores conservada.',
@@ -279,11 +286,12 @@ async function main() {
       id: devId('dev-session-001'),
       type: 'SESSION' as const,
       date: '2026-02-10T10:00:00.000Z',
-      preSessionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
-      observations: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
+      note: null,
       blocks: [
         {
           episodeId: episode1.id,
+          preSessionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
+          treatment: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
           painScaleBefore: 7,
           painScaleAfter: 4,
           reEvaluationNotes: 'Mejora leve en rango de flexión lumbar respecto a evaluación inicial. Persiste tensión en cadena posterior.',
@@ -295,11 +303,12 @@ async function main() {
       id: devId('dev-session-002'),
       type: 'SESSION' as const,
       date: '2026-02-24T10:00:00.000Z',
-      preSessionState: 'Mejoría notable de la espalda: el dolor aparece recién después de 1 hora sentada. Llega rengueando: se torció el tobillo derecho bajando una escalera hace cuatro días.',
-      observations: 'Sesión combinada: rana en el suelo y parado en la pared para la espalda; movilización suave y drenaje del tobillo. 50 minutos.',
+      note: null,
       blocks: [
         {
           episodeId: episode1.id,
+          preSessionState: 'Mejoría notable de la espalda: el dolor aparece recién después de 1 hora sentada.',
+          treatment: 'Rana en el suelo y parado en la pared, 30 minutos.',
           painScaleBefore: 5,
           painScaleAfter: 2,
           reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable.',
@@ -307,6 +316,8 @@ async function main() {
         },
         {
           episodeId: episodeAnkle.id,
+          preSessionState: 'Llega rengueando: se torció el tobillo derecho bajando una escalera hace cuatro días.',
+          treatment: 'Movilización suave y drenaje del tobillo, 20 minutos.',
           painScaleBefore: 6,
           painScaleAfter: 4,
           reEvaluationNotes: 'Edema leve en maléolo externo. Dorsiflexión limitada por dolor. Sin inestabilidad.',
@@ -318,11 +329,12 @@ async function main() {
       id: devId('dev-session-003'),
       type: 'SESSION' as const,
       date: '2026-03-03T10:00:00.000Z',
-      preSessionState: 'Viene solo por el tobillo: la espalda está tranquila esta semana.',
-      observations: 'Propiocepción en superficie estable, fortalecimiento de peroneos con banda elástica.',
+      note: null,
       blocks: [
         {
           episodeId: episodeAnkle.id,
+          preSessionState: 'Viene solo por el tobillo: la espalda está tranquila esta semana.',
+          treatment: 'Propiocepción en superficie estable, fortalecimiento de peroneos con banda elástica.',
           painScaleBefore: 3,
           painScaleAfter: 1,
           reEvaluationNotes: 'Edema resuelto. Dorsiflexión completa. Apoyo monopodal 20 segundos.',
@@ -334,8 +346,7 @@ async function main() {
       id: devId('dev-note-001'),
       type: 'NOTE' as const,
       date: '2026-03-19T15:00:00.000Z',
-      preSessionState: null,
-      observations: 'Llamó para avisar que viaja dos semanas. Retoma la lumbalgia a la vuelta.',
+      note: 'Llamó para avisar que viaja dos semanas. Retoma la lumbalgia a la vuelta.',
       blocks: [],
     },
   ];
@@ -351,8 +362,8 @@ async function main() {
         userId: user.id,
         sessionType: s.type,
         sessionDate: new Date(s.date),
-        preSessionState: s.preSessionState,
-        observations: s.observations,
+        // The text of a note; everything clinical about a problem is in its block.
+        observations: s.note,
       },
     });
     for (const { episodeId, ...fields } of s.blocks) {
@@ -641,11 +652,13 @@ async function main() {
         userId: user.id,
         sessionType: s.type,
         sessionDate: new Date(s.date),
-        preSessionState: s.preSesion,
-        observations: s.obs,
+        // A note keeps its text; a session's treatment is its block's.
+        observations: s.type === 'NOTE' ? s.obs : null,
       },
     });
     await seedBlock(session, episodeP2.id, {
+      preSessionState: s.preSesion,
+      treatment: s.type === 'NOTE' ? null : s.obs,
       painScaleBefore: s.painBefore,
       painScaleAfter: s.painAfter,
       reEvaluationNotes: s.reevalNotes,
