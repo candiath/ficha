@@ -20,6 +20,13 @@ export interface ApiResponse<T> {
 // implementación, o divergen.
 export * from './slug';
 
+// ── Fechas parciales ─────────────────────────────────────────────────────────
+
+// Runtime as well: a date as the patient remembers it (a day, a month, a year;
+// maybe approximate). The API validates with its schema; the web builds "hace
+// dos meses" into a date and shows it with the same module (#238).
+export * from './partialDate';
+
 // ── Auditoría ────────────────────────────────────────────────────────────────
 
 // Runtime as well: the catalog of audit actions (#186,

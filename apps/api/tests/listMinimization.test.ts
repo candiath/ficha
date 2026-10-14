@@ -107,6 +107,7 @@ describe('every GET route is classified', () => {
 // patientId, or hanging from a clinical one, is classified here or below, so
 // a new one has to be placed.
 const CLINICAL_MODELS = [
+  'PatientEvent',
   'ClinicalEpisode',
   'InitialEvaluation',
   'EvaluationPhoto',
@@ -281,6 +282,12 @@ describe('global lists carry no clinical text', () => {
       select: { id: true },
     });
     createdClinicalModels.add('InitialEvaluation');
+
+    // The patient's history (#238): a dated fact, with clinical text.
+    await prisma.patientEvent.create({
+      data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientEvent') as { description: string }) },
+    });
+    createdClinicalModels.add('PatientEvent');
     await prisma.evaluationPhoto.create({
       data: { initialEvaluationId: evaluation.id, ...(marked('EvaluationPhoto') as { storageKey: string }) },
     });
@@ -379,6 +386,7 @@ describe('global lists carry no clinical text', () => {
     await prisma.functionalScale.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
+    await prisma.patientEvent.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
   });

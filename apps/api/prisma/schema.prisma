@@ -94,6 +94,7 @@ model Tenant {
   functionalScales    FunctionalScale[]
   clinicalEpisodes    ClinicalEpisode[]
   sessionEpisodes     SessionEpisode[]
+  patientEvents       PatientEvent[]
   loginEvents         LoginEvent[]
   appointments        Appointment[]
   platformAuditLogs   PlatformAuditLog[]
@@ -450,6 +451,7 @@ model Patient {
   functionalScales   FunctionalScale[]
   clinicalEpisodes   ClinicalEpisode[]
   appointments       Appointment[]
+  events             PatientEvent[]
 
   // Audit rows reference (tenant_id, id), so they cannot name another
   // clinic's patient (#186); Postgres needs a unique constraint to reference.
@@ -488,6 +490,53 @@ model ClinicalEpisode {
   @@index([tenantId])
   @@index([patientId])
   @@map("clinical_episodes")
+}
+
+enum PatientEventKind {
+  FRACTURE
+  SURGERY
+  TRAUMA
+  DIAGNOSIS
+  PAIN_ONSET
+  OTHER
+}
+
+enum DatePrecision {
+  DAY
+  MONTH
+  YEAR
+}
+
+// Something the patient lived (#238): a fracture, a surgery, a diagnosis, the
+// onset of a pain ("Antecedentes"). It belongs to the patient, not to a
+// treatment, so it is written once and seen from every episode.
+//
+// Its date is partial, as the patient remembers it (packages/shared
+// partialDate.ts): a date truncated to its precision, plus the precision and an
+// "approximate" mark. "Hace dos meses" is stored as the month it meant, so it
+// never ages. No date at all when the patient does not know; CHECKs in the
+// migration keep the three columns consistent.
+model PatientEvent {
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  tenantId            String           @map("tenant_id") @db.Uuid
+  patientId           String           @map("patient_id") @db.Uuid
+  kind                PatientEventKind
+  description         String
+  occurredOn          DateTime?        @map("occurred_on") @db.Date
+  occurredPrecision   DatePrecision?   @map("occurred_precision")
+  occurredApproximate Boolean          @default(false) @map("occurred_approximate")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  // Deleted logically, like sessions: one entered by mistake disappears from
+  // the record, and the row stays for the audit trail.
+  deletedAt           DateTime?        @map("deleted_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@map("patient_events")
 }
 
 model InitialEvaluation {
@@ -738,6 +787,9 @@ enum AuditAction {
   PAYMENT_UPDATED
   CONSENT_SIGNED
   CONSENT_REVOKED
+  PATIENT_EVENT_RECORDED
+  PATIENT_EVENT_UPDATED
+  PATIENT_EVENT_DELETED
 }
 
 enum AuditEntity {
@@ -747,6 +799,7 @@ enum AuditEntity {
   PAYMENT
   CONSENT
   SCALE
+  PATIENT_EVENT
 }
 
 // Who acted, on every audit table: a person of a clinic, the platform
