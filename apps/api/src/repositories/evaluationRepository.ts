@@ -20,7 +20,6 @@ export interface EvaluationDTO {
   otherHistory: string | null;
   notes: string | null;
   retractionMap: unknown;
-  footEvaluation: string | null;
   flexibilityNotes: string | null;
   physicalActivity: string | null;
   painFrequency: string | null;
@@ -41,7 +40,6 @@ export interface EvaluationUpsertInput {
   otherHistory?: string | null;
   notes?: string | null;
   retractionMap?: unknown;
-  footEvaluation?: string | null;
   flexibilityNotes?: string | null;
   physicalActivity?: string | null;
   painFrequency?: string | null;

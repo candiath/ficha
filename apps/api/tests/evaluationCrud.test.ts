@@ -88,7 +88,6 @@ describe('CRUD de la evaluación inicial', () => {
     const res = await auth(request(app).put(url(propio.id))).send({
       patientNarrative: 'Dolor dorsal desde que cambió de silla en el trabajo',
       otherHistory: 'Toma anticoagulantes',
-      footEvaluation: 'Pie plano bilateral',
       physicalActivity: 'Natación 2x semana',
       painFrequency: 'Diaria',
       evaScale: 7,

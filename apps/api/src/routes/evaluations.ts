@@ -17,7 +17,6 @@ const EvaluationSchema = z.strictObject({
   otherHistory: OptionalTextSchema,
   notes: OptionalTextSchema,
   retractionMap: z.unknown().optional().nullable(),
-  footEvaluation: OptionalTextSchema,
   flexibilityNotes: OptionalTextSchema,
   physicalActivity: OptionalTextSchema,
   painFrequency: OptionalTextSchema,

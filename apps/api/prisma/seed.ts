@@ -532,8 +532,6 @@ async function main() {
           view: 'front',
         },
       ],
-      footEvaluation:
-        'Pie plano grado I bilateral con pronación leve. No compensaciones posturales significativas desde pie.',
       flexibilityNotes:
         'Isquiotibiales cortos: test dedos-suelo −15 cm. Rotación cervical D: 45° / I: 40° (reducida). Flexión cervical limitada, mentón–esternón 3 dedos. Rotadores externos de cadera acortados.',
       evaluatedAt: new Date('2025-12-05T09:30:00.000Z'),
