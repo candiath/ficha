@@ -243,10 +243,12 @@ jobs:
       - name: Tests de integración de la API
         if: needs.changes.outputs.api == 'true'
         # The audit tests of #186 need a direct (non-pooled) connection, derived
-        # the same way as in the migrate steps.
+        # the same way as in the migrate steps. test:neon, not test: locally
+        # `npm test` runs on Docker, and CI stays on Neon, whose pooler is
+        # what Docker cannot reproduce (docs/infra.md#local-test-database).
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
-          npm test
+          npm run test:neon
         env:
           # Branch de Neon dedicada a CI — nunca la DB de dev.
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}

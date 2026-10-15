@@ -6,7 +6,8 @@ Monorepo de npm workspaces: `apps/api` (Express 5 + Prisma + Postgres), `apps/we
 
 - `npm run dev` — shared + api + web en paralelo (api en :3001, web en :5173)
 - `npm run dev:api` / `npm run dev:web` — cada app por separado
-- `npm test` — tests de integración de la API (vitest + supertest, pegan a la DB)
+- `npm test` — the API's integration tests (vitest + supertest) against a throwaway Postgres in Docker, which must be running ([`docs/infra.md`](docs/infra.md#local-test-database)). Arguments go to vitest: `npm test -- login authSessions`. A bare `npx vitest` skips the container and hits `apps/api/.env`'s database (Neon)
+- `npm run test:neon` — the same suite against `DATABASE_URL` (Neon): what CI runs
 - `npm test -w apps/web` — tests del frontend (vitest + jsdom + testing-library)
 - `npm run build` — shared → api → web
 - `npm run db:migrate` / `db:seed` / `db:studio` — Prisma (workspace apps/api)
@@ -51,7 +52,7 @@ El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en
 
 ## Base de datos
 
-Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver *Infraestructura*). No hay base local ni Docker: `prisma migrate dev` corre directo contra Neon.
+Postgres en **Neon**, vía `DATABASE_URL` en `apps/api/.env` (branch `development`, ver *Infraestructura*). The dev server and `prisma migrate dev` run directly against Neon; the only local database is the tests' throwaway Postgres in Docker (`npm test`).
 
 ### Acceso a datos: patrón repositorio
 
