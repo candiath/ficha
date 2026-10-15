@@ -33,7 +33,7 @@ Esa branch se creó desde `production` y después se le borró el esquema, así 
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen.
 
-**Since 2026-10-12 `production` holds real clinical data**, so no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
+**`production` is handled as holding real clinical data**: it holds them from the relaunch (#238), and until then the clinic's trial. So no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
 
 ## El ciclo de vida de un cambio
 
@@ -90,7 +90,7 @@ Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{
 
 Se respalda **solo producción**: `staging` y `development` hold only test data, nothing there needs a backup.
 
-The backups repository's history was restarted on 2026-10-12, right after the wipe (#223): the dumps of the fictitious data were dropped, and the history begins with the empty database. Every dump from then on holds real clinical data in plain text, protected only by the repository being private.
+The backups repository's history was restarted on 2026-10-12, right after the first wipe (#223): the dumps of the fictitious data were dropped, and the history began with the empty database. The launch was then postponed, and the history is restarted again after the second wipe, at the relaunch (#238), dropping the dumps of the clinic's trial the same way. Every dump from the relaunch on holds real clinical data in plain text, protected only by the repository being private.
 
 ## Audit tables
 
@@ -131,7 +131,7 @@ Interrupted test runs leave test clinics behind, and their audit rows now block 
 
 ### The pre-launch wipe
 
-Done on 2026-10-12 (#223). Production's data was fictitious until then; the wipe dropped the schema, which no trigger sees, and rebuilt it:
+Run on 2026-10-12 (#223), when production's data was fictitious, and run once more before the relaunch (#238): the launch was postponed to correct the data model, and what production holds since the first wipe is the clinic's trial. The wipe drops the schema, which no trigger sees, and rebuilds it:
 
 ```sql
 DROP SCHEMA public CASCADE;
@@ -145,7 +145,7 @@ followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `
 - the rehearsal refuses a URL whose endpoint is production's;
 - at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Redeploy the API afterwards: new connections, and the startup audit checks run again.
 
-It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. **With real data, it is never run on production again.** Never use `migrate reset` with the seed on a deployed database.
+It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. The second wipe follows the same steps (checklist in #238). **After the relaunch, with real data, it is never run on production again**, and its `production` target is removed (#233). Never use `migrate reset` with the seed on a deployed database.
 
 ### Restoring a backup
 
