@@ -21,7 +21,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 - **Netlify** — la web. Un sitio (`fichita`) con dos contextos de deploy.
 - **Neon** — Postgres. Proyecto `ficha`, una branch por entorno.
 
-**Production holds real clinical data since 2026-10-12** (the pre-launch wipe, #223). `staging`, `development` and `ci` hold only test data, and no branch is ever created from `production` except a temporary rehearsal branch, deleted when the rehearsal ends (see `docs/infra.md`).
+**Production holds no real clinical data yet, and is handled as if it did.** The launch of 2026-10-12 (the first wipe, #223) was postponed to correct the data model: what production holds since then is the clinic's trial, and it is wiped again before the relaunch (#238). Real clinical data starts at the relaunch. `staging`, `development` and `ci` hold only test data, and no branch is ever created from `production` except a temporary rehearsal branch, deleted when the rehearsal ends (see `docs/infra.md`).
 
 | | Producción | Testing | Desarrollo |
 | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platf
 
 ### Backups
 
-El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en un repo privado aparte, disparado también al **abrir** el PR de release (`.github/workflows/backup-antes-del-release.yml`). La credencial de producción vive solo allá. The dumps hold real clinical data since 2026-10-12; the history before that (fictitious data) was dropped when it was restarted after the wipe. Acá solo está `BACKUP_DISPATCH_TOKEN`, un PAT fine-grained con **Actions: write** (y no Contents, que daría lectura de los dumps) que usa el endpoint `workflow_dispatch`.
+El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en un repo privado aparte, disparado también al **abrir** el PR de release (`.github/workflows/backup-antes-del-release.yml`). La credencial de producción vive solo allá. Its history was started over after the wipe of 2026-10-12 and is started over again after the relaunch's wipe (#238); from then on the dumps hold real clinical data. Acá solo está `BACKUP_DISPATCH_TOKEN`, un PAT fine-grained con **Actions: write** (y no Contents, que daría lectura de los dumps) que usa el endpoint `workflow_dispatch`.
 
 ## Base de datos
 
@@ -118,17 +118,13 @@ Es **lógico** (`deletedAt`): el paciente desaparece de `GET /api/patients`, su 
 
 La línea que separa las dos mitades es **historial vs. trabajo pendiente**. Por eso las **alertas sí filtran** pacientes borrados, en la lista y en el contador de no leídas: una alerta no registra lo que pasó, pide una acción — y sobre un paciente eliminado esa acción es imposible. El filtro va en la lectura (`clinicalAlertRepository`) y no borra filas: el borrado es reversible y las alertas deben poder volver con el paciente.
 
-### Campos JSON: la forma vive en `packages/shared`
+### JSON fields: their shape lives in `packages/shared`
 
-La evaluación inicial guarda varias columnas `Json?` (grilla de familias de posturas, dolor en familia, mapa de retracciones). Postgres no valida nada de su contenido, así que **la forma de un campo JSON se declara en `packages/shared` y la ruta la valida con ese schema** — si no, el significado del dato termina viviendo sólo en el componente de React que lo dibuja, y nadie más puede leerlo sin reimplementarlo.
+Postgres validates nothing inside a `Json?` column, so **the shape of a JSON field is declared in `packages/shared` and the route validates it with that schema**, strict (`strictObject`) so an unknown key is a `400`. Otherwise the meaning of the data lives only in the React component that draws it, and nobody else can read it without reimplementing it.
 
-`postureFamilies` es el caso modelo (`packages/shared/src/postureFamilies.ts`): `POSTURE_TABLES` describe las dos tablas columna por columna, cada una con un `kind` (`mark`, `flag`, `choice`, `text`) que dice qué guarda la celda. De ahí sale todo lo demás: la web dibuja el control según el `kind` y `postureFamiliesSchema` se deriva de la misma definición, con `strictObject` en los tres niveles (tabla → fila → columna). Agregar una columna es agregar una entrada en la lista.
+The initial evaluation's posture-family grid was the model case until the RPG fields left the evaluation (#238); its history is in `git log -- packages/shared/src/postureFamilies.ts`. One field is still outside the pattern: `retractionMap` uses `z.unknown()`, pending the client's answer on the body map.
 
-Lo guardado es sparse: una celda vacía no se guarda, una fila o tabla que queda sin celdas se borra, y una grilla sin nada se guarda como `NULL`. `setPostureCell` hace esa poda; no armar el objeto a mano.
-
-Éste es uno de los tres módulos de `packages/shared` con **valores de runtime** (el resto son `import type`); los otros son `slug.ts`, con `slugify` y `SLUG_PATTERN`, para que la API derive el slug de una clínica con exactamente la misma función con la que la web lo previsualiza, and `auditActions.ts`, the catalog of audit actions the API validates every audit row with and the web builds each row's sentence from. Por eso `apps/web/vite.config.ts` y `vitest.config.ts` aliasan `@ficha/shared` al código fuente —el paquete compila a CommonJS, que un browser no puede cargar— y el job `test` del CI buildea `packages/shared` antes de correr los tests de la API. Render ya lo hacía vía `build:api`. Si se agrega un tercero, esta lista se actualiza: un valor de runtime nuevo en un paquete que casi todos importan como tipos es fácil de perder de vista.
-
-Queda un campo sin migrar a este patrón: `retractionMap` sigue con `z.unknown()`.
+The modules of `packages/shared` with **runtime values** (the rest is `import type`): `slug.ts`, with `slugify` and `SLUG_PATTERN`, so the API derives a clinic's slug with exactly the function the web previews it with; `auditActions.ts`, the catalog of audit actions the API validates every audit row with and the web builds each row's sentence from; and `partialDate.ts`, a date as the patient remembers it (a day, a month or a year, maybe approximate), which the API validates and the web builds from "hace dos meses" and shows (#238). That is why `apps/web/vite.config.ts` and `vitest.config.ts` alias `@ficha/shared` to the source (the package compiles to CommonJS, which a browser cannot load), and why the CI's `test` job builds `packages/shared` before the API tests; Render already does it through `build:api`. A new one goes on this list: a runtime value in a package almost everyone imports as types is easy to lose sight of.
 
 ## Convenciones
 

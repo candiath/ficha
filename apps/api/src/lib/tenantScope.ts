@@ -36,6 +36,7 @@ import type { TenantContext } from '../repositories/types';
 export const TENANT_SCOPED_MODELS = [
   'User',
   'Patient',
+  'PatientEvent',
   'ClinicalEpisode',
   'InitialEvaluation',
   'Session',

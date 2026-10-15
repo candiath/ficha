@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntity,
+  PatientEventKind,
   PaymentStatus,
   PlatformAction,
   PlatformAuditEntity,
@@ -12,6 +13,8 @@ import { describe, expect, it } from 'vitest';
 import {
   AUDIT_ACTIONS,
   AUDIT_EVALUATION_FIELDS,
+  AUDIT_PATIENT_EVENT_FIELDS,
+  AUDIT_PATIENT_EVENT_KINDS,
   AUDIT_PATIENT_FIELDS,
   AUDIT_PAYMENT_FIELDS,
   AUDIT_PAYMENT_STATUSES,
@@ -71,18 +74,31 @@ describe('the audit catalog matches the schema', () => {
     ['SessionType', SessionType, AUDIT_SESSION_TYPES],
     ['PaymentStatus', PaymentStatus, AUDIT_PAYMENT_STATUSES],
     ['UserRole', UserRole, AUDIT_ROLES],
+    ['PatientEventKind', PatientEventKind, AUDIT_PATIENT_EVENT_KINDS],
   ] as const)('every %s value has a label in the catalog', (_name, prismaEnum, labels) => {
     for (const value of Object.values(prismaEnum)) expect(Object.keys(labels)).toContain(value);
   });
 
   it('every field name is camelCase letters, as the database check requires', () => {
-    for (const fields of [AUDIT_PATIENT_FIELDS, AUDIT_EVALUATION_FIELDS, AUDIT_SESSION_FIELDS, AUDIT_PAYMENT_FIELDS]) {
+    for (const fields of [
+      AUDIT_PATIENT_FIELDS,
+      AUDIT_EVALUATION_FIELDS,
+      AUDIT_SESSION_FIELDS,
+      AUDIT_PAYMENT_FIELDS,
+      AUDIT_PATIENT_EVENT_FIELDS,
+    ]) {
       for (const name of Object.keys(fields)) expect(name).toMatch(/^[a-z][A-Za-z]{0,63}$/);
     }
   });
 
   it('every code value is upper case, with no three digits in a row', () => {
-    for (const values of [AUDIT_SCALE_TYPES, AUDIT_SESSION_TYPES, AUDIT_PAYMENT_STATUSES, AUDIT_ROLES]) {
+    for (const values of [
+      AUDIT_SCALE_TYPES,
+      AUDIT_SESSION_TYPES,
+      AUDIT_PAYMENT_STATUSES,
+      AUDIT_ROLES,
+      AUDIT_PATIENT_EVENT_KINDS,
+    ]) {
       for (const value of Object.keys(values)) {
         expect(value).toMatch(/^[A-Z][A-Z0-9_]{0,63}$/);
         expect(value).not.toMatch(/[0-9]{3}/);

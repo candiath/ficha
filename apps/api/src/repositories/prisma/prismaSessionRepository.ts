@@ -33,6 +33,8 @@ class TurnoYaRegistrado extends Error {}
 
 const blockSelect = {
   episodeId: true,
+  preSessionState: true,
+  treatment: true,
   painScaleBefore: true,
   painScaleAfter: true,
   patientExercises: true,
@@ -44,7 +46,6 @@ const sessionSelect = {
   patientId: true,
   sessionType: true,
   sessionDate: true,
-  preSessionState: true,
   observations: true,
   createdAt: true,
   updatedAt: true,
@@ -59,6 +60,8 @@ const sessionSelect = {
 type BlockField = Exclude<keyof SessionEpisodeBlockDTO, 'episodeId'>;
 
 const EMPTY_BLOCK: Record<BlockField, null> = {
+  preSessionState: null,
+  treatment: null,
   painScaleBefore: null,
   painScaleAfter: null,
   patientExercises: null,
@@ -102,9 +105,10 @@ function auditView(s: SessionDTO): Record<SessionAuditField, unknown> {
   return {
     sessionType: s.sessionType,
     sessionDate: s.sessionDate,
-    preSessionState: s.preSessionState,
     observations: s.observations,
     episodeIds: s.episodes.map((b) => b.episodeId),
+    preSessionState: valuesOf('preSessionState'),
+    treatment: valuesOf('treatment'),
     painScaleBefore: valuesOf('painScaleBefore'),
     painScaleAfter: valuesOf('painScaleAfter'),
     patientExercises: valuesOf('patientExercises'),
@@ -124,6 +128,8 @@ function episodeRuleViolation(
 // The fields a block input brings; one that does not come is left out.
 function blockData(block: SessionEpisodeBlockInput) {
   return {
+    ...(block.preSessionState !== undefined && { preSessionState: block.preSessionState }),
+    ...(block.treatment !== undefined && { treatment: block.treatment }),
     ...(block.painScaleBefore !== undefined && { painScaleBefore: block.painScaleBefore }),
     ...(block.painScaleAfter !== undefined && { painScaleAfter: block.painScaleAfter }),
     ...(block.patientExercises !== undefined && { patientExercises: block.patientExercises }),
@@ -160,7 +166,6 @@ function sessionData(input: Partial<SessionCreateInput>) {
   return {
     ...(input.sessionType !== undefined && { sessionType: input.sessionType }),
     ...(input.sessionDate !== undefined && { sessionDate: input.sessionDate }),
-    ...(input.preSessionState !== undefined && { preSessionState: input.preSessionState }),
     ...(input.observations !== undefined && { observations: input.observations }),
   };
 }

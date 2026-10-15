@@ -5,24 +5,25 @@ import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRep
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
-// One problem the session treated: its episode, and what belongs to that
-// problem alone (#238). A visit that treats the back and an ankle has two.
+// One problem the session treated: its episode, and everything clinical about
+// that problem (#238). A visit that treats the back and an ankle has two.
 export interface SessionEpisodeBlockDTO {
   episodeId: string;
+  preSessionState: string | null;
+  treatment: string | null;
   painScaleBefore: number | null;
   painScaleAfter: number | null;
   patientExercises: string | null;
   reEvaluationNotes: string | null;
 }
 
-// The session holds what the visit has once; `episodes`, one block per
-// problem it treated, ordered by episode.
+// The session holds the visit itself; `episodes`, one block per problem it
+// treated, ordered by episode. `observations` is the text of a note.
 export interface SessionDTO {
   id: string;
   patientId: string;
   sessionType: SessionType;
   sessionDate: string;
-  preSessionState: string | null;
   observations: string | null;
   createdAt: string;
   updatedAt: string;
@@ -44,7 +45,6 @@ export interface SessionIndexItemDTO {
 export interface SessionFields {
   sessionType: SessionType;
   sessionDate: Date;
-  preSessionState?: string | null;
   observations?: string | null;
 }
 
@@ -52,6 +52,8 @@ export interface SessionFields {
 // block starts empty), the same rule as the session's own fields.
 export interface SessionEpisodeBlockInput {
   episodeId: string;
+  preSessionState?: string | null;
+  treatment?: string | null;
   painScaleBefore?: number | null;
   painScaleAfter?: number | null;
   patientExercises?: string | null;

@@ -38,6 +38,16 @@ export const AUDIT_PAYMENT_STATUSES = {
   WAIVED: 'eximido',
 } as const;
 
+// What kind of thing the patient lived: an entry of her history (#238).
+export const AUDIT_PATIENT_EVENT_KINDS = {
+  FRACTURE: 'fractura',
+  SURGERY: 'cirugía',
+  TRAUMA: 'traumatismo',
+  DIAGNOSIS: 'diagnóstico',
+  PAIN_ONSET: 'inicio del dolor',
+  OTHER: 'otro',
+} as const;
+
 // "ADMIN" is the word the whole platform screen uses ("Sin ADMIN", "Crear ADMIN").
 export const AUDIT_ROLES = {
   ADMIN: 'ADMIN',
@@ -62,22 +72,14 @@ export const AUDIT_PATIENT_FIELDS = {
 } as const;
 
 export const AUDIT_EVALUATION_FIELDS = {
-  reasonForConsultation: 'el motivo de consulta',
-  medicalHistory: 'los antecedentes',
-  globalPosture: 'la postura global',
-  breathingPattern: 'el patrón respiratorio',
-  breathingPatternDetail: 'el detalle del patrón respiratorio',
+  patientNarrative: 'el relato del paciente',
+  otherHistory: 'los otros antecedentes',
   notes: 'las notas',
-  morphotype: 'el morfotipo',
   retractionMap: 'el mapa de retracciones',
   footEvaluation: 'la evaluación del pie',
   flexibilityNotes: 'la flexibilidad',
   physicalActivity: 'la actividad física',
-  painAppearanceMoment: 'el momento de aparición del dolor',
   painFrequency: 'la frecuencia del dolor',
-  familyPainAppearance: 'la aparición del dolor por familia',
-  familyPainDisappearance: 'la desaparición del dolor por familia',
-  postureFamilies: 'las familias de posturas',
   evaScale: 'la escala EVA',
 } as const;
 
@@ -86,11 +88,18 @@ export const AUDIT_SESSION_FIELDS = {
   sessionDate: 'la fecha',
   episodeIds: 'los motivos de consulta',
   preSessionState: 'el estado previo',
+  treatment: 'el tratamiento',
   reEvaluationNotes: 'la reevaluación',
   patientExercises: 'los ejercicios',
   painScaleBefore: 'el dolor al inicio',
   painScaleAfter: 'el dolor al final',
-  observations: 'las observaciones',
+  observations: 'la nota',
+} as const;
+
+export const AUDIT_PATIENT_EVENT_FIELDS = {
+  kind: 'el tipo',
+  description: 'la descripción',
+  occurred: 'la fecha',
 } as const;
 
 export const AUDIT_PAYMENT_FIELDS = {
@@ -130,7 +139,14 @@ export type AuditParamsOf<S extends ParamShape> = { [K in keyof S]: ParamValue<S
 /** What a reader gets: whatever parsed. A row may predate a parameter. */
 export type AuditReadParamsOf<S extends ParamShape> = Partial<AuditParamsOf<S>>;
 
-export type AuditEntity = 'PATIENT' | 'EVALUATION' | 'SCALE' | 'SESSION' | 'PAYMENT' | 'CONSENT';
+export type AuditEntity =
+  | 'PATIENT'
+  | 'EVALUATION'
+  | 'SCALE'
+  | 'SESSION'
+  | 'PAYMENT'
+  | 'CONSENT'
+  | 'PATIENT_EVENT';
 
 // The object a platform_audit_logs row acted on, when it is neither the clinic
 // (tenant_id) nor a user (target_user_id), which have columns of their own.
@@ -313,6 +329,33 @@ export const AUDIT_ACTIONS = {
       params: {},
       label: 'Consentimiento revocado',
       describe: () => 'Registró la revocación del consentimiento informado',
+    }),
+    PATIENT_EVENT_RECORDED: action({
+      entity: 'PATIENT_EVENT',
+      kind: 'create',
+      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
+      label: 'Antecedente registrado',
+      describe: (p) =>
+        p.kind ? `Registró un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Registró un antecedente',
+    }),
+    PATIENT_EVENT_UPDATED: action({
+      entity: 'PATIENT_EVENT',
+      kind: 'update',
+      // The kind after the update, as SESSION_UPDATED keeps the type.
+      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), changedFields: fields(AUDIT_PATIENT_EVENT_FIELDS) },
+      label: 'Antecedente actualizado',
+      describe: (p) => {
+        const changed = joinFields(p.changedFields, AUDIT_PATIENT_EVENT_FIELDS);
+        return changed ? `Actualizó ${changed} de un antecedente` : 'Actualizó un antecedente';
+      },
+    }),
+    PATIENT_EVENT_DELETED: action({
+      entity: 'PATIENT_EVENT',
+      kind: 'delete',
+      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
+      label: 'Antecedente eliminado',
+      describe: (p) =>
+        p.kind ? `Eliminó un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Eliminó un antecedente',
     }),
     // Before the catalog (until 2026-10), an action was the entity plus one of
     // these, and the fact itself lived in a Spanish description.
