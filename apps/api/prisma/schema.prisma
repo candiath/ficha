@@ -551,7 +551,6 @@ model InitialEvaluation {
   otherHistory            String?  @map("other_history")
   notes                   String?
   retractionMap           Json?    @map("retraction_map")
-  footEvaluation          String?  @map("foot_evaluation")
   flexibilityNotes        String?  @map("flexibility_notes")
   physicalActivity        String?  @map("physical_activity")
   painFrequency           String?  @map("pain_frequency")

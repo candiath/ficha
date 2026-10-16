@@ -7,7 +7,6 @@ export interface InitialEvaluation {
   otherHistory: string | null;
   notes: string | null;
   retractionMap: BodyMarker[] | null;
-  footEvaluation: string | null;
   flexibilityNotes: string | null;
   physicalActivity: string | null;
   painFrequency: string | null;

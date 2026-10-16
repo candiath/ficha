@@ -51,7 +51,6 @@ const evalSchema = z.object({
   patientNarrative: z.string(),
   otherHistory: z.string(),
   notes: z.string(),
-  footEvaluation: z.string(),
   flexibilityNotes: z.string(),
   physicalActivity: z.string(),
   painFrequency: z.string(),
@@ -217,7 +216,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
       patientNarrative: '',
       otherHistory: '',
       notes: '',
-      footEvaluation: '',
       flexibilityNotes: '',
       physicalActivity: '',
       painFrequency: '',
@@ -250,7 +248,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         patientNarrative: evaluation.patientNarrative ?? '',
         otherHistory: evaluation.otherHistory ?? '',
         notes: evaluation.notes ?? '',
-        footEvaluation: evaluation.footEvaluation ?? '',
         flexibilityNotes: evaluation.flexibilityNotes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
         painFrequency: evaluation.painFrequency ?? '',
@@ -269,7 +266,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         otherHistory: values.otherHistory,
         notes: values.notes,
         retractionMap: retractionMap.length > 0 ? retractionMap : null,
-        footEvaluation: values.footEvaluation,
         flexibilityNotes: values.flexibilityNotes,
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
@@ -420,26 +416,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   )}
                 />
               </div>
-
-              {/* Evaluación de pies */}
-              <FormField
-                control={form.control}
-                name="footEvaluation"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Evaluación de pies" dirty={dirtyFields.footEvaluation} /></FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Pie plano, cavo, valgo, varo..."
-                        className="resize-none"
-                        rows={2}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
               {/* Notas de flexibilidad y acortamientos */}
               <FormField

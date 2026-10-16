@@ -21,7 +21,6 @@ const evaluationSelect = {
   otherHistory: true,
   notes: true,
   retractionMap: true,
-  footEvaluation: true,
   flexibilityNotes: true,
   physicalActivity: true,
   painFrequency: true,
