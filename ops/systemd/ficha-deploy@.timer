@@ -1,0 +1,11 @@
+# Checks GHCR for a new image every 5 minutes. Enable once per environment:
+#   systemctl enable --now ficha-deploy@prod.timer ficha-deploy@staging.timer
+[Unit]
+Description=Ficha API deploy check (%i)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
