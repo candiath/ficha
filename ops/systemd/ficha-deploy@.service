@@ -1,0 +1,11 @@
+# Deploys one environment of the API if its image changed (ops/deploy.sh).
+# Instances: ficha-deploy@prod, ficha-deploy@staging. Started by the timer.
+[Unit]
+Description=Ficha API deploy (%i)
+Wants=network-online.target
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ficha/deploy.sh %i
