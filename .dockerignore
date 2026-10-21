@@ -1,0 +1,25 @@
+# Build context of apps/api/Dockerfile (the repository root). Only what the API
+# image needs goes in: never secrets, never the web app's source.
+.git
+.github
+.claude
+.githooks
+.vscode
+.notes
+.netlify
+docker
+docs
+ops
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.tsbuildinfo
+*.drawio
+
+# The web app's manifest is the only piece of it the image needs: `npm ci`
+# validates every workspace listed in the lockfile.
+apps/web/*
+!apps/web/package.json
+
+apps/api/tests
