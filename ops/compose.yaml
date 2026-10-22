@@ -7,6 +7,9 @@
 #
 # Variables in ${...} come from /opt/ficha/.env (ops/.env.example), which holds
 # no secrets. The secrets live in prod.env and staging.env (root only, 600).
+# Each env file is optional to Compose, so one environment can be set up
+# before the other; a missing one makes that environment's migration fail,
+# and deploy.sh stops there.
 name: ficha-vps
 
 x-api: &api
@@ -35,22 +38,22 @@ services:
   api-prod:
     <<: *api
     image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
-    env_file: prod.env
+    env_file: [{ path: prod.env, required: false }]
 
   api-staging:
     <<: *api
     image: ghcr.io/candiath/ficha-api:${STAGING_TAG:-dev}
-    env_file: staging.env
+    env_file: [{ path: staging.env, required: false }]
 
   migrate-prod:
     <<: *migrate
     image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
-    env_file: prod.env
+    env_file: [{ path: prod.env, required: false }]
 
   migrate-staging:
     <<: *migrate
     image: ghcr.io/candiath/ficha-api:${STAGING_TAG:-dev}
-    env_file: staging.env
+    env_file: [{ path: staging.env, required: false }]
 
   caddy:
     image: caddy:2
