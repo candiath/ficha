@@ -1,4 +1,4 @@
-import type { AUDIT_EVALUATION_FIELDS, FamilyPainOption, PostureFamilies } from '@ficha/shared';
+import type { AUDIT_EVALUATION_FIELDS } from '@ficha/shared';
 
 import type { TenantContext } from './types';
 import type { AuditEntry } from './auditLogRepository';
@@ -11,30 +11,18 @@ export interface EvaluationUpsertResult {
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
 // `retractionMap` viaja como unknown: el port no expone tipos de Prisma y su
-// shape real todavía lo define el frontend que lo dibuja. Los campos de la
-// sección de familias sí tienen forma declarada en @ficha/shared, así que se
-// tipan; la lectura igual llega como unknown porque en la base es JSON y nadie
-// garantiza que lo guardado hoy siga siendo válido mañana.
+// shape real todavía lo define el frontend que lo dibuja.
 export interface EvaluationDTO {
   id: string;
   patientId: string;
   episodeId: string | null;
-  globalPosture: string | null;
-  breathingPattern: string | null;
-  medicalHistory: string | null;
-  reasonForConsultation: string | null;
+  patientNarrative: string | null;
+  otherHistory: string | null;
   notes: string | null;
-  morphotype: string | null;
   retractionMap: unknown;
-  footEvaluation: string | null;
-  breathingPatternDetail: string | null;
   flexibilityNotes: string | null;
   physicalActivity: string | null;
-  painAppearanceMoment: string | null;
   painFrequency: string | null;
-  familyPainAppearance: unknown;
-  familyPainDisappearance: unknown;
-  postureFamilies: unknown;
   evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
@@ -44,26 +32,17 @@ export interface EvaluationDTO {
 // vale en toda la API (lib/validation.ts): el campo ausente no se toca, el que
 // viene en null —o en "" desde un formulario— se borra.
 //
-// Antes era mitad y mitad: los escalares ausentes se preservaban y los cuatro
-// Json ausentes se borraban, así que el mismo request conservaba `notes` y
-// vaciaba la grilla de posturas (#161).
+// Antes era mitad y mitad: los escalares ausentes se preservaban y los Json
+// ausentes se borraban, así que el mismo request conservaba `notes` y vaciaba
+// lo guardado en JSON (#161).
 export interface EvaluationUpsertInput {
-  reasonForConsultation?: string | null;
-  medicalHistory?: string | null;
-  globalPosture?: string | null;
-  breathingPattern?: string | null;
+  patientNarrative?: string | null;
+  otherHistory?: string | null;
   notes?: string | null;
-  morphotype?: string | null;
   retractionMap?: unknown;
-  footEvaluation?: string | null;
-  breathingPatternDetail?: string | null;
   flexibilityNotes?: string | null;
   physicalActivity?: string | null;
-  painAppearanceMoment?: string | null;
   painFrequency?: string | null;
-  familyPainAppearance?: FamilyPainOption[] | null;
-  familyPainDisappearance?: FamilyPainOption[] | null;
-  postureFamilies?: PostureFamilies | null;
   evaScale?: number | null;
 }
 

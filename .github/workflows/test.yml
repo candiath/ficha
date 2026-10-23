@@ -199,6 +199,34 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
+      # The ci branch is shared by every PR, and the ruleset does not require
+      # branches to be up to date. So a PR behind dev can find migrations that
+      # another PR applied and this branch does not have: its code then runs
+      # against a newer schema (a dropped column) and dozens of tests fail with
+      # P2022 after the whole suite. Fail here instead, in seconds, naming them.
+      # `prisma migrate status` cannot do it: Prisma 5.22 reports such a
+      # database as "up to date" with exit 0 (it only reports migrations
+      # missing locally when the histories diverge), so the check reads
+      # `_prisma_migrations` itself. Release PRs reset the database first, so
+      # it holds exactly their migrations and this step passes.
+      - name: Check the database has no migrations this branch lacks
+        if: needs.changes.outputs.api == 'true'
+        run: |
+          url="${DATABASE_URL/-pooler/}"
+          applied=$(psql "$url" -tAc "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY 1")
+          local_dirs=$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          missing=$(comm -23 <(echo "$applied" | sort) <(echo "$local_dirs"))
+          if [ -n "$missing" ]; then
+            echo "::error::The ci database has migrations that this branch does not have. Another PR applied them; this branch is behind dev. Merge dev into this branch (git merge origin/dev) and push."
+            echo "Applied to the ci database but missing in prisma/migrations:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "Every migration applied to the ci database exists in this branch."
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+
       # The audit tables' triggers, functions and foreign keys are what the
       # migrations deployed (#186): checked here before the PR reaches staging,
       # whose Render build runs the same file. ci carries the maintenance flag on
@@ -215,10 +243,12 @@ jobs:
       - name: Tests de integración de la API
         if: needs.changes.outputs.api == 'true'
         # The audit tests of #186 need a direct (non-pooled) connection, derived
-        # the same way as in the migrate steps.
+        # the same way as in the migrate steps. test:neon, not test: locally
+        # `npm test` runs on Docker, and CI stays on Neon, whose pooler is
+        # what Docker cannot reproduce (docs/infra.md#local-test-database).
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
-          npm test
+          npm run test:neon
         env:
           # Branch de Neon dedicada a CI — nunca la DB de dev.
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}

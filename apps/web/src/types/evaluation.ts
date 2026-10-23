@@ -1,24 +1,15 @@
-import type { FamilyPainOption, PostureFamilies } from '@ficha/shared';
-
 export interface InitialEvaluation {
   id: string;
   patientId: string;
-  reasonForConsultation: string | null;
-  medicalHistory: string | null;
-  globalPosture: string | null;
-  breathingPattern: string | null;
+  // "Relato del paciente": what happened and how it started.
+  patientNarrative: string | null;
+  // "Otros antecedentes": what the patient's history list does not hold.
+  otherHistory: string | null;
   notes: string | null;
-  morphotype: string | null;
   retractionMap: BodyMarker[] | null;
-  footEvaluation: string | null;
-  breathingPatternDetail: string | null;
   flexibilityNotes: string | null;
   physicalActivity: string | null;
-  painAppearanceMoment: string | null;
   painFrequency: string | null;
-  familyPainAppearance: FamilyPainOption[] | null;
-  familyPainDisappearance: FamilyPainOption[] | null;
-  postureFamilies: PostureFamilies | null;
   evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;

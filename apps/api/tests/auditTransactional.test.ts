@@ -47,10 +47,22 @@ describe('audit rows are written in the same transaction as their action', () =>
   const newPatient = (fullName: string) =>
     patientRepo.create(ctx, { fullName }, patientAudit('CREATED'));
 
-  const newSession = (patientId: string) =>
-    prisma.session.create({
-      data: { tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: new Date() },
+  // A session treating an episode of its own, as every session does (#238).
+  const newSession = async (patientId: string) => {
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId },
+      select: { id: true },
     });
+    return prisma.session.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId,
+        userId: user.id,
+        sessionDate: new Date(),
+        episodes: { create: [{ episodeId: episode.id }] },
+      },
+    });
+  };
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -62,6 +74,8 @@ describe('audit rows are written in the same transaction as their action', () =>
     const tenantId = clinic.tenantId;
     await deleteAuditRows([tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });
     await prisma.functionalScale.deleteMany({ where: { tenantId } });
@@ -109,8 +123,12 @@ describe('audit rows are written in the same transaction as their action', () =>
     expect(row.fullName).toBe('Original');
   });
 
-  it('a clinical session and its payment are not created when the audit row fails', async () => {
+  it('a clinical session, its blocks and its payment are not created when the audit row fails', async () => {
     const patient = await patientRepo.create(ctx, { fullName: 'Con Sesión' }, patientAudit('CREATED'));
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id },
+      select: { id: true },
+    });
 
     await expect(
       sessionRepo.create(
@@ -119,7 +137,7 @@ describe('audit rows are written in the same transaction as their action', () =>
         {
           sessionType: 'SESSION',
           sessionDate: new Date(),
-          episodeIds: [],
+          episodes: [{ episodeId: episode.id, painScaleBefore: 5 }],
           payment: { baseAmount: 1000, discount: 0 },
         },
         broken,
@@ -127,6 +145,7 @@ describe('audit rows are written in the same transaction as their action', () =>
     ).rejects.toThrow();
 
     expect(await prisma.session.count({ where: { patientId: patient.id } })).toBe(0);
+    expect(await prisma.sessionEpisode.count({ where: { patientId: patient.id } })).toBe(0);
     expect(await prisma.payment.count({ where: { patientId: patient.id } })).toBe(0);
   });
 

@@ -1,0 +1,40 @@
+# A throwaway Postgres for the API's integration tests (`npm test`,
+# docs/infra.md#local-test-database). Only for tests: it runs on tmpfs, so a
+# `docker compose down` (or a Docker restart) leaves it empty, and the test
+# script migrates it again on the next run.
+#
+# It matches the Neon branches where the tests can tell: Postgres 16, C.UTF-8
+# collation (text ordering) and GMT. What it lacks is Neon's pooler
+# (PgBouncer, transaction mode), so the pooler's failures only show on Neon,
+# which is why CI stays there.
+name: ficha
+
+services:
+  test-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ficha
+      POSTGRES_PASSWORD: ficha
+      POSTGRES_DB: ficha_test
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8 --encoding=UTF8
+    # Durability off: nothing here outlives the container anyway.
+    command: >
+      postgres
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c timezone=GMT
+    ports:
+      # Loopback only, and not 5432, so it never collides with another Postgres.
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./docker/test-db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # Over TCP: during init the entrypoint runs a temporary server that
+      # listens only on the socket, and it must not count as ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ficha -d ficha_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

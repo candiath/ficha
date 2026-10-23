@@ -87,12 +87,8 @@ export default function QuickNoteButton() {
       sessionApi.create(selectedPatient!.id, {
         sessionType: 'NOTE',
         sessionDate: new Date().toISOString(),
-        episodeIds: selectedEpisode ? [selectedEpisode.id] : [],
-        painScaleBefore: null,
-        painScaleAfter: null,
-        preSesionState: null,
-        reEvaluationNotes: null,
-        patientResponse: null,
+        // A note may belong to no episode (#238).
+        episodes: selectedEpisode ? [{ episodeId: selectedEpisode.id }] : [],
         observations: note,
       }),
     onSuccess: () => {

@@ -31,7 +31,11 @@ Esa branch se creó desde `production` y después se le borró el esquema, así 
 
 **Release PRs to `main` rebuild it from scratch** (`prisma migrate reset --force --skip-seed` before the tests): the whole migration chain is proven to apply on an empty database — what a brand new environment does — right before production, and the leftover test rows are cleared. Feature PRs skip it to keep CI short; a manual run can force it (Actions → Tests → Run workflow → "reset_ci_db"). Because `migrate reset` destroys everything, the step first refuses to run if the database holds any account that is not `@test.ficha.local`: every other environment has one (checked 2026-10-05: production 2, staging 3, development 2; ci 0), so a `CI_DATABASE_URL` pointed elsewhere by mistake fails the run instead of wiping that database. The guard needs no configuration; its one blind spot is a database with no accounts at all, which has nothing to lose.
 
-Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen. Rehacer `development` desde `production` para tener datos frescos es barato.
+**A PR behind `dev` fails fast when `ci` is ahead of it** (since 2026-10-15). Every PR shares the `ci` branch, and the ruleset does not require branches to be up to date (see *El ciclo de vida de un cambio*), so a PR can find migrations that another PR applied and its own branch does not have. Its code then runs against a newer schema: on 2026-10-14 a PR still reading `sessions.pre_session_state`, which another PR had dropped, failed ~70 tests with `P2022` after the whole 25-minute suite. Right after `migrate deploy`, the step *Check the database has no migrations this branch lacks* compares the finished, not rolled back rows of `_prisma_migrations` with the folders in `prisma/migrations` and fails in seconds, naming the extra migrations. **The fix is to merge `dev` into the branch and push.** It fails even when the extra migrations are additive and the tests would have passed: the check cannot tell, and the merge is cheap. `prisma migrate status` is not used because Prisma 5.22 reports such a database as "up to date" with exit code 0 (it lists migrations missing locally only when the two histories diverge; checked on 2026-10-15 against a scratch Postgres). Release PRs and manual runs with "reset_ci_db" rebuild the database first, so it holds exactly their migrations and the check passes.
+
+Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen.
+
+**`production` is handled as holding real clinical data**: it holds them from the relaunch (#238), and until then the clinic's trial. So no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
 
 ## El ciclo de vida de un cambio
 
@@ -86,7 +90,9 @@ Corre diario a las 06:00 UTC, a mano, y desde este repo al abrir el PR de releas
 
 Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{id}/dispatches`), no por el de `repository_dispatch` (`/dispatches`), y la diferencia es de permisos: en un PAT fine-grained el segundo exige **Contents: write** sobre el repo privado, y Contents incluye lectura — o sea que el token del repo público podría bajarse los dumps con las historias clínicas. El primero se conforma con **Actions: write**, que permite pedir un backup pero no leerlo.
 
-Se respalda **solo producción**: `staging` y `development` se rehacen desde ella en segundos, porque las branches de Neon son copy-on-write.
+Se respalda **solo producción**: `staging` y `development` hold only test data, nothing there needs a backup.
+
+The backups repository's history was restarted on 2026-10-12, right after the first wipe (#223): the dumps of the fictitious data were dropped, and the history began with the empty database. The launch was then postponed, and the history is restarted again after the second wipe, at the relaunch (#238), dropping the dumps of the clinic's trial the same way. Every dump from the relaunch on holds real clinical data in plain text, protected only by the repository being private.
 
 ## Audit tables
 
@@ -127,14 +133,21 @@ Interrupted test runs leave test clinics behind, and their audit rows now block 
 
 ### The pre-launch wipe
 
-Production's data is fictitious until delivery. The wipe before delivery drops the schema, which no trigger sees, and rebuilds it:
+Run on 2026-10-12 (#223), when production's data was fictitious, and run once more before the relaunch (#238): the launch was postponed to correct the data model, and what production holds since the first wipe is the clinic's trial. The wipe drops the schema, which no trigger sees, and rebuilds it:
 
 ```sql
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `prisma migrate deploy`. Run it where the production credential lives (the backups repository), never from a laptop. Never use `migrate reset` with the seed on a deployed database.
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy` and `audit-guards.sql`, as in the Render build). It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+
+- it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
+- for `production` it first runs the backup and stops if the backup fails;
+- the rehearsal refuses a URL whose endpoint is production's;
+- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Redeploy the API afterwards: new connections, and the startup audit checks run again.
+
+It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. The second wipe follows the same steps (checklist in #238). **After the relaunch, with real data, it is never run on production again**, and its `production` target is removed (#233). Never use `migrate reset` with the seed on a deployed database.
 
 ### Restoring a backup
 
@@ -194,6 +207,16 @@ The card lists the last 20 real alerts with the outcome of their last attempt; t
 | `REJECTED 429` | Too many messages; retried after Telegram's wait if it is under a minute. |
 | `UNREACHABLE` | No usable answer (timeout, network); retried twice. |
 | `NOT_CONFIGURED` | A variable is missing or malformed; nothing was sent. |
+
+## Local test database
+
+`npm test` runs the API suite against a throwaway Postgres in Docker, not a Neon branch: every round-trip to Neon crosses the network, and the suite makes thousands. On 2026-10-14 the full suite (789 tests) took about 2.5 minutes. Arguments go to vitest: `npm test -- tests/login.test.ts`; `npm run test:watch` is the same in watch mode. `npm run test:neon` is plain vitest against `DATABASE_URL`: what CI runs, and locally a run against `development` when one is needed. A bare `npx vitest` does the same, so it skips the container.
+
+- **What it is**: the `test-db` service of `docker-compose.yml`: Postgres 16 with C.UTF-8 collation and GMT (like the Neon branches), on `127.0.0.1:5433`, with durability off. Its data lives on tmpfs: `docker compose down` (or restarting Docker) leaves it empty, which is also how orphans from interrupted runs are cleared.
+- **The maintenance flag** is created by `docker/test-db/init.sql` when the container starts empty, as on `development` and `ci`.
+- **What the script does** (`apps/api/scripts/test-docker.ts`): starts the container if it is not running, runs `prisma migrate deploy` and `audit-guards.sql`, then vitest. The URL is a constant in the script, not a variable: it is set in the environment, where it wins over `apps/api/.env`, so `.env` is never edited and nothing else can point the script at another database.
+- **What it does not catch**: it has no pooler, and its latency is near zero. Failures that come from Neon's PgBouncer (`P1002` on a migration, `cache lookup failed for type` after a reset) or from latency (an interactive transaction past its timeout, `P2028`) only show on Neon. That is why CI stays on the `ci` branch (`npm run test:neon`), and a PR green locally can still fail there.
+- The dev server, the seed and `db:migrate` keep using `development`: the container is only for tests. Without Docker running, `npm test` stops and says so.
 
 ## Cómo se llegó acá (2026-08-29)
 

@@ -1,0 +1,75 @@
+# The API on the VPS: production and staging side by side, behind Caddy.
+# Lives in /opt/ficha on the server; how it works is ops/README.md.
+#
+# Each environment is one image tag, one env file and one Neon branch, exactly
+# as each Render service was: `main` → production, `dev` → staging. Nothing is
+# shared between them except Caddy.
+#
+# Variables in ${...} come from /opt/ficha/.env (ops/.env.example), which holds
+# no secrets. The secrets live in prod.env and staging.env (root only, 600).
+# Each env file is optional to Compose, so one environment can be set up
+# before the other; a missing one makes that environment's migration fail,
+# and deploy.sh stops there.
+name: ficha-vps
+
+x-api: &api
+  restart: unless-stopped
+  # expose, never ports: a published port bypasses the host firewall (ufw).
+  # Only Caddy publishes anything.
+  expose: ["3001"]
+  mem_limit: 320m
+  healthcheck:
+    # /health pings the database: an API that cannot reach Neon is unhealthy.
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
+
+x-migrate: &migrate
+  # The same script Render runs in its build: the audit checks, then
+  # `prisma migrate deploy`, then the audit checks again. Never a bare
+  # `migrate deploy`: the checks are what guarantees the audit tables.
+  command: ["npm", "run", "migrate:prod"]
+  working_dir: /app
+  profiles: ["tools"]   # never started by `up`; only by `run --rm`
+
+services:
+  api-prod:
+    <<: *api
+    image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
+    env_file: [{ path: prod.env, required: false }]
+
+  api-staging:
+    <<: *api
+    image: ghcr.io/candiath/ficha-api:${STAGING_TAG:-dev}
+    env_file: [{ path: staging.env, required: false }]
+
+  migrate-prod:
+    <<: *migrate
+    image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
+    env_file: [{ path: prod.env, required: false }]
+
+  migrate-staging:
+    <<: *migrate
+    image: ghcr.io/candiath/ficha-api:${STAGING_TAG:-dev}
+    env_file: [{ path: staging.env, required: false }]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      PROD_DOMAIN: ${PROD_DOMAIN}
+      STAGING_DOMAIN: ${STAGING_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates. Deleting this volume makes Caddy ask Let's Encrypt
+      # again, and Let's Encrypt limits how many it issues per week.
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 128m
+
+volumes:
+  caddy_data:
+  caddy_config:

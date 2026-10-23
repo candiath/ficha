@@ -5,3 +5,7 @@
 # it was written with; the audit checks of #186 hash those bodies, so a
 # laptop deploy must send the same bytes as CI and Render.
 apps/api/prisma/**/*.sql text eol=lf
+
+# The VPS files are copied from a Windows checkout to Linux: with CRLF,
+# deploy.sh fails with `bash\r` and the .env values carry a stray \r.
+ops/** text eol=lf

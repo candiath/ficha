@@ -17,22 +17,13 @@ const evaluationSelect = {
   id: true,
   patientId: true,
   episodeId: true,
-  globalPosture: true,
-  breathingPattern: true,
-  medicalHistory: true,
-  reasonForConsultation: true,
+  patientNarrative: true,
+  otherHistory: true,
   notes: true,
-  morphotype: true,
   retractionMap: true,
-  footEvaluation: true,
-  breathingPatternDetail: true,
   flexibilityNotes: true,
   physicalActivity: true,
-  painAppearanceMoment: true,
   painFrequency: true,
-  familyPainAppearance: true,
-  familyPainDisappearance: true,
-  postureFamilies: true,
   evaScale: true,
   evaluatedAt: true,
   updatedAt: true,
@@ -53,17 +44,12 @@ function toDTO(row: EvaluationRow): EvaluationDTO {
   };
 }
 
-const JSON_FIELDS = [
-  'retractionMap',
-  'familyPainAppearance',
-  'familyPainDisappearance',
-  'postureFamilies',
-] as const satisfies readonly (keyof EvaluationUpsertInput)[];
+const JSON_FIELDS = ['retractionMap'] as const satisfies readonly (keyof EvaluationUpsertInput)[];
 
 // Los campos que no son JSON viajan tal cual: son escalares que Prisma ya sabe
 // escribir, y los ausentes no están en el objeto (Zod no inventa la clave), así
-// que el update no los toca. Las cuatro columnas JSON se sacan de acá porque
-// las arma jsonFields con su propio null.
+// que el update no los toca. Las columnas JSON se sacan de acá porque las arma
+// jsonFields con su propio null.
 type ScalarFields = Omit<EvaluationUpsertInput, (typeof JSON_FIELDS)[number]>;
 
 function scalarFields(input: EvaluationUpsertInput): ScalarFields {
@@ -72,14 +58,14 @@ function scalarFields(input: EvaluationUpsertInput): ScalarFields {
   return scalars;
 }
 
-// Las cuatro columnas JSON, con la misma regla que el resto de la API: el
-// campo que no viene no se toca, el que viene en null se borra.
+// Las columnas JSON, con la misma regla que el resto de la API: el campo que
+// no viene no se toca, el que viene en null se borra.
 //
 // Dos cosas obligan a armarlas a mano en vez de dejarlas en el spread del
 // input. Una, que un Json de Prisma no acepta el null de JS: el null SQL se
 // escribe con JsonNull. La otra, que la clave tiene que quedar AUSENTE cuando
 // el campo no vino — antes se completaba con `?? JsonNull`, y así un PUT que
-// no mencionaba la grilla la borraba (#161).
+// no mencionaba un campo JSON lo borraba (#161).
 function jsonFields(input: EvaluationUpsertInput) {
   const data: Record<string, Prisma.InputJsonValue | typeof Prisma.JsonNull> = {};
 

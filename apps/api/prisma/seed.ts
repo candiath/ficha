@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { type DatePrecision, type PatientEventKind, Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
@@ -47,6 +47,57 @@ function devId(name: string): string {
   h[8] = (h[8] & 0x3f) | 0x80;
   const hex = h.subarray(0, 16).toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// A session's block for one episode it treated (#238): what belongs to that
+// problem alone.
+async function seedBlock(
+  session: { id: string; tenantId: string; patientId: string },
+  episodeId: string,
+  fields: Pick<
+    Prisma.SessionEpisodeUncheckedCreateInput,
+    | 'preSessionState'
+    | 'treatment'
+    | 'painScaleBefore'
+    | 'painScaleAfter'
+    | 'patientExercises'
+    | 'reEvaluationNotes'
+  > = {},
+): Promise<void> {
+  await prisma.sessionEpisode.upsert({
+    where: { sessionId_episodeId: { sessionId: session.id, episodeId } },
+    update: {},
+    create: {
+      tenantId: session.tenantId,
+      patientId: session.patientId,
+      sessionId: session.id,
+      episodeId,
+      ...fields,
+    },
+  });
+}
+
+// An entry of a patient's history (#238), with its partial date.
+async function seedEvent(
+  id: string,
+  owner: { tenantId: string; patientId: string },
+  kind: PatientEventKind,
+  description: string,
+  occurred: { date: string; precision: DatePrecision; approximate?: boolean } | null,
+): Promise<void> {
+  await prisma.patientEvent.upsert({
+    where: { id },
+    update: {},
+    create: {
+      id,
+      ...owner,
+      kind,
+      description,
+      occurredOn: occurred ? new Date(`${occurred.date}T00:00:00.000Z`) : null,
+      occurredPrecision: occurred?.precision ?? null,
+      occurredApproximate: occurred?.approximate ?? false,
+    },
+  });
 }
 
 async function main() {
@@ -155,7 +206,11 @@ async function main() {
     },
   });
 
-  // ── Episodio clínico del paciente de prueba ───────────────────────────────
+  // ── Episodios clínicos del paciente de prueba ─────────────────────────────
+  // Two problems treated in parallel (#238), both open: the back, and an
+  // ankle sprain that started later. One session treats both, each with its
+  // own block, so a new session can pick both too. A shoulder tendinitis from
+  // the year before is the closed episode, with its discharge.
   const episode1 = await prisma.clinicalEpisode.upsert({
     where: { id: devId('dev-episode-001') },
     update: {},
@@ -164,8 +219,35 @@ async function main() {
       tenantId: tenant.id,
       patientId: patient.id,
       status: 'ACTIVE',
-      mainComplaint: 'Dolor lumbar crónico y contracturas cervicales',
+      mainComplaint: 'Lumbalgia crónica',
       openedAt: new Date('2026-02-01T00:00:00.000Z'),
+    },
+  });
+
+  const episodeAnkle = await prisma.clinicalEpisode.upsert({
+    where: { id: devId('dev-episode-002') },
+    update: {},
+    create: {
+      id: devId('dev-episode-002'),
+      tenantId: tenant.id,
+      patientId: patient.id,
+      status: 'ACTIVE',
+      mainComplaint: 'Esguince de tobillo derecho',
+      openedAt: new Date('2026-02-20T00:00:00.000Z'),
+    },
+  });
+
+  const episodeShoulder = await prisma.clinicalEpisode.upsert({
+    where: { id: devId('dev-episode-003') },
+    update: {},
+    create: {
+      id: devId('dev-episode-003'),
+      tenantId: tenant.id,
+      patientId: patient.id,
+      status: 'DISCHARGED',
+      mainComplaint: 'Tendinitis de hombro derecho',
+      openedAt: new Date('2025-09-01T00:00:00.000Z'),
+      closedAt: new Date('2025-10-15T10:00:00.000Z'),
     },
   });
 
@@ -178,52 +260,156 @@ async function main() {
       tenantId: tenant.id,
       patientId: patient.id,
       episodeId: episode1.id,
-      reasonForConsultation: 'Dolor lumbar crónico y contracturas cervicales',
-      globalPosture: 'Hiperlordosis lumbar, cabeza adelantada',
-      breathingPattern: 'Costal superior predominante',
+      patientNarrative: 'Dolor lumbar desde hace meses, peor al estar sentada. Lo atribuye a la silla nueva del trabajo.',
     },
   });
+
+  // ── Antecedentes ───────────────────────────────────────────────────────
+  // Each kind of date: a year, a month (approximate, as "hace unos meses"
+  // becomes), a day, and none.
+  const mariaOwner = { tenantId: tenant.id, patientId: patient.id };
+  await seedEvent(devId('dev-event-001'), mariaOwner, 'FRACTURE', 'Fractura de muñeca izquierda, tratada con yeso', {
+    date: '2019-01-01',
+    precision: 'YEAR',
+  });
+  await seedEvent(devId('dev-event-002'), mariaOwner, 'PAIN_ONSET', 'Dolor lumbar al estar sentada', {
+    date: '2025-11-01',
+    precision: 'MONTH',
+    approximate: true,
+  });
+  await seedEvent(devId('dev-event-003'), mariaOwner, 'TRAUMA', 'Torcedura de tobillo derecho bajando una escalera', {
+    date: '2026-02-20',
+    precision: 'DAY',
+  });
+  await seedEvent(devId('dev-event-004'), mariaOwner, 'SURGERY', 'Cesárea', null);
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
-  await prisma.session.upsert({
-    where: { id: devId('dev-session-001') },
-    update: {},
-    create: {
+  // The shoulder and its discharge, the year before; then the back alone,
+  // both open problems in one visit, the ankle alone, and a note that belongs
+  // to no episode.
+  const p1Sessions = [
+    {
+      id: devId('dev-session-005'),
+      type: 'SESSION' as const,
+      date: '2025-09-10T10:00:00.000Z',
+      note: null,
+      blocks: [
+        {
+          episodeId: episodeShoulder.id,
+          preSessionState: 'Dolor de hombro derecho al levantar el brazo por encima de la cabeza.',
+          treatment: 'Movilidad pasiva y activa asistida. Trabajo excéntrico de supraespinoso.',
+          painScaleBefore: 6,
+          painScaleAfter: 4,
+          reEvaluationNotes: 'Arco doloroso entre 70° y 110° de abducción.',
+          patientExercises: 'Péndulo de Codman 3 veces por día. Banda elástica en rotación externa.',
+        },
+      ],
+    },
+    {
+      id: devId('dev-session-004'),
+      type: 'DISCHARGE' as const,
+      date: '2025-10-15T10:00:00.000Z',
+      note: null,
+      blocks: [
+        {
+          episodeId: episodeShoulder.id,
+          preSessionState: 'Sin dolor de hombro en las actividades diarias.',
+          treatment: 'Alta de la tendinitis: rango completo, sin arco doloroso.',
+          painScaleBefore: 1,
+          painScaleAfter: 0,
+          reEvaluationNotes: 'Abducción completa sin dolor. Fuerza de rotadores conservada.',
+          patientExercises: 'Mantener la banda elástica dos veces por semana.',
+        },
+      ],
+    },
+    {
       id: devId('dev-session-001'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      episodes: { create: { episode: { connect: { id: episode1.id } } } },
-      sessionType: 'SESSION',
-      sessionDate: new Date('2026-02-10T10:00:00.000Z'),
-      painScaleBefore: 7,
-      painScaleAfter: 4,
-      preSesionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
-      reEvaluationNotes: 'Mejora leve en rango de flexión lumbar respecto a evaluación inicial. Persiste tensión en cadena posterior.',
-      patientResponse: 'Buena respuesta a la postura rana en el suelo. Dificultad inicial para soltar el diafragma.',
-      observations: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
+      type: 'SESSION' as const,
+      date: '2026-02-10T10:00:00.000Z',
+      note: null,
+      blocks: [
+        {
+          episodeId: episode1.id,
+          preSessionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
+          treatment: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
+          painScaleBefore: 7,
+          painScaleAfter: 4,
+          reEvaluationNotes: 'Mejora leve en rango de flexión lumbar respecto a evaluación inicial. Persiste tensión en cadena posterior.',
+          patientExercises: 'Rana en el suelo 10 minutos por día. Respiración diafragmática acostada antes de dormir.',
+        },
+      ],
     },
-  });
-
-  await prisma.session.upsert({
-    where: { id: devId('dev-session-002') },
-    update: {},
-    create: {
+    {
       id: devId('dev-session-002'),
-      tenantId: tenant.id,
-      patientId: patient.id,
-      userId: user.id,
-      episodes: { create: { episode: { connect: { id: episode1.id } } } },
-      sessionType: 'SESSION',
-      sessionDate: new Date('2026-02-24T10:00:00.000Z'),
-      painScaleBefore: 5,
-      painScaleAfter: 2,
-      preSesionState: 'Paciente reporta mejoría notable. Dolor aparece recién después de 1 hora sentada. Duerme mejor.',
-      reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable. Cabeza sigue adelantada.',
-      patientResponse: 'Excelente respuesta. Se incorporó postura parado en la pared sin dificultad.',
-      observations: 'Sesión combinada: rana en el suelo + parado en la pared. Trabajo específico sobre sector cervical.',
+      type: 'SESSION' as const,
+      date: '2026-02-24T10:00:00.000Z',
+      note: null,
+      blocks: [
+        {
+          episodeId: episode1.id,
+          preSessionState: 'Mejoría notable de la espalda: el dolor aparece recién después de 1 hora sentada.',
+          treatment: 'Rana en el suelo y parado en la pared, 30 minutos.',
+          painScaleBefore: 5,
+          painScaleAfter: 2,
+          reEvaluationNotes: 'Flexión lumbar dentro de rangos normales. Reducción de hiperlordosis observable.',
+          patientExercises: 'Parado en la pared 5 minutos, mañana y tarde. Seguir con la rana en el suelo.',
+        },
+        {
+          episodeId: episodeAnkle.id,
+          preSessionState: 'Llega rengueando: se torció el tobillo derecho bajando una escalera hace cuatro días.',
+          treatment: 'Movilización suave y drenaje del tobillo, 20 minutos.',
+          painScaleBefore: 6,
+          painScaleAfter: 4,
+          reEvaluationNotes: 'Edema leve en maléolo externo. Dorsiflexión limitada por dolor. Sin inestabilidad.',
+          patientExercises: 'Hielo 15 minutos tres veces por día. Movilidad activa de tobillo sin carga.',
+        },
+      ],
     },
-  });
+    {
+      id: devId('dev-session-003'),
+      type: 'SESSION' as const,
+      date: '2026-03-03T10:00:00.000Z',
+      note: null,
+      blocks: [
+        {
+          episodeId: episodeAnkle.id,
+          preSessionState: 'Viene solo por el tobillo: la espalda está tranquila esta semana.',
+          treatment: 'Propiocepción en superficie estable, fortalecimiento de peroneos con banda elástica.',
+          painScaleBefore: 3,
+          painScaleAfter: 1,
+          reEvaluationNotes: 'Edema resuelto. Dorsiflexión completa. Apoyo monopodal 20 segundos.',
+          patientExercises: 'Apoyo monopodal 3 series de 30 segundos. Banda elástica para eversión.',
+        },
+      ],
+    },
+    {
+      id: devId('dev-note-001'),
+      type: 'NOTE' as const,
+      date: '2026-03-19T15:00:00.000Z',
+      note: 'Llamó para avisar que viaja dos semanas. Retoma la lumbalgia a la vuelta.',
+      blocks: [],
+    },
+  ];
+
+  for (const s of p1Sessions) {
+    const session = await prisma.session.upsert({
+      where: { id: s.id },
+      update: {},
+      create: {
+        id: s.id,
+        tenantId: tenant.id,
+        patientId: patient.id,
+        userId: user.id,
+        sessionType: s.type,
+        sessionDate: new Date(s.date),
+        // The text of a note; everything clinical about a problem is in its block.
+        observations: s.note,
+      },
+    });
+    for (const { episodeId, ...fields } of s.blocks) {
+      await seedBlock(session, episodeId, fields);
+    }
+  }
 
   // ── Registros de auditoría de ejemplo ──────────────────────────────────
   // Codes only, checked against the catalog (SPEC-audit-structured-entries.md).
@@ -233,6 +419,10 @@ async function main() {
     { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: devId('dev-eval-001'), action: 'EVALUATION_CREATED', params: {}, createdAt: new Date('2026-02-01T09:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-10T10:30:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-24T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-005'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-003'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-03-03T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-006'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-004'), action: 'DISCHARGE_RECORDED', params: {}, createdAt: new Date('2025-10-15T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-007'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-note-001'), action: 'NOTE_RECORDED', params: {}, createdAt: new Date('2026-03-19T15:05:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-008'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-005'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2025-09-10T10:30:00.000Z') },
   ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
@@ -310,15 +500,9 @@ async function main() {
       tenantId: tenant.id,
       patientId: p2.id,
       episodeId: episodeP2.id,
-      reasonForConsultation:
+      patientNarrative:
         'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana. Los síntomas empeoran al final de la jornada laboral frente a la pantalla.',
-      medicalHistory:
-        'Hernia discal C5-C6 leve confirmada por RMN (febrero 2024). Sin cirugías previas. Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
-      globalPosture:
-        'Hipercifosis dorsal marcada. Cabeza adelantada ~5 cm respecto a la plomada de referencia. Hombros caídos hacia adelante con protracción escapular bilateral. Ligera escoliosis funcional lumbar hacia la derecha.',
-      breathingPattern:
-        'Respiración torácica superficial. Escasa participación diafragmática. Tendencia a retener el aliento durante el trabajo de concentración.',
-      morphotype: 'Tipo cifo-lordótico con proyección anterior de cabeza',
+      otherHistory: 'Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
       retractionMap: [
         {
           id: 'rm-1',
@@ -348,13 +532,27 @@ async function main() {
           view: 'front',
         },
       ],
-      footEvaluation:
-        'Pie plano grado I bilateral con pronación leve. No compensaciones posturales significativas desde pie.',
-      breathingPatternDetail: 'costal_superior',
       flexibilityNotes:
         'Isquiotibiales cortos: test dedos-suelo −15 cm. Rotación cervical D: 45° / I: 40° (reducida). Flexión cervical limitada, mentón–esternón 3 dedos. Rotadores externos de cadera acortados.',
       evaluatedAt: new Date('2025-12-05T09:30:00.000Z'),
     },
+  });
+
+  // ── Antecedentes ─────────────────────────────────────────────────────────
+  const javierOwner = { tenantId: tenant.id, patientId: p2.id };
+  await seedEvent(devId('dev-event-101'), javierOwner, 'DIAGNOSIS', 'Hernia discal C5-C6 leve, confirmada por RMN', {
+    date: '2024-02-01',
+    precision: 'MONTH',
+  });
+  await seedEvent(devId('dev-event-102'), javierOwner, 'PAIN_ONSET', 'Cervicalgia con cefaleas tensionales', {
+    date: '2025-06-01',
+    precision: 'MONTH',
+    approximate: true,
+  });
+  await seedEvent(devId('dev-event-103'), javierOwner, 'SURGERY', 'Apendicectomía', {
+    date: '2010-01-01',
+    precision: 'YEAR',
+    approximate: true,
   });
 
   // ── Consentimiento informado ─────────────────────────────────────────────
@@ -397,8 +595,8 @@ async function main() {
         'Primera sesión de tratamiento. Paciente refiere dolor cervical 8/10, irradiación a brazo derecho. Noche previa sin poder dormir de costado.',
       reevalNotes:
         'Posturas adoptadas típicas de usuario de computadora. Observación de patrón respiratorio torácico superior en reposo.',
-      response:
-        'Buena predisposición. Se sorprendió con la intensidad de la postura sentado en silla. Costo respiratorio elevado al inicio.',
+      exercises:
+        'Sentado en silla 5 minutos en cada pausa del trabajo. Respiración diafragmática 3 veces por día.',
       obs: 'Postura sentado en silla con foco en debloqueo del diafragma. Trabajo de conciencia propioceptiva cervical. Tiempo total: 45 min.',
       type: 'SESSION' as const,
     },
@@ -411,7 +609,7 @@ async function main() {
         'Refiere leve mejoría en cefaleas (solo 2 episodios en la semana). Dolor cervical persiste al final del día de trabajo.',
       reevalNotes:
         'Mejora incipiente en amplitud de rotación cervical izquierda (+5°). Hombros ligeramente menos elevados.',
-      response: 'Mejor tolerancia a la postura. Logra mantener respiración diafragmática 10 minutos sostenidos.',
+      exercises: 'Respiración diafragmática 10 minutos sostenidos, una vez por día.',
       obs: 'Postura sentado en silla + introducción de rana en el suelo para cadena posterior. Corrección de posición escapular.',
       type: 'SESSION' as const,
     },
@@ -424,7 +622,7 @@ async function main() {
         'Pasó vacaciones de verano. Refiere que caminó y estuvo menos frente a la pantalla: notó clara mejoría. Retomó trabajo y en 3 días volvió el dolor.',
       reevalNotes:
         'Reevaluación programada (3ª sesión). Rotación cervical D: 52° / I: 48°. Mejora objetivable en postura de cabeza (+2 cm).',
-      response: 'Excelente respuesta. Incorpora rana en el suelo con mayor facilidad. Refiere sentir el debloqueo.',
+      exercises: 'Sumar la rana en el suelo 10 minutos, día por medio.',
       obs: 'Postura rana en el suelo foco lumbar + sentado en silla. Se explicó la correlación postura laboral–síntomas cervicales.',
       type: 'SESSION' as const,
     },
@@ -437,7 +635,7 @@ async function main() {
         'Sin cefaleas en la semana. Dolor cervical solo aparece al final de jornadas > 8 horas de pantalla. Duerme bien.',
       reevalNotes:
         'Posición de cabeza corregida ~3 cm respecto a inicial. Protracción escapular reducida visiblemente.',
-      response: 'Motivado por la evolución. Refiere que su pareja notó el cambio postural.',
+      exercises: 'Mantener la rutina. Cuidar la postura cervical frente a la pantalla.',
       obs: 'Parado en la pared + rana en el suelo. Incorporación de autopostura diaria de 5 min indicada como tarea.',
       type: 'SESSION' as const,
     },
@@ -449,7 +647,7 @@ async function main() {
       preSesion:
         'Episodio de reagudización por reunión con mucho stress laboral (8 horas frente a pantalla sin pausas). Decide venir igual.',
       reevalNotes: null,
-      response: null,
+      exercises: null,
       obs: 'NOTA CLÍNICA: Episodio de reagudización leve asociado a estrés laboral y uso prolongado de pantalla. Se refuerza educación postural y se indica pausas activas cada 45 min. No se realizó postura por tensión muscular elevada.',
       type: 'NOTE' as const,
     },
@@ -461,7 +659,7 @@ async function main() {
       preSesion: 'Recuperado del episodio. Cumplió con las pausas activas indicadas. Cierre del Ciclo 1.',
       reevalNotes:
         'Reevaluación cierre ciclo 1. Rotación cervical D: 60° / I: 55° (dentro de rangos normales). Test dedos-suelo: −8 cm (↑7 cm). NDI a reevaluar hoy.',
-      response: 'Muy contento con la evolución. Comprometido a continuar.',
+      exercises: 'Parado en la pared 5 minutos al terminar la jornada.',
       obs: 'Sesión de cierre de ciclo 1. Postura parado en la pared + sentado en silla. Reevaluación completa. Se planifica ciclo 2 de mantenimiento.',
       type: 'SESSION' as const,
     },
@@ -472,7 +670,7 @@ async function main() {
       painAfter: 1,
       preSesion: 'Inicio de ciclo 2. Sin cefaleas en las últimas 2 semanas. Dolor cervical esporádico.',
       reevalNotes: 'Postura laboral mejorada según autoreporte. Continúa con pausas activas diarias.',
-      response: 'Tolerancia excelente a todas las posturas. Maneja respiración diafragmática de forma autónoma.',
+      exercises: 'Rutina completa en casa: rana en el suelo, parado en la pared y sentado en silla.',
       obs: 'Rana en el aire + parado en la pared. Incorporación de cadena maestra anterior. Foco en estabilización.',
       type: 'SESSION' as const,
     },
@@ -484,7 +682,7 @@ async function main() {
       preSesion: 'Sin cefaleas hace 5 semanas. Dolor solo en contexto de jornadas excepcionales > 10 horas.',
       reevalNotes:
         'Rotación cervical D: 65° / I: 60° (supranormal). Cabeza en plomada. Postura de trabajo corregida. NDI a reevaluar.',
-      response: 'Refiere haber recuperado calidad de vida. Trabaja más cómodo y con más energía al final del día.',
+      exercises: 'Rutina de mantenimiento dos veces por semana.',
       obs: 'Rana en el aire + sentado en silla. Refuerzo de autoposturas para alta progresiva. Se plantea espaciar sesiones a mensual.',
       type: 'SESSION' as const,
     },
@@ -500,16 +698,19 @@ async function main() {
         tenantId: tenant.id,
         patientId: p2.id,
         userId: user.id,
-        episodes: { create: { episode: { connect: { id: episodeP2.id } } } },
         sessionType: s.type,
         sessionDate: new Date(s.date),
-        painScaleBefore: s.painBefore,
-        painScaleAfter: s.painAfter,
-        preSesionState: s.preSesion,
-        reEvaluationNotes: s.reevalNotes,
-        patientResponse: s.response,
-        observations: s.obs,
+        // A note keeps its text; a session's treatment is its block's.
+        observations: s.type === 'NOTE' ? s.obs : null,
       },
+    });
+    await seedBlock(session, episodeP2.id, {
+      preSessionState: s.preSesion,
+      treatment: s.type === 'NOTE' ? null : s.obs,
+      painScaleBefore: s.painBefore,
+      painScaleAfter: s.painAfter,
+      reEvaluationNotes: s.reevalNotes,
+      patientExercises: s.exercises,
     });
     createdSessionsP2.push({ id: session.id, sessionDate: session.sessionDate });
   }

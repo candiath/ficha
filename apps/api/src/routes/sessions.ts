@@ -26,29 +26,38 @@ router.param('sessionId', idParam('Sesión no encontrada'));
 // Un .default() acá sobrevive al .partial() de abajo (Zod no lo anula), y en un
 // update deja de significar "valor inicial si no lo mandás" para significar
 // "pisá lo que había": un PATCH sin sessionType convertía un alta en sesión
-// común, y uno sin episodeIds los desvinculaba todos (issue #97). Los defaults
+// común, y uno sin episodios los desvinculaba todos (issue #97). Los defaults
 // son del alta, así que viven solo en SessionCreateSchema.
 
-// Una sesión aborda un único motivo de consulta. Es una regla de la API y no
-// del schema: el pivote sesión↔episodio sigue siendo M:N en la base, así que
-// levantar el límite es borrar este .max(1), no una migración.
-//
-// Mientras esté, el `episodeIds[0]` con el que el formulario web carga una
-// sesión para editarla no puede descartar un segundo episodio al guardar,
-// porque no puede haber un segundo episodio.
-const episodeIdsField = z
-  .array(IdSchema)
-  .max(1, 'Una sesión aborda un único motivo de consulta');
+const painField = z.number().int().min(0).max(10).optional().nullable();
 
-const SessionFieldsSchema = z.object({
+// A session can treat several episodes, one block each with everything
+// clinical about that problem (#238). Which episodes a session may have (at
+// least one; a discharge, exactly one) is the repository's rule.
+const EpisodeBlockSchema = z.strictObject({
+  episodeId: IdSchema,
+  preSessionState: OptionalTextSchema,
+  treatment: OptionalTextSchema,
+  painScaleBefore: painField,
+  painScaleAfter: painField,
+  patientExercises: OptionalTextSchema,
+  reEvaluationNotes: OptionalTextSchema,
+});
+
+const episodesField = z
+  .array(EpisodeBlockSchema)
+  .refine((blocks) => new Set(blocks.map((b) => b.episodeId)).size === blocks.length, {
+    error: 'Un episodio aparece una sola vez en la sesión',
+  });
+
+// Strict: a field that is not the session's is a 400, not dropped in silence.
+// A client still sending the pain at the top level, as before the blocks,
+// would otherwise lose it without noticing.
+const SessionFieldsSchema = z.strictObject({
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
   sessionDate: sessionDateField,
-  episodeIds: episodeIdsField,
-  preSesionState: OptionalTextSchema,
-  reEvaluationNotes: OptionalTextSchema,
-  patientResponse: OptionalTextSchema,
-  painScaleBefore: z.number().int().min(0).max(10).optional().nullable(),
-  painScaleAfter: z.number().int().min(0).max(10).optional().nullable(),
+  episodes: episodesField,
+  // The text of a note, which may belong to no episode.
   observations: OptionalTextSchema,
 });
 
@@ -56,10 +65,10 @@ const SessionFieldsSchema = z.object({
 // transacción. Antes el frontend encadenaba varios requests y un fallo
 // intermedio dejaba sesiones sin pago (invisibles en Cobros).
 const SessionCreateSchema = SessionFieldsSchema.extend({
-  // Los defaults del alta: una sesión sin tipo es SESSION y puede no abordar
-  // ningún episodio.
+  // Los defaults del alta: una sesión sin tipo es SESSION, y sin episodios
+  // no aborda ninguno (válido solo para una nota).
   sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
-  episodeIds: episodeIdsField.optional().default([]),
+  episodes: episodesField.optional().default([]),
   // El turno del que sale esta sesión, cuando se registra desde la agenda.
   // Va acá y no en un endpoint aparte para que sesión, cobro y vínculo se
   // creen en una sola transacción: encadenar requests es lo que dejaba
@@ -83,8 +92,11 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
     .optional(),
 });
 
-// payment queda afuera a propósito: el pago se edita por /api/payments.
-const SessionUpdateSchema = SessionFieldsSchema.partial();
+// payment queda afuera a propósito: el pago se edita por /api/payments. Un
+// cliente que lo mande igual no rompe nada: se acepta y se descarta acá.
+const SessionUpdateSchema = SessionFieldsSchema.partial()
+  .extend({ payment: z.unknown().optional() })
+  .transform(({ payment: _payment, ...fields }) => fields);
 
 // A session, a clinical note and a discharge are three facts for the clinic,
 // so three audit actions (SPEC-audit-structured-entries.md §1).
@@ -95,6 +107,12 @@ const RECORDED_ACTION = {
 } as const;
 
 const SessionFiltersSchema = z.object({ episodeId: IdSchema.optional() });
+
+// The repository's rule on which episodes a session may have, in words.
+const EPISODE_RULE_ERROR = {
+  needs_episode: 'Una sesión aborda al menos un episodio',
+  discharge_needs_one_episode: 'Un alta cierra exactamente un episodio',
+} as const;
 
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
@@ -141,11 +159,12 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  const { episodeIds, payment, appointmentId, ...rest } = SessionCreateSchema.parse(req.body);
+  const { episodes, payment, appointmentId, ...rest } = SessionCreateSchema.parse(req.body);
 
-  // Los episodeIds vienen del body: sin esta verificación, un connect a
-  // ciegas permitiría vincular la sesión a episodios de otro paciente o de
-  // otro tenant (y GET /api/sessions expondría el mainComplaint ajeno).
+  // Los episodios vienen del body: sin esta verificación, una sesión podría
+  // abordar episodios de otro paciente o de otro tenant. La base además lo
+  // rechaza (las claves del bloque nombran clínica y paciente); esto da el 400.
+  const episodeIds = episodes.map((b) => b.episodeId);
   if (!(await episodeRepo.allBelongToPatient(req.context, req.params.patientId, episodeIds))) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
@@ -181,7 +200,7 @@ router.post<ParentParams>('/', async (req, res) => {
     {
       ...rest,
       sessionDate: new Date(rest.sessionDate),
-      episodeIds,
+      episodes,
       payment,
       appointmentId,
     },
@@ -193,10 +212,14 @@ router.post<ParentParams>('/', async (req, res) => {
     }),
   );
 
-  // El turno ya había producido su sesión: dos clicks en "registrar sesión",
-  // o dos pestañas. La sesión no se creó, así que no hay nada que deshacer.
   if (!result.ok) {
-    res.status(409).json({ error: 'Ese turno ya tiene una sesión registrada' });
+    // El turno ya había producido su sesión: dos clicks en "registrar sesión",
+    // o dos pestañas. La sesión no se creó, así que no hay nada que deshacer.
+    if (result.reason === 'appointment_taken') {
+      res.status(409).json({ error: 'Ese turno ya tiene una sesión registrada' });
+      return;
+    }
+    res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
     return;
   }
 
@@ -210,27 +233,30 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     return;
   }
 
-  const { episodeIds, sessionDate, ...rest } = SessionUpdateSchema.parse(req.body);
+  const { episodes, sessionDate, ...rest } = SessionUpdateSchema.parse(req.body);
 
-  // !== undefined y no truthy: [] es un valor válido (desvincular todos los
-  // episodios) y hay que distinguirlo de "el campo no vino".
+  // !== undefined y no truthy: [] es un valor (una nota sin episodios) y hay
+  // que distinguirlo de "el campo no vino".
   if (
-    episodeIds !== undefined &&
-    !(await episodeRepo.allBelongToPatient(req.context, req.params.patientId, episodeIds))
+    episodes !== undefined &&
+    !(await episodeRepo.allBelongToPatient(
+      req.context,
+      req.params.patientId,
+      episodes.map((b) => b.episodeId),
+    ))
   ) {
     res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
 
-  // null = sesión inexistente o de otro paciente: mismo 404, sin revelar cuál.
-  const session = await sessionRepo.update(
+  const result = await sessionRepo.update(
     req.context,
     req.params.patientId,
     req.params.sessionId,
     {
       ...rest,
       ...(sessionDate ? { sessionDate: new Date(sessionDate) } : {}),
-      episodeIds,
+      episodes,
     },
     (s, changedFields) => ({
       action: 'SESSION_UPDATED',
@@ -240,12 +266,17 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     }),
   );
 
-  if (!session) {
-    res.status(404).json({ error: 'Sesión no encontrada' });
+  if (!result.ok) {
+    // Inexistente, borrada o de otro paciente: mismo 404, sin revelar cuál.
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Sesión no encontrada' });
+      return;
+    }
+    res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
     return;
   }
 
-  res.json({ data: session });
+  res.json({ data: result.session });
 });
 
 // DELETE /api/patients/:patientId/sessions/:sessionId

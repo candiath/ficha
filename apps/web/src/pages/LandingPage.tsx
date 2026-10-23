@@ -89,7 +89,7 @@ const STEPS = [
   {
     n: '03',
     title: 'Registrás cada sesión',
-    description: 'Anotás cómo llegó, qué trabajaste y cómo respondió. El historial se construye solo.',
+    description: 'Anotás cómo llegó, qué trabajaste y qué ejercicios le indicaste. El historial se construye solo.',
   },
 ]
 

@@ -107,10 +107,12 @@ describe('every GET route is classified', () => {
 // patientId, or hanging from a clinical one, is classified here or below, so
 // a new one has to be placed.
 const CLINICAL_MODELS = [
+  'PatientEvent',
   'ClinicalEpisode',
   'InitialEvaluation',
   'EvaluationPhoto',
   'Session',
+  'SessionEpisode',
   'SessionPhoto',
   'FunctionalScale',
   'InformedConsent',
@@ -122,7 +124,6 @@ const NOT_CLINICAL: Record<string, string> = {
   SessionPackage: 'Money. Its name is administrative (Decision 3).',
   ClinicalAlert: 'Work to do. Engine messages carry no clinical text; custom ones are the user\'s (Decision 3).',
   AuditLog: 'Read only inside a patient\'s record (GET /api/patients/:patientId/audit-log).',
-  SessionEpisode: 'A pivot with ids only.',
 };
 
 // Free text that is not clinical but must stay out of a list anyway.
@@ -281,6 +282,12 @@ describe('global lists carry no clinical text', () => {
       select: { id: true },
     });
     createdClinicalModels.add('InitialEvaluation');
+
+    // The patient's history (#238): a dated fact, with clinical text.
+    await prisma.patientEvent.create({
+      data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientEvent') as { description: string }) },
+    });
+    createdClinicalModels.add('PatientEvent');
     await prisma.evaluationPhoto.create({
       data: { initialEvaluationId: evaluation.id, ...(marked('EvaluationPhoto') as { storageKey: string }) },
     });
@@ -294,14 +301,16 @@ describe('global lists carry no clinical text', () => {
         patientId,
         userId: user.id,
         sessionDate: new Date(Date.now() - 40 * DAY_MS),
-        painScaleBefore: 7,
-        painScaleAfter: 3,
-        episodes: { create: [{ episodeId: episode.id }] },
+        // A session's clinical text is in its blocks (#238): marked too.
+        episodes: {
+          create: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
+        },
         ...marked('Session'),
       },
       select: { id: true },
     });
     createdClinicalModels.add('Session');
+    createdClinicalModels.add('SessionEpisode');
     await prisma.sessionPhoto.create({
       data: { sessionId: session.id, ...(marked('SessionPhoto') as { storageKey: string }) },
     });
@@ -369,12 +378,15 @@ describe('global lists carry no clinical text', () => {
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
     await prisma.sessionPhoto.deleteMany({ where: { session: where } });
+    // A session's blocks (#238) restrict its deletion: they go first.
+    await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
     await prisma.evaluationPhoto.deleteMany({ where: { initialEvaluation: where } });
     await prisma.initialEvaluation.deleteMany({ where });
     await prisma.functionalScale.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
+    await prisma.patientEvent.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
   });

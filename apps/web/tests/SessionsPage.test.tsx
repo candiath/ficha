@@ -56,15 +56,20 @@ const ITEM: SessionIndexItem = {
 const SESSION: Session = {
   id: 's1',
   patientId: 'p1',
-  episodeIds: [],
   sessionType: 'SESSION',
   sessionDate: '2026-10-01T13:00:00.000Z',
-  preSesionState: 'Llegó con dolor lumbar',
-  reEvaluationNotes: null,
-  patientResponse: 'Respondió bien a la postura',
-  painScaleBefore: 7,
-  painScaleAfter: 3,
-  observations: 'Trabajo de cadena posterior',
+  observations: null,
+  episodes: [
+    {
+      episodeId: 'e1',
+      preSessionState: 'Llegó con dolor lumbar',
+      treatment: 'Trabajo de cadena posterior',
+      reEvaluationNotes: null,
+      patientExercises: 'Rana en el suelo 10 minutos',
+      painScaleBefore: 7,
+      painScaleAfter: 3,
+    },
+  ],
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
 };
@@ -114,7 +119,7 @@ describe('SessionsPage', () => {
 
   it('saving one edited field sends the others as they were loaded', async () => {
     get.mockResolvedValue(SESSION);
-    update.mockResolvedValue({ ...SESSION, observations: 'Trabajo de cadena posterior y diafragma' });
+    update.mockResolvedValue(SESSION);
     renderPage();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Ver detalles' }));
@@ -126,11 +131,16 @@ describe('SessionsPage', () => {
     expect(update.mock.calls[0][0]).toBe('p1');
     expect(update.mock.calls[0][1]).toBe('s1');
     expect(update.mock.calls[0][2]).toMatchObject({
-      observations: 'Trabajo de cadena posterior y diafragma',
-      preSesionState: 'Llegó con dolor lumbar',
-      patientResponse: 'Respondió bien a la postura',
-      painScaleBefore: 7,
-      painScaleAfter: 3,
+      episodes: [
+        {
+          episodeId: 'e1',
+          preSessionState: 'Llegó con dolor lumbar',
+          treatment: 'Trabajo de cadena posterior y diafragma',
+          patientExercises: 'Rana en el suelo 10 minutos',
+          painScaleBefore: 7,
+          painScaleAfter: 3,
+        },
+      ],
     });
   });
 

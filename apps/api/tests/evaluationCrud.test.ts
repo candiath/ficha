@@ -23,6 +23,9 @@ describe('CRUD de la evaluación inicial', () => {
   const url = (episodeId = episode.id, patientId = patient.id) =>
     `/api/patients/${patientId}/episodes/${episodeId}/evaluation`;
 
+  // The evaluation's one JSON column.
+  const MAPA = [{ id: 'm1', x: 50, y: 12, label: 'Trapecio', severity: 'high', notes: '', view: 'back' }];
+
   beforeAll(async () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
@@ -83,14 +86,9 @@ describe('CRUD de la evaluación inicial', () => {
     const propio = await nuevoEpisodio();
 
     const res = await auth(request(app).put(url(propio.id))).send({
-      reasonForConsultation: 'Dolor dorsal de tres meses',
-      medicalHistory: 'Sin cirugías',
-      globalPosture: 'Anterior',
-      breathingPattern: 'Costal superior',
-      morphotype: 'Normolíneo',
-      footEvaluation: 'Pie plano bilateral',
+      patientNarrative: 'Dolor dorsal desde que cambió de silla en el trabajo',
+      otherHistory: 'Toma anticoagulantes',
       physicalActivity: 'Natación 2x semana',
-      painAppearanceMoment: 'A la mañana',
       painFrequency: 'Diaria',
       evaScale: 7,
     });
@@ -99,9 +97,8 @@ describe('CRUD de la evaluación inicial', () => {
     expect(res.body.data).toMatchObject({
       patientId: patient.id,
       episodeId: propio.id,
-      reasonForConsultation: 'Dolor dorsal de tres meses',
-      medicalHistory: 'Sin cirugías',
-      globalPosture: 'Anterior',
+      patientNarrative: 'Dolor dorsal desde que cambió de silla en el trabajo',
+      otherHistory: 'Toma anticoagulantes',
       evaScale: 7,
     });
     expect(typeof res.body.data.evaluatedAt).toBe('string');
@@ -153,39 +150,34 @@ describe('CRUD de la evaluación inicial', () => {
 
   // El caso de #161: hasta que se arregló, un campo ausente se comportaba
   // distinto según su tipo —el escalar sobrevivía y el JSON se borraba—, así
-  // que este mismo request conservaba `notes` y vaciaba la grilla de posturas.
+  // que este mismo request conservaba `notes` y vaciaba lo guardado en JSON.
   it('el campo ausente no se toca, sea escalar o JSON', async () => {
     const propio = await nuevoEpisodio();
     await auth(request(app).put(url(propio.id))).send({
       notes: 'Primera consulta',
-      postureFamilies: { tabla1: { '1': { A: 'x' } } },
+      retractionMap: MAPA,
     });
 
     const res = await auth(request(app).put(url(propio.id))).send({
-      reasonForConsultation: 'Dolor dorsal',
+      patientNarrative: 'Dolor dorsal',
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.reasonForConsultation).toBe('Dolor dorsal');
+    expect(res.body.data.patientNarrative).toBe('Dolor dorsal');
     expect(res.body.data.notes).toBe('Primera consulta');
-    expect(res.body.data.postureFamilies).toEqual({ tabla1: { '1': { A: 'x' } } });
+    expect(res.body.data.retractionMap).toEqual(MAPA);
   });
 
   it('una columna JSON se borra mandándola en null, como cualquier otro campo', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({
-      postureFamilies: { tabla1: { '1': { A: 'x' } } },
-      familyPainAppearance: ['1', '3'],
-    });
+    await auth(request(app).put(url(propio.id))).send({ retractionMap: MAPA, notes: 'Queda' });
 
-    const res = await auth(request(app).put(url(propio.id))).send({
-      postureFamilies: null,
-    });
+    const res = await auth(request(app).put(url(propio.id))).send({ retractionMap: null });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.postureFamilies).toBeNull();
-    // Y la que no viajó en el body sigue donde estaba.
-    expect(res.body.data.familyPainAppearance).toEqual(['1', '3']);
+    expect(res.body.data.retractionMap).toBeNull();
+    // Y lo que no viajó en el body sigue donde estaba.
+    expect(res.body.data.notes).toBe('Queda');
   });
 
   it('un texto se borra con "" igual que con null, porque lo normaliza la API', async () => {
@@ -200,12 +192,21 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('el GET devuelve lo último que se guardó', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ globalPosture: 'Posterior' });
+    await auth(request(app).put(url(propio.id))).send({ flexibilityNotes: 'Isquiotibiales cortos' });
 
     const res = await auth(request(app).get(url(propio.id)));
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ episodeId: propio.id, globalPosture: 'Posterior' });
+    expect(res.body.data).toMatchObject({ episodeId: propio.id, flexibilityNotes: 'Isquiotibiales cortos' });
+  });
+
+  // The RPG fields and the pain's onset left the evaluation (#238): a client
+  // still sending one gets a 400, not a silent drop.
+  it('rechaza un campo que ya no es de la evaluación', async () => {
+    for (const campo of ['globalPosture', 'postureFamilies', 'painAppearanceMoment', 'reasonForConsultation']) {
+      const res = await auth(request(app).put(url())).send({ [campo]: 'algo' });
+      expect(res.status, campo).toBe(400);
+    }
   });
 
   // ── Validación ────────────────────────────────────────────────────────────
