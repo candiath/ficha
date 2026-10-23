@@ -20,10 +20,20 @@ cd /opt/ficha
 exec 9>"/run/ficha-deploy-$env_name.lock"
 flock -n 9 || exit 0
 
-# Alerts go through the host's Telegram notifier (/usr/local/bin/vps-notify,
-# set up outside this repo; see ops/README.md). Override with NOTIFY=... to test.
+# Every message is printed (the terminal, or the journal under systemd) and
+# also sent through the host's Telegram notifier (/usr/local/bin/vps-notify,
+# set up outside this repo; see ops/README.md) when it exists. A missing or
+# failing notifier never hides why a deploy failed. Override with NOTIFY=...
 NOTIFY="${NOTIFY:-/usr/local/bin/vps-notify}"
-notify() { "$NOTIFY" "[ficha $env_name] $1" || true; }
+notify() {
+  local msg="[ficha $env_name] $1"
+  echo "$msg" >&2
+  if command -v "$NOTIFY" >/dev/null 2>&1; then
+    "$NOTIFY" "$msg" >/dev/null 2>&1 || echo "(notifier $NOTIFY failed)" >&2
+  else
+    echo "(no notifier at $NOTIFY: message not sent)" >&2
+  fi
+}
 fail() { notify "deploy FAILED: $1"; exit 1; }
 
 api="api-$env_name"
