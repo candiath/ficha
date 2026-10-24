@@ -563,7 +563,6 @@ async function main() {
       id: devId('dev-consent-002'),
       tenantId: tenant.id,
       patientId: p2.id,
-      signed: true,
       signedAt: new Date('2025-12-05T09:00:00.000Z'),
     },
   });

@@ -7,8 +7,7 @@ import { recordAudit } from './recordAudit';
 function toDTO(row: {
   id: string;
   patientId: string;
-  signed: boolean;
-  signedAt: Date | null;
+  signedAt: Date;
   revokedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -16,8 +15,8 @@ function toDTO(row: {
   return {
     id: row.id,
     patientId: row.patientId,
-    signed: row.signed,
-    signedAt: row.signedAt?.toISOString() ?? null,
+    signed: row.revokedAt === null,
+    signedAt: row.signedAt.toISOString(),
     revokedAt: row.revokedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -27,7 +26,6 @@ function toDTO(row: {
 const consentSelect = {
   id: true,
   patientId: true,
-  signed: true,
   signedAt: true,
   revokedAt: true,
   createdAt: true,
@@ -58,11 +56,9 @@ export const prismaConsentRepository: ConsentRepository = {
         create: {
           tenantId: ctx.tenantId,
           patientId,
-          signed: true,
           signedAt: new Date(),
         },
         update: {
-          signed: true,
           signedAt: new Date(),
           revokedAt: null,
         },
@@ -86,7 +82,7 @@ export const prismaConsentRepository: ConsentRepository = {
       // thrown inside the transaction.
       const { count } = await tx.informedConsent.updateMany({
         where: { patientId, tenantId: ctx.tenantId },
-        data: { signed: false, revokedAt: new Date() },
+        data: { revokedAt: new Date() },
       });
       if (count === 0) return null;
       const row = await tx.informedConsent.findFirstOrThrow({
