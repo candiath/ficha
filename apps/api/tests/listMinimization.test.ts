@@ -311,7 +311,7 @@ describe('global lists carry no clinical text', () => {
         patientId,
         scaleType: 'OSWESTRY',
         score: 42,
-        ...(marked('FunctionalScale') as { responses: Prisma.InputJsonValue; interpretation: string }),
+        ...(marked('FunctionalScale') as { responses: Prisma.InputJsonValue }),
       },
     });
     createdClinicalModels.add('FunctionalScale');

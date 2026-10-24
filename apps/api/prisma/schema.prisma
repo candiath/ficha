@@ -873,7 +873,8 @@ model ClinicalAlert {
 // ─────────────────────────────────────────────────────────────────────────────
 // Escalas funcionales estandarizadas (Oswestry, NDI).
 // responses almacena el mapa {pregunta: valor} como JSON.
-// score e interpretation se calculan en el servidor al momento de guardar.
+// score se calcula en el servidor al momento de guardar; la banda que lo
+// interpreta se deriva de él al leerlo (src/lib/scaleBands.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum ScaleType {
@@ -889,7 +890,6 @@ model FunctionalScale {
   scaleType      ScaleType @map("scale_type")
   responses      Json
   score          Int
-  interpretation String
   appliedAt      DateTime  @default(now()) @map("applied_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 

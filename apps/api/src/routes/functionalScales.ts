@@ -13,43 +13,23 @@ router.param('scaleId', idParam('Escala no encontrada'));
 
 // ── Scoring ──────────────────────────────────────────────────────────────────
 
-/** Oswestry Disability Index (ODI): 10 secciones, 0–5 cada una */
-function scoreOswestry(responses: Record<string, number>): { score: number; interpretation: string } {
+/**
+ * Oswestry (ODI) and NDI score the same way: 10 sections of 0–5, as a
+ * percentage of what the answered sections could add up to. The band that
+ * reads the score lives in lib/scaleBands.ts.
+ */
+function scorePercentage(responses: Record<string, number>): number {
   const total = Object.values(responses).reduce((s, v) => s + v, 0);
-  const questionCount = Object.keys(responses).length;
-  const maxPossible = questionCount * 5;
-  const pct = Math.round((total / maxPossible) * 100);
-
-  let interpretation: string;
-  if (pct <= 20) interpretation = 'Mínima discapacidad (0–20%)';
-  else if (pct <= 40) interpretation = 'Discapacidad moderada (21–40%)';
-  else if (pct <= 60) interpretation = 'Discapacidad severa (41–60%)';
-  else if (pct <= 80) interpretation = 'Discapacidad muy severa (61–80%)';
-  else interpretation = 'Discapacidad máxima (81–100%)';
-
-  return { score: pct, interpretation };
-}
-
-/** Neck Disability Index (NDI): 10 secciones, 0–5 cada una (misma lógica que ODI) */
-function scoreNDI(responses: Record<string, number>): { score: number; interpretation: string } {
-  const total = Object.values(responses).reduce((s, v) => s + v, 0);
-  const questionCount = Object.keys(responses).length;
-  const maxPossible = questionCount * 5;
-  const pct = Math.round((total / maxPossible) * 100);
-
-  let interpretation: string;
-  if (pct <= 4) interpretation = 'Sin discapacidad (0–4%)';
-  else if (pct <= 14) interpretation = 'Discapacidad leve (5–14%)';
-  else if (pct <= 24) interpretation = 'Discapacidad moderada (15–24%)';
-  else if (pct <= 34) interpretation = 'Discapacidad severa (25–34%)';
-  else interpretation = 'Discapacidad completa (≥35%)';
-
-  return { score: pct, interpretation };
+  const maxPossible = Object.keys(responses).length * 5;
+  return Math.round((total / maxPossible) * 100);
 }
 
 // ── Zod ──────────────────────────────────────────────────────────────────────
 
-const ResponsesSchema = z.record(z.string(), z.number().int().min(0).max(5));
+// At least one answered section: with none, the percentage divides by zero.
+const ResponsesSchema = z
+  .record(z.string(), z.number().int().min(0).max(5))
+  .refine((r) => Object.keys(r).length > 0, { error: 'La escala necesita al menos una respuesta' });
 
 const ScaleCreateSchema = z.object({
   scaleType: z.enum(['OSWESTRY', 'NDI']),
@@ -103,10 +83,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
   const body = ScaleCreateSchema.parse(req.body);
 
   const responses = body.responses;
-  const { score, interpretation } =
-    body.scaleType === 'OSWESTRY'
-      ? scoreOswestry(responses)
-      : scoreNDI(responses);
+  const score = scorePercentage(responses);
 
   const scale = await functionalScaleRepo.create(
     req.context,
@@ -115,7 +92,6 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
       scaleType: body.scaleType,
       responses,
       score,
-      interpretation,
       ...(body.appliedAt ? { appliedAt: new Date(body.appliedAt) } : {}),
     },
     (s) => ({
