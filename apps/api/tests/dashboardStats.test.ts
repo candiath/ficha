@@ -79,12 +79,14 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientDischarged.id,
           status: 'DISCHARGED',
+          closedAt: new Date(),
           mainComplaint: 'Lumbalgia',
         },
         {
           tenantId: clinicA.tenantId,
           patientId: patientDischarged.id,
           status: 'DISCHARGED',
+          closedAt: new Date(),
           mainComplaint: 'Cervicalgia',
         },
         {
@@ -99,6 +101,7 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientDeleted.id,
           status: 'DISCHARGED',
+          closedAt: new Date(),
           mainComplaint: 'Hombro de paciente borrado',
         },
       ],

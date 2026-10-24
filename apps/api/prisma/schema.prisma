@@ -478,7 +478,7 @@ model ClinicalEpisode {
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
   tenant            Tenant              @relation(fields: [tenantId], references: [id])
-  patient           Patient             @relation(fields: [patientId], references: [id])
+  patient           Patient             @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   initialEvaluation InitialEvaluation?
   sessions          SessionEpisode[]
   functionalScales  FunctionalScale[]
@@ -543,7 +543,9 @@ model InitialEvaluation {
   id                      String   @id @default(uuid(7)) @db.Uuid
   tenantId                String   @map("tenant_id") @db.Uuid
   patientId               String   @map("patient_id") @db.Uuid
-  episodeId               String?  @unique @map("episode_id") @db.Uuid
+  // Every evaluation is an episode's: it is only written from
+  // /episodes/:episodeId/evaluation.
+  episodeId               String   @unique @map("episode_id") @db.Uuid
   // The patient's account: what happened, how it started ("Relato del paciente").
   patientNarrative        String?  @map("patient_narrative")
   // What the patient's history list (PatientEvent) does not hold: something
@@ -558,27 +560,16 @@ model InitialEvaluation {
   evaluatedAt             DateTime @default(now()) @map("evaluated_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
-  tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [patientId], references: [id])
-  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
-  photos  EvaluationPhoto[]
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  patient Patient         @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  episode ClinicalEpisode @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId, episodeId])
   @@index([tenantId])
   @@index([patientId])
   @@map("initial_evaluations")
-}
-
-model EvaluationPhoto {
-  id                  String   @id @default(uuid(7)) @db.Uuid
-  initialEvaluationId String   @map("initial_evaluation_id") @db.Uuid
-  storageKey          String   @map("storage_key")
-  caption             String?
-  takenAt             DateTime? @map("taken_at")
-  createdAt           DateTime @default(now()) @map("created_at")
-
-  initialEvaluation InitialEvaluation @relation(fields: [initialEvaluationId], references: [id])
-
-  @@map("evaluation_photos")
 }
 
 enum SessionType {
@@ -610,10 +601,10 @@ model Session {
   deletedAt        DateTime?   @map("deleted_at")
 
   tenant     Tenant            @relation(fields: [tenantId], references: [id])
-  patient    Patient           @relation(fields: [patientId], references: [id])
-  user       User              @relation(fields: [userId], references: [id])
+  patient    Patient           @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // The therapist is a user of the session's own clinic.
+  user       User              @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   episodes    SessionEpisode[]
-  photos      SessionPhoto[]
   payment     Payment?
   appointment Appointment?
 
@@ -660,19 +651,6 @@ model SessionEpisode {
   @@map("session_episodes")
 }
 
-model SessionPhoto {
-  id         String    @id @default(uuid(7)) @db.Uuid
-  sessionId  String    @map("session_id") @db.Uuid
-  storageKey String    @map("storage_key")
-  caption    String?
-  takenAt    DateTime? @map("taken_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-
-  session Session @relation(fields: [sessionId], references: [id])
-
-  @@map("session_photos")
-}
-
 enum PaymentStatus {
   PENDING
   PAID
@@ -699,9 +677,11 @@ model SessionPackage {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id])
-  patient  Patient   @relation(fields: [patientId], references: [id])
+  patient  Patient   @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   payments Payment[]
 
+  // Referenced by Payment, so a package pays only its own patient's sessions.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("session_packages")
@@ -728,11 +708,15 @@ model Payment {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
+  // Session and package are the payment's own patient's.
   tenant   Tenant          @relation(fields: [tenantId], references: [id])
-  patient  Patient         @relation(fields: [patientId], references: [id])
-  session  Session         @relation(fields: [sessionId], references: [id])
-  package  SessionPackage? @relation(fields: [packageId], references: [id])
+  patient  Patient         @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  session  Session         @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  package  SessionPackage? @relation(fields: [tenantId, patientId, packageId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId, sessionId])
   @@index([tenantId])
   @@index([patientId])
   @@index([sessionId])
@@ -753,8 +737,11 @@ model InformedConsent {
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  patient Patient @relation(fields: [patientId], references: [id])
+  patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId])
   @@index([tenantId])
   @@map("informed_consents")
 }
@@ -868,7 +855,7 @@ model ClinicalAlert {
   createdAt DateTime  @default(now()) @map("created_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  patient Patient @relation(fields: [patientId], references: [id])
+  patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([patientId])
@@ -900,8 +887,8 @@ model FunctionalScale {
   createdAt      DateTime  @default(now()) @map("created_at")
 
   tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [patientId], references: [id])
-  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
+  patient Patient          @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  episode ClinicalEpisode? @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([patientId])
@@ -964,14 +951,19 @@ model Appointment {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Therapist, episode and session belong to the appointment's own clinic and
+  // patient.
   tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [patientId], references: [id])
-  user    User             @relation(fields: [userId], references: [id])
-  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
-  session Session?         @relation(fields: [sessionId], references: [id])
+  patient Patient          @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  user    User             @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  episode ClinicalEpisode? @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  session Session?         @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
   // La consulta de la agenda es siempre "los turnos de esta clínica entre dos
   // instantes": este índice compuesto es el que la sostiene.
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId, sessionId])
   @@index([tenantId, startsAt])
   @@index([patientId])
   @@index([seriesId])
