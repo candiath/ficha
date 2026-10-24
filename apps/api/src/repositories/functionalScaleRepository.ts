@@ -1,4 +1,5 @@
 import type { ScaleType } from '@prisma/client';
+import type { ScaleBand } from '../lib/scaleBands';
 import type { TenantContext } from './types';
 import type { AuditBuilder } from './auditLogRepository';
 
@@ -10,7 +11,8 @@ export interface FunctionalScaleSummaryDTO {
   id: string;
   scaleType: ScaleType;
   score: number;
-  interpretation: string;
+  // Derived from the score when read (lib/scaleBands.ts); the screen words it.
+  band: ScaleBand;
   appliedAt: string;
   createdAt: string;
 }
@@ -21,13 +23,12 @@ export interface FunctionalScaleDTO extends FunctionalScaleSummaryDTO {
   responses: unknown;
 }
 
-// score e interpretation llegan calculados: el scoring ODI/NDI es dominio
-// puro y vive en la ruta.
+// score llega calculado: el scoring ODI/NDI es dominio puro y vive en la
+// ruta.
 export interface FunctionalScaleCreateInput {
   scaleType: ScaleType;
   responses: Record<string, number>;
   score: number;
-  interpretation: string;
   appliedAt?: Date;
 }
 
