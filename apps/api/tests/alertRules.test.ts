@@ -126,7 +126,7 @@ describe('motor de alertas', () => {
     const episodio = await crearEpisodio(paciente.id, 60);
     await prisma.clinicalEpisode.update({
       where: { id: episodio.id },
-      data: { status: 'DISCHARGED' },
+      data: { status: 'DISCHARGED', closedAt: new Date() },
     });
     await destrabarMotor();
 

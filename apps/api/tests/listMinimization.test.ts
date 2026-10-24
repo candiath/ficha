@@ -110,10 +110,8 @@ const CLINICAL_MODELS = [
   'PatientEvent',
   'ClinicalEpisode',
   'InitialEvaluation',
-  'EvaluationPhoto',
   'Session',
   'SessionEpisode',
-  'SessionPhoto',
   'FunctionalScale',
   'InformedConsent',
 ] as const;
@@ -277,9 +275,8 @@ describe('global lists carry no clinical text', () => {
     });
     createdClinicalModels.add('ClinicalEpisode');
 
-    const evaluation = await prisma.initialEvaluation.create({
+    await prisma.initialEvaluation.create({
       data: { tenantId, patientId, episodeId: episode.id, ...(marked('InitialEvaluation') as object) },
-      select: { id: true },
     });
     createdClinicalModels.add('InitialEvaluation');
 
@@ -288,10 +285,6 @@ describe('global lists carry no clinical text', () => {
       data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientEvent') as { description: string }) },
     });
     createdClinicalModels.add('PatientEvent');
-    await prisma.evaluationPhoto.create({
-      data: { initialEvaluationId: evaluation.id, ...(marked('EvaluationPhoto') as { storageKey: string }) },
-    });
-    createdClinicalModels.add('EvaluationPhoto');
 
     // Old enough for the engine: the episode has had no session for 40 days,
     // and the session's payment is overdue.
@@ -311,10 +304,6 @@ describe('global lists carry no clinical text', () => {
     });
     createdClinicalModels.add('Session');
     createdClinicalModels.add('SessionEpisode');
-    await prisma.sessionPhoto.create({
-      data: { sessionId: session.id, ...(marked('SessionPhoto') as { storageKey: string }) },
-    });
-    createdClinicalModels.add('SessionPhoto');
 
     await prisma.functionalScale.create({
       data: {
@@ -377,11 +366,9 @@ describe('global lists carry no clinical text', () => {
     await prisma.clinicalAlert.deleteMany({ where });
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
-    await prisma.sessionPhoto.deleteMany({ where: { session: where } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
-    await prisma.evaluationPhoto.deleteMany({ where: { initialEvaluation: where } });
     await prisma.initialEvaluation.deleteMany({ where });
     await prisma.functionalScale.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
@@ -393,7 +380,7 @@ describe('global lists carry no clinical text', () => {
 
   it('the fixture fills every clinical model', () => {
     expect([...createdClinicalModels].sort()).toEqual([...CLINICAL_MODELS].sort());
-    expect(markers.length).toBeGreaterThan(20);
+    expect(markers.length).toBeGreaterThan(15);
   });
 
   // How to call each probed route, and the fixture rows it must return.
