@@ -191,6 +191,20 @@ describe('The database keeps the model consistent', () => {
       ).rejects.toThrow(/payments_final_is_base_minus_discount/);
     });
 
+    it('refuses a PAID payment without its date or method, and either on one that is not PAID', async () => {
+      const payment = async (data: object) => {
+        const own = await session();
+        return prisma.payment.create({
+          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmountCents: 100, finalAmountCents: 100, ...data },
+        });
+      };
+
+      await expect(payment({ status: 'PAID', method: 'CASH' })).rejects.toThrow(/payments_paid_has_date/);
+      await expect(payment({ status: 'PAID', paidAt: new Date() })).rejects.toThrow(/payments_paid_has_method/);
+      await expect(payment({ paidAt: new Date() })).rejects.toThrow(/payments_paid_has_date/);
+      await expect(payment({ method: 'CASH' })).rejects.toThrow(/payments_paid_has_method/);
+    });
+
     it('refuses an appointment that ends before it starts', async () => {
       const startsAt = new Date(Date.now() + DAY_MS);
       await expect(
