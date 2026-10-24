@@ -425,7 +425,11 @@ enum Sex {
 model Patient {
   id               String    @id @default(uuid(7)) @db.Uuid
   tenantId         String    @map("tenant_id") @db.Uuid
-  fullName         String    @map("full_name")
+  // Given names and surnames, apart (#238): the clinic finds and sorts
+  // patients by surname. A display fullName is built in the DTO
+  // (repositories/prisma/patientName.ts).
+  firstName        String    @map("first_name")
+  lastName         String    @map("last_name")
   birthDate        DateTime? @map("birth_date") @db.Date
   sex              Sex?
   phone            String?
@@ -457,6 +461,7 @@ model Patient {
   // clinic's patient (#186); Postgres needs a unique constraint to reference.
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([tenantId, lastName, firstName])
   @@map("patients")
 }
 

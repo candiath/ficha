@@ -34,7 +34,7 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
   const responses = { q1: 3, q2: 2, q3: 4, q4: 1, q5: 0 };
 
   it('responde 404 para un paciente borrado', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Sin Escalas' }, patientAudit('CREATED'));
+    const patient = await patientRepo.create(ctx, { firstName: 'Paciente Sin', lastName: 'Escalas' }, patientAudit('CREATED'));
     await patientRepo.softDelete(ctx, patient.id, patientDeleteAudit(patient.id));
 
     const list = await request(app)
@@ -50,7 +50,7 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
   });
 
   it('crea la escala y el detalle no expone tenantId', async () => {
-    const patient = await patientRepo.create(ctx, { fullName: 'Paciente Con Escala' }, patientAudit('CREATED'));
+    const patient = await patientRepo.create(ctx, { firstName: 'Paciente Con', lastName: 'Escala' }, patientAudit('CREATED'));
 
     const post = await request(app)
       .post(`/api/patients/${patient.id}/scales`)

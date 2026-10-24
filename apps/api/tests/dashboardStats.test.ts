@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
 
 // Stats del dashboard: además de los conteos, lo que se prueba es que las
 // agregaciones (count/groupBy/findMany) queden acotadas al tenant del token.
@@ -53,7 +53,7 @@ describe('GET /api/dashboard/stats', () => {
       opts: { deleted?: boolean } = {},
     ) {
       return prisma.patient.create({
-        data: { tenantId, fullName, deletedAt: opts.deleted ? new Date() : null },
+        data: { tenantId, ...splitName(fullName), deletedAt: opts.deleted ? new Date() : null },
         select: { id: true },
       });
     }

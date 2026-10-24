@@ -31,7 +31,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     token = await createTestToken(user);
 
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Global' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Global' },
       select: { id: true },
     });
     episode = await prisma.clinicalEpisode.create({
@@ -67,7 +67,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     // falta para nada más.
     const userB = await clinicB.createUser();
     const patientB = await prisma.patient.create({
-      data: { tenantId: clinicB.tenantId, fullName: 'Paciente de B' },
+      data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
       select: { id: true },
     });
     sessionDeB = (
@@ -142,7 +142,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   // el pasado. Sus sesiones siguen en el historial, con su nombre.
   it('sigue nombrando al paciente aunque se lo haya borrado', async () => {
     const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Que Se Borra' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Que Se', lastName: 'Borra' },
       select: { id: true },
     });
     const sesion = await auth(request(app).post(`/api/patients/${borrado.id}/sessions`)).send({

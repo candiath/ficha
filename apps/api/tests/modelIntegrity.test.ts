@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, type TestClinic } from './helpers';
+import { createTestClinic, type TestClinic, splitName } from './helpers';
 
 // The database refuses what the API already refuses (20261024120000_model_integrity):
 // rows that join two clinics or two patients, and values out of range. These
@@ -29,7 +29,7 @@ describe('The database keeps the model consistent', () => {
     const tenantId = clinic.tenantId;
 
     const createPatient = async (fullName: string) =>
-      (await prisma.patient.create({ data: { tenantId, fullName }, select: { id: true } })).id;
+      (await prisma.patient.create({ data: { tenantId, ...splitName(fullName) }, select: { id: true } })).id;
     patient = await createPatient('Paciente');
     otherPatient = await createPatient('Otro paciente');
 
@@ -203,6 +203,15 @@ describe('The database keeps the model consistent', () => {
       await expect(payment({ status: 'PAID', paidAt: new Date() })).rejects.toThrow(/payments_paid_has_method/);
       await expect(payment({ paidAt: new Date() })).rejects.toThrow(/payments_paid_has_date/);
       await expect(payment({ method: 'CASH' })).rejects.toThrow(/payments_paid_has_method/);
+    });
+
+    it('refuses a patient with a blank surname or given name', async () => {
+      await expect(
+        prisma.patient.create({ data: { tenantId: clinic.tenantId, firstName: 'Ana', lastName: '  ' } }),
+      ).rejects.toThrow(/patients_last_name_present/);
+      await expect(
+        prisma.patient.create({ data: { tenantId: clinic.tenantId, firstName: '', lastName: 'García' } }),
+      ).rejects.toThrow(/patients_first_name_present/);
     });
 
     it('refuses an appointment that ends before it starts', async () => {

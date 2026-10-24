@@ -297,3 +297,15 @@ export async function insertAuditRowsAt(rows: BackdatedAuditRow[]): Promise<{ id
   }
   return inAuditMaintenance((tx) => tx.auditLog.createManyAndReturn({ data: rows, select: { id: true } }));
 }
+
+/**
+ * A test's one-string patient name as the two columns (#238): the last word is
+ * the surname. A one-word name gets the surname "Test".
+ */
+export function splitName(name: string): { firstName: string; lastName: string } {
+  const trimmed = name.trim();
+  const at = trimmed.lastIndexOf(' ');
+  return at === -1
+    ? { firstName: trimmed, lastName: 'Test' }
+    : { firstName: trimmed.slice(0, at), lastName: trimmed.slice(at + 1) };
+}

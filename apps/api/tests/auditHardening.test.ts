@@ -31,7 +31,7 @@ describe('audit rows are append-only', () => {
     user = await clinic.createUser();
     ({ authSessionId } = await createTestAuthSession(user));
     ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Hardened Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Hardened', lastName: 'Patient' },
       select: { id: true },
     }));
   });
@@ -79,7 +79,7 @@ describe('audit rows are append-only', () => {
       const author = await other.createUser();
       const session = await createTestAuthSession(author);
       const patient = await prisma.patient.create({
-        data: { tenantId: other.tenantId, fullName: 'Purged Patient' },
+        data: { tenantId: other.tenantId, firstName: 'Purged', lastName: 'Patient' },
         select: { id: true },
       });
       await prisma.auditLog.create({
@@ -258,7 +258,7 @@ describe("the session on an audit row is its author's", () => {
     ({ authSessionId: authorSession } = await createTestAuthSession(author));
     ({ authSessionId: colleagueSession } = await createTestAuthSession(colleague));
     ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Session Checked Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Session Checked', lastName: 'Patient' },
       select: { id: true },
     }));
   });
@@ -335,11 +335,11 @@ describe('audit rows keep who they name, within their clinic', () => {
     author = await clinic.createUser();
     stranger = await otherClinic.createUser();
     ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Kept Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Kept', lastName: 'Patient' },
       select: { id: true },
     }));
     ({ id: strangerPatientId } = await prisma.patient.create({
-      data: { tenantId: otherClinic.tenantId, fullName: 'Stranger Patient' },
+      data: { tenantId: otherClinic.tenantId, firstName: 'Stranger', lastName: 'Patient' },
       select: { id: true },
     }));
   });

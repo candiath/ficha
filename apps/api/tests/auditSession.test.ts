@@ -35,7 +35,7 @@ describe('audit rows record the session they came from', () => {
   });
 
   it('stores the id of the session that made the request', async () => {
-    const res = await auth(request(app).post('/api/patients')).send({ fullName: 'Session Patient' });
+    const res = await auth(request(app).post('/api/patients')).send({ firstName: 'Session', lastName: 'Patient' });
     expect(res.status).toBe(201);
 
     const row = await prisma.auditLog.findFirstOrThrow({
@@ -45,7 +45,7 @@ describe('audit rows record the session they came from', () => {
   });
 
   it('does not return it in the patient audit log', async () => {
-    const created = await auth(request(app).post('/api/patients')).send({ fullName: 'Hidden Session' });
+    const created = await auth(request(app).post('/api/patients')).send({ firstName: 'Hidden', lastName: 'Session' });
     const res = await auth(request(app).get(`/api/patients/${created.body.data.id}/audit-log`));
 
     expect(res.status).toBe(200);

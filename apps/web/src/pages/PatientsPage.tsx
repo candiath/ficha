@@ -61,7 +61,7 @@ import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
 
 const COLUMN_LABELS: Record<string, string> = {
-  fullName: 'Nombre',
+  name: 'Paciente',
   sex: 'Sexo',
   birthDate: 'Nacimiento',
   phone: 'Teléfono',
@@ -85,7 +85,9 @@ function buildColumns(
 ): ColumnDef<Patient>[] {
   return [
     {
-      accessorKey: 'fullName',
+      // The clinic finds and sorts patients by surname (#238).
+      id: 'name',
+      accessorFn: (p) => `${p.lastName}, ${p.firstName}`,
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -93,7 +95,7 @@ function buildColumns(
           className="-ml-3"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
         >
-          Nombre
+          Paciente
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
@@ -102,7 +104,7 @@ function buildColumns(
           to={`/patients/${row.original.id}`}
           className="font-medium hover:underline"
         >
-          {row.getValue('fullName')}
+          {row.getValue('name')}
         </Link>
       ),
     },
@@ -174,7 +176,7 @@ export default function PatientsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | undefined>();
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     referringDoctor: false,
@@ -245,8 +247,8 @@ export default function PatientsPage() {
       <div className="flex items-center gap-2 mb-4">
         <Input
           placeholder="Buscar por nombre..."
-          value={(table.getColumn('fullName')?.getFilterValue() as string) ?? ''}
-          onChange={(e) => table.getColumn('fullName')?.setFilterValue(e.target.value)}
+          value={(table.getColumn('name')?.getFilterValue() as string) ?? ''}
+          onChange={(e) => table.getColumn('name')?.setFilterValue(e.target.value)}
           className="max-w-sm"
         />
         <DropdownMenu>

@@ -1,5 +1,6 @@
 import { AUDIT_PATIENT_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
+import { fullName, patientNameSelect } from './patientName';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import type { TenantContext } from '../types';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
@@ -16,7 +17,7 @@ import type {
 // el segundo siempre es null acá (el repo solo devuelve vigentes).
 const patientSelect = {
   id: true,
-  fullName: true,
+  ...patientNameSelect,
   birthDate: true,
   sex: true,
   phone: true,
@@ -31,7 +32,8 @@ const patientSelect = {
 
 type PatientRow = {
   id: string;
-  fullName: string;
+  firstName: string;
+  lastName: string;
   birthDate: Date | null;
   sex: PatientDTO['sex'];
   phone: string | null;
@@ -49,6 +51,7 @@ const AUDIT_FIELDS = Object.keys(AUDIT_PATIENT_FIELDS) as PatientAuditField[];
 function toDTO(row: PatientRow): PatientDTO {
   return {
     ...row,
+    fullName: fullName(row),
     birthDate: row.birthDate?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -70,7 +73,8 @@ export const prismaPatientRepository: PatientRepository = {
     const rows = await db.patient.findMany({
       where: { deletedAt: null },
       select: patientSelect,
-      orderBy: { createdAt: 'desc' },
+      // By surname, as the clinic looks patients up (#238).
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
     });
     return rows.map(toDTO);
   },

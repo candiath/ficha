@@ -39,7 +39,7 @@ describe('ids UUID', () => {
     token = await createTestToken(admin);
     operator = await createTestOperator();
 
-    const res = await auth(request(app).post('/api/patients')).send({ fullName: 'Paciente UUID' });
+    const res = await auth(request(app).post('/api/patients')).send({ firstName: 'Paciente', lastName: 'UUID' });
     patientId = res.body.data.id;
   });
 

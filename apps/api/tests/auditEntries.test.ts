@@ -25,7 +25,7 @@ describe('audit rows record codes, never values', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Coded Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Coded', lastName: 'Patient' },
       select: { id: true },
     });
   });
@@ -167,7 +167,7 @@ describe('audit rows record codes, never values', () => {
       status: payment.status,
     });
     const samePatient = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
-      fullName: 'Coded Patient',
+      firstName: 'Coded', lastName: 'Patient',
     });
     expect(samePayment.status).toBe(200);
     expect(samePatient.status).toBe(200);

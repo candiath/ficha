@@ -34,11 +34,11 @@ describe('The patient history', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Con antecedentes' },
+      data: { tenantId: clinic.tenantId, firstName: 'Con', lastName: 'antecedentes' },
       select: { id: true },
     });
     otherPatient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro paciente' },
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'paciente' },
       select: { id: true },
     });
   });
@@ -77,7 +77,7 @@ describe('The patient history', () => {
 
   it('lists dated events newest first and undated ones last', async () => {
     const own = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Orden' },
+      data: { tenantId: clinic.tenantId, firstName: 'Orden', lastName: 'Test' },
       select: { id: true },
     });
     const old = (await post({ ...fracture, description: 'Vieja' }, own.id)).body.data.id;
@@ -173,7 +173,7 @@ describe('The patient history', () => {
     expect((await auth(request(app).delete(`${url()}/${othersEvent}`))).status).toBe(404);
 
     const patientB = await prisma.patient.create({
-      data: { tenantId: clinicB.tenantId, fullName: 'De otra clínica' },
+      data: { tenantId: clinicB.tenantId, firstName: 'De otra', lastName: 'clínica' },
       select: { id: true },
     });
     expect((await auth(request(app).get(url(patientB.id)))).status).toBe(404);

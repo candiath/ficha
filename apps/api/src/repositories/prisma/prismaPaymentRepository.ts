@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { AUDIT_PAYMENT_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
+import { fullName, patientNameSelect } from './patientName';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type {
@@ -36,7 +37,7 @@ const paymentSelect = {
   notes: true,
   createdAt: true,
   updatedAt: true,
-  patient: { select: { id: true, fullName: true } },
+  patient: { select: { id: true, ...patientNameSelect } },
   session: { select: { id: true, sessionDate: true, sessionType: true } },
   package: { select: { id: true, name: true } },
 } as const;
@@ -55,7 +56,7 @@ type PaymentRow = {
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
-  patient: { id: string; fullName: string };
+  patient: { id: string; firstName: string; lastName: string };
   session: { id: string; sessionDate: Date; sessionType: PaymentDTO['session']['sessionType'] };
   package: { id: string; name: string } | null;
 };
@@ -65,6 +66,7 @@ const AUDIT_FIELDS = Object.keys(AUDIT_PAYMENT_FIELDS) as PaymentAuditField[];
 function toDTO(row: PaymentRow): PaymentDTO {
   return {
     ...row,
+    patient: { id: row.patient.id, fullName: fullName(row.patient) },
     baseAmountCents: Number(row.baseAmountCents),
     discountCents: Number(row.discountCents),
     finalAmountCents: Number(row.finalAmountCents),

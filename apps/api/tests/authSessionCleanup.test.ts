@@ -86,7 +86,7 @@ describe('deleteEndedAuthSessions', () => {
   it('leaves an audit row that names a deleted session readable, with its session id', async () => {
     const authSessionId = await session({});
     const patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Retained Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Retained', lastName: 'Patient' },
       select: { id: true },
     });
     // Written while the session exists, as the insert trigger requires.
