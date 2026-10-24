@@ -35,8 +35,8 @@ export function blockFor(session: Session, episodeId: string): SessionEpisodeBlo
 // transacción (un fallo no deja la sesión a medias).
 export interface SessionPaymentInput {
   packageId?: string | null;
-  baseAmount: number;
-  discount?: number;
+  baseAmountCents: number;
+  discountCents?: number;
   notes?: string | null;
 }
 

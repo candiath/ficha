@@ -102,8 +102,8 @@ export const AUDIT_PATIENT_EVENT_FIELDS = {
 } as const;
 
 export const AUDIT_PAYMENT_FIELDS = {
-  baseAmount: 'el monto',
-  discount: 'el descuento',
+  baseAmountCents: 'el monto',
+  discountCents: 'el descuento',
   status: 'el estado',
   method: 'el medio de pago',
   paidAt: 'la fecha de pago',

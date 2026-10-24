@@ -46,12 +46,12 @@ function haceDias(dias: number): Date {
   return d;
 }
 
-function pesos(monto: number): string {
+function pesos(cents: number): string {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
     maximumFractionDigits: 0,
-  }).format(monto);
+  }).format(cents / 100);
 }
 
 function fechaCorta(iso: string): string {
@@ -116,7 +116,7 @@ async function cobrosVencidos(ctx: TenantContext): Promise<AlertaPropuesta[]> {
 
   const porPaciente = new Map<
     string,
-    { cantidad: number; total: number; masVieja: string }
+    { cantidad: number; totalCents: number; masVieja: string }
   >();
 
   for (const cobro of pendientes) {
@@ -129,18 +129,18 @@ async function cobrosVencidos(ctx: TenantContext): Promise<AlertaPropuesta[]> {
     // otra regla, y es la que cubre las filas anteriores a este cambio, las
     // que alguien vuelva a PENDING a mano, y un camino de escritura futuro
     // que se olvide de derivar el estado.
-    if (cobro.finalAmount <= 0) continue;
+    if (cobro.finalAmountCents <= 0) continue;
     const previo = porPaciente.get(cobro.patientId);
     if (previo) {
       previo.cantidad += 1;
-      previo.total += cobro.finalAmount;
+      previo.totalCents += cobro.finalAmountCents;
       if (cobro.session.sessionDate < previo.masVieja) {
         previo.masVieja = cobro.session.sessionDate;
       }
     } else {
       porPaciente.set(cobro.patientId, {
         cantidad: 1,
-        total: cobro.finalAmount,
+        totalCents: cobro.finalAmountCents,
         masVieja: cobro.session.sessionDate,
       });
     }
@@ -157,8 +157,8 @@ async function cobrosVencidos(ctx: TenantContext): Promise<AlertaPropuesta[]> {
       type: 'PAYMENT' as const,
       message:
         datos.cantidad === 1
-          ? `Sesión sin cobrar del ${fechaCorta(datos.masVieja)} por ${pesos(datos.total)}.`
-          : `${datos.cantidad} sesiones sin cobrar por ${pesos(datos.total)}. ` +
+          ? `Sesión sin cobrar del ${fechaCorta(datos.masVieja)} por ${pesos(datos.totalCents)}.`
+          : `${datos.cantidad} sesiones sin cobrar por ${pesos(datos.totalCents)}. ` +
             `La más vieja es del ${fechaCorta(datos.masVieja)}.`,
     }));
 }

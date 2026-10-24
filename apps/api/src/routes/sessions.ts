@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
+import { CentsSchema, IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
@@ -77,17 +77,17 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
   payment: z
     .object({
       packageId: OptionalIdSchema,
-      baseAmount: z.number().nonnegative(),
-      discount: z.number().nonnegative().default(0),
+      baseAmountCents: CentsSchema,
+      discountCents: CentsSchema.default(0),
       notes: OptionalTextSchema,
     })
     // Mismo invariante que POST /api/payments: un descuento mayor al monto
-    // base deja finalAmount negativo, o sea un cobro que devuelve plata. Va
+    // base deja finalAmountCents negativo, o sea un cobro que devuelve plata. Va
     // acá además de allá porque ésta es la vía por la que la app crea los
     // cobros de verdad — el alta de la sesión los trae embebidos (issue #73).
-    .refine((d) => d.discount <= d.baseAmount, {
+    .refine((d) => d.discountCents <= d.baseAmountCents, {
       error: 'El descuento no puede superar el monto base',
-      path: ['discount'],
+      path: ['discountCents'],
     })
     .optional(),
 });

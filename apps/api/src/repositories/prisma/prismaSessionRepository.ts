@@ -262,16 +262,16 @@ export const prismaSessionRepository: SessionRepository = {
       if (payment) {
         // settle() decide monto y estado juntos: un cobro que da 0 nace
         // WAIVED, porque no hay ninguna deuda que reclamar.
-        const { finalAmount, status } = settle(payment.baseAmount, payment.discount);
+        const { finalAmountCents, status } = settle(payment.baseAmountCents, payment.discountCents);
         await tx.payment.create({
           data: {
             tenantId: ctx.tenantId,
             patientId,
             sessionId: created.id,
             packageId: payment.packageId ?? null,
-            baseAmount: payment.baseAmount,
-            discount: payment.discount,
-            finalAmount,
+            baseAmountCents: payment.baseAmountCents,
+            discountCents: payment.discountCents,
+            finalAmountCents,
             status,
             notes: payment.notes ?? null,
           },

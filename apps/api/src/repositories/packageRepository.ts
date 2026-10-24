@@ -10,7 +10,7 @@ export interface PackageDTO {
   patientName: string;
   name: string;
   totalSessions: number;
-  pricePerSession: number;
+  pricePerSessionCents: number;
   usedSessions: number;
   remainingSessions: number;
   notes: string | null;
@@ -21,7 +21,7 @@ export interface PackageCreateInput {
   patientId: string;
   name: string;
   totalSessions: number;
-  pricePerSession: number;
+  pricePerSessionCents: number;
   notes?: string | null;
 }
 

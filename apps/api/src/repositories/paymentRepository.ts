@@ -5,16 +5,16 @@ import type { AuditBuilder, AuditUpdateBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
-// Montos como number (en la DB son Decimal): la conversión vive en el repo,
-// no en cada ruta que serializa.
+// Amounts in integer cents, as numbers (BIGINT in the database): the
+// conversion lives in the repository, not in every route that serializes.
 export interface PaymentDTO {
   id: string;
   patientId: string;
   sessionId: string;
   packageId: string | null;
-  baseAmount: number;
-  discount: number;
-  finalAmount: number;
+  baseAmountCents: number;
+  discountCents: number;
+  finalAmountCents: number;
   status: PaymentStatus;
   method: PaymentMethod | null;
   paidAt: string | null;
@@ -36,16 +36,16 @@ export interface PaymentListFilters {
 export interface PaymentCreateInput {
   sessionId: string;
   packageId?: string | null;
-  baseAmount: number;
-  discount: number;
+  baseAmountCents: number;
+  discountCents: number;
   notes?: string | null;
 }
 
 // paidAt llega ya resuelto (el default "PAID sin paidAt → ahora" es de la
 // ruta, que distingue ausente de null en el body).
 export interface PaymentUpdateInput {
-  baseAmount?: number;
-  discount?: number;
+  baseAmountCents?: number;
+  discountCents?: number;
   status?: PaymentStatus;
   method?: PaymentMethod | null;
   paidAt?: Date | null;
@@ -60,11 +60,11 @@ export type PaymentCreateResult =
 export type PaymentUpdateResult =
   | { ok: true; payment: PaymentDTO }
   // invalid_amounts: el descuento supera al monto base, o sea que
-  // finalAmount quedaría negativo — un cobro que devuelve plata.
+  // finalAmountCents quedaría negativo — un cobro que devuelve plata.
   | { ok: false; reason: 'not_found' | 'package_not_found' | 'invalid_amounts' };
 
 export interface LastBasePrice {
-  amount: number | null;
+  amountCents: number | null;
   date: string;
   isStale: boolean;
 }
@@ -76,13 +76,13 @@ export type PaymentAuditField = keyof typeof AUDIT_PAYMENT_FIELDS;
 export interface PaymentRepository {
   list(ctx: TenantContext, filters?: PaymentListFilters): Promise<PaymentDTO[]>;
   /**
-   * Último baseAmount de un pago sin descuento ni paquete; amount null si
+   * Último baseAmountCents de un pago sin descuento ni paquete; amountCents null si
    * es más viejo que el umbral de vigencia. null si nunca hubo uno.
    */
   lastBasePrice(ctx: TenantContext): Promise<LastBasePrice | null>;
   /**
    * Deriva el paciente de la sesión, valida el paquete contra ese paciente,
-   * calcula finalAmount e impone un pago por sesión (unique de sessionId,
+   * calcula finalAmountCents e impone un pago por sesión (unique de sessionId,
    * con el catch de P2002 adentro para la carrera).
    */
   create(
@@ -91,9 +91,9 @@ export interface PaymentRepository {
     audit: AuditBuilder<PaymentDTO>,
   ): Promise<PaymentCreateResult>;
   /**
-   * Recalcula finalAmount con los montos nuevos o los existentes, y rechaza
+   * Recalcula finalAmountCents con los montos nuevos o los existentes, y rechaza
    * la combinación que lo dejaría negativo. El chequeo vive acá y no en el
-   * schema de la ruta porque el PATCH es parcial: mandar solo `discount`
+   * schema de la ruta porque el PATCH es parcial: mandar solo `discountCents`
    * puede pasar el monto base guardado, que Zod no conoce.
    */
   update(

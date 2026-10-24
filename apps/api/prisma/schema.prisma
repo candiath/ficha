@@ -662,6 +662,10 @@ enum PaymentMethod {
   TRANSFER
 }
 
+// Money is stored in integer cents (BIGINT), in every column and in the API:
+// arithmetic on cents is exact, and a price is never a float that rounds
+// differently in two places. $1.234,56 is 123456; only the screen divides.
+
 // Un paquete de sesiones prepagadas para un paciente.
 // El precio individual se fija al crear el paquete.
 // Las sesiones debitan del paquete usando packageId en Payment.
@@ -671,7 +675,7 @@ model SessionPackage {
   patientId       String   @map("patient_id") @db.Uuid
   name            String
   totalSessions   Int      @map("total_sessions")
-  pricePerSession Decimal  @map("price_per_session") @db.Decimal(10, 2)
+  pricePerSessionCents BigInt @map("price_per_session_cents")
   notes           String?
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -688,7 +692,6 @@ model SessionPackage {
 }
 
 // Un cobro por sesión. Se crea junto con la sesión (status PENDING).
-// discount y finalAmount permiten descuentos granulares.
 model Payment {
   id          String         @id @default(uuid(7)) @db.Uuid
   tenantId    String         @map("tenant_id") @db.Uuid
@@ -696,9 +699,10 @@ model Payment {
   sessionId   String         @unique @map("session_id") @db.Uuid
   packageId   String?        @map("package_id") @db.Uuid
 
-  baseAmount  Decimal        @map("base_amount") @db.Decimal(10, 2)
-  discount    Decimal        @default(0) @db.Decimal(10, 2)
-  finalAmount Decimal        @map("final_amount") @db.Decimal(10, 2)
+  // Cents; finalAmountCents = baseAmountCents - discountCents (a CHECK).
+  baseAmountCents  BigInt    @map("base_amount_cents")
+  discountCents    BigInt    @default(0) @map("discount_cents")
+  finalAmountCents BigInt    @map("final_amount_cents")
 
   status      PaymentStatus  @default(PENDING)
   method      PaymentMethod?

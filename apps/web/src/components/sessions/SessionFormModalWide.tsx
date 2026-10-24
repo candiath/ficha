@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select'
 import type { AppointmentListItem } from '@ficha/shared'
 import { appointmentKeys } from '@/services/appointments'
+import { centsToInput, parsePesos } from '@/lib/money'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
 import { sessionApi } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
@@ -298,16 +299,16 @@ export default function SessionFormModalWide({
   // arriba, lo que descartaba toda edición previa al cargar el precio.)
   useEffect(() => {
     if (!open || isEditing) return
-    if (lastPriceData?.amount == null) return
+    if (lastPriceData?.amountCents == null) return
     if (form.getFieldState('baseAmount').isDirty) return
-    form.setValue('baseAmount', String(lastPriceData.amount))
+    form.setValue('baseAmount', centsToInput(lastPriceData.amountCents))
   }, [open, isEditing, lastPriceData, form])
 
   const selectedPackageId = form.watch('packageId')
   useEffect(() => {
     if (!selectedPackageId) return
     const pkg = activePackages.find((p) => p.id === selectedPackageId)
-    if (pkg) form.setValue('baseAmount', String(pkg.pricePerSession))
+    if (pkg) form.setValue('baseAmount', centsToInput(pkg.pricePerSessionCents))
   }, [selectedPackageId, activePackages, form])
 
   const mutation = useMutation({
@@ -347,8 +348,10 @@ export default function SessionFormModalWide({
         ...(appointment ? { appointmentId: appointment.id } : {}),
         payment: {
           packageId: values.packageId,
-          baseAmount: parseFloat(values.baseAmount ?? '0'),
-          discount: values.discount ? parseFloat(values.discount) : 0,
+          // The form holds pesos as typed; the API takes cents. Checked on
+          // submit, so both parse here.
+          baseAmountCents: parsePesos(values.baseAmount ?? '') ?? 0,
+          discountCents: values.discount?.trim() ? (parsePesos(values.discount) ?? 0) : 0,
           notes: values.paymentNotes,
         },
       })
@@ -472,6 +475,14 @@ export default function SessionFormModalWide({
             onSubmit={form.handleSubmit((v) => {
               if (!isEditing && !v.baseAmount?.trim()) {
                 form.setError('baseAmount', { message: 'El monto base es requerido' })
+                return
+              }
+              if (!isEditing && parsePesos(v.baseAmount ?? '') === null) {
+                form.setError('baseAmount', { message: 'Un monto en pesos, con hasta dos decimales' })
+                return
+              }
+              if (!isEditing && v.discount?.trim() && parsePesos(v.discount) === null) {
+                form.setError('discount', { message: 'Un monto en pesos, con hasta dos decimales' })
                 return
               }
               // Solo una nota puede no tratar ningún motivo (la API lo exige igual).

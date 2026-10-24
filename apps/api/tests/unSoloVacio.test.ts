@@ -163,7 +163,7 @@ describe('un solo vacío: "" entra como null', () => {
     const res = await auth(request(app).post(`/api/patients/${patient.id}/sessions`)).send({
       sessionDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
-      payment: { packageId: '', baseAmount: 100, notes: '   ' },
+      payment: { packageId: '', baseAmountCents: 100, notes: '   ' },
     });
 
     expect(res.status).toBe(201);

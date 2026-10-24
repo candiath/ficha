@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
+  CentsSchema,
   IdSchema,
   OptionalDateTimeSchema,
   OptionalIdSchema,
@@ -10,7 +11,7 @@ import { paymentRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 
 // Las queries, la derivación del paciente desde la sesión, el cálculo de
-// finalAmount y la unicidad pago-por-sesión viven en paymentRepo; acá queda
+// finalAmountCents y la unicidad pago-por-sesión viven en paymentRepo; acá queda
 // el HTTP: validar el body, resolver paidAt y mapear reasons a status codes.
 const router = Router();
 router.param('id', idParam('Pago no encontrado'));
@@ -22,20 +23,20 @@ const PaymentCreateSchema = z
   .object({
     sessionId: IdSchema,
     packageId: OptionalIdSchema,
-    baseAmount: z.number().nonnegative(),
-    discount: z.number().nonnegative().default(0),
+    baseAmountCents: CentsSchema,
+    discountCents: CentsSchema.default(0),
     notes: OptionalTextSchema,
   })
   // El alta trae los dos montos juntos, así que acá sí alcanza con Zod. En el
   // PATCH no: es parcial y el chequeo vive en el repositorio (issue #73).
-  .refine((d) => d.discount <= d.baseAmount, {
+  .refine((d) => d.discountCents <= d.baseAmountCents, {
     error: 'El descuento no puede superar el monto base',
-    path: ['discount'],
+    path: ['discountCents'],
   });
 
 const PaymentUpdateSchema = z.object({
-  baseAmount: z.number().nonnegative().optional(),
-  discount: z.number().nonnegative().optional(),
+  baseAmountCents: CentsSchema.optional(),
+  discountCents: CentsSchema.optional(),
   status: z.enum(['PENDING', 'PAID', 'WAIVED']).optional(),
   method: z.enum(['CASH', 'TRANSFER']).optional().nullable(),
   paidAt: OptionalDateTimeSchema,
@@ -61,7 +62,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/payments/last-base-price
-// Último baseAmount de un pago sin descuento ni paquete; amount null si es
+// Último baseAmountCents de un pago sin descuento ni paquete; amountCents null si es
 // más viejo que el umbral de vigencia (la política vive en el repo).
 router.get('/last-base-price', async (req, res) => {
   const data = await paymentRepo.lastBasePrice(req.context);
@@ -115,8 +116,8 @@ router.patch('/:id', async (req, res) => {
     req.context,
     req.params.id,
     {
-      baseAmount: body.baseAmount,
-      discount: body.discount,
+      baseAmountCents: body.baseAmountCents,
+      discountCents: body.discountCents,
       status: body.status,
       method: body.method,
       paidAt,

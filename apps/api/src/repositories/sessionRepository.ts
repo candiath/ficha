@@ -62,8 +62,8 @@ export interface SessionEpisodeBlockInput {
 
 export interface SessionPaymentInput {
   packageId?: string | null;
-  baseAmount: number;
-  discount: number;
+  baseAmountCents: number;
+  discountCents: number;
   notes?: string | null;
 }
 

@@ -138,7 +138,7 @@ describe('audit rows are written in the same transaction as their action', () =>
           sessionType: 'SESSION',
           sessionDate: new Date(),
           episodes: [{ episodeId: episode.id, painScaleBefore: 5 }],
-          payment: { baseAmount: 1000, discount: 0 },
+          payment: { baseAmountCents: 1000, discountCents: 0 },
         },
         broken,
       ),
@@ -161,7 +161,7 @@ describe('audit rows are written in the same transaction as their action', () =>
     });
 
     await expect(
-      paymentRepo.create(ctx, { sessionId: session.id, baseAmount: 1000, discount: 0 }, broken),
+      paymentRepo.create(ctx, { sessionId: session.id, baseAmountCents: 1000, discountCents: 0 }, broken),
     ).rejects.toThrow();
 
     expect(await prisma.payment.count({ where: { sessionId: session.id } })).toBe(0);
@@ -249,17 +249,17 @@ describe('audit rows are written in the same transaction as their action', () =>
     const session = await newSession(patient.id);
     const created = await paymentRepo.create(
       ctx,
-      { sessionId: session.id, baseAmount: 1000, discount: 0 },
+      { sessionId: session.id, baseAmountCents: 1000, discountCents: 0 },
       validFor(patient.id),
     );
     if (!created.ok) throw new Error('setup: payment not created');
 
     await expect(
-      paymentRepo.update(ctx, created.payment.id, { discount: 500 }, broken),
+      paymentRepo.update(ctx, created.payment.id, { discountCents: 500 }, broken),
     ).rejects.toThrow();
 
     const row = await prisma.payment.findUniqueOrThrow({ where: { id: created.payment.id } });
-    expect(Number(row.discount)).toBe(0);
+    expect(Number(row.discountCents)).toBe(0);
   });
 
   it('a successful write leaves exactly one audit row, attributed to the actor', async () => {

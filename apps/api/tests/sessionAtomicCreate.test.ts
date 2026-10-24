@@ -46,7 +46,7 @@ describe('creación atómica de sesión con pago', () => {
         patientId: patientA.id,
         name: 'Paquete atómico',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -69,7 +69,7 @@ describe('creación atómica de sesión con pago', () => {
   it('crea sesión + pago en un solo request', async () => {
     const res = await postSession({
       episodes: [{ episodeId: episodeA.id }],
-      payment: { packageId: packageA.id, baseAmount: 100, discount: 20, notes: 'seña' },
+      payment: { packageId: packageA.id, baseAmountCents: 100, discountCents: 20, notes: 'seña' },
     });
 
     expect(res.status).toBe(201);
@@ -77,30 +77,44 @@ describe('creación atómica de sesión con pago', () => {
 
     const payment = await prisma.payment.findUnique({
       where: { sessionId },
-      select: { patientId: true, packageId: true, finalAmount: true, status: true },
+      select: { patientId: true, packageId: true, finalAmountCents: true, status: true },
     });
     expect(payment).toMatchObject({
       patientId: patientA.id,
       packageId: packageA.id,
       status: 'PENDING',
     });
-    expect(Number(payment?.finalAmount)).toBe(80);
+    expect(Number(payment?.finalAmountCents)).toBe(80);
   });
 
   it('si algo falla dentro de la transacción no queda sesión huérfana', async () => {
     const before = await prisma.session.count({ where: { patientId: patientA.id } });
 
-    // Monto fuera del Decimal(10,2) de payments: pasa la validación de la ruta
-    // (solo exige nonnegative) y revienta al insertar el pago, ya con la sesión
-    // creada — el rollback debe llevarse las dos filas.
-    const res = await postSession({
-      episodes: [{ episodeId: episodeA.id }],
-      payment: { baseAmount: 99_999_999_999 },
-    });
+    // The payment's insert fails, with the session already created: the
+    // rollback must take both rows. Amounts in cents no longer overflow their
+    // column, so a trigger makes it fail, only for this test's marker (other
+    // test files share the database).
+    const marker = `fail-${patientA.id}`;
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION test_fail_payment() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'forced by sessionAtomicCreate.test.ts'; END $$`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_fail_payment BEFORE INSERT ON payments
+      FOR EACH ROW WHEN (NEW.notes = '${marker}') EXECUTE FUNCTION test_fail_payment()`);
 
-    expect(res.status).toBeGreaterThanOrEqual(500);
-    const after = await prisma.session.count({ where: { patientId: patientA.id } });
-    expect(after).toBe(before);
+    try {
+      const res = await postSession({
+        episodes: [{ episodeId: episodeA.id }],
+        payment: { baseAmountCents: 10_000, notes: marker },
+      });
+
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      const after = await prisma.session.count({ where: { patientId: patientA.id } });
+      expect(after).toBe(before);
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER test_fail_payment ON payments');
+      await prisma.$executeRawUnsafe('DROP FUNCTION test_fail_payment()');
+    }
   });
 
   it('un alta cierra el episodio en el mismo request', async () => {

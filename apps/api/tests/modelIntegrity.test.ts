@@ -46,7 +46,7 @@ describe('The database keeps the model consistent', () => {
     ).id;
     otherPatientsPackage = (
       await prisma.sessionPackage.create({
-        data: { tenantId, patientId: otherPatient, name: 'Paquete', totalSessions: 10, pricePerSession: 100 },
+        data: { tenantId, patientId: otherPatient, name: 'Paquete', totalSessions: 10, pricePerSessionCents: 100 },
         select: { id: true },
       })
     ).id;
@@ -89,8 +89,8 @@ describe('The database keeps the model consistent', () => {
             tenantId: clinic.tenantId,
             patientId: patient,
             sessionId: otherPatientsSession,
-            baseAmount: 100,
-            finalAmount: 100,
+            baseAmountCents: 100,
+            finalAmountCents: 100,
           },
         }),
       ).rejects.toThrow(/payments_tenant_id_patient_id_session_id_fkey/);
@@ -105,8 +105,8 @@ describe('The database keeps the model consistent', () => {
             patientId: patient,
             sessionId: own.id,
             packageId: otherPatientsPackage,
-            baseAmount: 100,
-            finalAmount: 100,
+            baseAmountCents: 100,
+            finalAmountCents: 100,
           },
         }),
       ).rejects.toThrow(/payments_tenant_id_patient_id_package_id_fkey/);
@@ -177,9 +177,18 @@ describe('The database keeps the model consistent', () => {
       const own = await session();
       await expect(
         prisma.payment.create({
-          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmount: 100, discount: 150, finalAmount: 0 },
+          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmountCents: 100, discountCents: 150, finalAmountCents: 0 },
         }),
       ).rejects.toThrow(/payments_discount_within_base/);
+    });
+
+    it('refuses a final amount that is not the base minus the discount', async () => {
+      const own = await session();
+      await expect(
+        prisma.payment.create({
+          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmountCents: 10_000, discountCents: 1_000, finalAmountCents: 10_000 },
+        }),
+      ).rejects.toThrow(/payments_final_is_base_minus_discount/);
     });
 
     it('refuses an appointment that ends before it starts', async () => {

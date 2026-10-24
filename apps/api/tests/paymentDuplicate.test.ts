@@ -22,7 +22,7 @@ describe('pago duplicado por sesión', () => {
     return request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId, baseAmount: 100, ...body });
+      .send({ sessionId, baseAmountCents: 100, ...body });
   }
 
   async function createSession() {

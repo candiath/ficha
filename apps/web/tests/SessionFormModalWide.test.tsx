@@ -24,7 +24,7 @@ vi.mock('@/services/episodes', () => ({
 vi.mock('@/services/payments', () => ({
   paymentKeys: { all: ['payments'], lastBasePrice: ['payments', 'last-base-price'] },
   packageKeys: { byPatient: (patientId: string) => ['packages', patientId] },
-  paymentApi: { lastBasePrice: vi.fn().mockResolvedValue({ amount: null, isStale: true }) },
+  paymentApi: { lastBasePrice: vi.fn().mockResolvedValue({ amountCents: null, isStale: true }) },
   packageApi: { list: vi.fn().mockResolvedValue([]) },
 }));
 

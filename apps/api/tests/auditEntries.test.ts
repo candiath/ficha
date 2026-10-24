@@ -124,7 +124,7 @@ describe('audit rows record codes, never values', () => {
     const session = await createSession();
     const res = await auth(request(app).post('/api/payments')).send({
       sessionId: session.id,
-      baseAmount: 15000,
+      baseAmountCents: 15000,
     });
     expect(res.status).toBe(201);
 
@@ -134,7 +134,7 @@ describe('audit rows record codes, never values', () => {
   });
 
   it('a payment update names what changed and the status it was left in', async () => {
-    const session = await createSession({ payment: { baseAmount: 9000 } });
+    const session = await createSession({ payment: { baseAmountCents: 9000 } });
     const payment = await prisma.payment.findFirstOrThrow({
       where: { sessionId: session.id },
       select: { id: true },
@@ -157,7 +157,7 @@ describe('audit rows record codes, never values', () => {
   // It used to record "Cobro actualizado" whenever the body carried a status,
   // even the one the payment already had.
   it('an update that changes nothing records nothing', async () => {
-    const session = await createSession({ payment: { baseAmount: 9000 } });
+    const session = await createSession({ payment: { baseAmountCents: 9000 } });
     const payment = await prisma.payment.findFirstOrThrow({
       where: { sessionId: session.id },
       select: { id: true, status: true },

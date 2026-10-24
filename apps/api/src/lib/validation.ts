@@ -28,6 +28,15 @@ export const PasswordSchema = z
 //     un recurso que no existe, y responder otra cosa cambiaría el contrato.
 export const IdSchema = z.uuid('Id inválido');
 
+// An amount of money, in integer cents: $1.234,56 is 123456. Integers keep the
+// arithmetic exact; a float of pesos rounds differently in two places, and a
+// third decimal used to be accepted and then lost to the column's rounding.
+export const CentsSchema = z
+  .number()
+  .int('El monto va en centavos: un número entero')
+  .nonnegative('El monto no puede ser negativo')
+  .max(Number.MAX_SAFE_INTEGER);
+
 export function isId(value: unknown): value is string {
   return IdSchema.safeParse(value).success;
 }

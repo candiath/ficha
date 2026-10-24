@@ -9,7 +9,7 @@ const packageSelect = {
   patientId: true,
   name: true,
   totalSessions: true,
-  pricePerSession: true,
+  pricePerSessionCents: true,
   notes: true,
   createdAt: true,
   patient: { select: { fullName: true } },
@@ -21,7 +21,7 @@ type PackageRow = {
   patientId: string;
   name: string;
   totalSessions: number;
-  pricePerSession: { toString(): string };
+  pricePerSessionCents: bigint;
   notes: string | null;
   createdAt: Date;
   patient: { fullName: string };
@@ -35,7 +35,7 @@ function toDTO(row: PackageRow): PackageDTO {
     patientName: row.patient.fullName,
     name: row.name,
     totalSessions: row.totalSessions,
-    pricePerSession: Number(row.pricePerSession),
+    pricePerSessionCents: Number(row.pricePerSessionCents),
     usedSessions: row._count.payments,
     remainingSessions: row.totalSessions - row._count.payments,
     notes: row.notes,
@@ -66,7 +66,7 @@ export const prismaPackageRepository: PackageRepository = {
         patientId: input.patientId,
         name: input.name,
         totalSessions: input.totalSessions,
-        pricePerSession: input.pricePerSession,
+        pricePerSessionCents: input.pricePerSessionCents,
         notes: input.notes ?? null,
       },
       select: packageSelect,
