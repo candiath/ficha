@@ -319,7 +319,7 @@ describe('global lists carry no clinical text', () => {
     createdClinicalModels.add('InformedConsent');
 
     const pkg = await prisma.sessionPackage.create({
-      data: { tenantId, patientId, name: 'Paquete Sonda', totalSessions: 10, pricePerSession: 100 },
+      data: { tenantId, patientId, name: 'Paquete Sonda', totalSessions: 10, pricePerSessionCents: 100 },
       select: { id: true },
     });
     const payment = await prisma.payment.create({
@@ -328,8 +328,8 @@ describe('global lists carry no clinical text', () => {
         patientId,
         sessionId: session.id,
         packageId: pkg.id,
-        baseAmount: 100,
-        finalAmount: 100,
+        baseAmountCents: 100,
+        finalAmountCents: 100,
         notes: 'Nota administrativa',
       },
       select: { id: true },

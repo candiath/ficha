@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema, OptionalTextSchema, requiredText } from '../lib/validation';
+import { CentsSchema, IdSchema, OptionalTextSchema, requiredText } from '../lib/validation';
 import { packageRepo, patientRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 
@@ -14,7 +14,7 @@ const PackageCreateSchema = z.object({
   patientId: IdSchema,
   name: requiredText(1, 'El paquete necesita un nombre'),
   totalSessions: z.number().int().min(1),
-  pricePerSession: z.number().positive(),
+  pricePerSessionCents: CentsSchema.min(1, 'El precio por sesión tiene que ser mayor a cero'),
   notes: OptionalTextSchema,
 });
 

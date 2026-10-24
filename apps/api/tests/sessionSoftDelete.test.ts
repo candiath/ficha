@@ -49,7 +49,7 @@ describe('borrado lógico de sesiones', () => {
   });
 
   /** Crea una sesión vía la API y devuelve su id. */
-  async function crearSesion(payment?: { baseAmount: number; discount?: number }) {
+  async function crearSesion(payment?: { baseAmountCents: number; discountCents?: number }) {
     const res = await auth(request(app).post(sessionsUrl())).send({
       sessionDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
@@ -85,7 +85,7 @@ describe('borrado lógico de sesiones', () => {
   });
 
   it('se lleva el cobro pendiente: no queda un cobro por una sesión que no existió', async () => {
-    const id = await crearSesion({ baseAmount: 15000 });
+    const id = await crearSesion({ baseAmountCents: 15000 });
     expect(await cobroDe(id)).toBeDefined();
 
     expect((await borrar(id)).status).toBe(204);
@@ -97,7 +97,7 @@ describe('borrado lógico de sesiones', () => {
   });
 
   it('rechaza con 409 una sesión ya cobrada y no la borra', async () => {
-    const id = await crearSesion({ baseAmount: 20000 });
+    const id = await crearSesion({ baseAmountCents: 20000 });
     const cobro = await cobroDe(id);
 
     const pagado = await auth(request(app).patch(`/api/payments/${cobro.id}`)).send({
@@ -120,7 +120,7 @@ describe('borrado lógico de sesiones', () => {
   });
 
   it('una sesión eximida sí se puede borrar: no entró plata', async () => {
-    const id = await crearSesion({ baseAmount: 9000 });
+    const id = await crearSesion({ baseAmountCents: 9000 });
     const cobro = await cobroDe(id);
     await auth(request(app).patch(`/api/payments/${cobro.id}`)).send({ status: 'WAIVED' });
 

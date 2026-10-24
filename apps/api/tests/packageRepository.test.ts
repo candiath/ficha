@@ -51,7 +51,7 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
       patientId,
       name: 'Paquete x10',
       totalSessions: 10,
-      pricePerSession: 100,
+      pricePerSessionCents: 100,
     });
   }
 
@@ -78,9 +78,9 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
         patientId: patientA.id,
         sessionId: session.id,
         packageId: used.id,
-        baseAmount: 100,
-        discount: 0,
-        finalAmount: 100,
+        baseAmountCents: 100,
+        discountCents: 0,
+        finalAmountCents: 100,
       },
     });
 

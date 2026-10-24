@@ -27,9 +27,9 @@ const paymentSelect = {
   patientId: true,
   sessionId: true,
   packageId: true,
-  baseAmount: true,
-  discount: true,
-  finalAmount: true,
+  baseAmountCents: true,
+  discountCents: true,
+  finalAmountCents: true,
   status: true,
   method: true,
   paidAt: true,
@@ -41,16 +41,14 @@ const paymentSelect = {
   package: { select: { id: true, name: true } },
 } as const;
 
-type Decimalish = { toString(): string };
-
 type PaymentRow = {
   id: string;
   patientId: string;
   sessionId: string;
   packageId: string | null;
-  baseAmount: Decimalish;
-  discount: Decimalish;
-  finalAmount: Decimalish;
+  baseAmountCents: bigint;
+  discountCents: bigint;
+  finalAmountCents: bigint;
   status: PaymentDTO['status'];
   method: PaymentDTO['method'];
   paidAt: Date | null;
@@ -67,9 +65,9 @@ const AUDIT_FIELDS = Object.keys(AUDIT_PAYMENT_FIELDS) as PaymentAuditField[];
 function toDTO(row: PaymentRow): PaymentDTO {
   return {
     ...row,
-    baseAmount: Number(row.baseAmount),
-    discount: Number(row.discount),
-    finalAmount: Number(row.finalAmount),
+    baseAmountCents: Number(row.baseAmountCents),
+    discountCents: Number(row.discountCents),
+    finalAmountCents: Number(row.finalAmountCents),
     paidAt: row.paidAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -94,8 +92,8 @@ export const prismaPaymentRepository: PaymentRepository = {
   async lastBasePrice(ctx: TenantContext): Promise<LastBasePrice | null> {
     const db = forTenant(ctx);
     const row = await db.payment.findFirst({
-      where: { discount: 0, packageId: null },
-      select: { baseAmount: true, createdAt: true },
+      where: { discountCents: 0, packageId: null },
+      select: { baseAmountCents: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
     if (!row) return null;
@@ -104,7 +102,7 @@ export const prismaPaymentRepository: PaymentRepository = {
     const isStale = ageInDays > LAST_BASE_PRICE_STALENESS_DAYS;
 
     return {
-      amount: isStale ? null : Number(row.baseAmount),
+      amountCents: isStale ? null : Number(row.baseAmountCents),
       date: row.createdAt.toISOString(),
       isStale,
     };
@@ -146,7 +144,7 @@ export const prismaPaymentRepository: PaymentRepository = {
 
     // Mismo criterio que el cobro embebido en el alta de la sesión: si no hay
     // nada que cobrar, el cobro nace eximido y no como deuda.
-    const { finalAmount, status } = settle(input.baseAmount, input.discount);
+    const { finalAmountCents, status } = settle(input.baseAmountCents, input.discountCents);
 
     // The audit row goes in the same transaction as the write (#188). The
     // duplicate is caught outside it: a unique violation aborts the
@@ -159,9 +157,9 @@ export const prismaPaymentRepository: PaymentRepository = {
             patientId: session.patientId,
             sessionId: input.sessionId,
             packageId: input.packageId ?? null,
-            baseAmount: input.baseAmount,
-            discount: input.discount,
-            finalAmount,
+            baseAmountCents: input.baseAmountCents,
+            discountCents: input.discountCents,
+            finalAmountCents,
             status,
             notes: input.notes ?? null,
           },
@@ -194,7 +192,7 @@ export const prismaPaymentRepository: PaymentRepository = {
     return db.$transaction(async (tx): Promise<PaymentUpdateResult> => {
       await lockRow(tx, 'payments', id, ctx.tenantId);
 
-      // Los montos existentes hacen falta para recalcular finalAmount cuando
+      // Los montos existentes hacen falta para recalcular finalAmountCents cuando
       // el update trae solo uno de los dos. El estado, para que settle() sepa
       // si puede eximir: solo un PENDING se exime solo.
       const existing = await tx.payment.findFirst({
@@ -213,12 +211,12 @@ export const prismaPaymentRepository: PaymentRepository = {
         if (!pkg) return { ok: false, reason: 'package_not_found' };
       }
 
-      const newBase = input.baseAmount ?? Number(existing.baseAmount);
-      const newDiscount = input.discount ?? Number(existing.discount);
+      const newBase = input.baseAmountCents ?? Number(existing.baseAmountCents);
+      const newDiscount = input.discountCents ?? Number(existing.discountCents);
 
-      // Un descuento mayor al monto base dejaría finalAmount negativo: un cobro
+      // Un descuento mayor al monto base dejaría finalAmountCents negativo: un cobro
       // que devuelve plata. Se valida acá y no en el schema de la ruta porque el
-      // PATCH es parcial — mandar solo `discount` se compara contra el monto
+      // PATCH es parcial — mandar solo `discountCents` se compara contra el monto
       // base guardado, que Zod no conoce (issue #73).
       if (newDiscount > newBase) return { ok: false, reason: 'invalid_amounts' };
 
@@ -226,14 +224,14 @@ export const prismaPaymentRepository: PaymentRepository = {
       // PENDING: ni un PAID (ahí entró plata) ni un WAIVED puesto a mano se
       // tocan. Un `status` explícito en el body gana sobre lo derivado — quien
       // lo manda está diciendo qué quiere.
-      const { finalAmount, status } = settle(newBase, newDiscount, existing.status);
+      const { finalAmountCents, status } = settle(newBase, newDiscount, existing.status);
 
       const row = await tx.payment.update({
         where: { id, tenantId: ctx.tenantId },
         data: {
-          ...(input.baseAmount !== undefined && { baseAmount: input.baseAmount }),
-          ...(input.discount !== undefined && { discount: input.discount }),
-          finalAmount,
+          ...(input.baseAmountCents !== undefined && { baseAmountCents: input.baseAmountCents }),
+          ...(input.discountCents !== undefined && { discountCents: input.discountCents }),
+          finalAmountCents,
           status: input.status ?? status,
           ...(input.method !== undefined && { method: input.method }),
           ...(input.paidAt !== undefined && { paidAt: input.paidAt }),

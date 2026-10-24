@@ -152,9 +152,9 @@ describe('motor de alertas', () => {
         tenantId: clinic.tenantId,
         patientId,
         sessionId: sesion.id,
-        baseAmount: monto,
-        discount: 0,
-        finalAmount: monto,
+        baseAmountCents: monto,
+        discountCents: 0,
+        finalAmountCents: monto,
         status: 'PENDING',
       },
     });

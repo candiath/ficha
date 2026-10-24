@@ -284,7 +284,7 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
           patientId: patient.id,
           name: 'Paquete huérfano',
           totalSessions: 10,
-          pricePerSession: 100,
+          pricePerSessionCents: 100,
         }),
       ],
     ];

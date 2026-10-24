@@ -50,6 +50,7 @@ import {
 import PaymentEditDialog from '@/components/payments/PaymentEditDialog';
 import { paymentApi, paymentKeys } from '@/services/payments';
 import { PAYMENT_METHOD_CLASS, PAYMENT_METHOD_LABELS, PAYMENT_STATUS_CLASS, PAYMENT_STATUS_LABELS } from '@/lib/labels';
+import { formatCents } from '@/lib/money';
 import type { Payment } from '@/types/payment';
 import { toast } from 'sonner';
 
@@ -61,10 +62,6 @@ function formatDate(iso: string | null) {
     year: 'numeric',
     timeZone: 'UTC',
   });
-}
-
-function formatMoney(n: number) {
-  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n);
 }
 
 function buildColumns(
@@ -112,22 +109,22 @@ function buildColumns(
         ),
     },
     {
-      accessorKey: 'baseAmount',
+      accessorKey: 'baseAmountCents',
       header: 'Base',
-      cell: ({ row }) => formatMoney(row.original.baseAmount),
+      cell: ({ row }) => formatCents(row.original.baseAmountCents),
     },
     {
-      accessorKey: 'discount',
+      accessorKey: 'discountCents',
       header: 'Descuento',
       cell: ({ row }) =>
-        row.original.discount > 0 ? (
-          <span className="text-destructive">− {formatMoney(row.original.discount)}</span>
+        row.original.discountCents > 0 ? (
+          <span className="text-destructive">− {formatCents(row.original.discountCents)}</span>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
     },
     {
-      accessorKey: 'finalAmount',
+      accessorKey: 'finalAmountCents',
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -140,7 +137,7 @@ function buildColumns(
         </Button>
       ),
       cell: ({ row }) => (
-        <span className="font-semibold">{formatMoney(row.original.finalAmount)}</span>
+        <span className="font-semibold">{formatCents(row.original.finalAmountCents)}</span>
       ),
     },
     {
@@ -245,7 +242,7 @@ export default function PaymentsPage() {
 
   const pendingTotal = payments
     .filter((p) => p.status === 'PENDING')
-    .reduce((sum, p) => sum + p.finalAmount, 0);
+    .reduce((sum, p) => sum + p.finalAmountCents, 0);
 
   return (
     <div className="p-6">
@@ -255,7 +252,7 @@ export default function PaymentsPage() {
           <p className="text-muted-foreground text-sm mt-1">
             {payments.filter((p) => p.status === 'PENDING').length} pendiente
             {payments.filter((p) => p.status === 'PENDING').length !== 1 ? 's' : ''} ·{' '}
-            <span className="text-destructive font-medium">{formatMoney(pendingTotal)}</span>
+            <span className="text-destructive font-medium">{formatCents(pendingTotal)}</span>
           </p>
         </div>
       </div>
@@ -392,7 +389,7 @@ export default function PaymentsPage() {
                 <>
                   Cobro de{' '}
                   <span className="font-medium text-foreground">
-                    {formatMoney(paymentToCharge.finalAmount)}
+                    {formatCents(paymentToCharge.finalAmountCents)}
                   </span>{' '}
                   a{' '}
                   <span className="font-medium text-foreground">

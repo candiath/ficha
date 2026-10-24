@@ -4,12 +4,12 @@ import type { PaymentStatus } from '@prisma/client';
  * Cómo queda liquidado un cobro: el monto final y el estado que le corresponde.
  *
  * Las dos cosas se deciden juntas porque dependen del mismo dato. Antes
- * `baseAmount - discount` estaba escrito en los tres lugares que crean o editan
+ * `baseAmountCents - discountCents` estaba escrito en los tres lugares que crean o editan
  * un cobro (el alta de la sesión, POST /api/payments y el update), y agregar
  * ahí una segunda regla —el estado— era sembrar el mismo criterio tres veces.
  */
 export interface Settlement {
-  finalAmount: number;
+  finalAmountCents: number;
   status: PaymentStatus;
 }
 
@@ -40,22 +40,22 @@ export interface Settlement {
  *
  * Un PAID no se toca nunca: ahí se movió plata de verdad.
  *
- * @param baseAmount monto antes del descuento
- * @param discount   descuento aplicado; quien llama ya validó que no supere la base
+ * @param baseAmountCents monto antes del descuento
+ * @param discountCents   descuento aplicado; quien llama ya validó que no supere la base
  * @param current    estado actual del cobro; ausente al crearlo
  */
 export function settle(
-  baseAmount: number,
-  discount: number,
+  baseAmountCents: number,
+  discountCents: number,
   current?: PaymentStatus,
 ): Settlement {
-  const finalAmount = baseAmount - discount;
+  const finalAmountCents = baseAmountCents - discountCents;
 
-  if (current === 'PAID') return { finalAmount, status: 'PAID' };
+  if (current === 'PAID') return { finalAmountCents, status: 'PAID' };
 
-  if (finalAmount === 0 && (current === undefined || current === 'PENDING')) {
-    return { finalAmount, status: 'WAIVED' };
+  if (finalAmountCents === 0 && (current === undefined || current === 'PENDING')) {
+    return { finalAmountCents, status: 'WAIVED' };
   }
 
-  return { finalAmount, status: current ?? 'PENDING' };
+  return { finalAmountCents, status: current ?? 'PENDING' };
 }

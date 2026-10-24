@@ -70,7 +70,7 @@ describe('CRUD de sesiones por HTTP', () => {
         patientId: otroPaciente.id,
         name: 'Paquete del otro paciente',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -85,7 +85,7 @@ describe('CRUD de sesiones por HTTP', () => {
         patientId: patientB.id,
         name: 'Paquete de B',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -288,7 +288,7 @@ describe('CRUD de sesiones por HTTP', () => {
 
     const res = await auth(request(app).post(url())).send({
       sessionDate: new Date().toISOString(),
-      payment: { packageId: packageDelOtro.id, baseAmount: 100 },
+      payment: { packageId: packageDelOtro.id, baseAmountCents: 100 },
     });
 
     expect(res.status).toBe(404);
@@ -304,7 +304,7 @@ describe('CRUD de sesiones por HTTP', () => {
   it('POST rechaza un packageId de otra clínica', async () => {
     const res = await auth(request(app).post(url())).send({
       sessionDate: new Date().toISOString(),
-      payment: { packageId: packageDeB.id, baseAmount: 100 },
+      payment: { packageId: packageDeB.id, baseAmountCents: 100 },
     });
 
     expect(res.status).toBe(404);
@@ -529,19 +529,19 @@ describe('CRUD de sesiones por HTTP', () => {
   // /api/payments. Un cliente que lo mande igual no tiene que romper nada ni
   // modificar el cobro.
   it('PATCH ignora un payment en el body y no toca el cobro', async () => {
-    const creada = await crearSesion({ payment: { baseAmount: 5000 } });
+    const creada = await crearSesion({ payment: { baseAmountCents: 5000 } });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
       observations: 'con payment colado',
-      payment: { baseAmount: 1 },
+      payment: { baseAmountCents: 1 },
     });
 
     expect(res.status).toBe(200);
     const cobro = await prisma.payment.findUnique({
       where: { sessionId: creada.id },
-      select: { baseAmount: true },
+      select: { baseAmountCents: true },
     });
-    expect(Number(cobro?.baseAmount)).toBe(5000);
+    expect(Number(cobro?.baseAmountCents)).toBe(5000);
   });
 
   // ── DELETE ────────────────────────────────────────────────────────────────

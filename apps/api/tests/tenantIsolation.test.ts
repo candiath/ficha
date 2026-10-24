@@ -75,7 +75,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
         patientId: patientA2.id,
         name: 'Paquete A2',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -85,7 +85,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
         patientId: patientB.id,
         name: 'Paquete B',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -152,7 +152,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId: session.body.data.id, patientId: patientB.id, baseAmount: 100 });
+      .send({ sessionId: session.body.data.id, patientId: patientB.id, baseAmountCents: 100 });
 
     expect(res.status).toBe(201);
     expect(res.body.data.patientId).toBe(patientA.id);
@@ -165,7 +165,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId: session.body.data.id, packageId: packageB.id, baseAmount: 100 });
+      .send({ sessionId: session.body.data.id, packageId: packageB.id, baseAmountCents: 100 });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Paquete no encontrado' });
@@ -206,7 +206,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const payment = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId: session.body.data.id, baseAmount: 100 });
+      .send({ sessionId: session.body.data.id, baseAmountCents: 100 });
     expect(payment.status).toBe(201);
 
     const res = await request(app)
