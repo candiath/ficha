@@ -101,16 +101,9 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const body = PaymentUpdateSchema.parse(req.body);
 
-  // Si se marca como PAID y no hay paidAt, se registra ahora. Se resuelve acá
-  // porque depende de distinguir "ausente" de null en el body (HTTP puro).
-  const paidAt =
-    body.paidAt !== undefined
-      ? body.paidAt
-        ? new Date(body.paidAt)
-        : null
-      : body.status === 'PAID'
-        ? new Date()
-        : undefined;
+  // Absent stays absent: the repository decides it against the status the
+  // payment ends in (now, for one that becomes PAID).
+  const paidAt = body.paidAt === undefined ? undefined : body.paidAt ? new Date(body.paidAt) : null;
 
   const result = await paymentRepo.update(
     req.context,
@@ -142,6 +135,15 @@ router.patch('/:id', async (req, res) => {
         return;
       case 'invalid_amounts':
         res.status(400).json({ error: 'El descuento no puede superar el monto base' });
+        return;
+      case 'paid_without_method':
+        res.status(400).json({ error: 'Un cobro pagado necesita el medio de pago' });
+        return;
+      case 'paid_without_date':
+        res.status(400).json({ error: 'Un cobro pagado necesita la fecha de pago' });
+        return;
+      case 'payment_data_without_paid':
+        res.status(400).json({ error: 'El medio y la fecha de pago van solo con un cobro pagado' });
         return;
     }
   }

@@ -172,6 +172,8 @@ describe('GET /api/dashboard/stats', () => {
           baseAmountCents: 100,
           finalAmountCents: 100,
           status: 'PAID',
+          paidAt: new Date(),
+          method: 'CASH',
         },
       ],
     });

@@ -41,8 +41,9 @@ export interface PaymentCreateInput {
   notes?: string | null;
 }
 
-// paidAt llega ya resuelto (el default "PAID sin paidAt → ahora" es de la
-// ruta, que distingue ausente de null en el body).
+// paidAt and method go with PAID and only with it (a CHECK in the database):
+// absent means "keep, or now for a payment that becomes PAID", null means
+// "none". The repository settles them against the status the payment ends in.
 export interface PaymentUpdateInput {
   baseAmountCents?: number;
   discountCents?: number;
@@ -61,7 +62,19 @@ export type PaymentUpdateResult =
   | { ok: true; payment: PaymentDTO }
   // invalid_amounts: el descuento supera al monto base, o sea que
   // finalAmountCents quedaría negativo — un cobro que devuelve plata.
-  | { ok: false; reason: 'not_found' | 'package_not_found' | 'invalid_amounts' };
+  // paid_without_method / paid_without_date: a PAID payment records how and
+  // when the money came in. payment_data_without_paid: a method or a date
+  // sent for a payment that does not end PAID, money that did not come in.
+  | {
+      ok: false;
+      reason:
+        | 'not_found'
+        | 'package_not_found'
+        | 'invalid_amounts'
+        | 'paid_without_method'
+        | 'paid_without_date'
+        | 'payment_data_without_paid';
+    };
 
 export interface LastBasePrice {
   amountCents: number | null;

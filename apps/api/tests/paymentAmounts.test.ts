@@ -172,4 +172,38 @@ describe('cobros: montos coherentes', () => {
     expect(revertido.body.data.method).toBeNull();
     expect(revertido.body.data.paidAt).toBeNull();
   });
+
+  // The fix for #238's review: leaving PAID with only the status used to keep
+  // the date of a payment that did not come in.
+  it('leaving PAID clears method and date even when only the status is sent', async () => {
+    const cobro = await crearCobro(12000);
+    const patch = (body: object) => auth(request(app).patch(`/api/payments/${cobro.id}`)).send(body);
+
+    expect((await patch({ status: 'PAID', method: 'TRANSFER' })).status).toBe(200);
+    const revertido = await patch({ status: 'PENDING' });
+
+    expect(revertido.status).toBe(200);
+    expect(revertido.body.data).toMatchObject({ status: 'PENDING', method: null, paidAt: null });
+  });
+
+  it('a payment that stays PAID keeps its method and date', async () => {
+    const cobro = await crearCobro(12000);
+    const patch = (body: object) => auth(request(app).patch(`/api/payments/${cobro.id}`)).send(body);
+
+    const pagado = await patch({ status: 'PAID', method: 'CASH' });
+    const editado = await patch({ notes: 'Pagó en dos veces' });
+
+    expect(editado.status).toBe(200);
+    expect(editado.body.data).toMatchObject({ status: 'PAID', method: 'CASH', paidAt: pagado.body.data.paidAt });
+  });
+
+  it('refuses a PAID payment without its method or its date, and a method on one that is not PAID', async () => {
+    const cobro = await crearCobro(12000);
+    const patch = (body: object) => auth(request(app).patch(`/api/payments/${cobro.id}`)).send(body);
+
+    expect((await patch({ status: 'PAID' })).status).toBe(400);
+    expect((await patch({ status: 'PAID', method: 'CASH', paidAt: null })).status).toBe(400);
+    expect((await patch({ method: 'CASH' })).status).toBe(400);
+    expect((await patch({ paidAt: new Date().toISOString() })).status).toBe(400);
+  });
 });

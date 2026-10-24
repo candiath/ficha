@@ -203,7 +203,7 @@ describe('motor de alertas', () => {
     await crearCobroPendiente(paciente.id, 40, 15000);
     await prisma.payment.updateMany({
       where: { patientId: paciente.id },
-      data: { status: 'PAID', paidAt: new Date() },
+      data: { status: 'PAID', paidAt: new Date(), method: 'CASH' },
     });
     await destrabarMotor();
 

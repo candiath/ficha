@@ -225,6 +225,27 @@ export const prismaPaymentRepository: PaymentRepository = {
       // tocan. Un `status` explícito en el body gana sobre lo derivado — quien
       // lo manda está diciendo qué quiere.
       const { finalAmountCents, status } = settle(newBase, newDiscount, existing.status);
+      const finalStatus = input.status ?? status;
+
+      // How and when the money came in exist exactly while the payment is PAID
+      // (a CHECK in the database). Leaving PAID clears them: a payment marked
+      // by mistake leaves no trace of money that never came in. Becoming PAID
+      // without a date records now.
+      let method: PaymentDTO['method'];
+      let paidAt: Date | null;
+      if (finalStatus === 'PAID') {
+        method = input.method !== undefined ? input.method : existing.method;
+        paidAt =
+          input.paidAt !== undefined
+            ? input.paidAt
+            : (existing.paidAt ?? new Date());
+        if (!method) return { ok: false, reason: 'paid_without_method' };
+        if (!paidAt) return { ok: false, reason: 'paid_without_date' };
+      } else {
+        if (input.method || input.paidAt) return { ok: false, reason: 'payment_data_without_paid' };
+        method = null;
+        paidAt = null;
+      }
 
       const row = await tx.payment.update({
         where: { id, tenantId: ctx.tenantId },
@@ -232,9 +253,9 @@ export const prismaPaymentRepository: PaymentRepository = {
           ...(input.baseAmountCents !== undefined && { baseAmountCents: input.baseAmountCents }),
           ...(input.discountCents !== undefined && { discountCents: input.discountCents }),
           finalAmountCents,
-          status: input.status ?? status,
-          ...(input.method !== undefined && { method: input.method }),
-          ...(input.paidAt !== undefined && { paidAt: input.paidAt }),
+          status: finalStatus,
+          method,
+          paidAt,
           ...(input.packageId !== undefined && { packageId: input.packageId }),
           ...(input.notes !== undefined && { notes: input.notes }),
         },
