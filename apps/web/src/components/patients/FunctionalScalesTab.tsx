@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { functionalScaleApi, functionalScaleKeys } from '@/services/functionalScales';
+import { scaleBandLabel } from '@/lib/labels';
 import type { ScaleType } from '@/types/functionalScale';
 
 // ── Question definitions ──────────────────────────────────────────────────────
@@ -394,7 +395,7 @@ export default function FunctionalScalesTab({ patientId }: Props) {
                         {scale.score}%
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">{scale.interpretation}</p>
+                    <p className="text-xs text-muted-foreground">{scaleBandLabel(scale.scaleType, scale.band)}</p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(scale.appliedAt).toLocaleDateString('es-AR', {
                         day: '2-digit',
