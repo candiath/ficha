@@ -57,7 +57,7 @@ describe('audit rows hold codes, and say who acted', () => {
     operator = await createTestOperator();
     user = await clinic.createUser();
     ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Checked Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Checked', lastName: 'Patient' },
       select: { id: true },
     }));
   });

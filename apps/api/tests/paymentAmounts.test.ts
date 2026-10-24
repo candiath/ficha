@@ -27,7 +27,7 @@ describe('cobros: montos coherentes', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Cobros' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Cobros' },
       select: { id: true },
     });
     // Every session treats an episode (#238).

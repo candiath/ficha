@@ -9,6 +9,9 @@ import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRep
 // el contrato con el front (apps/web/src/types/patient.ts) queda idéntico.
 export interface PatientDTO {
   id: string;
+  firstName: string;
+  lastName: string;
+  // "firstName lastName", for display; built from the two (patientName.ts).
   fullName: string;
   birthDate: string | null;
   sex: Sex | null;
@@ -25,7 +28,8 @@ export interface PatientDTO {
 // Sin tenantId ni deletedAt: el primero lo inyecta el guard, el segundo es
 // una decisión del repositorio (softDelete), no un dato que viaje en un form.
 export interface PatientCreateInput {
-  fullName: string;
+  firstName: string;
+  lastName: string;
   birthDate?: Date | null;
   sex?: Sex | null;
   phone?: string | null;
@@ -51,7 +55,7 @@ export type PatientUpdateInput = Partial<PatientCreateInput>;
 // design): un paciente borrado desaparece del listado, su ficha da 404 y no
 // puede recibir datos clínicos nuevos —las rutas que crean bajo un paciente
 // pasan por exists()—, PERO el historial ya registrado lo sigue nombrando:
-// los joins `patient: { select: { fullName } }` de cobros, sesiones y
+// los joins con el nombre del paciente de cobros, sesiones y
 // paquetes NO filtran deletedAt a propósito. Borrar un paciente oculta al
 // paciente, no reescribe el pasado.
 //

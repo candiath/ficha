@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { forTenant } from '../../lib/tenantScope';
+import { fullName, patientNameSelect } from './patientName';
 import type { TenantContext } from '../types';
 import type {
   AppointmentCreateInput,
@@ -23,7 +24,7 @@ const appointmentListSelect = {
   endsAt: true,
   status: true,
   cancelledAt: true,
-  patient: { select: { fullName: true } },
+  patient: { select: patientNameSelect },
 } as const;
 
 // One appointment: the list's columns and its notes.
@@ -36,7 +37,7 @@ function toListItemDTO(row: ListRow): AppointmentListItemDTO {
   return {
     id: row.id,
     patientId: row.patientId,
-    patientName: row.patient.fullName,
+    patientName: fullName(row.patient),
     userId: row.userId,
     episodeId: row.episodeId,
     sessionId: row.sessionId,

@@ -60,7 +60,8 @@ export const AUDIT_ROLES = {
 // value. A JSON column is one name, and so is a relation set.
 
 export const AUDIT_PATIENT_FIELDS = {
-  fullName: 'el nombre',
+  firstName: 'el nombre',
+  lastName: 'el apellido',
   birthDate: 'la fecha de nacimiento',
   sex: 'el sexo',
   phone: 'el teléfono',

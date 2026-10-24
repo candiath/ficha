@@ -199,7 +199,8 @@ async function main() {
     create: {
       id: devId('dev-patient-001'),
       tenantId: tenant.id,
-      fullName: 'María García',
+      firstName: 'María',
+      lastName: 'García',
       phone: '+54 11 1234-5678',
       sex: 'FEMALE',
       occupation: 'Docente',
@@ -465,7 +466,8 @@ async function main() {
     create: {
       id: devId('dev-patient-002'),
       tenantId: tenant.id,
-      fullName: 'Javier Rodríguez',
+      firstName: 'Javier',
+      lastName: 'Rodríguez',
       birthDate: new Date('1980-08-15'),
       sex: 'MALE',
       phone: '+54 11 4567-8901',
@@ -824,8 +826,8 @@ async function main() {
   console.log('✓ Seed completado');
   console.log(`  Tenant:    ${tenant.name} (slug: ${tenant.slug})`);
   console.log(`  Usuario:   ${user.email} / password123`);
-  console.log(`  Paciente 1: ${patient.fullName} — episodio ${episode1.id}`);
-  console.log(`  Paciente 2: ${p2.fullName} — episodio ${episodeP2.id} (historia clínica completa)`);
+  console.log(`  Paciente 1: ${patient.firstName} ${patient.lastName} — episodio ${episode1.id}`);
+  console.log(`  Paciente 2: ${p2.firstName} ${p2.lastName} — episodio ${episodeP2.id} (historia clínica completa)`);
 }
 
 main()

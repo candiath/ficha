@@ -18,7 +18,8 @@ router.param('id', idParam('Paciente no encontrado'));
 // Los campos opcionales usan los schemas compartidos: un "" del formulario
 // entra como null y el campo ausente no se toca (lib/validation.ts).
 const PatientCreateSchema = z.object({
-  fullName: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
+  firstName: requiredText(1, 'El nombre es obligatorio'),
+  lastName: requiredText(1, 'El apellido es obligatorio'),
   birthDate: OptionalDateSchema,
   sex: optionalEnum(['MALE', 'FEMALE', 'OTHER']),
   phone: OptionalTextSchema,

@@ -33,7 +33,7 @@ describe('CRUD de pacientes por HTTP', () => {
 
   async function crearPaciente(body: Record<string, unknown> = {}) {
     const res = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente de Prueba',
+      firstName: 'Paciente de', lastName: 'Prueba',
       ...body,
     });
     expect(res.status).toBe(201);
@@ -53,7 +53,7 @@ describe('CRUD de pacientes por HTTP', () => {
 
   it('POST crea el paciente con todos sus campos y devuelve el DTO completo', async () => {
     const res = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Ana María Pérez',
+      firstName: 'Ana María', lastName: 'Pérez',
       // El formulario web manda la fecha como YYYY-MM-DD: la API la coerciona
       // a medianoche UTC y la devuelve como ISO. La web la muestra con
       // timeZone: 'UTC' justamente para que no se corra un día.
@@ -69,7 +69,7 @@ describe('CRUD de pacientes por HTTP', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({
-      fullName: 'Ana María Pérez',
+      firstName: 'Ana María', lastName: 'Pérez',
       birthDate: '1985-11-23T00:00:00.000Z',
       sex: 'FEMALE',
       phone: '11-5555-0000',
@@ -94,10 +94,10 @@ describe('CRUD de pacientes por HTTP', () => {
   });
 
   it('POST con solo el nombre deja el resto en null', async () => {
-    const paciente = await crearPaciente({ fullName: 'Solo Nombre' });
+    const paciente = await crearPaciente({ firstName: 'Solo', lastName: 'Nombre' });
 
     expect(paciente).toMatchObject({
-      fullName: 'Solo Nombre',
+      firstName: 'Solo', lastName: 'Nombre',
       birthDate: null,
       sex: null,
       phone: null,
@@ -109,24 +109,28 @@ describe('CRUD de pacientes por HTTP', () => {
     });
   });
 
-  it('POST rechaza un nombre de menos de dos caracteres', async () => {
-    const res = await auth(request(app).post('/api/patients')).send({ fullName: 'A' });
+  // Given names and surname are both required (#238).
+  it('POST rejects a patient without a surname, or without a given name', async () => {
+    const sinApellido = await auth(request(app).post('/api/patients')).send({ firstName: 'Ana' });
+    expect(sinApellido.status).toBe(400);
+    expect(sinApellido.body.error).toBe('Datos inválidos');
+    expect(sinApellido.body.details.lastName).toBeDefined();
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Datos inválidos');
-    expect(res.body.details.fullName).toContain('El nombre debe tener al menos 2 caracteres');
+    const sinNombre = await auth(request(app).post('/api/patients')).send({ firstName: '  ', lastName: 'García' });
+    expect(sinNombre.status).toBe(400);
+    expect(sinNombre.body.details.firstName).toContain('El nombre es obligatorio');
   });
 
   it('POST rechaza un sexo fuera del enum y una fecha ilegible', async () => {
     const sexo = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Sexo Inválido',
+      firstName: 'Sexo', lastName: 'Inválido',
       sex: 'X',
     });
     expect(sexo.status).toBe(400);
     expect(sexo.body.details.sex).toBeDefined();
 
     const fecha = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Fecha Inválida',
+      firstName: 'Fecha', lastName: 'Inválida',
       birthDate: 'ayer',
     });
     expect(fecha.status).toBe(400);
@@ -147,7 +151,7 @@ describe('CRUD de pacientes por HTTP', () => {
   // ── GET ───────────────────────────────────────────────────────────────────
 
   it('GET /:id devuelve exactamente lo que devolvió el POST', async () => {
-    const creado = await crearPaciente({ fullName: 'Leído Después', birthDate: '2000-01-01' });
+    const creado = await crearPaciente({ firstName: 'Leído', lastName: 'Después', birthDate: '2000-01-01' });
 
     const res = await auth(request(app).get(`/api/patients/${creado.id}`));
 
@@ -162,22 +166,25 @@ describe('CRUD de pacientes por HTTP', () => {
     expect(res.body).toEqual({ error: 'Paciente no encontrado' });
   });
 
-  it('GET / lista los recién creados, el más nuevo primero', async () => {
-    const primero = await crearPaciente({ fullName: 'Creado Primero' });
-    const segundo = await crearPaciente({ fullName: 'Creado Segundo' });
+  // As the clinic looks patients up (#238): by surname, then given names.
+  it('GET / lists by surname, then by given names', async () => {
+    const zeta = await crearPaciente({ firstName: 'Ana', lastName: 'Zzorden' });
+    const alfaBeatriz = await crearPaciente({ firstName: 'Beatriz', lastName: 'Aaorden' });
+    const alfaAna = await crearPaciente({ firstName: 'Ana', lastName: 'Aaorden' });
 
     const res = await auth(request(app).get('/api/patients'));
 
     expect(res.status).toBe(200);
     const ids = res.body.data.map((p: { id: string }) => p.id);
-    expect(ids.indexOf(segundo.id)).toBeLessThan(ids.indexOf(primero.id));
+    const positions = [alfaAna.id, alfaBeatriz.id, zeta.id].map((id) => ids.indexOf(id));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
   // ── PATCH ─────────────────────────────────────────────────────────────────
 
   it('PATCH cambia solo los campos que manda y conserva el resto', async () => {
     const creado = await crearPaciente({
-      fullName: 'Antes del PATCH',
+      firstName: 'Antes del', lastName: 'PATCH',
       phone: '111',
       occupation: 'Original',
     });
@@ -189,7 +196,7 @@ describe('CRUD de pacientes por HTTP', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({
       id: creado.id,
-      fullName: 'Antes del PATCH',
+      firstName: 'Antes del', lastName: 'PATCH',
       phone: '222',
       occupation: 'Original',
     });
@@ -199,7 +206,7 @@ describe('CRUD de pacientes por HTTP', () => {
   // API los ignorara, no habría forma de borrar un teléfono viejo.
   it('PATCH con null limpia el campo', async () => {
     const creado = await crearPaciente({
-      fullName: 'Con Datos',
+      firstName: 'Con', lastName: 'Datos',
       birthDate: '1990-06-15',
       phone: '333',
       insuranceName: 'Obra Social',
@@ -216,21 +223,21 @@ describe('CRUD de pacientes por HTTP', () => {
       birthDate: null,
       phone: null,
       insuranceName: null,
-      fullName: 'Con Datos',
+      firstName: 'Con', lastName: 'Datos',
     });
   });
 
   it('PATCH con un nombre inválido se rechaza y deja la fila como estaba', async () => {
-    const creado = await crearPaciente({ fullName: 'Nombre Intacto' });
+    const creado = await crearPaciente({ firstName: 'Nombre', lastName: 'Intacto' });
 
     const res = await auth(request(app).patch(`/api/patients/${creado.id}`)).send({
-      fullName: 'A',
+      lastName: '   ',
     });
 
     expect(res.status).toBe(400);
     await expect(
-      prisma.patient.findUnique({ where: { id: creado.id }, select: { fullName: true } }),
-    ).resolves.toEqual({ fullName: 'Nombre Intacto' });
+      prisma.patient.findUnique({ where: { id: creado.id }, select: { firstName: true, lastName: true } }),
+    ).resolves.toEqual({ firstName: 'Nombre', lastName: 'Intacto' });
   });
 
   it('PATCH de un id que no existe da 404', async () => {
@@ -245,7 +252,7 @@ describe('CRUD de pacientes por HTTP', () => {
   // ── DELETE ────────────────────────────────────────────────────────────────
 
   it('DELETE lo saca de la lista y su ficha pasa a dar 404', async () => {
-    const creado = await crearPaciente({ fullName: 'A Eliminar' });
+    const creado = await crearPaciente({ firstName: 'A', lastName: 'Eliminar' });
 
     const res = await auth(request(app).delete(`/api/patients/${creado.id}`));
     expect(res.status).toBe(204);
@@ -269,7 +276,7 @@ describe('CRUD de pacientes por HTTP', () => {
   // Cada escritura deja su entrada. Es fire-and-forget en la ruta, así que se
   // espera con waitFor en vez de asertar de inmediato.
   it('crear, editar y borrar dejan cada uno su entrada de auditoría', async () => {
-    const creado = await crearPaciente({ fullName: 'Auditado' });
+    const creado = await crearPaciente({ firstName: 'Auditado', lastName: 'Test' });
     await auth(request(app).patch(`/api/patients/${creado.id}`)).send({ phone: '555' });
     await auth(request(app).delete(`/api/patients/${creado.id}`));
 
@@ -289,13 +296,13 @@ describe('CRUD de pacientes por HTTP', () => {
   // ── Autenticación ─────────────────────────────────────────────────────────
 
   it('sin token, las cinco rutas responden 401 sin tocar nada', async () => {
-    const creado = await crearPaciente({ fullName: 'Protegido' });
+    const creado = await crearPaciente({ firstName: 'Protegido', lastName: 'Test' });
 
     const pedidos = [
       request(app).get('/api/patients'),
       request(app).get(`/api/patients/${creado.id}`),
-      request(app).post('/api/patients').send({ fullName: 'Intruso' }),
-      request(app).patch(`/api/patients/${creado.id}`).send({ fullName: 'Hackeado' }),
+      request(app).post('/api/patients').send({ firstName: 'Intruso', lastName: 'Test' }),
+      request(app).patch(`/api/patients/${creado.id}`).send({ firstName: 'Hackeado', lastName: 'Test' }),
       request(app).delete(`/api/patients/${creado.id}`),
     ];
 
@@ -308,8 +315,8 @@ describe('CRUD de pacientes por HTTP', () => {
     await expect(
       prisma.patient.findUnique({
         where: { id: creado.id },
-        select: { fullName: true, deletedAt: true },
+        select: { firstName: true, lastName: true, deletedAt: true },
       }),
-    ).resolves.toEqual({ fullName: 'Protegido', deletedAt: null });
+    ).resolves.toEqual({ firstName: 'Protegido', lastName: 'Test', deletedAt: null });
   });
 });

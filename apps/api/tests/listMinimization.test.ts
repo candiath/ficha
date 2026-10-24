@@ -263,7 +263,7 @@ describe('global lists carry no clinical text', () => {
     today = instantToClinicTime(new Date(), timezone).date;
 
     const patient = await prisma.patient.create({
-      data: { tenantId, fullName: 'Paciente Sonda', referringDoctor: 'Dr. Derivante' },
+      data: { tenantId, firstName: 'Paciente', lastName: 'Sonda', referringDoctor: 'Dr. Derivante' },
       select: { id: true },
     });
     const patientId = patient.id;

@@ -41,7 +41,7 @@ describe('un solo vacío: "" entra como null', () => {
 
   async function crearPaciente(body: Record<string, unknown> = {}) {
     const res = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente de Prueba',
+      firstName: 'Paciente de', lastName: 'Prueba',
       ...body,
     });
     expect(res.status).toBe(201);
@@ -96,14 +96,14 @@ describe('un solo vacío: "" entra como null', () => {
   // ── Texto obligatorio ─────────────────────────────────────────────────────
 
   it('un nombre de solo espacios es 400, no un paciente sin nombre', async () => {
-    const res = await auth(request(app).post('/api/patients')).send({ fullName: '   ' });
+    const res = await auth(request(app).post('/api/patients')).send({ firstName: '   ', lastName: 'Test' });
 
     expect(res.status).toBe(400);
-    expect(res.body.details).toHaveProperty('fullName');
+    expect(res.body.details).toHaveProperty('firstName');
   });
 
   it('el nombre se guarda trimeado', async () => {
-    const patient = await crearPaciente({ fullName: '  Ana María Pérez  ' });
+    const patient = await crearPaciente({ firstName: 'Ana María', lastName: 'Pérez' });
     expect(patient.fullName).toBe('Ana María Pérez');
   });
 
@@ -116,7 +116,7 @@ describe('un solo vacío: "" entra como null', () => {
 
     // Lo que no es una fecha sigue siendo 400: "" es ausencia, "ayer" es error.
     const invalida = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente Fecha',
+      firstName: 'Paciente', lastName: 'Fecha',
       birthDate: 'ayer',
     });
     expect(invalida.status).toBe(400);
@@ -127,7 +127,7 @@ describe('un solo vacío: "" entra como null', () => {
     expect(patient.sex).toBeNull();
 
     const invalido = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente Sexo',
+      firstName: 'Paciente', lastName: 'Sexo',
       sex: 'NO_EXISTE',
     });
     expect(invalido.status).toBe(400);

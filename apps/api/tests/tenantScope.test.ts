@@ -8,8 +8,8 @@ import { createTestContext, createTestClinic, type TestClinic } from './helpers'
 // el guard sea fail-closed ante operaciones que no reconoce.
 describe('scopeArgs: inyección y fail-closed', () => {
   it('inyecta el tenantId en el where de una operación conocida', () => {
-    expect(scopeArgs('findMany', { where: { fullName: 'x' } }, 't1')).toEqual({
-      where: { fullName: 'x', tenantId: 't1' },
+    expect(scopeArgs('findMany', { where: { firstName: 'x', lastName: 'Test' } }, 't1')).toEqual({
+      where: { firstName: 'x', lastName: 'Test', tenantId: 't1' },
     });
   });
 
@@ -60,11 +60,11 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
     dbA = forTenant(ctxA);
 
     patientA = await prisma.patient.create({
-      data: { tenantId: clinicA.tenantId, fullName: 'Paciente A' },
+      data: { tenantId: clinicA.tenantId, firstName: 'Paciente', lastName: 'A' },
       select: { id: true },
     });
     patientB = await prisma.patient.create({
-      data: { tenantId: clinicB.tenantId, fullName: 'Paciente B' },
+      data: { tenantId: clinicB.tenantId, firstName: 'Paciente', lastName: 'B' },
       select: { id: true },
     });
   });
@@ -106,7 +106,7 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
 
   it('create inyecta el tenantId del contexto (no hace falta pasarlo)', async () => {
     const created = await dbA.patient.create({
-      data: { fullName: 'Creado sin tenantId' },
+      data: { firstName: 'Creado sin', lastName: 'tenantId' },
       select: { id: true, tenantId: true },
     });
     expect(created.tenantId).toBe(clinicA.tenantId);
@@ -117,15 +117,15 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
     await expect(
       dbA.patient.update({
         where: { id: patientB.id },
-        data: { fullName: 'hackeado' },
+        data: { firstName: 'hackeado', lastName: 'Test' },
       }),
     ).rejects.toThrow();
 
     const untouched = await prisma.patient.findUnique({
       where: { id: patientB.id },
-      select: { fullName: true },
+      select: { firstName: true, lastName: true },
     });
-    expect(untouched?.fullName).toBe('Paciente B');
+    expect(untouched).toEqual({ firstName: 'Paciente', lastName: 'B' });
   });
 
   it('delete por id ajeno no borra la fila (RecordNotFound)', async () => {

@@ -25,7 +25,7 @@ describe('borrado lógico de sesiones', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado de Sesión' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado de', lastName: 'Sesión' },
       select: { id: true },
     });
     // Every session treats an episode (#238).

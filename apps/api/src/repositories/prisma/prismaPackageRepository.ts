@@ -1,4 +1,5 @@
 import { forTenant } from '../../lib/tenantScope';
+import { fullName, patientNameSelect } from './patientName';
 import type { TenantContext } from '../types';
 import type { PackageCreateInput, PackageDTO, PackageRepository } from '../packageRepository';
 
@@ -12,7 +13,7 @@ const packageSelect = {
   pricePerSessionCents: true,
   notes: true,
   createdAt: true,
-  patient: { select: { fullName: true } },
+  patient: { select: patientNameSelect },
   _count: { select: { payments: true } },
 } as const;
 
@@ -24,7 +25,7 @@ type PackageRow = {
   pricePerSessionCents: bigint;
   notes: string | null;
   createdAt: Date;
-  patient: { fullName: string };
+  patient: { firstName: string; lastName: string };
   _count: { payments: number };
 };
 
@@ -32,7 +33,7 @@ function toDTO(row: PackageRow): PackageDTO {
   return {
     id: row.id,
     patientId: row.patientId,
-    patientName: row.patient.fullName,
+    patientName: fullName(row.patient),
     name: row.name,
     totalSessions: row.totalSessions,
     pricePerSessionCents: Number(row.pricePerSessionCents),

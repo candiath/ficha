@@ -31,7 +31,8 @@ import type { Patient } from '@/types/patient';
 import { toast } from 'sonner';
 
 const schema = z.object({
-  fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  firstName: z.string().trim().min(1, 'El nombre es obligatorio'),
+  lastName: z.string().trim().min(1, 'El apellido es obligatorio'),
   birthDate: z.string().optional().or(z.literal('')),
   sex: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
   phone: z.string().optional().or(z.literal('')),
@@ -59,7 +60,8 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      fullName: '',
+      firstName: '',
+      lastName: '',
       birthDate: '',
       sex: undefined,
       phone: '',
@@ -75,7 +77,8 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
   useEffect(() => {
     if (open) {
       form.reset({
-        fullName: patient?.fullName ?? '',
+        firstName: patient?.firstName ?? '',
+        lastName: patient?.lastName ?? '',
         birthDate: patient?.birthDate ? patient.birthDate.slice(0, 10) : '',
         sex: patient?.sex ?? undefined,
         phone: patient?.phone ?? '',
@@ -116,19 +119,34 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
             onSubmit={form.handleSubmit((v) => mutation.mutate(v))}
             className="space-y-4"
           >
-            <FormField
-              control={form.control}
-              name="fullName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Nombre completo *</FormLabel>
-                  <FormControl>
-                    <Input placeholder="María García" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="firstName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nombre *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="María José" autoComplete="off" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="lastName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Apellido *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="García López" autoComplete="off" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField
