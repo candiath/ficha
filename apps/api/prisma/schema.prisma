@@ -739,8 +739,11 @@ model InformedConsent {
   id        String    @id @default(uuid(7)) @db.Uuid
   tenantId  String    @map("tenant_id") @db.Uuid
   patientId String    @unique @map("patient_id") @db.Uuid
-  signed    Boolean   @default(false)
-  signedAt  DateTime? @map("signed_at")
+  // A row exists once the patient signed, so signedAt always has a date.
+  // Signed means signed and not revoked: derived in the DTO, never a column
+  // that could disagree with the dates. Signing again sets a new signedAt and
+  // clears revokedAt.
+  signedAt  DateTime  @map("signed_at")
   revokedAt DateTime? @map("revoked_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -875,7 +878,8 @@ model ClinicalAlert {
 // ─────────────────────────────────────────────────────────────────────────────
 // Escalas funcionales estandarizadas (Oswestry, NDI).
 // responses almacena el mapa {pregunta: valor} como JSON.
-// score e interpretation se calculan en el servidor al momento de guardar.
+// score se calcula en el servidor al momento de guardar; la banda que lo
+// interpreta se deriva de él al leerlo (src/lib/scaleBands.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum ScaleType {
@@ -891,7 +895,6 @@ model FunctionalScale {
   scaleType      ScaleType @map("scale_type")
   responses      Json
   score          Int
-  interpretation String
   appliedAt      DateTime  @default(now()) @map("applied_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 

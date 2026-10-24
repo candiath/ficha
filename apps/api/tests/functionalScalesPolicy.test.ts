@@ -60,6 +60,9 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
     expect(post.status).toBe(201);
     // 3+2+4+1+0 = 10 sobre 25 posibles → 40%
     expect(post.body.data.score).toBe(40);
+    // The band is a code derived from the score; the screen words it.
+    expect(post.body.data.band).toBe('MODERATE');
+    expect(post.body.data).not.toHaveProperty('interpretation');
     expect(post.body.data).not.toHaveProperty('tenantId');
 
     const detail = await request(app)
@@ -69,5 +72,17 @@ describe('escalas funcionales: vigencia del paciente y contrato', () => {
     expect(detail.status).toBe(200);
     expect(detail.body.data).not.toHaveProperty('tenantId');
     expect(detail.body.data.responses).toEqual(responses);
+  });
+
+  // With no answer the percentage divided by zero, and the insert failed.
+  it('refuses a scale with no answers', async () => {
+    const patient = await patientRepo.create(ctx, { firstName: 'Paciente Sin', lastName: 'Respuestas' }, patientAudit('CREATED'));
+
+    const post = await request(app)
+      .post(`/api/patients/${patient.id}/scales`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ scaleType: 'NDI', responses: {} });
+
+    expect(post.status).toBe(400);
   });
 });

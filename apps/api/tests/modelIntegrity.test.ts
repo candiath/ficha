@@ -130,7 +130,6 @@ describe('The database keeps the model consistent', () => {
             scaleType: 'NDI',
             responses: {},
             score: 10,
-            interpretation: 'Discapacidad leve (5–14%)',
           },
         }),
       ).rejects.toThrow(/functional_scales_tenant_id_patient_id_episode_id_fkey/);
@@ -212,6 +211,15 @@ describe('The database keeps the model consistent', () => {
       await expect(
         prisma.patient.create({ data: { tenantId: clinic.tenantId, firstName: '', lastName: 'García' } }),
       ).rejects.toThrow(/patients_first_name_present/);
+    });
+
+    it('refuses a consent revoked before it was signed', async () => {
+      const signedAt = new Date();
+      await expect(
+        prisma.informedConsent.create({
+          data: { tenantId: clinic.tenantId, patientId: patient, signedAt, revokedAt: new Date(signedAt.getTime() - 60_000) },
+        }),
+      ).rejects.toThrow(/informed_consents_revoked_after_signed/);
     });
 
     it('refuses an appointment that ends before it starts', async () => {

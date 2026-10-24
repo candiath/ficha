@@ -1,4 +1,5 @@
 import { forTenant } from '../../lib/tenantScope';
+import { scaleBand } from '../../lib/scaleBands';
 import type { TenantContext } from '../types';
 import type {
   FunctionalScaleCreateInput,
@@ -13,7 +14,6 @@ const summarySelect = {
   id: true,
   scaleType: true,
   score: true,
-  interpretation: true,
   appliedAt: true,
   createdAt: true,
 } as const;
@@ -27,7 +27,7 @@ const detailSelect = {
   responses: true,
 } as const;
 
-type SummaryRow = Omit<FunctionalScaleSummaryDTO, 'appliedAt' | 'createdAt'> & {
+type SummaryRow = Omit<FunctionalScaleSummaryDTO, 'band' | 'appliedAt' | 'createdAt'> & {
   appliedAt: Date;
   createdAt: Date;
 };
@@ -41,6 +41,7 @@ type DetailRow = SummaryRow & {
 function toSummaryDTO(row: SummaryRow): FunctionalScaleSummaryDTO {
   return {
     ...row,
+    band: scaleBand(row.scaleType, row.score),
     appliedAt: row.appliedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
   };
@@ -49,6 +50,7 @@ function toSummaryDTO(row: SummaryRow): FunctionalScaleSummaryDTO {
 function toDTO(row: DetailRow): FunctionalScaleDTO {
   return {
     ...row,
+    band: scaleBand(row.scaleType, row.score),
     appliedAt: row.appliedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
   };
@@ -97,7 +99,6 @@ export const prismaFunctionalScaleRepository: FunctionalScaleRepository = {
           scaleType: input.scaleType,
           responses: input.responses,
           score: input.score,
-          interpretation: input.interpretation,
           ...(input.appliedAt ? { appliedAt: input.appliedAt } : {}),
         },
         select: detailSelect,

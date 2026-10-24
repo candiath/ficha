@@ -6,8 +6,9 @@ import type { AuditBuilder } from './auditLogRepository';
 export interface InformedConsentDTO {
   id: string;
   patientId: string;
+  // Derived: signed and not revoked.
   signed: boolean;
-  signedAt: string | null;
+  signedAt: string;
   revokedAt: string | null;
   createdAt: string;
   updatedAt: string;
