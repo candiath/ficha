@@ -91,7 +91,6 @@ model Tenant {
   informedConsents    InformedConsent[]
   auditLogs           AuditLog[]
   clinicalAlerts      ClinicalAlert[]
-  functionalScales    FunctionalScale[]
   clinicalEpisodes    ClinicalEpisode[]
   sessionEpisodes     SessionEpisode[]
   patientEvents       PatientEvent[]
@@ -452,7 +451,6 @@ model Patient {
   informedConsent    InformedConsent?
   auditLogs          AuditLog[]
   clinicalAlerts     ClinicalAlert[]
-  functionalScales   FunctionalScale[]
   clinicalEpisodes   ClinicalEpisode[]
   appointments       Appointment[]
   events             PatientEvent[]
@@ -486,7 +484,6 @@ model ClinicalEpisode {
   patient           Patient             @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   initialEvaluation InitialEvaluation?
   sessions          SessionEpisode[]
-  functionalScales  FunctionalScale[]
   appointments      Appointment[]
 
   // Referenced by SessionEpisode, so a block cannot name another clinic's or
@@ -873,40 +870,6 @@ model ClinicalAlert {
   @@index([patientId])
   @@index([isRead])
   @@map("clinical_alerts")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Escalas funcionales estandarizadas (Oswestry, NDI).
-// responses almacena el mapa {pregunta: valor} como JSON.
-// score se calcula en el servidor al momento de guardar; la banda que lo
-// interpreta se deriva de él al leerlo (src/lib/scaleBands.ts).
-// ─────────────────────────────────────────────────────────────────────────────
-
-enum ScaleType {
-  OSWESTRY
-  NDI
-}
-
-model FunctionalScale {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  tenantId       String    @map("tenant_id") @db.Uuid
-  patientId      String    @map("patient_id") @db.Uuid
-  episodeId      String?   @map("episode_id") @db.Uuid
-  scaleType      ScaleType @map("scale_type")
-  responses      Json
-  score          Int
-  appliedAt      DateTime  @default(now()) @map("applied_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-
-  tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  episode ClinicalEpisode? @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
-
-  @@index([tenantId])
-  @@index([patientId])
-  @@index([episodeId])
-  @@index([appliedAt])
-  @@map("functional_scales")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

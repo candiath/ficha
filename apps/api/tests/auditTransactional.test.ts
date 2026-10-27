@@ -5,7 +5,6 @@ import { prisma } from '../src/lib/prisma';
 import {
   consentRepo,
   evaluationRepo,
-  functionalScaleRepo,
   patientRepo,
   paymentRepo,
   sessionRepo,
@@ -78,7 +77,6 @@ describe('audit rows are written in the same transaction as their action', () =>
     await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });
-    await prisma.functionalScale.deleteMany({ where: { tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId } });
     await prisma.informedConsent.deleteMany({ where: { tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId } });
@@ -101,7 +99,7 @@ describe('audit rows are written in the same transaction as their action', () =>
     const deprecated = (p: { id: string }) =>
       ({ action: 'CREATED', patientId: p.id, entityId: p.id, params: {} }) as unknown as AuditEntry;
     const freeText = (p: { id: string }) =>
-      ({ action: 'SCALE_APPLIED', patientId: p.id, entityId: p.id, params: { scaleType: 'Oswestry 42%' } }) as unknown as AuditEntry;
+      ({ action: 'PATIENT_UPDATED', patientId: p.id, entityId: p.id, params: { changedFields: ['Dolor 42%'] } }) as unknown as AuditEntry;
 
     for (const entry of [deprecated, freeText]) {
       const error = await patientRepo.create(ctx, { firstName: 'Rechazada', lastName: 'Test' }, entry).catch((e: unknown) => e);
@@ -205,21 +203,6 @@ describe('audit rows are written in the same transaction as their action', () =>
     ).rejects.toThrow();
 
     expect(await prisma.initialEvaluation.count({ where: { episodeId: episode.id } })).toBe(0);
-  });
-
-  it('a functional scale is not created when its audit row fails', async () => {
-    const patient = await newPatient('Sin Escala');
-
-    await expect(
-      functionalScaleRepo.create(
-        ctx,
-        patient.id,
-        { scaleType: 'NDI', responses: {}, score: 0 },
-        broken,
-      ),
-    ).rejects.toThrow();
-
-    expect(await prisma.functionalScale.count({ where: { patientId: patient.id } })).toBe(0);
   });
 
   it('a clinical session update is rolled back when its audit row fails', async () => {

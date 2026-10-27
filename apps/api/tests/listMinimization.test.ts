@@ -112,7 +112,6 @@ const CLINICAL_MODELS = [
   'InitialEvaluation',
   'Session',
   'SessionEpisode',
-  'FunctionalScale',
   'InformedConsent',
 ] as const;
 
@@ -305,16 +304,6 @@ describe('global lists carry no clinical text', () => {
     createdClinicalModels.add('Session');
     createdClinicalModels.add('SessionEpisode');
 
-    await prisma.functionalScale.create({
-      data: {
-        tenantId,
-        patientId,
-        scaleType: 'OSWESTRY',
-        score: 42,
-        ...(marked('FunctionalScale') as { responses: Prisma.InputJsonValue }),
-      },
-    });
-    createdClinicalModels.add('FunctionalScale');
     await prisma.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
     createdClinicalModels.add('InformedConsent');
 
@@ -370,7 +359,6 @@ describe('global lists carry no clinical text', () => {
     await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
     await prisma.initialEvaluation.deleteMany({ where });
-    await prisma.functionalScale.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patientEvent.deleteMany({ where });
@@ -380,7 +368,7 @@ describe('global lists carry no clinical text', () => {
 
   it('the fixture fills every clinical model', () => {
     expect([...createdClinicalModels].sort()).toEqual([...CLINICAL_MODELS].sort());
-    expect(markers.length).toBeGreaterThan(15);
+    expect(markers.length).toBeGreaterThan(14);
   });
 
   // How to call each probed route, and the fixture rows it must return.

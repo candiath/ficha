@@ -88,10 +88,6 @@ describe('ids UUID', () => {
       );
       expect(evaluacion.status).toBe(404);
       expect(evaluacion.body).toEqual({ error: 'Episodio no encontrado' });
-
-      const escala = await auth(request(app).get(`/api/patients/${patientId}/scales/${MALFORMADO}`));
-      expect(escala.status).toBe(404);
-      expect(escala.body).toEqual({ error: 'Escala no encontrada' });
     });
 
     it('rutas del operador de plataforma', async () => {

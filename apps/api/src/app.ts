@@ -25,7 +25,6 @@ import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
 import tenantRouter from './routes/tenant';
-import functionalScalesRouter from './routes/functionalScales';
 import patientEventsRouter from './routes/patientEvents';
 import usersRouter from './routes/users';
 
@@ -131,7 +130,6 @@ app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', evaluationRou
 app.use('/api/patients/:patientId/sessions', sessionsRouter);
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', consentRouter);
-app.use('/api/patients/:patientId/scales', functionalScalesRouter);
 app.use('/api/patients/:patientId/events', patientEventsRouter);
 app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/packages', packagesRouter);

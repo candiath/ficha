@@ -5,7 +5,6 @@ import {
   PaymentStatus,
   PlatformAction,
   PlatformAuditEntity,
-  ScaleType,
   SessionType,
   UserRole,
 } from '@prisma/client';
@@ -70,7 +69,6 @@ describe('the audit catalog matches the schema', () => {
   // The catalog's lists may hold more (a value the domain dropped keeps its
   // label for the rows that name it), never fewer.
   it.each([
-    ['ScaleType', ScaleType, AUDIT_SCALE_TYPES],
     ['SessionType', SessionType, AUDIT_SESSION_TYPES],
     ['PaymentStatus', PaymentStatus, AUDIT_PAYMENT_STATUSES],
     ['UserRole', UserRole, AUDIT_ROLES],
@@ -109,7 +107,7 @@ describe('the audit catalog matches the schema', () => {
 
 describe('writing is strict', () => {
   it('accepts an action with its parameters', () => {
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'NDI' })).toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE' })).toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['phone'] })).toBeNull();
   });
 
@@ -117,20 +115,21 @@ describe('writing is strict', () => {
     expect(auditEntryProblem('audit_logs', 'VIEWED', {})).toMatch(/unknown/);
     expect(auditEntryProblem('audit_logs', 'CREATED', {})).toMatch(/deprecated/);
     expect(auditEntryProblem('platform_audit_logs', 'USER_ACTIVE_CHANGED', {})).toMatch(/deprecated/);
+    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'NDI' })).toMatch(/deprecated/);
     // A code is unique per table, not across them.
     expect(auditEntryProblem('platform_audit_logs', 'PATIENT_CREATED', {})).toMatch(/unknown/);
   });
 
   it('refuses free text, unknown keys, unknown values and an empty change list', () => {
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'Oswestry 42%' })).not.toBeNull();
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'NDI', score: 42 })).not.toBeNull();
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', {})).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'Fractura de tibia' })).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE', year: 2024 })).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', {})).not.toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: [] })).not.toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['password'] })).not.toBeNull();
   });
 
   it('never repeats the value it refused', () => {
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'juan@x.com' })).not.toContain('juan');
+    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'juan@x.com' })).not.toContain('juan');
   });
 });
 
