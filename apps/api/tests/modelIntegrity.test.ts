@@ -60,7 +60,6 @@ describe('The database keeps the model consistent', () => {
     await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
     await prisma.initialEvaluation.deleteMany({ where });
-    await prisma.functionalScale.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
@@ -118,21 +117,6 @@ describe('The database keeps the model consistent', () => {
           data: { tenantId: clinic.tenantId, patientId: patient, episodeId: otherPatientsEpisode },
         }),
       ).rejects.toThrow(/initial_evaluations_tenant_id_patient_id_episode_id_fkey/);
-    });
-
-    it("refuses a scale on another patient's episode", async () => {
-      await expect(
-        prisma.functionalScale.create({
-          data: {
-            tenantId: clinic.tenantId,
-            patientId: patient,
-            episodeId: otherPatientsEpisode,
-            scaleType: 'NDI',
-            responses: {},
-            score: 10,
-          },
-        }),
-      ).rejects.toThrow(/functional_scales_tenant_id_patient_id_episode_id_fkey/);
     });
 
     it("refuses an appointment with another patient's episode or session, or another clinic's therapist", async () => {
