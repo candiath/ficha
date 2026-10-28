@@ -734,8 +734,11 @@ model InformedConsent {
   id        String    @id @default(uuid(7)) @db.Uuid
   tenantId  String    @map("tenant_id") @db.Uuid
   patientId String    @unique @map("patient_id") @db.Uuid
-  signed    Boolean   @default(false)
-  signedAt  DateTime? @map("signed_at")
+  // A row exists once the patient signed, so signedAt always has a date.
+  // Signed means signed and not revoked: derived in the DTO, never a column
+  // that could disagree with the dates. Signing again sets a new signedAt and
+  // clears revokedAt.
+  signedAt  DateTime  @map("signed_at")
   revokedAt DateTime? @map("revoked_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")

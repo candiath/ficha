@@ -315,7 +315,7 @@ describe('global lists carry no clinical text', () => {
       },
     });
     createdClinicalModels.add('FunctionalScale');
-    await prisma.informedConsent.create({ data: { tenantId, patientId, signed: true, signedAt: new Date() } });
+    await prisma.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
     createdClinicalModels.add('InformedConsent');
 
     const pkg = await prisma.sessionPackage.create({

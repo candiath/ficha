@@ -191,7 +191,7 @@ describe('audit rows are written in the same transaction as their action', () =>
     await expect(consentRepo.revoke(ctx, patient.id, broken)).rejects.toThrow();
 
     const row = await prisma.informedConsent.findFirstOrThrow({ where: { patientId: patient.id } });
-    expect(row).toMatchObject({ signed: true, revokedAt: null });
+    expect(row).toMatchObject({ revokedAt: null });
   });
 
   it('an initial evaluation is not saved when its audit row fails', async () => {

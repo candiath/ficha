@@ -204,6 +204,15 @@ describe('The database keeps the model consistent', () => {
       await expect(payment({ method: 'CASH' })).rejects.toThrow(/payments_paid_has_method/);
     });
 
+    it('refuses a consent revoked before it was signed', async () => {
+      const signedAt = new Date();
+      await expect(
+        prisma.informedConsent.create({
+          data: { tenantId: clinic.tenantId, patientId: patient, signedAt, revokedAt: new Date(signedAt.getTime() - 60_000) },
+        }),
+      ).rejects.toThrow(/informed_consents_revoked_after_signed/);
+    });
+
     it('refuses an appointment that ends before it starts', async () => {
       const startsAt = new Date(Date.now() + DAY_MS);
       await expect(
