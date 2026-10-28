@@ -37,7 +37,7 @@ describe('historial de auditoría de un paciente', () => {
     user = await clinic.createUser({ role: 'ADMIN' });
     ({ token, authSessionId } = await createTestAuthSession(user));
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Auditado' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Auditado' },
       select: { id: true },
     });
   });
@@ -81,10 +81,10 @@ describe('historial de auditoría de un paciente', () => {
 
   it('lista el historial del paciente, de lo más nuevo a lo más viejo', async () => {
     const propio = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Orden' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Orden' },
       select: { id: true },
     });
-    await entrada(propio.id, clinic.tenantId, 'fullName', new Date('2025-01-01T10:00:00Z'));
+    await entrada(propio.id, clinic.tenantId, 'firstName', new Date('2025-01-01T10:00:00Z'));
     await entrada(propio.id, clinic.tenantId, 'phone', new Date('2025-02-01T10:00:00Z'));
     await entrada(propio.id, clinic.tenantId, 'occupation', new Date('2025-03-01T10:00:00Z'));
 
@@ -94,13 +94,13 @@ describe('historial de auditoría de un paciente', () => {
     expect((res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0])).toEqual([
       'occupation',
       'phone',
-      'fullName',
+      'firstName',
     ]);
   });
 
   it('cada entrada dice qué se tocó y quién, con códigos, y no expone el tenant ni la sesión', async () => {
     const propio = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Forma' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Forma' },
       select: { id: true },
     });
     await entrada(propio.id, clinic.tenantId, 'phone', new Date());
@@ -126,7 +126,7 @@ describe('historial de auditoría de un paciente', () => {
 
   it('no mezcla el historial de otro paciente de la misma clínica', async () => {
     const otro = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Vecino' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Vecino' },
       select: { id: true },
     });
     await entrada(patient.id, clinic.tenantId, 'insurancePlan', new Date());
@@ -143,10 +143,10 @@ describe('historial de auditoría de un paciente', () => {
     const otra = await createTestClinic();
     try {
       const ajeno = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
-      await entrada(ajeno.id, otra.tenantId, 'fullName', new Date(), null);
+      await entrada(ajeno.id, otra.tenantId, 'firstName', new Date(), null);
 
       // Con el id exacto del paciente de la otra clínica: lo que filtra es el
       // guard de tenant, no que el id sea difícil de adivinar.
@@ -175,7 +175,7 @@ describe('historial de auditoría de un paciente', () => {
     // Misma línea que #72: el borrado es lógico y el historial es pasado, no
     // trabajo pendiente. Lo que ya pasó se sigue pudiendo auditar.
     const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Borrado' },
       select: { id: true },
     });
     await entrada(borrado.id, clinic.tenantId, 'referringDoctor', new Date());
@@ -194,7 +194,7 @@ describe('historial de auditoría de un paciente', () => {
     // El resto del archivo escribe las filas a mano; este test cierra el
     // circuito: crear y editar por HTTP tiene que verse acá.
     const creado = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente Recién Creado',
+      firstName: 'Paciente Recién', lastName: 'Creado',
     });
     expect(creado.status).toBe(201);
     const id = creado.body.data.id as string;

@@ -76,7 +76,7 @@ describe('filtros de query validados', () => {
 
   it('el filtro por episodio de las sesiones también se valida', async () => {
     const patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Filtros' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Filtros' },
       select: { id: true },
     });
 

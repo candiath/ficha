@@ -1,7 +1,6 @@
 import type { PaymentMethod } from '@/types/payment';
 import type { UserRole } from '@ficha/shared';
 import type { PatientEventKind } from '@/types/patientEvent';
-import type { ScaleBand, ScaleType } from '@/types/functionalScale';
 
 export const SEX_LABELS: Record<string, string> = {
   MALE: 'Masculino',
@@ -111,26 +110,3 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   THERAPIST: 'Fisioterapeuta',
 };
 
-// A scale's band, worded with the range it means on that scale: the same code
-// is a different range on each (MODERATE is 21–40 % on the Oswestry and
-// 15–24 % on the NDI).
-const SCALE_BAND_LABELS: Record<ScaleType, Partial<Record<ScaleBand, string>>> = {
-  OSWESTRY: {
-    MINIMAL: 'Mínima discapacidad (0–20%)',
-    MODERATE: 'Discapacidad moderada (21–40%)',
-    SEVERE: 'Discapacidad severa (41–60%)',
-    VERY_SEVERE: 'Discapacidad muy severa (61–80%)',
-    MAXIMUM: 'Discapacidad máxima (81–100%)',
-  },
-  NDI: {
-    NONE: 'Sin discapacidad (0–4%)',
-    MILD: 'Discapacidad leve (5–14%)',
-    MODERATE: 'Discapacidad moderada (15–24%)',
-    SEVERE: 'Discapacidad severa (25–34%)',
-    COMPLETE: 'Discapacidad completa (≥35%)',
-  },
-};
-
-export function scaleBandLabel(scaleType: ScaleType, band: ScaleBand): string {
-  return SCALE_BAND_LABELS[scaleType][band] ?? band;
-}

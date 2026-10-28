@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { AUDIT_SESSION_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
+import { fullName, patientNameSelect } from './patientName';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type { SessionType } from '@prisma/client';
@@ -77,7 +78,7 @@ const sessionIndexSelect = {
   sessionDate: true,
   createdAt: true,
   updatedAt: true,
-  patient: { select: { id: true, fullName: true } },
+  patient: { select: { id: true, ...patientNameSelect } },
 } as const;
 
 type SessionRow = Prisma.SessionGetPayload<{ select: typeof sessionSelect }>;
@@ -155,6 +156,7 @@ function mergeBlocks(
 function toIndexItemDTO(row: SessionIndexRow): SessionIndexItemDTO {
   return {
     ...row,
+    patient: { id: row.patient.id, fullName: fullName(row.patient) },
     sessionDate: row.sessionDate.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

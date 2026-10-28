@@ -33,7 +33,7 @@ describe('creación atómica de sesión con pago', () => {
     tokenA = await createTestToken(userA);
 
     patientA = await prisma.patient.create({
-      data: { tenantId: clinicA.tenantId, fullName: 'Paciente Atómico' },
+      data: { tenantId: clinicA.tenantId, firstName: 'Paciente', lastName: 'Atómico' },
       select: { id: true },
     });
     episodeA = await prisma.clinicalEpisode.create({

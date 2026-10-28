@@ -36,7 +36,7 @@ describe('turnos', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Turnos' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Turnos' },
       select: { id: true },
     });
     episode = await prisma.clinicalEpisode.create({
@@ -352,7 +352,7 @@ describe('turnos', () => {
 
   it('rechaza vincular el turno de otro paciente', async () => {
     const otro = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Sin Turno' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Sin', lastName: 'Turno' },
       select: { id: true },
     });
     const creado = await agendar({ date: fechaClinica(-3), time: '12:00' });
@@ -411,7 +411,7 @@ describe('turnos', () => {
 
   it('rechaza un episodio que no es del paciente', async () => {
     const otro = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro Paciente' },
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
       select: { id: true },
     });
     const episodioAjeno = await prisma.clinicalEpisode.create({
@@ -450,7 +450,7 @@ describe('turnos', () => {
       const otroUser = await otra.createUser();
       const otroToken = await createTestToken(otroUser);
       const otroPaciente = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
 

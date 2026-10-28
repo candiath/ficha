@@ -47,11 +47,11 @@ describe('CRUD de sesiones por HTTP', () => {
     token = await createTestToken(user);
 
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente CRUD Sesiones' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente CRUD', lastName: 'Sesiones' },
       select: { id: true },
     });
     otroPaciente = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro Paciente Misma Clínica' },
+      data: { tenantId: clinic.tenantId, firstName: 'Otro Paciente Misma', lastName: 'Clínica' },
       select: { id: true },
     });
 
@@ -76,7 +76,7 @@ describe('CRUD de sesiones por HTTP', () => {
     });
 
     const patientB = await prisma.patient.create({
-      data: { tenantId: clinicB.tenantId, fullName: 'Paciente de B' },
+      data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
       select: { id: true },
     });
     packageDeB = await prisma.sessionPackage.create({
@@ -614,7 +614,7 @@ describe('CRUD de sesiones por HTTP', () => {
   // van las otras dos escrituras, que también pasan por patientRepo.exists.
   it('PATCH y DELETE de una sesión de un paciente borrado dan 404 y no tocan nada', async () => {
     const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado Con Sesión' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado Con', lastName: 'Sesión' },
       select: { id: true },
     });
     const sesion = await crearSesion(

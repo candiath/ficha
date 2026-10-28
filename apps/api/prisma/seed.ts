@@ -199,7 +199,8 @@ async function main() {
     create: {
       id: devId('dev-patient-001'),
       tenantId: tenant.id,
-      fullName: 'María García',
+      firstName: 'María',
+      lastName: 'García',
       phone: '+54 11 1234-5678',
       sex: 'FEMALE',
       occupation: 'Docente',
@@ -455,7 +456,7 @@ async function main() {
   // ════════════════════════════════════════════════════════════════════════
   // PACIENTE DEMO 2 — Javier Rodríguez
   // Historia clínica completa: cervicalgia crónica + hernia C5-C6
-  // Abarca: evaluación extendida, 8 sesiones, 3 escalas NDI,
+  // Abarca: evaluación extendida, 8 sesiones,
   //         consentimiento, paquete + cobros, alertas y auditoría.
   // ════════════════════════════════════════════════════════════════════════
 
@@ -465,7 +466,8 @@ async function main() {
     create: {
       id: devId('dev-patient-002'),
       tenantId: tenant.id,
-      fullName: 'Javier Rodríguez',
+      firstName: 'Javier',
+      lastName: 'Rodríguez',
       birthDate: new Date('1980-08-15'),
       sex: 'MALE',
       phone: '+54 11 4567-8901',
@@ -746,65 +748,19 @@ async function main() {
     });
   }
 
-  // ── Escalas NDI (3 mediciones — muestra progresión) ──────────────────────
-  //  Fórmula: score = round((sum / (n * 5)) * 100)
-  //  Escala 1 — 2025-12-05: sum=30/50 → 60% — Discapacidad completa
-  //  Escala 2 — 2026-01-30: sum=18/50 → 36% — Discapacidad completa (mejoría significativa)
-  //  Escala 3 — 2026-03-06: sum= 9/50 → 18% — Discapacidad moderada (meta casi lograda)
-  const scalesP2 = [
-    {
-      id: devId('dev-scale-p2-001'),
-      appliedAt: '2025-12-05T09:30:00.000Z',
-      responses: { q1: 4, q2: 3, q3: 3, q4: 4, q5: 4, q6: 3, q7: 3, q8: 2, q9: 3, q10: 1 },
-      score: 60,
-    },
-    {
-      id: devId('dev-scale-p2-002'),
-      appliedAt: '2026-01-30T10:30:00.000Z',
-      responses: { q1: 2, q2: 2, q3: 2, q4: 2, q5: 3, q6: 2, q7: 2, q8: 1, q9: 2, q10: 0 },
-      score: 36,
-    },
-    {
-      id: devId('dev-scale-p2-003'),
-      appliedAt: '2026-03-06T10:30:00.000Z',
-      responses: { q1: 1, q2: 1, q3: 1, q4: 1, q5: 2, q6: 1, q7: 1, q8: 0, q9: 1, q10: 0 },
-      score: 18,
-    },
-  ];
-
-  for (const sc of scalesP2) {
-    await prisma.functionalScale.upsert({
-      where: { id: sc.id },
-      update: {},
-      create: {
-        id: sc.id,
-        tenantId: tenant.id,
-        patientId: p2.id,
-        episodeId: episodeP2.id,
-        scaleType: 'NDI',
-        responses: sc.responses,
-        score: sc.score,
-        appliedAt: new Date(sc.appliedAt),
-      },
-    });
-  }
-
   // ── Auditoría ────────────────────────────────────────────────────────────
   const auditLogsP2 = [
     { id: devId('dev-audit-p2-001'), entity: 'PATIENT', entityId: p2.id, action: 'PATIENT_CREATED', params: {}, date: '2025-12-01T09:00:00.000Z' },
     { id: devId('dev-audit-p2-002'), entity: 'CONSENT', entityId: devId('dev-consent-002'), action: 'CONSENT_SIGNED', params: {}, date: '2025-12-05T09:00:00.000Z' },
     { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_CREATED', params: {}, date: '2025-12-05T09:30:00.000Z' },
     { id: devId('dev-audit-p2-004'), entity: 'SESSION', entityId: devId('dev-session-p2-001'), action: 'SESSION_RECORDED', params: {}, date: '2025-12-05T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-005'), entity: 'SCALE', entityId: devId('dev-scale-p2-001'), action: 'SCALE_APPLIED', params: { scaleType: 'NDI' }, date: '2025-12-05T09:35:00.000Z' },
     { id: devId('dev-audit-p2-006'), entity: 'SESSION', entityId: devId('dev-session-p2-002'), action: 'SESSION_RECORDED', params: {}, date: '2025-12-12T11:00:00.000Z' },
     { id: devId('dev-audit-p2-007'), entity: 'SESSION', entityId: devId('dev-session-p2-003'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-09T11:00:00.000Z' },
     { id: devId('dev-audit-p2-008'), entity: 'SESSION', entityId: devId('dev-session-p2-004'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-16T11:00:00.000Z' },
     { id: devId('dev-audit-p2-009'), entity: 'SESSION', entityId: devId('dev-session-p2-005'), action: 'NOTE_RECORDED', params: {}, date: '2026-01-23T11:00:00.000Z' },
     { id: devId('dev-audit-p2-010'), entity: 'SESSION', entityId: devId('dev-session-p2-006'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-30T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-011'), entity: 'SCALE', entityId: devId('dev-scale-p2-002'), action: 'SCALE_APPLIED', params: { scaleType: 'NDI' }, date: '2026-01-30T10:35:00.000Z' },
     { id: devId('dev-audit-p2-012'), entity: 'SESSION', entityId: devId('dev-session-p2-007'), action: 'SESSION_RECORDED', params: {}, date: '2026-02-06T11:00:00.000Z' },
     { id: devId('dev-audit-p2-013'), entity: 'SESSION', entityId: devId('dev-session-p2-008'), action: 'SESSION_RECORDED', params: {}, date: '2026-03-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-014'), entity: 'SCALE', entityId: devId('dev-scale-p2-003'), action: 'SCALE_APPLIED', params: { scaleType: 'NDI' }, date: '2026-03-06T10:35:00.000Z' },
     { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale', 'notes'] }, date: '2026-01-30T10:00:00.000Z' },
   ] as const;
 
@@ -824,8 +780,8 @@ async function main() {
   console.log('✓ Seed completado');
   console.log(`  Tenant:    ${tenant.name} (slug: ${tenant.slug})`);
   console.log(`  Usuario:   ${user.email} / password123`);
-  console.log(`  Paciente 1: ${patient.fullName} — episodio ${episode1.id}`);
-  console.log(`  Paciente 2: ${p2.fullName} — episodio ${episodeP2.id} (historia clínica completa)`);
+  console.log(`  Paciente 1: ${patient.firstName} ${patient.lastName} — episodio ${episode1.id}`);
+  console.log(`  Paciente 2: ${p2.firstName} ${p2.lastName} — episodio ${episodeP2.id} (historia clínica completa)`);
 }
 
 main()

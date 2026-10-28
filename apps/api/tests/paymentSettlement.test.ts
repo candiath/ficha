@@ -60,7 +60,7 @@ describe('cobros de monto cero, de punta a punta', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Bonificado' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Bonificado' },
       select: { id: true },
     });
     // Every session treats an episode (#238).
@@ -199,7 +199,7 @@ describe('cobros de monto cero, de punta a punta', () => {
 
     it('no alerta por un pendiente de $0', async () => {
       const paciente = await prisma.patient.create({
-        data: { tenantId: clinic.tenantId, fullName: 'Paciente Sin Deuda' },
+        data: { tenantId: clinic.tenantId, firstName: 'Paciente Sin', lastName: 'Deuda' },
         select: { id: true },
       });
       await cobroPendienteViejo(paciente.id, 0);
@@ -214,7 +214,7 @@ describe('cobros de monto cero, de punta a punta', () => {
 
     it('no cuenta el de $0 al agrupar con una deuda real', async () => {
       const paciente = await prisma.patient.create({
-        data: { tenantId: clinic.tenantId, fullName: 'Paciente Con Una Deuda' },
+        data: { tenantId: clinic.tenantId, firstName: 'Paciente Con Una', lastName: 'Deuda' },
         select: { id: true },
       });
       await cobroPendienteViejo(paciente.id, 0);

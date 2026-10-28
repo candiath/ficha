@@ -65,10 +65,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'PATCH /api/patients/:patientId/events/:eventId': audited('audit_logs'),
   'DELETE /api/patients/:patientId/events/:eventId': audited('audit_logs'),
 
-  // Functional scales (routes/functionalScales.ts)
-  'POST /api/patients/:patientId/scales': audited('audit_logs'),
-  'DELETE /api/patients/:patientId/scales/:scaleId': debt('clinical-audit-coverage'),
-
   // Packages (routes/packages.ts)
   'POST /api/packages': debt('clinical-audit-coverage'),
   'DELETE /api/packages/:id': debt('clinical-audit-coverage'),

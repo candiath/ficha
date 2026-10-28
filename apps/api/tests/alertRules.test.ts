@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AlertType, User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
 
 // El motor de alertas corre al LEER las alertas, no por un cron: el plan free
 // de Render no tiene uno. Antes la única regla que existía vivía en el GET de
@@ -51,7 +51,7 @@ describe('motor de alertas', () => {
 
   async function crearPaciente(fullName: string) {
     return prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName },
+      data: { tenantId: clinic.tenantId, ...splitName(fullName) },
       select: { id: true },
     });
   }
@@ -281,7 +281,7 @@ describe('motor de alertas', () => {
     try {
       const otroUser = await otra.createUser();
       const otroPaciente = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Ajeno' },
+        data: { tenantId: otra.tenantId, firstName: 'Ajeno', lastName: 'Test' },
         select: { id: true },
       });
       await prisma.clinicalEpisode.create({

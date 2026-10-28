@@ -37,7 +37,7 @@ describe('validación de fecha de sesión en la API', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Fecha' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Fecha' },
       select: { id: true },
     });
     // Every session treats an episode (#238).

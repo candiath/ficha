@@ -33,7 +33,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
     user = await clinic.createUser({ role: 'ADMIN' });
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Episodios' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Episodios' },
       select: { id: true },
     });
   });
@@ -115,7 +115,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
     const otra = await createTestClinic();
     try {
       const ajeno = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
       await prisma.clinicalEpisode.create({
@@ -135,7 +135,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
   it('un paciente borrado no lista ni abre episodios nuevos', async () => {
     const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado', deletedAt: new Date() },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Borrado', deletedAt: new Date() },
       select: { id: true },
     });
 
@@ -321,7 +321,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
   it('un episodio de otro paciente de la misma clínica es un 404, no un update', async () => {
     const otroPaciente = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro Paciente' },
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
       select: { id: true },
     });
     const ajeno = await prisma.clinicalEpisode.create({

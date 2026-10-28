@@ -1,5 +1,8 @@
 export interface Patient {
   id: string;
+  firstName: string;
+  lastName: string;
+  // "firstName lastName", built by the API for display.
   fullName: string;
   birthDate: string | null;
   sex: 'MALE' | 'FEMALE' | 'OTHER' | null;
@@ -14,7 +17,8 @@ export interface Patient {
 }
 
 export interface PatientFormData {
-  fullName: string;
+  firstName: string;
+  lastName: string;
   birthDate?: string | null;
   sex?: 'MALE' | 'FEMALE' | 'OTHER' | null;
   phone?: string | null;

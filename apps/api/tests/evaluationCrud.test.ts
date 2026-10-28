@@ -31,7 +31,7 @@ describe('CRUD de la evaluación inicial', () => {
     user = await clinic.createUser({ role: 'ADMIN' });
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Evaluación' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Evaluación' },
       select: { id: true },
     });
     episode = await nuevoEpisodio();
@@ -242,7 +242,7 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('un episodio de otro paciente de la misma clínica es 404: no se escribe nada', async () => {
     const otroPaciente = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Vecino' },
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Vecino' },
       select: { id: true },
     });
     const suEpisodio = await prisma.clinicalEpisode.create({
@@ -262,7 +262,7 @@ describe('CRUD de la evaluación inicial', () => {
     const otra = await createTestClinic();
     try {
       const ajeno = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
       const suEpisodio = await prisma.clinicalEpisode.create({

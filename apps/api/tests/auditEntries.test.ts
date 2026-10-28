@@ -25,7 +25,7 @@ describe('audit rows record codes, never values', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Coded Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Coded', lastName: 'Patient' },
       select: { id: true },
     });
   });
@@ -37,7 +37,6 @@ describe('audit rows record codes, never values', () => {
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
-    await prisma.functionalScale.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId } });
     await prisma.informedConsent.deleteMany({ where: { tenantId } });
@@ -108,18 +107,6 @@ describe('audit rows record codes, never values', () => {
     ]);
   });
 
-  it('a scale records its type, not its score', async () => {
-    const res = await auth(request(app).post(`/api/patients/${patient.id}/scales`)).send({
-      scaleType: 'OSWESTRY',
-      responses: { q1: 3, q2: 2, q3: 4, q4: 1, q5: 0 },
-    });
-    expect(res.status).toBe(201);
-
-    expect(await rowsOf(res.body.data.id)).toEqual([
-      { action: 'SCALE_APPLIED', params: { scaleType: 'OSWESTRY' }, actorType: 'USER', userId: user.id },
-    ]);
-  });
-
   it('a payment records its status, not its amount', async () => {
     const session = await createSession();
     const res = await auth(request(app).post('/api/payments')).send({
@@ -167,7 +154,7 @@ describe('audit rows record codes, never values', () => {
       status: payment.status,
     });
     const samePatient = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
-      fullName: 'Coded Patient',
+      firstName: 'Coded', lastName: 'Patient',
     });
     expect(samePayment.status).toBe(200);
     expect(samePatient.status).toBe(200);

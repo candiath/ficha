@@ -28,9 +28,9 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
     ctxA = await createTestContext(clinicA.tenantId, userA);
     ctxB = await createTestContext(clinicB.tenantId, userB);
 
-    patientA = await patientRepo.create(ctxA, { fullName: 'Paciente A' }, patientAudit('CREATED'));
-    patientA2 = await patientRepo.create(ctxA, { fullName: 'Paciente A2' }, patientAudit('CREATED'));
-    patientB = await patientRepo.create(ctxB, { fullName: 'Paciente B' }, patientAudit('CREATED'));
+    patientA = await patientRepo.create(ctxA, { firstName: 'Paciente', lastName: 'A' }, patientAudit('CREATED'));
+    patientA2 = await patientRepo.create(ctxA, { firstName: 'Paciente', lastName: 'A2' }, patientAudit('CREATED'));
+    patientB = await patientRepo.create(ctxB, { firstName: 'Paciente', lastName: 'B' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {

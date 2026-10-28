@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, type TestClinic } from './helpers';
+import { createTestClinic, type TestClinic, splitName } from './helpers';
 
 // The database refuses what the API already refuses (20261024120000_model_integrity):
 // rows that join two clinics or two patients, and values out of range. These
@@ -29,7 +29,7 @@ describe('The database keeps the model consistent', () => {
     const tenantId = clinic.tenantId;
 
     const createPatient = async (fullName: string) =>
-      (await prisma.patient.create({ data: { tenantId, fullName }, select: { id: true } })).id;
+      (await prisma.patient.create({ data: { tenantId, ...splitName(fullName) }, select: { id: true } })).id;
     patient = await createPatient('Paciente');
     otherPatient = await createPatient('Otro paciente');
 
@@ -60,7 +60,6 @@ describe('The database keeps the model consistent', () => {
     await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
     await prisma.initialEvaluation.deleteMany({ where });
-    await prisma.functionalScale.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
@@ -118,21 +117,6 @@ describe('The database keeps the model consistent', () => {
           data: { tenantId: clinic.tenantId, patientId: patient, episodeId: otherPatientsEpisode },
         }),
       ).rejects.toThrow(/initial_evaluations_tenant_id_patient_id_episode_id_fkey/);
-    });
-
-    it("refuses a scale on another patient's episode", async () => {
-      await expect(
-        prisma.functionalScale.create({
-          data: {
-            tenantId: clinic.tenantId,
-            patientId: patient,
-            episodeId: otherPatientsEpisode,
-            scaleType: 'NDI',
-            responses: {},
-            score: 10,
-          },
-        }),
-      ).rejects.toThrow(/functional_scales_tenant_id_patient_id_episode_id_fkey/);
     });
 
     it("refuses an appointment with another patient's episode or session, or another clinic's therapist", async () => {
@@ -202,6 +186,15 @@ describe('The database keeps the model consistent', () => {
       await expect(payment({ status: 'PAID', paidAt: new Date() })).rejects.toThrow(/payments_paid_has_method/);
       await expect(payment({ paidAt: new Date() })).rejects.toThrow(/payments_paid_has_date/);
       await expect(payment({ method: 'CASH' })).rejects.toThrow(/payments_paid_has_method/);
+    });
+
+    it('refuses a patient with a blank surname or given name', async () => {
+      await expect(
+        prisma.patient.create({ data: { tenantId: clinic.tenantId, firstName: 'Ana', lastName: '  ' } }),
+      ).rejects.toThrow(/patients_last_name_present/);
+      await expect(
+        prisma.patient.create({ data: { tenantId: clinic.tenantId, firstName: '', lastName: 'García' } }),
+      ).rejects.toThrow(/patients_first_name_present/);
     });
 
     it('refuses a consent revoked before it was signed', async () => {

@@ -28,7 +28,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     ctx = await createTestContext(clinic.tenantId, user);
-    patient = await patientRepo.create(ctx, { fullName: 'Paciente PATCH parcial' }, patientAudit('CREATED'));
+    patient = await patientRepo.create(ctx, { firstName: 'Paciente PATCH', lastName: 'parcial' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {

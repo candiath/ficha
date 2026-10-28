@@ -44,11 +44,11 @@ describe('A session treats several episodes, each with its own block', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Dos problemas' },
+      data: { tenantId: clinic.tenantId, firstName: 'Dos', lastName: 'problemas' },
       select: { id: true },
     });
     otherPatient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro paciente' },
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'paciente' },
       select: { id: true },
     });
     back = await createEpisode(patient.id, 'Lumbalgia');

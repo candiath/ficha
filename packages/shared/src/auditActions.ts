@@ -21,6 +21,8 @@ import { z } from 'zod';
 // tests/auditCatalog.test.ts checks that every value of the mirrored Prisma
 // enum is here.
 
+// No Prisma enum since the functional scales were removed (2026-10-27): kept
+// for the SCALE_APPLIED rows.
 export const AUDIT_SCALE_TYPES = {
   OSWESTRY: 'Oswestry (ODI)',
   NDI: 'Neck Disability Index (NDI)',
@@ -60,7 +62,8 @@ export const AUDIT_ROLES = {
 // value. A JSON column is one name, and so is a relation set.
 
 export const AUDIT_PATIENT_FIELDS = {
-  fullName: 'el nombre',
+  firstName: 'el nombre',
+  lastName: 'el apellido',
   birthDate: 'la fecha de nacimiento',
   sex: 'el sexo',
   phone: 'el teléfono',
@@ -248,7 +251,10 @@ export const AUDIT_ACTIONS = {
           : 'Actualizó la evaluación inicial';
       },
     }),
+    // The functional scales (Oswestry, NDI) were removed on 2026-10-27: no screen
+    // had offered them since June.
     SCALE_APPLIED: action({
+      deprecated: true,
       entity: 'SCALE',
       kind: 'create',
       params: { scaleType: code(AUDIT_SCALE_TYPES) },

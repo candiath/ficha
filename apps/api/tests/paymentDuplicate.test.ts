@@ -43,7 +43,7 @@ describe('pago duplicado por sesión', () => {
     tokenA = await createTestToken(userA);
 
     patientA = await prisma.patient.create({
-      data: { tenantId: clinicA.tenantId, fullName: 'Paciente Pago Dup' },
+      data: { tenantId: clinicA.tenantId, firstName: 'Paciente Pago', lastName: 'Dup' },
       select: { id: true },
     });
     sessionA = await createSession();

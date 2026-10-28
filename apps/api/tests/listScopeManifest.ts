@@ -88,6 +88,8 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/patients': probed(
     {
       id: true,
+      firstName: true,
+      lastName: true,
       fullName: true,
       birthDate: true,
       sex: true,
