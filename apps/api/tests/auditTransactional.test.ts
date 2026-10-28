@@ -214,7 +214,7 @@ describe('audit rows are written in the same transaction as their action', () =>
       functionalScaleRepo.create(
         ctx,
         patient.id,
-        { scaleType: 'NDI', responses: {}, score: 0, interpretation: 'test' },
+        { scaleType: 'NDI', responses: {}, score: 0 },
         broken,
       ),
     ).rejects.toThrow();

@@ -130,7 +130,6 @@ describe('The database keeps the model consistent', () => {
             scaleType: 'NDI',
             responses: {},
             score: 10,
-            interpretation: 'Discapacidad leve (5–14%)',
           },
         }),
       ).rejects.toThrow(/functional_scales_tenant_id_patient_id_episode_id_fkey/);
