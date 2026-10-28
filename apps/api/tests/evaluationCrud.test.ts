@@ -192,18 +192,18 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('el GET devuelve lo último que se guardó', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ flexibilityNotes: 'Isquiotibiales cortos' });
+    await auth(request(app).put(url(propio.id))).send({ physicalActivity: 'Camina 30 minutos' });
 
     const res = await auth(request(app).get(url(propio.id)));
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ episodeId: propio.id, flexibilityNotes: 'Isquiotibiales cortos' });
+    expect(res.body.data).toMatchObject({ episodeId: propio.id, physicalActivity: 'Camina 30 minutos' });
   });
 
-  // The RPG fields and the pain's onset left the evaluation (#238): a client
+  // The RPG fields, the pain's onset and the flexibility test left the evaluation (#238): a client
   // still sending one gets a 400, not a silent drop.
   it('rechaza un campo que ya no es de la evaluación', async () => {
-    for (const campo of ['globalPosture', 'postureFamilies', 'painAppearanceMoment', 'reasonForConsultation']) {
+    for (const campo of ['globalPosture', 'postureFamilies', 'painAppearanceMoment', 'reasonForConsultation', 'flexibilityNotes']) {
       const res = await auth(request(app).put(url())).send({ [campo]: 'algo' });
       expect(res.status, campo).toBe(400);
     }

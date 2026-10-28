@@ -51,7 +51,6 @@ const evalSchema = z.object({
   patientNarrative: z.string(),
   otherHistory: z.string(),
   notes: z.string(),
-  flexibilityNotes: z.string(),
   physicalActivity: z.string(),
   painFrequency: z.string(),
   evaScale: z.string().optional().or(z.literal('')),
@@ -216,7 +215,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
       patientNarrative: '',
       otherHistory: '',
       notes: '',
-      flexibilityNotes: '',
       physicalActivity: '',
       painFrequency: '',
       evaScale: '',
@@ -248,7 +246,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         patientNarrative: evaluation.patientNarrative ?? '',
         otherHistory: evaluation.otherHistory ?? '',
         notes: evaluation.notes ?? '',
-        flexibilityNotes: evaluation.flexibilityNotes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
         painFrequency: evaluation.painFrequency ?? '',
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
@@ -266,7 +263,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         otherHistory: values.otherHistory,
         notes: values.notes,
         retractionMap: retractionMap.length > 0 ? retractionMap : null,
-        flexibilityNotes: values.flexibilityNotes,
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
@@ -416,28 +412,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   )}
                 />
               </div>
-
-              {/* Notas de flexibilidad y acortamientos */}
-              <FormField
-                control={form.control}
-                name="flexibilityNotes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Test de flexibilidad / acortamientos" dirty={dirtyFields.flexibilityNotes} /></FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Isquiotibiales, psoas, trapecio superior..."
-                        className="resize-none"
-                        rows={2}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-
 
               <Separator />
 

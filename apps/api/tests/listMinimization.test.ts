@@ -368,7 +368,9 @@ describe('global lists carry no clinical text', () => {
 
   it('the fixture fills every clinical model', () => {
     expect([...createdClinicalModels].sort()).toEqual([...CLINICAL_MODELS].sort());
-    expect(markers.length).toBeGreaterThan(14);
+    // A sanity floor that marked() wrote markers at all, not a count of the
+    // clinical columns: removing a column must not break it.
+    expect(markers.length).toBeGreaterThan(10);
   });
 
   // How to call each probed route, and the fixture rows it must return.
