@@ -141,7 +141,7 @@ None of them can be declared in `schema.prisma`; they go as hand-written SQL in 
 - "Momento de aparición del dolor" removed; the onset recorded as an event.
 - RPG fields removed from `initial_evaluations` and from the form, with `postureFamilies.ts`, its component, and the JSON section of `CLAUDE.md` rewritten around another example.
 - The renames: "Relato del paciente", "Otros antecedentes".
-- Whatever the client decides about the retraction map, the flexibility test and the foot evaluation, if it removes or renames.
+- Whatever the client decides about the retraction map, if it removes or renames. The foot evaluation and the flexibility / shortening test were removed.
 
 Each new piece follows the usual rules: catalog actions, the audit and list manifests, the tenant guard, `idParam`.
 
@@ -158,4 +158,4 @@ Each new piece follows the usual rules: catalog actions, the audit and list mani
 
 ## Open questions
 
-- **For the client**: for the retraction map, the flexibility / shortening test and the foot evaluation, whether each one is used in conventional physiotherapy (it stays in the initial evaluation), only in RPG (it moves to the RPG assessment), or not at all (it is removed). For the map, a conventional alternative: a pain body chart.
+- **For the client**: for the retraction map (the foot evaluation and the flexibility / shortening test are already removed), whether it is used in conventional physiotherapy (it stays in the initial evaluation), only in RPG (it moves to the RPG assessment), or not at all (it is removed). For the map, a conventional alternative: a pain body chart.

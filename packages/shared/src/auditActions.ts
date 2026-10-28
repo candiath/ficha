@@ -79,7 +79,6 @@ export const AUDIT_EVALUATION_FIELDS = {
   otherHistory: 'los otros antecedentes',
   notes: 'las notas',
   retractionMap: 'el mapa de retracciones',
-  flexibilityNotes: 'la flexibilidad',
   physicalActivity: 'la actividad física',
   painFrequency: 'la frecuencia del dolor',
   evaScale: 'la escala EVA',
