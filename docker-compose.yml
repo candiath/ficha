@@ -1,12 +1,12 @@
-# A throwaway Postgres for the API's integration tests (`npm test`,
-# docs/infra.md#local-test-database). Only for tests: it runs on tmpfs, so a
-# `docker compose down` (or a Docker restart) leaves it empty, and the test
-# script migrates it again on the next run.
+# A throwaway Postgres for the API's integration tests (`npm test`, locally
+# and in CI on PRs to dev; docs/infra.md#local-test-database). Only for
+# tests: it runs on tmpfs, so a `docker compose down` (or a Docker restart)
+# leaves it empty, and the test script migrates it again on the next run.
 #
 # It matches the Neon branches where the tests can tell: Postgres 16, C.UTF-8
 # collation (text ordering) and GMT. What it lacks is Neon's pooler
 # (PgBouncer, transaction mode), so the pooler's failures only show on Neon,
-# which is why CI stays there.
+# which is why release PRs to main still run there.
 name: ficha
 
 services:

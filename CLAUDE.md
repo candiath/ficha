@@ -7,7 +7,7 @@ Monorepo de npm workspaces: `apps/api` (Express 5 + Prisma + Postgres), `apps/we
 - `npm run dev` — shared + api + web en paralelo (api en :3001, web en :5173)
 - `npm run dev:api` / `npm run dev:web` — cada app por separado
 - `npm test` — the API's integration tests (vitest + supertest) against a throwaway Postgres in Docker, which must be running ([`docs/infra.md`](docs/infra.md#local-test-database)). Arguments go to vitest: `npm test -- login authSessions`. A bare `npx vitest` skips the container and hits `apps/api/.env`'s database (Neon)
-- `npm run test:neon` — the same suite against `DATABASE_URL` (Neon): what CI runs
+- `npm run test:neon` — the same suite against `DATABASE_URL` (Neon): what CI runs on release PRs to `main` and manual runs. On PRs to `dev`, CI runs `npm test` (Docker on the runner)
 - `npm test -w apps/web` — tests del frontend (vitest + jsdom + testing-library)
 - `npm run build` — shared → api → web
 - `npm run db:migrate` / `db:seed` / `db:studio` — Prisma (workspace apps/api)
@@ -30,7 +30,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` | `localhost:5173` |
 | DB (branch de Neon) | `production` | `staging` | `development` |
 
-CI usa una cuarta branch, `ci`, que arrancó **vacía a propósito** (los logs del CI son públicos). It persists between runs: `migrate deploy` applies only new migrations, and interrupted runs leave fictitious test rows behind (see `docs/infra.md`). Release PRs to `main` rebuild it from scratch with `migrate reset`, guarded against any database with non-test accounts.
+CI usa una cuarta branch, `ci`, que arrancó **vacía a propósito** (los logs del CI son públicos). **Only release PRs to `main` and manual runs use it**: PRs to `dev` run on a throwaway Postgres in Docker on the runner, so an open PR's migration never reaches another PR's run (it did on 2026-10-24). It persists between runs: `migrate deploy` applies only new migrations, and interrupted runs leave fictitious test rows behind (see `docs/infra.md`). Release PRs to `main` rebuild it from scratch with `migrate reset`, guarded against any database with non-test accounts.
 
 Cada entorno tiene su propia branch y su propio `PLATFORM_JWT_SECRET` (the platform operator's; clinic users have no secret: their sessions are server-side rows in `auth_sessions`, see below). Los desplegados corren con `NODE_ENV=production`, que bloquea el seed y exige `CORS_ORIGIN`.
 
