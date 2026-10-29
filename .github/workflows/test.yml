@@ -20,9 +20,9 @@ on:
         type: boolean
         default: false
 
-# Si llegan pushes seguidos al mismo PR, cancela la corrida vieja: los tests
-# van contra una DB compartida (branch de CI en Neon) y no tiene sentido
-# pagar dos corridas cuando solo importa la última.
+# If pushes to the same PR arrive in a row, cancel the old run: only the last
+# one matters, and on Neon (release PRs, manual runs) the ci branch is shared,
+# so two runs of the same ref would also step on each other.
 concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
@@ -35,11 +35,20 @@ jobs:
   #   - only apps/web/: no API integration tests (the web job still runs,
   #     and its `npm run check` typechecks the API too).
   # Manual runs and release PRs to main always run everything.
+  #
+  # It also decides where the API tests run (`neon`):
+  #   - PRs to dev: a throwaway Postgres in Docker on the runner (`npm test`,
+  #     as locally). Each run has its own database, so an open PR's migration
+  #     can no longer reach another PR's run, as it did through the shared ci
+  #     branch on 2026-10-24.
+  #   - Release PRs to main and manual runs: Neon's ci branch, whose pooler
+  #     and latency Docker cannot reproduce (docs/infra.md#local-test-database).
   changes:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
       api: ${{ steps.diff.outputs.api }}
+      neon: ${{ steps.diff.outputs.neon }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,9 +65,11 @@ jobs:
           if [ "$EVENT" != "pull_request" ] || [ "$BASE_REF" = "main" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "api=true" >> "$GITHUB_OUTPUT"
-            echo "Full run ($EVENT, base: ${BASE_REF:-none})."
+            echo "neon=true" >> "$GITHUB_OUTPUT"
+            echo "Full run on Neon ($EVENT, base: ${BASE_REF:-none})."
             exit 0
           fi
+          echo "neon=false" >> "$GITHUB_OUTPUT"
           files=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           echo "Changed files:"; echo "$files"
           code=$(echo "$files" | grep -vE '^(docs/|tasks/|\.claude/|\.notes/)|\.md$' || true)
@@ -144,11 +155,22 @@ jobs:
         if: needs.changes.outputs.api == 'true'
         run: npm run build -w packages/shared
 
+      # PRs to dev: the same command as locally. The script starts the test-db
+      # container of docker-compose.yml, migrates it from empty, runs
+      # audit-guards.sql and then vitest. No secret is involved: the database
+      # lives and dies with the runner, so nothing another run did can reach it.
+      - name: Integration tests on a throwaway Postgres (PRs to dev)
+        if: needs.changes.outputs.api == 'true' && needs.changes.outputs.neon != 'true'
+        run: npm test
+
+      # Every step from here on runs on Neon's ci branch: release PRs to main
+      # and manual runs only.
+      #
       # Release PRs (or a manual run with reset_ci_db): rebuild the ci database from an empty schema, so the
       # whole migration chain is proven to apply from scratch (what a brand
       # new environment does) before it reaches production. It also clears the
-      # test rows that interrupted runs leave behind. Feature PRs skip it to
-      # keep CI short; they only apply their new migrations (next step).
+      # test rows that interrupted runs leave behind. A manual run without it
+      # only applies the migrations ci has not seen yet (next step).
       #
       # migrate reset destroys everything, so it first refuses to run on any
       # database holding a non-test account: every environment but CI has
@@ -185,13 +207,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
-      # Idempotente: aplica solo las migraciones pendientes, así la branch
-      # de CI acompaña a los PRs que traen migraciones nuevas.
+      # Idempotente: aplica solo las migraciones pendientes.
       # El datasource declara directUrl para que migrate no pase por el pooler
       # (el porqué está en schema.prisma). Lo derivamos de la misma secret
       # sacándole `-pooler`; si la URL no lo tiene, queda igual.
       - name: Aplicar migraciones
-        if: needs.changes.outputs.api == 'true'
+        if: needs.changes.outputs.api == 'true' && needs.changes.outputs.neon == 'true'
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
           npx prisma migrate deploy
@@ -199,25 +220,26 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
-      # The ci branch is shared by every PR, and the ruleset does not require
-      # branches to be up to date. So a PR behind dev can find migrations that
-      # another PR applied and this branch does not have: its code then runs
-      # against a newer schema (a dropped column) and dozens of tests fail with
-      # P2022 after the whole suite. Fail here instead, in seconds, naming them.
+      # The ci branch persists between the runs that use it, and the ruleset
+      # does not require branches to be up to date. So a manual run on a branch
+      # behind dev can find migrations that an earlier run applied and this
+      # branch does not have: its code then runs against a newer schema (a
+      # dropped column) and dozens of tests fail with P2022 after the whole
+      # suite. Fail here instead, in seconds, naming them.
       # `prisma migrate status` cannot do it: Prisma 5.22 reports such a
       # database as "up to date" with exit 0 (it only reports migrations
       # missing locally when the histories diverge), so the check reads
       # `_prisma_migrations` itself. Release PRs reset the database first, so
       # it holds exactly their migrations and this step passes.
       - name: Check the database has no migrations this branch lacks
-        if: needs.changes.outputs.api == 'true'
+        if: needs.changes.outputs.api == 'true' && needs.changes.outputs.neon == 'true'
         run: |
           url="${DATABASE_URL/-pooler/}"
           applied=$(psql "$url" -tAc "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY 1")
           local_dirs=$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
           missing=$(comm -23 <(echo "$applied" | sort) <(echo "$local_dirs"))
           if [ -n "$missing" ]; then
-            echo "::error::The ci database has migrations that this branch does not have. Another PR applied them; this branch is behind dev. Merge dev into this branch (git merge origin/dev) and push."
+            echo "::error::The ci database has migrations that this branch does not have. An earlier run applied them; this branch is behind dev. Merge dev into this branch (git merge origin/dev) and push, or rerun with reset_ci_db."
             echo "Applied to the ci database but missing in prisma/migrations:"
             echo "$missing"
             exit 1
@@ -232,7 +254,7 @@ jobs:
       # whose Render build runs the same file. ci carries the maintenance flag on
       # purpose, so no-audit-maintenance.sql is not run here.
       - name: Check the audit guarantees
-        if: needs.changes.outputs.api == 'true'
+        if: needs.changes.outputs.api == 'true' && needs.changes.outputs.neon == 'true'
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
           npm run db:check:audit-guards
@@ -240,12 +262,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
 
-      - name: Tests de integración de la API
-        if: needs.changes.outputs.api == 'true'
+      - name: Integration tests on Neon (release PRs and manual runs)
+        if: needs.changes.outputs.api == 'true' && needs.changes.outputs.neon == 'true'
         # The audit tests of #186 need a direct (non-pooled) connection, derived
-        # the same way as in the migrate steps. test:neon, not test: locally
-        # `npm test` runs on Docker, and CI stays on Neon, whose pooler is
-        # what Docker cannot reproduce (docs/infra.md#local-test-database).
+        # the same way as in the migrate steps. test:neon, not test: `npm test`
+        # runs on Docker, and this run exists for what Docker cannot reproduce,
+        # Neon's pooler and latency (docs/infra.md#local-test-database).
         run: |
           export DIRECT_DATABASE_URL="${DATABASE_URL/-pooler/}"
           npm run test:neon
