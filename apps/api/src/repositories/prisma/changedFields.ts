@@ -8,13 +8,18 @@ import { Prisma } from '@prisma/client';
 // select and compares. The lock makes the list exact: a concurrent edit waits
 // for this transaction instead of slipping in between the read and the write.
 
-// The tables whose updates are audited with changedFields, and the column a
-// row is found by. A closed list: the name goes into raw SQL.
+// The tables whose updates are audited with changedFields, or whose writes are
+// versioned (SPEC-clinical-revisions.md §5), and the column a row is found by.
+// A closed list: the name goes into raw SQL.
 const LOCKABLE = {
   patients: 'id',
   sessions: 'id',
   payments: 'id',
   initial_evaluations: 'episode_id',
+  clinical_episodes: 'id',
+  // One per patient.
+  informed_consents: 'patient_id',
+  patient_events: 'id',
 } as const;
 
 type LockableTable = keyof typeof LOCKABLE;
