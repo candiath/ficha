@@ -3,7 +3,7 @@
 # tests: it runs on tmpfs, so a `docker compose down` (or a Docker restart)
 # leaves it empty, and the test script migrates it again on the next run.
 #
-# It matches the Neon branches where the tests can tell: Postgres 16, C.UTF-8
+# It matches the Neon branches where the tests can tell: Postgres 18, C.UTF-8
 # collation (text ordering) and GMT. What it lacks is Neon's pooler
 # (PgBouncer, transaction mode), so the pooler's failures only show on Neon,
 # which is why release PRs to main still run there.
@@ -11,7 +11,7 @@ name: ficha
 
 services:
   test-db:
-    image: postgres:16
+    image: postgres:18
     environment:
       POSTGRES_USER: ficha
       POSTGRES_PASSWORD: ficha
@@ -27,8 +27,11 @@ services:
     ports:
       # Loopback only, and not 5432, so it never collides with another Postgres.
       - "127.0.0.1:5433:5432"
+    # The parent of the data directory, not the directory itself: from 18 the
+    # image keeps its data in /var/lib/postgresql/18/docker, and its entrypoint
+    # refuses to start when /var/lib/postgresql/data is a mount.
     tmpfs:
-      - /var/lib/postgresql/data
+      - /var/lib/postgresql
     volumes:
       - ./docker/test-db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
