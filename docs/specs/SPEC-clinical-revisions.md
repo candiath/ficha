@@ -1,6 +1,6 @@
 # Spec: clinical-revisions
 
-Module of the [audit capability map](audit-map.md) (issue #186). **Status: draft 2026-10-31, after three adversarial review cycles** (two general reviewers and one security reviewer, each with fresh context and read access to the repo; a cross-model reviewer without repo access found nothing new). Not yet approved.
+Module of the [audit capability map](audit-map.md) (issue #186). **Status: approved 2026-11-01**, after three adversarial review cycles (two general reviewers and one security reviewer, each with fresh context and read access to the repo; a cross-model reviewer without repo access found nothing new).
 
 This module is the first of two stages. Stage 2, `clinical-revisions-enforcement`, is sketched at the end and gets its own spec.
 
