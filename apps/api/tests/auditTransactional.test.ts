@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import {
   consentRepo,
+  episodeRepo,
   evaluationRepo,
   patientRepo,
   paymentRepo,
@@ -190,6 +191,31 @@ describe('audit rows are written in the same transaction as their action', () =>
 
     const row = await prisma.informedConsent.findFirstOrThrow({ where: { patientId: patient.id } });
     expect(row).toMatchObject({ revokedAt: null });
+  });
+
+  it('an episode is not opened when its audit row fails', async () => {
+    const patient = await newPatient('Sin Episodio');
+
+    await expect(episodeRepo.create(ctx, patient.id, { mainComplaint: 'Lumbalgia' }, broken)).rejects.toThrow();
+
+    expect(await prisma.clinicalEpisode.count({ where: { patientId: patient.id } })).toBe(0);
+  });
+
+  it('an episode update is rolled back when its audit row fails', async () => {
+    const patient = await newPatient('Episodio Intacto');
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Lumbalgia' },
+    });
+
+    await expect(
+      episodeRepo.update(ctx, patient.id, episode.id, { status: 'ABANDONED', closedAt: new Date() }, broken),
+    ).rejects.toThrow();
+    await expect(
+      episodeRepo.update(ctx, patient.id, episode.id, { mainComplaint: 'Cervicalgia' }, broken),
+    ).rejects.toThrow();
+
+    const row = await prisma.clinicalEpisode.findUniqueOrThrow({ where: { id: episode.id } });
+    expect(row).toMatchObject({ status: 'ACTIVE', closedAt: null, mainComplaint: 'Lumbalgia' });
   });
 
   it('an initial evaluation is not saved when its audit row fails', async () => {

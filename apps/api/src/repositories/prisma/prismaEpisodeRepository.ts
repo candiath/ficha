@@ -1,13 +1,20 @@
+import { AUDIT_EPISODE_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
+import type { AuditBuilder } from '../auditLogRepository';
 import type { TenantContext } from '../types';
 import type {
+  EpisodeAuditField,
+  EpisodeChange,
   EpisodeCreateInput,
   EpisodeDTO,
   EpisodeRepository,
+  EpisodeUpdateAudit,
   EpisodeUpdateInput,
   EpisodeUpdateResult,
   StaleEpisodeDTO,
 } from '../episodeRepository';
+import { changedFields, lockRow, nonEmpty } from './changedFields';
+import { recordAudit } from './recordAudit';
 
 const episodeSelect = {
   id: true,
@@ -31,6 +38,8 @@ type EpisodeRow = {
   updatedAt: Date;
 };
 
+const AUDIT_FIELDS = Object.keys(AUDIT_EPISODE_FIELDS) as EpisodeAuditField[];
+
 function toDTO(row: EpisodeRow): EpisodeDTO {
   return {
     ...row,
@@ -39,6 +48,17 @@ function toDTO(row: EpisodeRow): EpisodeDTO {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+// What the write did, from the row before and after it: a new status closes or
+// reopens the episode (its closing date goes with it), anything else is a
+// correction. null when nothing changed.
+function changeOf(before: EpisodeDTO, after: EpisodeDTO): EpisodeChange | null {
+  if (after.status !== before.status) {
+    return after.status === 'ACTIVE' ? { kind: 'reopened' } : { kind: 'closed', status: after.status };
+  }
+  const changed = nonEmpty(changedFields(before, after, AUDIT_FIELDS));
+  return changed ? { kind: 'corrected', changedFields: changed } : null;
 }
 
 export const prismaEpisodeRepository: EpisodeRepository = {
@@ -61,21 +81,29 @@ export const prismaEpisodeRepository: EpisodeRepository = {
     return row !== null;
   },
 
+  // Both writes record their audit row in the same transaction (#188).
+
   async create(
     ctx: TenantContext,
     patientId: string,
     input: EpisodeCreateInput,
+    audit: AuditBuilder<EpisodeDTO>,
   ): Promise<EpisodeDTO> {
     const db = forTenant(ctx);
-    const row = await db.clinicalEpisode.create({
-      data: {
-        patientId,
-        mainComplaint: input.mainComplaint,
-        ...(input.openedAt ? { openedAt: input.openedAt } : {}),
-      },
-      select: episodeSelect,
+    return db.$transaction(async (tx) => {
+      const row = await tx.clinicalEpisode.create({
+        data: {
+          tenantId: ctx.tenantId,
+          patientId,
+          mainComplaint: input.mainComplaint,
+          ...(input.openedAt ? { openedAt: input.openedAt } : {}),
+        },
+        select: episodeSelect,
+      });
+      const episode = toDTO(row);
+      await recordAudit(tx, ctx, audit(episode));
+      return episode;
     });
-    return toDTO(row);
   },
 
   async update(
@@ -83,40 +111,53 @@ export const prismaEpisodeRepository: EpisodeRepository = {
     patientId: string,
     id: string,
     input: EpisodeUpdateInput,
+    audit: EpisodeUpdateAudit,
   ): Promise<EpisodeUpdateResult> {
     const db = forTenant(ctx);
-    // updateMany y no update: existencia, pertenencia al paciente y al tenant
-    // se deciden en la misma query que escribe (patrón de patientRepo.update).
-    //
-    // La coherencia de las fechas va en el mismo where: un episodio no puede
-    // cerrarse antes de abrirse, y openedAt vive en la base. Comparar contra
-    // una fila leída antes dejaría una ventana entre el chequeo y la escritura.
-    const { count } = await db.clinicalEpisode.updateMany({
-      where: {
-        id,
-        patientId,
-        ...(input.closedAt ? { openedAt: { lte: input.closedAt } } : {}),
-      },
-      data: input,
-    });
-
-    if (count === 0) {
-      // Sin fecha de cierre en el where, no haber escrito solo puede ser que
-      // el episodio no exista; con ella, hay que preguntar cuál de las dos.
-      const row = await db.clinicalEpisode.findFirst({
-        where: { id, patientId },
-        select: { id: true },
+    return db.$transaction(async (tx): Promise<EpisodeUpdateResult> => {
+      // Locked and read first: what the request does (close, reopen or
+      // correct) is decided against the stored row, and a concurrent edit
+      // waits for this one.
+      await lockRow(tx, 'clinical_episodes', id, ctx.tenantId);
+      const found = await tx.clinicalEpisode.findFirst({
+        where: { id, patientId, tenantId: ctx.tenantId },
+        select: episodeSelect,
       });
-      return { ok: false, reason: row ? 'closed_before_opened' : 'not_found' };
-    }
+      // Inexistente, de otro paciente o de otro tenant: lo mismo.
+      if (!found) return { ok: false, reason: 'not_found' };
+      const before = toDTO(found);
 
-    const row = await db.clinicalEpisode.findFirst({
-      where: { id, patientId },
-      select: episodeSelect,
+      // One write, one fact: a status change that also corrects the complaint
+      // would be two, under one audit row that could only name one.
+      const transition = input.status !== undefined && input.status !== before.status;
+      if (transition && input.mainComplaint !== undefined && input.mainComplaint !== before.mainComplaint) {
+        return { ok: false, reason: 'transition_with_correction' };
+      }
+
+      // La coherencia de las fechas va en el where del write: un episodio no
+      // puede cerrarse antes de abrirse, y openedAt vive en la base. Con la
+      // fila bloqueada y encontrada, no escribir solo puede ser eso, o un
+      // pedido sin campos: Prisma no escribe nada y cuenta 0.
+      const { count } = await tx.clinicalEpisode.updateMany({
+        where: {
+          id,
+          patientId,
+          tenantId: ctx.tenantId,
+          ...(input.closedAt ? { openedAt: { lte: input.closedAt } } : {}),
+        },
+        data: input,
+      });
+      if (count === 0 && input.closedAt) return { ok: false, reason: 'closed_before_opened' };
+
+      const row = await tx.clinicalEpisode.findFirstOrThrow({
+        where: { id, tenantId: ctx.tenantId },
+        select: episodeSelect,
+      });
+      const episode = toDTO(row);
+      const change = changeOf(before, episode);
+      if (change) await recordAudit(tx, ctx, audit(episode, change));
+      return { ok: true, episode };
     });
-    // Desaparecer entre el update y esta lectura no es un caso real (nada borra
-    // episodios), pero el tipo lo exige y mentir con un throw sería peor.
-    return row ? { ok: true, episode: toDTO(row) } : { ok: false, reason: 'not_found' };
   },
 
   async allBelongToPatient(

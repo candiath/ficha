@@ -536,6 +536,9 @@ model PatientEvent {
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
+  // §2): a version cannot name another clinic's or another patient's event.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("patient_events")
@@ -568,6 +571,8 @@ model InitialEvaluation {
   // Prisma needs the foreign key's own columns unique for a one-to-one; the
   // single-column unique above already implies it.
   @@unique([tenantId, patientId, episodeId])
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md §2).
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("initial_evaluations")
@@ -750,6 +755,8 @@ model InformedConsent {
   // Prisma needs the foreign key's own columns unique for a one-to-one; the
   // single-column unique above already implies it.
   @@unique([tenantId, patientId])
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md §2).
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@map("informed_consents")
 }
@@ -784,6 +791,10 @@ enum AuditAction {
   PATIENT_EVENT_RECORDED
   PATIENT_EVENT_UPDATED
   PATIENT_EVENT_DELETED
+  EPISODE_OPENED
+  EPISODE_CLOSED
+  EPISODE_REOPENED
+  EPISODE_UPDATED
 }
 
 enum AuditEntity {
@@ -794,6 +805,7 @@ enum AuditEntity {
   CONSENT
   SCALE
   PATIENT_EVENT
+  EPISODE
 }
 
 // Who acted, on every audit table: a person of a clinic, the platform
@@ -836,6 +848,10 @@ model AuditLog {
   patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   user    User?   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
+  // §2): a version can only name an audit row of its own clinic and patient.
+  // Pinned by audit-guards.sql.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@index([createdAt])
