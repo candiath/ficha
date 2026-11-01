@@ -29,7 +29,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - Its root branch will be `production`. `staging`, `development` and `ci` are created while the root is still empty, so they inherit nothing from it.
     - You put the old and new URLs of each branch in `apps/api/.env.pg18` (ignored by `.env.*`). Commands load that file, and nothing prints a URL.
   - *Files:* none in the repo. **XS**
-- [ ] **Task 0.2: The test container and CI on 18**
+- [x] **Task 0.2: The test container and CI on 18**
   - *Acceptance:*
     - `docker-compose.yml` uses `postgres:18`. The tmpfs moves to `/var/lib/postgresql`: the 18 image keeps its data in `/var/lib/postgresql/18/docker`, so a mount at the old `.../data` no longer holds it (check what its entrypoint does with one).
     - The full API suite passes on it.
@@ -425,4 +425,7 @@ None open.
 
 ## Decisions during implementation
 
-None yet.
+- **Step 0, the function hashes are the same on 18** (2026-11-01, Task 0.2). `pg_get_functiondef` prints the five audit functions on 18.6 exactly as on 16, so `audit-guards.sql` is unchanged and there is no second hash set to drop later.
+- **Step 0, a delete refused by an `ON DELETE RESTRICT` key is SQLSTATE `23001` on 18, not `23503`** (Task 0.2). Prisma 5.22 maps only `23503` to `P2003`, so on 18 the error arrives as `PrismaClientUnknownRequestError`. The guarantee holds and the app answers `500` as before: nothing in `src` catches `P2003`. A `NO ACTION` key and an insert still give `23503`. Three tests asserted `P2003` on such a delete; they now call `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until every Neon branch is on 18. The follow-up then drops the `P2003` case, in place of the hash set.
+- **Step 0, the 18 container was tested beside the shared one** (Task 0.2). Every worktree uses the compose project `ficha` on port 5433, and step 1 ran on it in parallel, still on 16. The 18 runs used another project on port 5434 (`docs/infra.md#local-test-database`); `npm test` on `ficha` itself switches to 18 when a worktree merges this PR.
+- **Step 0, the backups repository needs `pg_dump` 18 before `production` moves** (Task 0.5). Its `backup.yml` installs `postgresql-client-16` and checks the dump on `postgres:16`; `pg_dump` 16 refuses a server on 18. `pg_dump` 18 dumps the old 16 server too, so that change can land before the window.
