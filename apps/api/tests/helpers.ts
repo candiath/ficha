@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import type { PlatformOperator, Prisma, User, UserRole } from '@prisma/client';
+import { expect } from 'vitest';
+import { Prisma, type PlatformOperator, type User, type UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 import type { TenantContext } from '../src/repositories/types';
@@ -195,6 +196,28 @@ export async function waitFor<T>(
     }
     await sleep(intervalMs);
   }
+}
+
+// A delete refused by the ON DELETE RESTRICT key `constraint`. Postgres 16
+// reports it as a foreign key violation (23503, Prisma's P2003); 18 as a
+// restrict violation (23001), which Prisma 5 does not map, so it arrives as an
+// unknown request error naming the key. Both are accepted until every Neon
+// branch is on 18 (PLAN-clinical-revisions.md, step 0); then the P2003 case goes.
+export async function expectRestrictedDelete(action: Promise<unknown>, constraint: string): Promise<void> {
+  const error = await action.then(
+    () => {
+      throw new Error(`the delete went through: ${constraint} did not restrict it`);
+    },
+    (e: unknown) => e,
+  );
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    expect(error).toMatchObject({ code: 'P2003', meta: { field_name: expect.stringContaining(constraint) } });
+    return;
+  }
+  expect(error).toBeInstanceOf(Prisma.PrismaClientUnknownRequestError);
+  const { message } = error as Error;
+  expect(message).toContain('code: "23001"');
+  expect(message).toMatch(new RegExp(`violates RESTRICT setting of foreign key constraint \\\\?"${constraint}\\\\?"`));
 }
 
 // ─── Audit entries for direct repository calls ──────────────────────────────
