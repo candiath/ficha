@@ -196,7 +196,7 @@ Later modules add their sections and actions to the same catalog.
 - **`AuditEntry` becomes `{ action, entityId, patientId, params }`**, typed from the catalog: `params` is inferred from the action, so a wrong parameter is a type error. The caller no longer passes `entity` or `description`.
 - **`recordAudit` validates before inserting**: the action is in the `audit_logs` section, is not deprecated, and its `params` pass the strict schema. It fills `entity` from the catalog.
 - **A validation failure is a server bug, not bad input.** `recordAudit` uses `safeParse` and throws a plain `AuditEntryError` — never a `ZodError`, which `errorHandler` would answer as a `400 Datos inválidos` with the parameter's details. It reaches `errorHandler` as an unknown error: logged, `500`, and the transaction rolls back with the action — the same guarantee as today when the audit insert fails.
-- **`changedFields`** on the `*_UPDATED` actions: the names of the fields whose value changed, never the values. The repository locks the row (`SELECT … FOR UPDATE`, raw SQL inside the transaction), reads it, writes the update and compares the two; a concurrent edit waits for the lock, so the list is exact. `clinical-history` will reuse the same read to store the previous version.
+- **`changedFields`** on the `*_UPDATED` actions: the names of the fields whose value changed, never the values. The repository locks the row (`SELECT … FOR UPDATE`, raw SQL inside the transaction), reads it, writes the update and compares the two; a concurrent edit waits for the lock, so the list is exact. `clinical-revisions` will reuse the same read to store the previous version.
   - The names are the API's field names, from an append-only allowlist per entity in the catalog, each with a Spanish label. A JSON column (the posture grid) is one name, compared deeply; a relation set (a session's episodes) is one name.
   - An update that changes nothing writes no audit row, as the operator's role and status changes already do: a field that arrived with the value it had is not a fact. The route answers as today.
 - **`recordPlatformAudit(tx, op, entry)`** (new, `repositories/prisma/`) does the same for `platform_audit_logs`; the operator's repositories and `prismaSysadminAlertRepository` use it instead of `tx.platformAuditLog.create`.
@@ -306,4 +306,4 @@ None.
 - `actor_type` is added here, not with the first system writer: no row is ever written without it.
 - Old rows in `staging` losing their sentence from release 1 is accepted; `staging` can be wiped too.
 - A session, a clinical note and a discharge are three actions (`SESSION_RECORDED`, `NOTE_RECORDED`, `DISCHARGE_RECORDED`), not one with a type parameter.
-- `changedFields` is recorded here, not in `clinical-history`: no update is ever written without it.
+- `changedFields` is recorded here, not in `clinical-revisions`: no update is ever written without it.
