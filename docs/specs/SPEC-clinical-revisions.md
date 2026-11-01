@@ -38,7 +38,7 @@ Each one survived the review cycles; the reason is kept so it is not reopened by
 
 ## Tech Stack, Commands
 
-Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for migrations), decided 2026-10-31: native `uuidv7()` for ids written in SQL (data migrations, the baseline). The move from 16 is rollout step 0. No new dependencies. Commands: `npm test`, `npm test -w apps/web`, `npm run check`, `npm run db:migrate`. Triggers and functions are hand-written SQL in the migration, as in `20261010191055_audit_rows_enforced`.
+Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for migrations), decided 2026-10-31: native `uuidv7()` for ids written in SQL (data migrations, the baseline). The move from 16 is rollout step 0, to a new Neon project (decided 2026-11-01). No new dependencies. Commands: `npm test`, `npm test -w apps/web`, `npm run check`, `npm run db:migrate`. Triggers and functions are hand-written SQL in the migration, as in `20261010191055_audit_rows_enforced`.
 
 ## Design
 
@@ -85,8 +85,8 @@ Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScop
 ### 4. Link to the audit log
 
 - `recordAudit` returns the id of the row it inserted.
-- `AuditEntity` gains `EPISODE`, and the catalog gains episode actions (`EPISODE_OPENED`, `EPISODE_UPDATED`). Episode writes move into a transaction with their audit row: this is the episode part of `clinical-audit-coverage`, a prerequisite.
-- Update and annul actions gain a `reason` parameter with codes: `DATA_ENTRY_ERROR`, `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`. **Required on every update and every annulment** of a versioned aggregate (decided 2026-11-01); the UI preselects `DATA_ENTRY_ERROR` ("Error de confección"). New codes only: existing codes are never renamed or reused.
+- `AuditEntity` gains `EPISODE`, and the catalog gains episode actions: `EPISODE_OPENED`; `EPISODE_CLOSED`, with its status (`DISCHARGED`, `ABANDONED`); `EPISODE_REOPENED`; and `EPISODE_UPDATED`, only for corrections of the complaint or the dates. A request that changes the status and corrects data at once is refused (`400`): one write, one fact. Episode writes move into a transaction with their audit row: this is the episode part of `clinical-audit-coverage`, a prerequisite.
+- Corrections and annulments gain a `reason` parameter with codes: `DATA_ENTRY_ERROR`, `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`. **Required on every correction (`*_UPDATED`) and every annulment** of a versioned aggregate (decided 2026-11-01); the UI preselects `DATA_ENTRY_ERROR` ("Error de confección"). **State transitions take none** (decided 2026-11-01): closing or reopening an episode, and signing or revoking a consent, are facts, not corrections, so "Error de confección" has no meaning there. New codes only: existing codes are never renamed or reused.
 - A multi-aggregate action (`DISCHARGE_RECORDED`, which closes episodes) owns one session revision and one revision per closed episode.
 
 ### 5. Write path
@@ -113,7 +113,9 @@ Revisions tables reuse the audit functions: `*_append_only` (`BEFORE UPDATE OR D
 
 ### 8. Annulment
 
-Sessions and patient events have a soft delete today. It becomes `POST …/annul` with a required reason code and optional note in the body (the web client's `DELETE` sends no body), writes a final version, and the record shows the entry struck through; lists and metrics keep filtering it. Restoring writes another version. Episodes and evaluations have no delete today and get none in this module. Consent keeps its sign/revoke actions, each one a version.
+Sessions and patient events have a soft delete today. It becomes `POST …/annul` with a required reason code and optional note in the body (the web client's `DELETE` sends no body), writes a final version, and the record shows the entry struck through; lists and metrics keep filtering it. **No restore route exists today**, for sessions, patient events or patients, and this module adds none: one will be added later (decided 2026-11-01), and a restore will write another version. Episodes and evaluations have no delete today and get none in this module. Consent keeps its sign/revoke actions, each one a version.
+
+**Deleting a patient stays a `DELETE`**, with an event version and no reason (decided 2026-11-01). **It needs analysis later**: it hides the whole record, so it may deserve to become an annulment with a reason, like sessions and events.
 
 ### 9. Detecting a write that skipped versioning
 
@@ -140,7 +142,7 @@ Vitest + supertest against the throwaway Postgres (`npm test`), repository tests
 
 Each step is a PR against `dev`, in order:
 
-0. **Postgres 18**: the Neon branches (check whether Neon upgrades a major version in place or needs a new project and a dump/restore), the test container in `docker-compose.yml`, CI, and `docs/infra.md`. Rehearsed on a throwaway branch first.
+0. **Postgres 18**: a new Neon project, with its branches moved by dump and restore (`production` included, before the relaunch), the test container in `docker-compose.yml`, CI, and `docs/infra.md`. Rehearsed on a throwaway branch first.
 1. Prerequisites: composite unique keys, `recordAudit` returns its id, `LOCKABLE` additions, catalog changes (`EPISODE`, episode actions, `reason`), episode writes in a transaction with audit.
 2. `session_revisions` + `recordRevision` + the session write path, `expectedVersion`, no-op skip, test helpers and cleanup, coverage tests.
 3. The other five aggregates.
@@ -184,6 +186,7 @@ Settled 2026-10-31 and 2026-11-01:
 1. **Reading past versions:** every user of the clinic for now (§7).
 2. **Reasons:** always asked, `DATA_ENTRY_ERROR` preselected (§4).
 3. **Reset-link impersonation:** accepted until the mailer (*What this module does not protect against*).
-4. **Postgres 18:** now, as rollout step 0 (*Tech Stack*, *Rollout*).
-
-Still to check during step 0: whether Neon upgrades a major version in place or needs a new project and a dump/restore.
+4. **Postgres 18:** now, as rollout step 0, in a new Neon project. Every branch moves by dump and restore, `production` included, before the relaunch rather than at its wipe (*Tech Stack*, *Rollout*).
+5. **No reason on state transitions:** the episode's closing and reopening get their own actions; consent sign and revoke take no reason either (§4).
+6. **Deleting a patient:** stays a `DELETE` with no reason, **pending a later analysis** of whether it becomes an annulment (§8).
+7. **Restoring:** no route in this module; one will be added later (§8).
