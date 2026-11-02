@@ -86,11 +86,7 @@ interface CreateTestTokenOptions {
   trusted?: boolean;
   /** When the session was last used; in the past to test idle expiry. */
   lastUsedAt?: Date;
-  /**
-   * When the session was created. `created_at` has millisecond precision, so
-   * sessions created in a loop can tie; a test that relies on their order
-   * sets it.
-   */
+  /** When the session was created; out of order to test a clock that stepped back. */
   createdAt?: Date;
 }
 
