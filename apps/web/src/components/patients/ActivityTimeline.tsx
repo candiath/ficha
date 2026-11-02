@@ -62,6 +62,12 @@ const ENTITY_CONFIG: Record<
       'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300',
     label: 'Antecedente',
   },
+  EPISODE: {
+    icon: ClipboardList,
+    color:
+      'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400',
+    label: 'Episodio',
+  },
 };
 
 // An entity this version does not know: neutral, never another entity's badge.
