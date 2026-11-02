@@ -23,7 +23,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ### Step 0: Postgres 18 (PR 0)
 
-- [ ] **Task 0.1: The new Neon project**
+- [x] **Task 0.1: The new Neon project**
   - *Acceptance:*
     - A new project on Postgres 18, in the current project's region, with the same compute and history-retention settings. You create it, or I do it through the MCP with your permission.
     - Its root branch will be `production`. `staging`, `development` and `ci` are created while the root is still empty, so they inherit nothing from it.
@@ -36,7 +36,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - `audit-guards.sql` passes on it. If `pg_get_functiondef` prints differently on 18, the function hashes differ, and the file accepts both the 16 and the 18 hashes until every branch, `production` included, is on 18. A follow-up then drops the 16 set.
   - *Verify:* `npm test` (it runs `audit-guards.sql` before vitest).
   - *Files:* `docker-compose.yml`, maybe `prisma/audit-guards.sql`. **S**
-- [ ] **Task 0.3: Rehearsal on the new project**
+- [x] **Task 0.3: Rehearsal on the new project**
   - *Acceptance:*
     - On its `ci` branch, with the maintenance flag created:
       - the migration chain applies from empty;
@@ -73,7 +73,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - Only after all that is the old project deleted, with your permission.
   - *Files:* none. **S**
   - *Depends on:* 0.4.
-- [ ] **Task 0.6: Docs and PR**
+- [x] **Task 0.6: Docs and PR**
   - *Acceptance:*
     - `docs/infra.md` (the new project, the local test database, the restore procedure, the version) and the comment in `docker-compose.yml` say 18.
     - PR against `dev`. `test.yml` needs no change if the job runs only `docker compose`. PR #271 also touches `test.yml`; whichever lands second rebases.
@@ -428,4 +428,8 @@ None open.
 - **Step 0, the function hashes are the same on 18** (2026-11-01, Task 0.2). `pg_get_functiondef` prints the five audit functions on 18.6 exactly as on 16, so `audit-guards.sql` is unchanged and there is no second hash set to drop later.
 - **Step 0, a delete refused by an `ON DELETE RESTRICT` key is SQLSTATE `23001` on 18, not `23503`** (Task 0.2). Prisma 5.22 maps only `23503` to `P2003`, so on 18 the error arrives as `PrismaClientUnknownRequestError`. The guarantee holds and the app answers `500` as before: nothing in `src` catches `P2003`. A `NO ACTION` key and an insert still give `23503`. Three tests asserted `P2003` on such a delete; they now call `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until every Neon branch is on 18. The follow-up then drops the `P2003` case, in place of the hash set.
 - **Step 0, the 18 container was tested beside the shared one** (Task 0.2). Every worktree uses the compose project `ficha` on port 5433, and step 1 ran on it in parallel, still on 16. The 18 runs used another project on port 5434 (`docs/infra.md#local-test-database`); `npm test` on `ficha` itself switches to 18 when a worktree merges this PR.
-- **Step 0, the backups repository needs `pg_dump` 18 before `production` moves** (Task 0.5). Its `backup.yml` installs `postgresql-client-16` and checks the dump on `postgres:16`; `pg_dump` 16 refuses a server on 18. `pg_dump` 18 dumps the old 16 server too, so that change can land before the window.
+- **Step 0, the backups repository needs `pg_dump` 18 before `production` moves** (Task 0.5). Its `backup.yml` installs `postgresql-client-16` and checks the dump on `postgres:16`; `pg_dump` 16 refuses a server on 18. `pg_dump` 18 dumps the old 16 server too, so that change can land before the window, but its check moves to `postgres:18` in the same change: an 18 dump sets `transaction_timeout`, which 16 rejects.
+- **Step 0, the new project is `ficha-pg18`** (Task 0.1), in the old project's region with its compute (0.25–2 CU) and history (6 h). The free plan does not let the maintenance window be chosen: Neon set Sunday 05:00–06:00 UTC. It is renamed `ficha` once the old project is deleted, so `CLAUDE.md` keeps naming it.
+- **Step 0, every branch of a new project starts with the root's password** (Task 0.1). Branches inherit the role and its password, so the laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. In the old project they differ.
+- **Step 0, the rehearsal** (Task 0.3, 2026-11-01). On `ci`: the 57 migrations applied from empty, `audit-guards.sql` passed, `no-audit-maintenance.sql` failed on the flag, and `npm run test:neon` passed through the pooler (803 tests, 11 min). The old `staging` (16.15), dumped by `pg_dump` 18.6 from the `postgres:18` image with the backups repository's flags, restored into `rehearsal-restore` with the procedure in `docs/infra.md`. The comparison was stronger than counts: per table, the row count and an md5 of its rows as text, ordered. All 22 tables matched, 189 rows, and the restored branch then passed what the Render build runs (`no-audit-maintenance.sql`, `migrate deploy`, `audit-guards.sql`).
+- **Step 0, the switch of `staging`** (Task 0.4, 2026-11-02). `staging` (22 tables, 189 rows) and `development` (23, 210, its flag included) restored identical, and the old `staging` did not change between the dump and the switch. Saving env vars on Render redeploys without building, so `migrate:prod` does not run: a **Manual Deploy → Deploy latest commit** is what produces the build log. The first save pointed `ficha-staging` at `development`; the startup check failed on the flag and the staging bot sent `AUDIT_MAINTENANCE_FLAG_PRESENT` within seconds, which is the check doing its job. The deploy after the fix: build log with both checks and no pending migrations on the new `staging`, and both startup checks passing.
