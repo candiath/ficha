@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { clinicalDateField } from '../lib/clinicalDate';
 import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, patientRepo } from '../repositories';
+import type { AuditEntry } from '../repositories/auditLogRepository';
+import type { EpisodeUpdateAudit } from '../repositories/episodeRepository';
 import { idParam } from '../middlewares/idParam';
 
 type Params = { patientId: string; episodeId: string };
@@ -83,13 +85,35 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
   const body = EpisodeCreateSchema.parse(req.body);
 
-  const episode = await episodeRepo.create(req.context, req.params.patientId, {
-    mainComplaint: body.mainComplaint,
-    ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
-  });
+  const episode = await episodeRepo.create(
+    req.context,
+    req.params.patientId,
+    {
+      mainComplaint: body.mainComplaint,
+      ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
+    },
+    (e) => ({ action: 'EPISODE_OPENED', patientId: req.params.patientId, entityId: e.id, params: {} }),
+  );
 
   res.status(201).json({ data: episode });
 });
+
+// The audit entry of what an update did (SPEC-clinical-revisions.md §4): a
+// change of status is its own fact, with no reason; a correction names the
+// fields it changed.
+function episodeAudit(patientId: string): EpisodeUpdateAudit {
+  return (episode, change): AuditEntry => {
+    const base = { patientId, entityId: episode.id };
+    switch (change.kind) {
+      case 'closed':
+        return { ...base, action: 'EPISODE_CLOSED', params: { status: change.status } };
+      case 'reopened':
+        return { ...base, action: 'EPISODE_REOPENED', params: {} };
+      case 'corrected':
+        return { ...base, action: 'EPISODE_UPDATED', params: { changedFields: change.changedFields } };
+    }
+  };
+}
 
 // PATCH /api/patients/:patientId/episodes/:episodeId
 router.patch<Params>('/:episodeId', async (req, res) => {
@@ -112,6 +136,7 @@ router.patch<Params>('/:episodeId', async (req, res) => {
       // schema ya no deja escribir a propósito.
       closedAt: body.status === 'ACTIVE' ? null : body.closedAt ? new Date(body.closedAt) : undefined,
     },
+    episodeAudit(req.params.patientId),
   );
 
   if (!result.ok) {
@@ -123,6 +148,11 @@ router.patch<Params>('/:episodeId', async (req, res) => {
       case 'closed_before_opened':
         res.status(400).json({
           error: 'La fecha de cierre no puede ser anterior a la apertura del episodio',
+        });
+        return;
+      case 'transition_with_correction':
+        res.status(400).json({
+          error: 'Cerrar o reabrir el episodio y corregir su motivo de consulta se guardan por separado',
         });
         return;
     }

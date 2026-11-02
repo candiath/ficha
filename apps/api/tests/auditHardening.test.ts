@@ -525,13 +525,15 @@ describe('audit-guards.sql', () => {
       );
     });
 
-    // Nor indexes: the copies lack the params checks and the one-row-per-object
-    // index (SPEC-audit-structured-entries.md §2).
+    // Nor indexes: the copies lack the params checks, the one-row-per-object
+    // index (SPEC-audit-structured-entries.md §2) and the key the clinical
+    // revisions point at (SPEC-clinical-revisions.md §2).
     it('notices a missing params check and a missing index', async () => {
       const message = await failure();
       expect(message).toMatch(/check constraint audit_logs_params_are_codes on audit_logs is missing or changed/);
       expect(message).toMatch(/check constraint platform_audit_logs_actor_is_operator on platform_audit_logs is missing/);
       expect(message).toMatch(/index platform_audit_logs_action_entity_key on platform_audit_logs is missing or changed/);
+      expect(message).toMatch(/index audit_logs_tenant_id_patient_id_id_key on audit_logs is missing or changed/);
     });
 
     it('notices a column that became nullable', async () => {

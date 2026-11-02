@@ -1,6 +1,6 @@
 # Implementation Plan: clinical-revisions
 
-Spec: [`SPEC-clinical-revisions.md`](SPEC-clinical-revisions.md) (draft 2026-10-31, not yet approved), *Rollout* steps 0 to 6. Map: [`audit-map.md`](audit-map.md).
+Spec: [`SPEC-clinical-revisions.md`](SPEC-clinical-revisions.md) (approved 2026-11-01), *Rollout* steps 0 to 6. Map: [`audit-map.md`](audit-map.md).
 
 ## Overview
 
@@ -86,7 +86,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ### Step 1: Prerequisites (PR 1)
 
-- [ ] **Task 1.1: Composite unique keys**
+- [x] **Task 1.1: Composite unique keys**
   - *Acceptance:*
     - One migration adds `@@unique([tenantId, patientId, id])` to `AuditLog`, `InitialEvaluation`, `InformedConsent` and `PatientEvent`.
     - `auditMigrationScan.test.ts`: an `ALLOWED` entry for this migration, with its exact violations (DDL on `audit_logs`).
@@ -94,13 +94,13 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - Rehearsed on a copy of `production`: it applies in one transaction, and row counts are unchanged.
   - *Verify:* `npm test -- auditMigrationScan auditHardening modelIntegrity`; `npm run check`.
   - *Files:* `schema.prisma`, the migration, `tests/auditMigrationScan.test.ts`, maybe `prisma/audit-guards.sql`. **S**
-- [ ] **Task 1.2: `recordAudit` returns its id; more lockable tables**
+- [x] **Task 1.2: `recordAudit` returns its id; more lockable tables**
   - *Acceptance:*
     - `recordAudit` returns the id of the row it inserted. Existing callers ignore it.
     - `LOCKABLE` gains `clinical_episodes: 'id'`, `informed_consents: 'patient_id'` (one per patient) and `patient_events: 'id'`.
   - *Verify:* `npm test -- auditTransactional auditEntries`; `npm run check`.
   - *Files:* `repositories/prisma/recordAudit.ts`, `repositories/prisma/changedFields.ts`. **XS**
-- [ ] **Task 1.3: Episodes audited** (the episode part of `clinical-audit-coverage`)
+- [x] **Task 1.3: Episodes audited** (the episode part of `clinical-audit-coverage`)
   - *Acceptance:*
     - `AuditEntity` gains `EPISODE` (in the same migration as Task 1.1). The catalog gains (spec §4):
       - `EPISODE_OPENED`;
@@ -114,12 +114,12 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
   - *Verify:* `npm test -- episodes auditEntries auditCoverage auditTransactional`. The new tests cover: create records one row; abandon and reopen record their own actions; a correction records its changed fields; a request with both answers `400` and writes nothing; a no-op records nothing; a forced audit failure rolls the episode back. Plus `npm run check`.
   - *Files:* `schema.prisma` + migration, `packages/shared/src/auditActions.ts`, `repositories/episodeRepository.ts`, `repositories/prisma/prismaEpisodeRepository.ts`, `routes/episodes.ts`, `tests/auditCoverageManifest.ts`, `tests/episodes.test.ts`, `docs/specs/audit-map.md`. **M**
   - *Depends on:* 1.1.
-- [ ] **Task 1.4: Reason codes and PR**
+- [x] **Task 1.4: Reason codes and PR**
   - *Acceptance:*
     - The catalog gains `AUDIT_REVISION_REASONS` (`DATA_ENTRY_ERROR` "Error de confección", `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`), attached to no action yet.
     - `packages/shared` exports the request schema for a reason and an optional note, reused by every route from step 2 on.
     - Full local suites, then a PR against `dev`.
-    - After the merge: `migrate deploy` on `development`, and the staging build log shows both checks passing.
+    - After the merge (pending): `migrate deploy` on `development`, and the staging build log shows both checks passing.
   - *Verify:* `npm test -- auditCatalog`; `npm test`; `npm test -w apps/web`; `npm run check`.
   - *Files:* `packages/shared/src/auditActions.ts`, `packages/shared/src/index.ts`. **XS**
 
@@ -425,4 +425,14 @@ None open.
 
 ## Decisions during implementation
 
-None yet.
+### Step 1
+
+- **No `ALLOWED` entry in `auditMigrationScan.test.ts`.** The migration touches the audit tables only with `ADD VALUE` on their enums and a `CREATE UNIQUE INDEX` on `audit_logs`, and the scan flags neither: it looks for statements that could rewrite or unprotect audit content, and an added index can do neither. An entry with no violations would allow nothing.
+- **`audit-guards.sql` pins the new key on `audit_logs`** by its exact definition, in the index check that already pinned `platform_audit_logs_action_entity_key`; the TEMP-copies test expects its absence to be reported. The keys on the other three tables are not pinned: the guards cover only the audit tables.
+- **The episode's action is decided against the locked row, not the request's shape.** A status different from the stored one is a transition (`EPISODE_CLOSED` or `EPISODE_REOPENED`, its closing date part of it); anything else is a correction. So `{ status: 'DISCHARGED', closedAt }` on a discharged episode corrects the date (`EPISODE_UPDATED`, `["closedAt"]`), and a transition that sends the complaint unchanged is not refused. The repository returns what happened (`EpisodeChange`); the route turns it into the audit entry.
+- **`AUDIT_EPISODE_FIELDS` is `mainComplaint` and `closedAt`.** The `PATCH` does not accept `openedAt`, so an opening date cannot be corrected yet; adding it to the list later is an append.
+- **An empty `PATCH` of an episode answered `400`** "La fecha de cierre no puede ser anterior a la apertura del episodio": Prisma's `updateMany` with no fields counts 0, which the old code read as the date condition failing. It now answers `200` and writes nothing.
+- **Reason labels are lowercase in the catalog**, like every list there, because sentences embed them; the form capitalizes ("Error de confección"). `LATE_INFORMATION` is "información recibida después", `CLARIFICATION` "aclaración", `OTHER` "otro motivo": labels, not codes, so they can still change.
+- **The reason's request schema lives in `auditActions.ts`**: `revisionReasonFields`, which a correction's body schema spreads, and `revisionReasonSchema` for an annulment's body. No new runtime module. `reasonNote` repeats the single-empty rule of `optionalText` (the package cannot import the API's), with a 500-character limit like the appointment notes.
+- **The record's activity timeline gets an `EPISODE` badge** ("Episodio"); without it, episode rows showed the neutral "Registro".
+- **A discharge still closes its episodes under `DISCHARGE_RECORDED` alone**, with no `EPISODE_CLOSED` row: one action, one audit row (spec §4). Its episode revisions arrive in Task 3.1.

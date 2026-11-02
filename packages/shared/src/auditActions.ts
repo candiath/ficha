@@ -50,6 +50,24 @@ export const AUDIT_PATIENT_EVENT_KINDS = {
   OTHER: 'otro',
 } as const;
 
+// The status an episode was closed with (EPISODE_CLOSED). ACTIVE is not one:
+// reopening is an action of its own.
+export const AUDIT_EPISODE_STATUSES = {
+  DISCHARGED: 'alta',
+  ABANDONED: 'abandono',
+} as const;
+
+// Why a clinical record was corrected or annulled (SPEC-clinical-revisions.md
+// §4). Attached to each *_UPDATED and annulment action in the step that
+// versions its aggregate: the catalog validates strictly, so a parameter is
+// required from the commit that adds it. The form preselects DATA_ENTRY_ERROR.
+export const AUDIT_REVISION_REASONS = {
+  DATA_ENTRY_ERROR: 'error de confección',
+  LATE_INFORMATION: 'información recibida después',
+  CLARIFICATION: 'aclaración',
+  OTHER: 'otro motivo',
+} as const;
+
 // "ADMIN" is the word the whole platform screen uses ("Sin ADMIN", "Crear ADMIN").
 export const AUDIT_ROLES = {
   ADMIN: 'ADMIN',
@@ -103,6 +121,14 @@ export const AUDIT_PATIENT_EVENT_FIELDS = {
   occurred: 'la fecha',
 } as const;
 
+// A correction of an episode (EPISODE_UPDATED): never its status, whose
+// changes are EPISODE_CLOSED and EPISODE_REOPENED. The opening date is not
+// editable yet.
+export const AUDIT_EPISODE_FIELDS = {
+  mainComplaint: 'el motivo de consulta',
+  closedAt: 'la fecha de cierre',
+} as const;
+
 export const AUDIT_PAYMENT_FIELDS = {
   baseAmountCents: 'el monto',
   discountCents: 'el descuento',
@@ -147,7 +173,8 @@ export type AuditEntity =
   | 'SESSION'
   | 'PAYMENT'
   | 'CONSENT'
-  | 'PATIENT_EVENT';
+  | 'PATIENT_EVENT'
+  | 'EPISODE';
 
 // The object a platform_audit_logs row acted on, when it is neither the clinic
 // (tenant_id) nor a user (target_user_id), which have columns of their own.
@@ -360,6 +387,41 @@ export const AUDIT_ACTIONS = {
       label: 'Antecedente eliminado',
       describe: (p) =>
         p.kind ? `Eliminó un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Eliminó un antecedente',
+    }),
+    // An episode's status changes are facts with actions of their own, and take
+    // no reason; EPISODE_UPDATED is only a correction of its data. One request
+    // never does both (SPEC-clinical-revisions.md §4).
+    EPISODE_OPENED: action({
+      entity: 'EPISODE',
+      kind: 'create',
+      params: {},
+      label: 'Episodio abierto',
+      describe: () => 'Abrió un episodio',
+    }),
+    EPISODE_CLOSED: action({
+      entity: 'EPISODE',
+      kind: 'update',
+      params: { status: code(AUDIT_EPISODE_STATUSES) },
+      label: 'Episodio cerrado',
+      describe: (p) =>
+        p.status ? `Cerró un episodio (${AUDIT_EPISODE_STATUSES[p.status]})` : 'Cerró un episodio',
+    }),
+    EPISODE_REOPENED: action({
+      entity: 'EPISODE',
+      kind: 'update',
+      params: {},
+      label: 'Episodio reabierto',
+      describe: () => 'Reabrió un episodio',
+    }),
+    EPISODE_UPDATED: action({
+      entity: 'EPISODE',
+      kind: 'update',
+      params: { changedFields: fields(AUDIT_EPISODE_FIELDS) },
+      label: 'Episodio actualizado',
+      describe: (p) => {
+        const changed = joinFields(p.changedFields, AUDIT_EPISODE_FIELDS);
+        return changed ? `Actualizó ${changed} de un episodio` : 'Actualizó un episodio';
+      },
     }),
     // Before the catalog (until 2026-10), an action was the entity plus one of
     // these, and the fact itself lived in a Spanish description.
@@ -575,3 +637,30 @@ export function describeAuditEntry(table: AuditTable, actionCode: string, raw: u
 export function auditActionKind(table: AuditTable, actionCode: string): AuditKind | null {
   return lookup(table, actionCode)?.kind ?? null;
 }
+
+// ─── Requests that carry a reason ───────────────────────────────────────────
+//
+// A correction or an annulment of a clinical record says why
+// (SPEC-clinical-revisions.md §4): a code, which goes into the audit row, and
+// an optional note, which is clinical text and goes only into the revision.
+// A correction's route spreads the fields into its body schema; an
+// annulment's body is exactly these (revisionReasonSchema).
+export type RevisionReason = keyof typeof AUDIT_REVISION_REASONS;
+
+export const revisionReasonFields = {
+  reason: z.enum(Object.keys(AUDIT_REVISION_REASONS) as [RevisionReason, ...RevisionReason[]], {
+    error: 'Elegí el motivo del cambio',
+  }),
+  // The API's single empty (optionalText in apps/api/src/lib/validation.ts,
+  // which this package cannot import): absent stays absent, "" and "   "
+  // become null, and the limit is measured after the trim.
+  reasonNote: z
+    .string()
+    .trim()
+    .max(500, 'La nota no puede superar los 500 caracteres')
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional(),
+};
+
+export const revisionReasonSchema = z.strictObject(revisionReasonFields);

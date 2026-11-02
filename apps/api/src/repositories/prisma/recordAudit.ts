@@ -26,13 +26,16 @@ export function assertAuditEntry(table: AuditTable, action: string, params: unkn
 // The entity comes from the catalog, never from the caller. `select` keeps the
 // INSERT's RETURNING to the id: a column this code does not read can be
 // dropped while it still serves.
+//
+// Returns the row's id, which a clinical revision points at
+// (SPEC-clinical-revisions.md §4).
 export async function recordAudit(
   tx: Prisma.TransactionClient,
   ctx: TenantContext,
   entry: AuditEntry,
-): Promise<void> {
+): Promise<string> {
   assertAuditEntry('audit_logs', entry.action, entry.params);
-  await tx.auditLog.create({
+  const { id } = await tx.auditLog.create({
     data: {
       tenantId: ctx.tenantId,
       patientId: entry.patientId,
@@ -46,4 +49,5 @@ export async function recordAudit(
     },
     select: { id: true },
   });
+  return id;
 }

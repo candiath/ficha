@@ -54,8 +54,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'DELETE /api/patients/:patientId/consent': audited('audit_logs'),
 
   // Episodes (routes/episodes.ts)
-  'POST /api/patients/:patientId/episodes': debt('clinical-audit-coverage'),
-  'PATCH /api/patients/:patientId/episodes/:episodeId': debt('clinical-audit-coverage'),
+  'POST /api/patients/:patientId/episodes': audited('audit_logs'),
+  'PATCH /api/patients/:patientId/episodes/:episodeId': audited('audit_logs'),
 
   // Initial evaluation (routes/evaluations.ts)
   'PUT /api/patients/:patientId/episodes/:episodeId/evaluation': audited('audit_logs'),
