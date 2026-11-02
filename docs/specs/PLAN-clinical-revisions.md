@@ -47,7 +47,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
   - The throwaway branch is deleted afterwards, with your permission.
   - *Files:* none. **S**
   - *Depends on:* 0.1, 0.2.
-- [ ] **Task 0.4: `staging`, `development` and `ci` on 18**
+- [x] **Task 0.4: `staging`, `development` and `ci` on 18**
   - *Acceptance:*
     - `staging` and `development` are restored from dumps of the old branches with the rehearsed procedure, and their row counts match. `ci` stays empty and is migrated.
     - `ficha-staging` on Render, the local `apps/api/.env` and the `CI_DATABASE_URL` secret point at the new project. You change Render and the secret; I give you the names, never the URLs.
@@ -435,6 +435,7 @@ None open.
 - **Every branch of a new project starts with the root's password** (Task 0.1). Branches inherit the role and its password, so the laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. In the old project they differ.
 - **The rehearsal** (Task 0.3, 2026-11-01). On `ci`: the 57 migrations applied from empty, `audit-guards.sql` passed, `no-audit-maintenance.sql` failed on the flag, and `npm run test:neon` passed through the pooler (803 tests, 11 min). The old `staging` (16.15), dumped by `pg_dump` 18.6 from the `postgres:18` image with the backups repository's flags, restored into `rehearsal-restore` with the procedure in `docs/infra.md`. The comparison was stronger than counts: per table, the row count and an md5 of its rows as text, ordered. All 22 tables matched, 189 rows, and the restored branch then passed what the Render build runs (`no-audit-maintenance.sql`, `migrate deploy`, `audit-guards.sql`).
 - **The switch of `staging`** (Task 0.4, 2026-11-02). `staging` (22 tables, 189 rows) and `development` (23, 210, its flag included) restored identical, and the old `staging` did not change between the dump and the switch. Saving env vars on Render redeploys without building, so `migrate:prod` does not run: a **Manual Deploy → Deploy latest commit** is what produces the build log. The first save pointed `ficha-staging` at `development`; the startup check failed on the flag and the staging bot sent `AUDIT_MAINTENANCE_FLAG_PRESENT` within seconds, which is the check doing its job. The deploy after the fix: build log with both checks and no pending migrations on the new `staging`, and both startup checks passing.
+- **The switch of `ci`** (Task 0.4, 2026-11-02). The `CI_DATABASE_URL` secret was checked by a manual run of `test.yml` on this branch: migrations and `test:neon` passed on the new `ci`. Since then a release PR or manual run from a branch without `expectRestrictedDelete` fails three tests there, so none runs from one.
 
 ### Step 1
 
