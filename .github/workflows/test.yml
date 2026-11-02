@@ -1,12 +1,16 @@
 name: Tests
 
 on:
-  # Only on PRs. The PR already tests the merge of its branch into the base,
-  # so running again on the push that merges it repeats the same tree (it used
-  # to run on push to dev: half of the CI time for no new information). If two
-  # PRs to dev ever conflict semantically after merging, the release PR to
-  # main tests the combined tree before it reaches production.
+  # On PRs, and on push to dev. A PR tests the merge of its branch into dev as
+  # dev was when it ran, and the ruleset does not require branches to be up
+  # to date, so two PRs can pass separately and break together. The push run
+  # tests the tree that actually landed, right after the merge instead of at
+  # the release PR. It runs on Docker (~2 min); it was dropped on 2026-10-05,
+  # when each run took 15-20 min on Neon. Not on push to main: the release PR
+  # already tested exactly that tree.
   pull_request:
+  push:
+    branches: [dev]
   # A demanda, sobre cualquier rama. No es un lujo: lo que el CI valida depende
   # de credenciales que viven fuera del repo (CI_DATABASE_URL),
   # así que un check en verde afirma algo sobre un commit en un momento, no
@@ -37,7 +41,8 @@ jobs:
   # Manual runs and release PRs to main always run everything.
   #
   # It also decides where the API tests run (`neon`):
-  #   - PRs to dev: a throwaway Postgres in Docker on the runner (`npm test`,
+  #   - PRs to dev and pushes to dev (always a full run): a throwaway
+  #     Postgres in Docker on the runner (`npm test`,
   #     as locally). Each run has its own database, so an open PR's migration
   #     can no longer reach another PR's run, as it did through the shared ci
   #     branch on 2026-10-24.
@@ -62,6 +67,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          if [ "$EVENT" = "push" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "neon=false" >> "$GITHUB_OUTPUT"
+            echo "Push to dev: full run on Docker."
+            exit 0
+          fi
           if [ "$EVENT" != "pull_request" ] || [ "$BASE_REF" = "main" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "api=true" >> "$GITHUB_OUTPUT"
