@@ -167,8 +167,11 @@ describe('trusted login', () => {
   it(`a trusted login beyond ${TRUSTED_SESSIONS_PER_USER} demotes the oldest trusted session, without closing it`, async () => {
     const other = await clinic.createUser();
     const existing: string[] = [];
+    // A minute apart, oldest first: created in a loop they can share a
+    // millisecond, and then which one is the oldest is a tie.
     for (let i = 0; i < TRUSTED_SESSIONS_PER_USER; i++) {
-      existing.push(await createTestToken(other, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs }));
+      const createdAt = new Date(Date.now() - (TRUSTED_SESSIONS_PER_USER - i) * MINUTE);
+      existing.push(await createTestToken(other, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs, createdAt }));
     }
 
     const res = await request(app)

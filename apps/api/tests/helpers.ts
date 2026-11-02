@@ -86,6 +86,12 @@ interface CreateTestTokenOptions {
   trusted?: boolean;
   /** When the session was last used; in the past to test idle expiry. */
   lastUsedAt?: Date;
+  /**
+   * When the session was created. `created_at` has millisecond precision, so
+   * sessions created in a loop can tie; a test that relies on their order
+   * sets it.
+   */
+  createdAt?: Date;
 }
 
 // The bearer token for a clinic user: inserts an auth_sessions row directly,
@@ -111,6 +117,7 @@ export async function createTestAuthSession(
       expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
       trusted: opts.trusted ?? false,
       ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
+      ...(opts.createdAt && { createdAt: opts.createdAt }),
     },
     select: { id: true },
   });
