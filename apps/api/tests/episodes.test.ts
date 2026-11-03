@@ -10,15 +10,14 @@ import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestCli
 // estado decide qué mira el motor de alertas (listStale solo recorre los
 // ACTIVE). No tenía tests.
 //
-// Se cubre el alta, el listado y el ciclo cerrar/reabrir tal como lo ejerce la
-// web, que manda estado y fecha de cierre juntos: cerrar es {status, closedAt},
-// reabrir es {status: 'ACTIVE', closedAt: null}.
+// Covered: opening, listing, and the close/reopen cycle. Closing is {status}
+// alone when it is "now", which the API stamps, or {status, closedAt} for a
+// date the caller chose; reopening is {status: 'ACTIVE', closedAt: null}.
 //
-// Y se cubre la coherencia entre las dos columnas, que hasta este archivo
-// sostenía sólo la web: no se cierra sin fecha, no se pone fecha sin cerrar, no
-// se cierra antes de abrir, y las dos fechas tienen los mismos topes duros que
-// la de sesión. Lo que sigue siendo libre es a qué estado se puede ir desde
-// cuál: reabrir un episodio dado de alta es legítimo.
+// And the coherence between the two columns: a closing date only comes with a
+// closing status, an episode never closes before it opened, and both dates
+// have the same hard limits as a session's. What stays free is which status
+// can follow which: reopening a discharged episode is legitimate.
 describe('episodios: alta, listado y transiciones de estado', () => {
   let clinic: TestClinic;
   let user: User;
@@ -196,14 +195,44 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
   // ── PATCH: la coherencia entre el estado y la fecha ───────────────────────
 
-  it('cerrar un episodio sin fecha de cierre es un 400', async () => {
-    const episode = await crearEpisodio();
-
+  it('closing with no date closes the episode now, by the API clock', async () => {
     for (const status of ['DISCHARGED', 'ABANDONED']) {
+      const episode = await crearEpisodio();
+      const before = Date.now();
+
       const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({ status });
-      expect(res.status).toBe(400);
-      expect(res.body.details).toHaveProperty('closedAt');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe(status);
+      const closedAt = new Date(res.body.data.closedAt).getTime();
+      expect(closedAt).toBeGreaterThanOrEqual(Math.max(before, new Date(episode.openedAt as string).getTime()));
+      expect(closedAt).toBeLessThanOrEqual(Date.now());
     }
+  });
+
+  it('a close "now" never lands before the opening, even one stamped by a clock that runs ahead', async () => {
+    // The opening is stamped by one clock (Prisma's engine, or a client's for
+    // loaded history) and "now" read from another: a few milliseconds apart on
+    // the same machine, seconds or minutes apart from a device. Two seconds
+    // ahead stands for any of them.
+    const openedAt = new Date(Date.now() + 2000).toISOString();
+    const episode = await crearEpisodio({ openedAt });
+
+    const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({ status: 'ABANDONED' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ status: 'ABANDONED', closedAt: openedAt });
+  });
+
+  it('a close "now" of an episode already closed with that status changes nothing', async () => {
+    const closedAt = '2025-08-01T12:00:00.000Z';
+    const episode = await crearEpisodio({ openedAt: '2025-06-01T10:00:00.000Z' });
+    await auth(request(app).patch(`${url()}/${episode.id}`)).send({ status: 'DISCHARGED', closedAt });
+
+    const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({ status: 'DISCHARGED' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ status: 'DISCHARGED', closedAt });
   });
 
   it('una fecha de cierre sin el estado que cierra es un 400', async () => {
@@ -396,6 +425,18 @@ describe('episodios: alta, listado y transiciones de estado', () => {
       { action: 'EPISODE_OPENED', entity: 'EPISODE', params: {} },
       { action: 'EPISODE_CLOSED', entity: 'EPISODE', params: { status: 'ABANDONED' } },
       { action: 'EPISODE_REOPENED', entity: 'EPISODE', params: {} },
+    ]);
+  });
+
+  it('a close "now" is an EPISODE_CLOSED like any other, and repeating it records nothing', async () => {
+    const episode = await crearEpisodio();
+
+    expect((await patchEpisode(episode.id, { status: 'ABANDONED' })).status).toBe(200);
+    expect((await patchEpisode(episode.id, { status: 'ABANDONED' })).status).toBe(200);
+
+    expect(await rowsOf(episode.id)).toEqual([
+      { action: 'EPISODE_OPENED', entity: 'EPISODE', params: {} },
+      { action: 'EPISODE_CLOSED', entity: 'EPISODE', params: { status: 'ABANDONED' } },
     ]);
   });
 

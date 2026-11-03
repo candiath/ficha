@@ -133,4 +133,21 @@ describe('creación atómica de sesión con pago', () => {
     expect(episode?.status).toBe('DISCHARGED');
     expect(episode?.closedAt).not.toBeNull();
   });
+
+  it('a discharge never closes an episode before it opened', async () => {
+    // The same rule as a close "now" (episodes.test.ts): the opening may have
+    // been stamped by a clock that runs ahead of the API's.
+    const openedAt = new Date(Date.now() + 2000);
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Cervicalgia', openedAt },
+      select: { id: true },
+    });
+
+    const res = await postSession({ sessionType: 'DISCHARGE', episodes: [{ episodeId: episode.id }] });
+
+    expect(res.status).toBe(201);
+    await expect(
+      prisma.clinicalEpisode.findUnique({ where: { id: episode.id }, select: { status: true, closedAt: true } }),
+    ).resolves.toEqual({ status: 'DISCHARGED', closedAt: openedAt });
+  });
 });

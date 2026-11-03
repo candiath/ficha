@@ -207,9 +207,12 @@ describe('audit rows are written in the same transaction as their action', () =>
       data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Lumbalgia' },
     });
 
+    // Closed "now", as the web closes: the repository stamps the time. The
+    // failure must be the audit row's foreign key (P2003), not the closing
+    // that never reached it.
     await expect(
-      episodeRepo.update(ctx, patient.id, episode.id, { status: 'ABANDONED', closedAt: new Date() }, broken),
-    ).rejects.toThrow();
+      episodeRepo.update(ctx, patient.id, episode.id, { status: 'ABANDONED' }, broken),
+    ).rejects.toMatchObject({ code: 'P2003' });
     await expect(
       episodeRepo.update(ctx, patient.id, episode.id, { mainComplaint: 'Cervicalgia' }, broken),
     ).rejects.toThrow();

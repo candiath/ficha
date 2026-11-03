@@ -36,6 +36,7 @@ export interface EpisodeCreateInput {
 export interface EpisodeUpdateInput {
   status?: EpisodeStatus;
   mainComplaint?: string | null;
+  /** Absent with a status that closes the episode: closed now (closingNow). */
   closedAt?: Date | null;
 }
 

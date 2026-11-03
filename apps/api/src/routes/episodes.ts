@@ -24,11 +24,15 @@ const EpisodeCreateSchema = z.object({
   openedAt: clinicalDateField('La fecha de apertura').optional(),
 });
 
-// El cierre viaja completo o no viaja: estado y fecha son un solo dato partido
-// en dos columnas, y hasta ahora nada obligaba a que dijeran lo mismo. Se podía
-// dar de alta un episodio sin fecha de alta, o reactivarlo dejándole la fecha
-// de cierre vieja; el invariante lo sostenía sólo la web, que manda las dos
-// cosas juntas. Acá queda del lado de la API, que es quien responde por el dato.
+// Status and closing date are one fact split into two columns, and the API is
+// what keeps them saying the same thing: a closing date only comes with a
+// status that closes, and erasing it is reopening.
+//
+// Closing with no date closes now, and the API stamps it (closingNow in the
+// repository). A client's "now" comes from its own clock: a device running
+// behind the server's would send a closing time before the opening the server
+// stamped, and the close would be refused. A date the client chose (loading
+// history) still has to fall on or after the opening.
 const EpisodeUpdateSchema = z
   .object({
     status: z.enum(['ACTIVE', 'DISCHARGED', 'ABANDONED']).optional(),
@@ -36,14 +40,6 @@ const EpisodeUpdateSchema = z
     closedAt: clinicalDateField('La fecha de cierre').nullable().optional(),
   })
   .superRefine((data, ctx) => {
-    if (cierra(data.status) && typeof data.closedAt !== 'string') {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['closedAt'],
-        message: 'Cerrar un episodio necesita su fecha de cierre',
-      });
-    }
-
     if (typeof data.closedAt === 'string' && !cierra(data.status)) {
       ctx.addIssue({
         code: 'custom',

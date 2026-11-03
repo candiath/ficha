@@ -14,6 +14,7 @@ import type {
   StaleEpisodeDTO,
 } from '../episodeRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
+import { closingNow } from './episodeClosing';
 import { recordAudit } from './recordAudit';
 
 const episodeSelect = {
@@ -134,6 +135,12 @@ export const prismaEpisodeRepository: EpisodeRepository = {
         return { ok: false, reason: 'transition_with_correction' };
       }
 
+      // Closing with no date closes now, never before the opening. Only a
+      // change of status: an episode already closed with that status keeps
+      // its date.
+      const closesNow = transition && input.status !== 'ACTIVE' && input.closedAt === undefined;
+      const data = closesNow ? { ...input, closedAt: closingNow(found.openedAt) } : input;
+
       // La coherencia de las fechas va en el where del write: un episodio no
       // puede cerrarse antes de abrirse, y openedAt vive en la base. Con la
       // fila bloqueada y encontrada, no escribir solo puede ser eso, o un
@@ -145,7 +152,7 @@ export const prismaEpisodeRepository: EpisodeRepository = {
           tenantId: ctx.tenantId,
           ...(input.closedAt ? { openedAt: { lte: input.closedAt } } : {}),
         },
-        data: input,
+        data,
       });
       if (count === 0 && input.closedAt) return { ok: false, reason: 'closed_before_opened' };
 

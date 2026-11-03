@@ -20,6 +20,7 @@ import type {
 } from '../sessionRepository';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
+import { closingNow } from './episodeClosing';
 import { recordAudit } from './recordAudit';
 
 // Política del repositorio: todo método opera sobre sesiones vigentes. Una
@@ -283,10 +284,14 @@ export const prismaSessionRepository: SessionRepository = {
       // Cierre automático del episodio al registrar el alta: un alta cierra
       // exactamente uno. Dentro de la transacción: antes era fire-and-forget
       // y un fallo dejaba el alta registrada con el episodio todavía abierto.
+      // It closes now, never before the opening (closingNow): the opening is
+      // read here, and it cannot change, since no write corrects it.
       if (input.sessionType === 'DISCHARGE') {
-        await tx.clinicalEpisode.updateMany({
-          where: { id: { in: episodes.map((b) => b.episodeId) }, tenantId: ctx.tenantId },
-          data: { status: 'DISCHARGED', closedAt: new Date() },
+        const where = { id: episodes[0].episodeId, tenantId: ctx.tenantId };
+        const { openedAt } = await tx.clinicalEpisode.findUniqueOrThrow({ where, select: { openedAt: true } });
+        await tx.clinicalEpisode.update({
+          where,
+          data: { status: 'DISCHARGED', closedAt: closingNow(openedAt) },
         });
       }
 
