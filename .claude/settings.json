@@ -15,6 +15,12 @@
       "Bash(git fetch:*)",
       "Bash(git pull:*)",
       "Bash(git cherry:*)",
+      "Bash(git commit:*)",
+      "Bash(git push * feat/*)",
+      "Bash(git push * fix/*)",
+      "Bash(git push * docs/*)",
+      "Bash(git push * chore/*)",
+      "Bash(git push * ci/*)",
 
       "Bash(npm install:*)",
       "Bash(npm run:*)",
@@ -36,7 +42,7 @@
       "Bash(gh pr diff:*)",
       "Bash(gh pr checks:*)",
       "Bash(gh pr status:*)",
-      "Bash(gh pr create:*)",
+      "Bash(gh pr create -B dev *)",
       "Bash(gh issue view:*)",
       "Bash(gh issue list:*)",
       "Bash(gh issue status:*)",
@@ -69,8 +75,6 @@
       "mcp__neon__create_branch"
     ],
     "ask": [
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
       "Bash(git reset:*)",
       "Bash(git merge:*)",
       "Bash(git rebase:*)",
@@ -78,6 +82,10 @@
       "Bash(git checkout *-- *)",
       "Bash(npm publish:*)",
       "Bash(npm uninstall:*)",
+
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr create *-B main*)",
+      "Bash(gh pr create *--base main*)",
 
       "Bash(npx prisma migrate reset*)",
       "Bash(npx prisma db push*)",
@@ -94,18 +102,31 @@
       "Bash(rm -rf:*)",
       "Bash(rm -r *)",
       "PowerShell(Remove-Item *-Recurse*)",
-      "PowerShell(git *)"
+      "PowerShell(git reset*)",
+      "PowerShell(git merge*)",
+      "PowerShell(git rebase*)",
+      "PowerShell(git branch -D*)",
+      "PowerShell(git checkout *-- *)",
+      "PowerShell(gh pr merge*)",
+      "PowerShell(gh pr create *-B main*)",
+      "PowerShell(gh pr create *--base main*)"
     ],
     "deny": [
       "Bash(git push *--force*)",
       "Bash(git push *-f *)",
       "Bash(git push *-f)",
       "Bash(git push *+*)",
+      "Bash(git push *--mirror*)",
+      "Bash(git push *--all*)",
+      "Bash(git push *--delete*)",
       "Bash(git clean -f*)",
       "Bash(git checkout -- .)",
       "PowerShell(git push *--force*)",
       "PowerShell(git push *-f *)",
       "PowerShell(git push *-f)",
+      "PowerShell(git push *--mirror*)",
+      "PowerShell(git push *--all*)",
+      "PowerShell(git push *--delete*)",
       "PowerShell(git clean -f*)"
     ]
   },

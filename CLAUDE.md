@@ -131,6 +131,7 @@ The modules of `packages/shared` with **runtime values** (the rest is `import ty
 ## Convenciones
 
 - Branches `feat/*` desde `dev`; PRs de feature contra `dev`, nunca contra `main`. El default branch del repo es `main`, así que `gh pr create` necesita `-B dev` explícito. Commits pequeños y atómicos, con prefijo convencional (`fix(web): ...`, `test(web): ...`).
+- **Claude commits, pushes and opens PRs without asking** (since 2026-11-03): it commits as it works on a `feat/*`, `fix/*`, `docs/*`, `chore/*` or `ci/*` branch cut from `dev`, and when the work is complete and the local checks pass (the full API suite for API changes), pushes the branch and opens the PR with `gh pr create -B dev …` (`-B dev` first: the allow rule matches that prefix). It never merges, never opens the release PR to `main` and never pushes to `dev` or `main`: those stay with Nath. `.claude/settings.json` draws the same line; its `ask` rules prompt even in bypass permissions mode.
 - **Language (since 2026-10-04): everything new is written in English** — identifiers, comments, test names, commit messages, PR and issue text, and documentation (including specs and new sections of this file).
   - **Exception: what users read stays in Spanish** — UI text and API error messages (`{"error":"No autenticado"}`).
   - Existing Spanish code and docs are not translated in bulk; translate a piece when it is touched for another reason.
