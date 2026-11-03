@@ -1104,7 +1104,9 @@ export default function PatientDetailPage() {
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={() => updateEpisodeMutation.mutate({ status: 'ABANDONED', closedAt: new Date().toISOString() })}
+                  // No closing time: the API stamps "now" by its own clock, which
+                  // this device's may run behind.
+                  onClick={() => updateEpisodeMutation.mutate({ status: 'ABANDONED' })}
                   disabled={updateEpisodeMutation.isPending}
                 >
                   {updateEpisodeMutation.isPending ? 'Guardando...' : 'Confirmar abandono'}
