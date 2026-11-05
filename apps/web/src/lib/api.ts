@@ -7,7 +7,22 @@
 // plataforma no desloguea la clínica ni al revés — son dos logins distintos
 // contra dos secretos distintos, y acá también tienen que estar separados.
 
+import { recordServerTime, SERVER_TIME_HEADER } from '@/lib/serverClock';
+
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
+// A refused request: its message is the API's, for the user, and its body
+// carries whatever a screen needs to offer a way out.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
 
 interface ApiClientConfig {
   /** Clave de localStorage donde vive el token de esta sesión. */
@@ -44,6 +59,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
   async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const token = getToken();
+    const sentAt = Date.now();
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
@@ -52,6 +68,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         ...options?.headers,
       },
     });
+    recordServerTime(res.headers.get(SERVER_TIME_HEADER), sentAt, Date.now());
 
     // Token vencido/inválido o cuenta desactivada: la sesión ya no sirve.
     if (res.status === 401 && !path.startsWith(config.loginPath)) {
@@ -61,7 +78,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error ?? `Error ${res.status}`);
+      throw new ApiError(body.error ?? `Error ${res.status}`, res.status, body);
     }
 
     if (res.status === 204) return undefined as T;
