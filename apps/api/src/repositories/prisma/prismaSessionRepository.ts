@@ -20,7 +20,6 @@ import type {
 } from '../sessionRepository';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
-import { closingNow } from './episodeClosing';
 import { recordAudit } from './recordAudit';
 
 // Política del repositorio: todo método opera sobre sesiones vigentes. Una
@@ -32,6 +31,7 @@ const VIGENTE = { deletedAt: null } as const;
 // convierte en un resultado justo afuera. Es la forma de abortar una
 // transacción interactiva sin que el error salga como un 500.
 class TurnoYaRegistrado extends Error {}
+class DischargeBeforeOpening extends Error {}
 
 const blockSelect = {
   episodeId: true,
@@ -284,15 +284,19 @@ export const prismaSessionRepository: SessionRepository = {
       // Cierre automático del episodio al registrar el alta: un alta cierra
       // exactamente uno. Dentro de la transacción: antes era fire-and-forget
       // y un fallo dejaba el alta registrada con el episodio todavía abierto.
-      // It closes now, never before the opening (closingNow): the opening is
-      // read here, and it cannot change, since no write corrects it.
+      // An opening dated ahead of now refuses the discharge: the condition
+      // goes in the where, and no date is adjusted to fit it.
       if (input.sessionType === 'DISCHARGE') {
-        const where = { id: episodes[0].episodeId, tenantId: ctx.tenantId };
-        const { openedAt } = await tx.clinicalEpisode.findUniqueOrThrow({ where, select: { openedAt: true } });
-        await tx.clinicalEpisode.update({
-          where,
-          data: { status: 'DISCHARGED', closedAt: closingNow(openedAt) },
+        const closedAt = new Date();
+        const { count } = await tx.clinicalEpisode.updateMany({
+          where: {
+            id: { in: episodes.map((b) => b.episodeId) },
+            tenantId: ctx.tenantId,
+            openedAt: { lte: closedAt },
+          },
+          data: { status: 'DISCHARGED', closedAt },
         });
+        if (count === 0) throw new DischargeBeforeOpening();
       }
 
       // El vínculo con el turno va en la MISMA transacción: si la sesión se
@@ -325,13 +329,15 @@ export const prismaSessionRepository: SessionRepository = {
 
       return dto;
     }).catch((e: unknown) => {
-      // El único caso en que la transacción se aborta a propósito: el turno
-      // ya tenía sesión. Todo lo demás sigue siendo un error de verdad.
-      if (e instanceof TurnoYaRegistrado) return null;
+      // The two cases where the transaction is aborted on purpose: the
+      // appointment already had its session, or the episode opens later.
+      // Anything else is a real error.
+      if (e instanceof TurnoYaRegistrado) return 'appointment_taken' as const;
+      if (e instanceof DischargeBeforeOpening) return 'discharge_before_opening' as const;
       throw e;
     });
 
-    if (session === null) return { ok: false, reason: 'appointment_taken' };
+    if (typeof session === 'string') return { ok: false, reason: session };
     return { ok: true, session };
   },
 
