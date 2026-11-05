@@ -9,7 +9,7 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 - **GitHub** (`candiath/ficha`, repo **público**) — código, CI y rulesets de protección de ramas.
 - **Render** — la API de Express. Un servicio por entorno, plan free (cold start ~50s).
 - **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
-- **Neon** — Postgres. Un solo proyecto (`ficha`) con una branch por entorno.
+- **Neon** — Postgres 18, one project with a branch per environment. During the move from 16 (*Postgres 18* below) there are two: `ficha-pg18` holds `staging`, `development` and `ci`, and `production` stays in the old `ficha` until it moves.
 
 ## Los tres entornos
 
@@ -25,7 +25,7 @@ Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia 
 
 Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci`) y su propia `CI_DATABASE_URL` (secret de GitHub). Since 2026-10-29 only release PRs to `main` and manual runs use it; PRs to `dev` run on a throwaway Postgres in Docker on the runner (see *PRs to `dev` no longer use `ci`* below).
 
-Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
+Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila. Since the move to Postgres 18 (2026-11-01) it is a branch of the new project, created while its root was still empty and migrated from zero.
 
 *Correction (2026-10-05):* this paragraph used to say that `migrate deploy` rebuilds the branch from the first migration on every run. It does not: the branch persists, and `migrate deploy` only applies the migrations it has not seen yet (checked in Neon: the 32 migrations were applied one by one since 2026-09-03). So CI verifies that each new migration applies on top of the previous state, not that the whole chain applies on an empty database. And it is no longer empty of rows either: interrupted runs leave orphaned test clinics behind (8 on 2026-10-05). They are fictitious test data, so the public logs expose nothing real.
 
@@ -176,7 +176,9 @@ psql "$URL" -1 -v ON_ERROR_STOP=1 \
 psql "$URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/audit-guards.sql
 ```
 
-Then compare the row counts per table with the dump. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable.
+Then compare the row counts per table with the dump: better, per table, the count and an md5 of its rows as text, ordered, on the source and on the restored database. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable. Rehearsed again on 2026-11-01 for the move to 18, on real branches: `staging` and `development` were dumped from the 16 project by `pg_dump` 18 and restored into the 18 one with exactly these commands, and every table matched by count and row hash.
+
+**`pg_dump` must be at least the server's major version**, and its output loads only into a server at least as new: `pg_dump` 16 refuses an 18 server, and an 18 dump sets `transaction_timeout`, which 16 rejects. On a machine without the client tools, run them from the server's image: `docker run --rm -i -e PGURL postgres:18 sh -c 'pg_dump "$PGURL" …'`, so the URL is expanded inside the container and never appears on a command line.
 
 ## Sysadmin alerts (Telegram)
 
@@ -216,11 +218,21 @@ The card lists the last 20 real alerts with the outcome of their last attempt; t
 
 `npm test` runs the API suite against a throwaway Postgres in Docker, not a Neon branch: every round-trip to Neon crosses the network, and the suite makes thousands. On 2026-10-14 the full suite (789 tests) took about 2.5 minutes. Arguments go to vitest: `npm test -- tests/login.test.ts`; `npm run test:watch` is the same in watch mode. `npm run test:neon` is plain vitest against `DATABASE_URL`: what CI runs, and locally a run against `development` when one is needed. A bare `npx vitest` does the same, so it skips the container.
 
-- **What it is**: the `test-db` service of `docker-compose.yml`: Postgres 16 with C.UTF-8 collation and GMT (like the Neon branches), on `127.0.0.1:5433`, with durability off. Its data lives on tmpfs: `docker compose down` (or restarting Docker) leaves it empty, which is also how orphans from interrupted runs are cleared.
+- **What it is**: the `test-db` service of `docker-compose.yml`: Postgres 18 with C.UTF-8 collation and GMT (like the Neon branches), on `127.0.0.1:5433`, with durability off. Its data lives on tmpfs: `docker compose down` (or restarting Docker) leaves it empty, which is also how orphans from interrupted runs are cleared.
+- **The tmpfs is mounted at `/var/lib/postgresql`**, not at `.../data`: from 18 the image keeps its data in `/var/lib/postgresql/18/docker`, and its entrypoint exits with an error when `/var/lib/postgresql/data` is a mount holding no data (checked on 2026-11-01). Each worktree shares the compose project `ficha` and its port, so two worktrees on different images replace each other's container on every run; to try another image without touching it, use another project and port (`docker compose -p <name> -f docker-compose.yml -f <override with ports: !override>`) and point `DATABASE_URL` and `DIRECT_DATABASE_URL` at it.
 - **The maintenance flag** is created by `docker/test-db/init.sql` when the container starts empty, as on `development` and `ci`.
 - **What the script does** (`apps/api/scripts/test-docker.ts`): starts the container if it is not running, runs `prisma migrate deploy` and `audit-guards.sql`, then vitest. The URL is a constant in the script, not a variable: it is set in the environment, where it wins over `apps/api/.env`, so `.env` is never edited and nothing else can point the script at another database.
 - **What it does not catch**: it has no pooler, and its latency is near zero. Failures that come from Neon's PgBouncer (`P1002` on a migration, `cache lookup failed for type` after a reset) or from latency (an interactive transaction past its timeout, `P2028`) only show on Neon. That is why release PRs to `main` and manual runs stay on the `ci` branch (`npm run test:neon`). PRs to `dev` run on this container in CI too (since 2026-10-29), so such a failure first shows on the release PR, still before production.
 - The dev server, the seed and `db:migrate` keep using `development`: the container is only for tests. Without Docker running, `npm test` stops and says so.
+
+## Postgres 18
+
+The move from 16 started on 2026-11-01 (rollout step 0 of `docs/specs/PLAN-clinical-revisions.md`). A Neon project has one major version, so the move is a new project, `ficha-pg18`, and each branch moves by dump and restore (*Restoring a backup*). It is renamed `ficha` once the old project is deleted.
+
+- `staging` and `development` were restored from dumps of the old branches; `ci` was created empty and migrated. `production` moves last, in a window agreed with the clinic, with the `Ficha` service suspended from the dump to the switch. Before that, the backups repository's `backup.yml` moves to `postgresql-client-18` and checks its dump on `postgres:18`.
+- **A new branch starts with its parent's role password.** Every branch of a new project starts with the root's, so a laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. Reset `neondb_owner`'s password on each branch, in the console, right after creating it; the MCP's reset returns the password, so it is not used.
+- **What changed for the app**: a delete refused by an `ON DELETE RESTRICT` key raises `23001` (`restrict_violation`) instead of `23503`, and Prisma 5.22 does not map it to `P2003`. Nothing in `src` depends on that code; the tests use `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until `production` is on 18. The audit functions print the same on 18, so `audit-guards.sql` did not change.
+- Neon's free plan picks the maintenance window itself: Sunday 05:00–06:00 UTC on the new project.
 
 ## Cómo se llegó acá (2026-08-29)
 

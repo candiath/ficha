@@ -148,16 +148,24 @@ export const prismaAuthRepository: AuthRepository = {
       return { token };
     }
 
-    // A trusted login enforces the cap in the same transaction: the newest
-    // TRUSTED_SESSIONS_PER_USER live trusted sessions stay, older ones are
-    // demoted to normal (not closed). Two simultaneous trusted logins can
-    // leave one too many until the next one; acceptable.
+    // A trusted login enforces the cap in the same transaction: this login's
+    // session and the newest TRUSTED_SESSIONS_PER_USER - 1 other live trusted
+    // sessions stay, older ones are demoted to normal (not closed). Two
+    // simultaneous trusted logins can leave one too many until the next one;
+    // acceptable.
+    //
+    // The new session is kept by id, not by its place in the order: createdAt
+    // is stamped by the API's clock with millisecond precision, so it can tie
+    // with an older session or, after the clock steps back, sort below one,
+    // and the session this login asked to trust would be the one demoted.
+    // Ties among the others go to the id, a UUIDv7 that increases within a
+    // millisecond too.
     await prisma.$transaction(async (tx) => {
-      await tx.authSession.create({ data });
+      const created = await tx.authSession.create({ data, select: { id: true } });
       const beyondCap = await tx.authSession.findMany({
-        where: { userId: input.userId, ...liveTrustedAuthSessionWhere(new Date()) },
-        orderBy: { createdAt: 'desc' },
-        skip: TRUSTED_SESSIONS_PER_USER,
+        where: { userId: input.userId, id: { not: created.id }, ...liveTrustedAuthSessionWhere(new Date()) },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: TRUSTED_SESSIONS_PER_USER - 1,
         select: { id: true },
       });
       await demoteAuthSessions(

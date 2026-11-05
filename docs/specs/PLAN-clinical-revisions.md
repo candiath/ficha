@@ -23,20 +23,20 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ### Step 0: Postgres 18 (PR 0)
 
-- [ ] **Task 0.1: The new Neon project**
+- [x] **Task 0.1: The new Neon project**
   - *Acceptance:*
     - A new project on Postgres 18, in the current project's region, with the same compute and history-retention settings. You create it, or I do it through the MCP with your permission.
     - Its root branch will be `production`. `staging`, `development` and `ci` are created while the root is still empty, so they inherit nothing from it.
     - You put the old and new URLs of each branch in `apps/api/.env.pg18` (ignored by `.env.*`). Commands load that file, and nothing prints a URL.
   - *Files:* none in the repo. **XS**
-- [ ] **Task 0.2: The test container and CI on 18**
+- [x] **Task 0.2: The test container and CI on 18**
   - *Acceptance:*
     - `docker-compose.yml` uses `postgres:18`. The tmpfs moves to `/var/lib/postgresql`: the 18 image keeps its data in `/var/lib/postgresql/18/docker`, so a mount at the old `.../data` no longer holds it (check what its entrypoint does with one).
     - The full API suite passes on it.
     - `audit-guards.sql` passes on it. If `pg_get_functiondef` prints differently on 18, the function hashes differ, and the file accepts both the 16 and the 18 hashes until every branch, `production` included, is on 18. A follow-up then drops the 16 set.
   - *Verify:* `npm test` (it runs `audit-guards.sql` before vitest).
   - *Files:* `docker-compose.yml`, maybe `prisma/audit-guards.sql`. **S**
-- [ ] **Task 0.3: Rehearsal on the new project**
+- [x] **Task 0.3: Rehearsal on the new project**
   - *Acceptance:*
     - On its `ci` branch, with the maintenance flag created:
       - the migration chain applies from empty;
@@ -47,7 +47,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
   - The throwaway branch is deleted afterwards, with your permission.
   - *Files:* none. **S**
   - *Depends on:* 0.1, 0.2.
-- [ ] **Task 0.4: `staging`, `development` and `ci` on 18**
+- [x] **Task 0.4: `staging`, `development` and `ci` on 18**
   - *Acceptance:*
     - `staging` and `development` are restored from dumps of the old branches with the rehearsed procedure, and their row counts match. `ci` stays empty and is migrated.
     - `ficha-staging` on Render, the local `apps/api/.env` and the `CI_DATABASE_URL` secret point at the new project. You change Render and the secret; I give you the names, never the URLs.
@@ -64,7 +64,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - The new project's root branch becomes `production`, restored from a dump of the old one with the rehearsed procedure.
       - Row counts match table by table.
       - `audit-guards.sql` and `no-audit-maintenance.sql` both pass: `production` gets no maintenance flag.
-    - The dump file lives outside the repo, in the session's scratchpad, and is deleted once the counts match. It holds the trial's data, which is handled as if it were real.
+    - The dump is taken by a one-off workflow in the backups repository and lives only in its container. It holds the trial's data, which is handled as if it were real.
     - The `Ficha` service on Render and the backups repository's credential point at the new project. Then:
       - the service is resumed;
       - the production deploy's build log shows `migrate:prod` and both checks passing;
@@ -73,7 +73,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - Only after all that is the old project deleted, with your permission.
   - *Files:* none. **S**
   - *Depends on:* 0.4.
-- [ ] **Task 0.6: Docs and PR**
+- [x] **Task 0.6: Docs and PR**
   - *Acceptance:*
     - `docs/infra.md` (the new project, the local test database, the restore procedure, the version) and the comment in `docker-compose.yml` say 18.
     - PR against `dev`. `test.yml` needs no change if the job runs only `docker compose`. PR #271 also touches `test.yml`; whichever lands second rebases.
@@ -424,6 +424,19 @@ None open.
 - `HISTORY_MIGRATED`: declared by the first data migration after the relaunch that touches clinical content, not here.
 
 ## Decisions during implementation
+
+### Step 0
+
+- **The function hashes are the same on 18** (2026-11-01, Task 0.2). `pg_get_functiondef` prints the five audit functions on 18.6 exactly as on 16, so `audit-guards.sql` is unchanged and there is no second hash set to drop later.
+- **A delete refused by an `ON DELETE RESTRICT` key is SQLSTATE `23001` on 18, not `23503`** (Task 0.2). Prisma 5.22 maps only `23503` to `P2003`, so on 18 the error arrives as `PrismaClientUnknownRequestError`. The guarantee holds and the app answers `500` as before: nothing in `src` catches `P2003`. A `NO ACTION` key and an insert still give `23503`. Three tests asserted `P2003` on such a delete; they now call `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until every Neon branch is on 18. The follow-up then drops the `P2003` case, in place of the hash set.
+- **The 18 container was tested beside the shared one** (Task 0.2). Every worktree uses the compose project `ficha` on port 5433, and step 1 ran on it in parallel, still on 16. The 18 runs used another project on port 5434 (`docs/infra.md#local-test-database`); `npm test` on `ficha` itself switches to 18 when a worktree merges this PR.
+- **The backups repository needs `pg_dump` 18 before `production` moves** (Task 0.5). Its `backup.yml` installs `postgresql-client-16` and checks the dump on `postgres:16`; `pg_dump` 16 refuses a server on 18. `pg_dump` 18 dumps the old 16 server too, so that change can land before the window, but its check moves to `postgres:18` in the same change: an 18 dump sets `transaction_timeout`, which 16 rejects. That change is candiath/ficha-backups#3; its README's restore also moved to 18 and to the four audit tables. It also ended a gap nobody had seen: `ubuntu-latest` moved to 26.04 on 2026-10-29, whose default `pg_dump` is 18 whatever client the workflow installs, so every scheduled run from then to 2026-11-03 failed its check on `postgres:16` and saved no dump. The manual run of 2026-11-04 (`pg_dump` 18.6, check on `postgres:18`) saved the first one since 2026-10-28.
+- **`production` moves from the backups repository, not from a laptop** (Task 0.5, 2026-11-04). The production credential lives only there, and the old plan would have brought it and the trial's dump to this machine. candiath/ficha-backups#5 adds `move-to-18.yml`, in the shape of `wipe.yml`: a `rehearsal` target restores into a container on the runner and only reads production; `production` restores into the new project with the secret `PROD18_DATABASE_URL`, and refuses to run while the `Ficha` service answers. The workflow is deleted once `production` is on 18.
+- **The new project is `ficha-pg18`** (Task 0.1), in the old project's region with its compute (0.25–2 CU) and history (6 h). The free plan does not let the maintenance window be chosen: Neon set Sunday 05:00–06:00 UTC. It is renamed `ficha` once the old project is deleted, so `CLAUDE.md` keeps naming it.
+- **Every branch of a new project starts with the root's password** (Task 0.1). Branches inherit the role and its password, so the laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. In the old project they differ.
+- **The rehearsal** (Task 0.3, 2026-11-01). On `ci`: the 57 migrations applied from empty, `audit-guards.sql` passed, `no-audit-maintenance.sql` failed on the flag, and `npm run test:neon` passed through the pooler (803 tests, 11 min). The old `staging` (16.15), dumped by `pg_dump` 18.6 from the `postgres:18` image with the backups repository's flags, restored into `rehearsal-restore` with the procedure in `docs/infra.md`. The comparison was stronger than counts: per table, the row count and an md5 of its rows as text, ordered. All 22 tables matched, 189 rows, and the restored branch then passed what the Render build runs (`no-audit-maintenance.sql`, `migrate deploy`, `audit-guards.sql`).
+- **The switch of `staging`** (Task 0.4, 2026-11-02). `staging` (22 tables, 189 rows) and `development` (23, 210, its flag included) restored identical, and the old `staging` did not change between the dump and the switch. Saving env vars on Render redeploys without building, so `migrate:prod` does not run: a **Manual Deploy → Deploy latest commit** is what produces the build log. The first save pointed `ficha-staging` at `development`; the startup check failed on the flag and the staging bot sent `AUDIT_MAINTENANCE_FLAG_PRESENT` within seconds, which is the check doing its job. The deploy after the fix: build log with both checks and no pending migrations on the new `staging`, and both startup checks passing.
+- **The switch of `ci`** (Task 0.4, 2026-11-02). The `CI_DATABASE_URL` secret was checked by a manual run of `test.yml` on this branch: migrations and `test:neon` passed on the new `ci`. Since then a release PR or manual run from a branch without `expectRestrictedDelete` fails three tests there, so none runs from one.
 
 ### Step 1
 

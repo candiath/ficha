@@ -9,6 +9,7 @@ import {
   createTestClinic,
   createTestOperator,
   deleteAuditRows,
+  expectRestrictedDelete,
   type TestClinic,
   type TestOperator,
 } from './helpers';
@@ -380,21 +381,21 @@ describe('audit rows keep who they name, within their clinic', () => {
     const authored = await clinic.createUser();
     await prisma.auditLog.create({ data: clinicalRow({ userId: authored.id }) });
 
-    await expect(prisma.user.delete({ where: { id: authored.id } })).rejects.toMatchObject(
-      violates('audit_logs_tenant_id_user_id_fkey'),
-    );
+    await expectRestrictedDelete(prisma.user.delete({ where: { id: authored.id } }), 'audit_logs_tenant_id_user_id_fkey');
   });
 
   it('cannot delete the target of a platform audit row, or the operator who acted', async () => {
     const target = await clinic.createUser();
     await prisma.platformAuditLog.create({ data: platformRow(target.id) });
 
-    await expect(prisma.user.delete({ where: { id: target.id } })).rejects.toMatchObject(
-      violates('platform_audit_logs_tenant_id_target_user_id_fkey'),
+    await expectRestrictedDelete(
+      prisma.user.delete({ where: { id: target.id } }),
+      'platform_audit_logs_tenant_id_target_user_id_fkey',
     );
-    await expect(
+    await expectRestrictedDelete(
       prisma.platformOperator.delete({ where: { id: operator.operator.id } }),
-    ).rejects.toMatchObject(violates('platform_audit_logs_operator_id_fkey'));
+      'platform_audit_logs_operator_id_fkey',
+    );
   });
 
   it("cannot name another clinic's patient or author", async () => {

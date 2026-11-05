@@ -187,6 +187,29 @@ describe('trusted login', () => {
     // Demoted, not closed: it still works, now under the normal profile.
     expect((await me(existing[0])).status).toBe(200);
   });
+
+  it('the login keeps its own session trusted when createdAt sorts it below the others', async () => {
+    // created_at comes from the API's clock: after it steps back, older
+    // sessions carry a later stamp. They also share one millisecond here, so
+    // which of them is the oldest is decided by the id.
+    const other = await clinic.createUser();
+    const createdAt = new Date(Date.now() + MINUTE);
+    const existing: string[] = [];
+    for (let i = 0; i < TRUSTED_SESSIONS_PER_USER; i++) {
+      existing.push(await createTestToken(other, { trusted: true, ttlMs: TRUSTED_SESSION.absoluteMs, createdAt }));
+    }
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', `10.2.0.${nextIp++}`)
+      .send({ email: other.email, password: TEST_PASSWORD, trustDevice: true });
+    expect(res.status).toBe(200);
+
+    expect((await sessionOf(res.body.data.token as string)).trusted).toBe(true);
+    const [oldest, ...rest] = await Promise.all(existing.map(sessionOf));
+    expect(oldest.trusted).toBe(false);
+    for (const session of rest) expect(session.trusted).toBe(true);
+  });
 });
 
 describe('my sessions', () => {
