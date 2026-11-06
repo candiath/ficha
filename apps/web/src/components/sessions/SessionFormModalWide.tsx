@@ -14,6 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField'
+import { ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
@@ -40,7 +42,7 @@ import type { AppointmentListItem } from '@ficha/shared'
 import { appointmentKeys } from '@/services/appointments'
 import { centsToInput, parsePesos } from '@/lib/money'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
-import { sessionApi } from '@/services/sessions'
+import { sessionApi, sessionKeys } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge'
@@ -174,13 +176,20 @@ export default function SessionFormModalWide({
   onOpenChange,
   patientId,
   episodeId,
-  session,
+  session: loadedSession,
   sessionType = 'SESSION',
   onSuccess,
   appointment,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
+  // A 409 offers to reload: the version read then replaces the one that was opened.
+  const [reloadedSession, setReloadedSession] = useState<Session>()
+  const session = reloadedSession ?? loadedSession
   const isEditing = !!session
+  const [reason, setReason] = useState(DEFAULT_REVISION_REASON)
+  const [reasonNote, setReasonNote] = useState('')
+  // The API's message when someone else saved first; what was typed stays.
+  const [staleMessage, setStaleMessage] = useState<string | null>(null)
   const dateTolerances = useSessionDateTolerances()
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -262,6 +271,14 @@ export default function SessionFormModalWide({
   }
 
   useEffect(() => {
+    if (open) return
+    setReloadedSession(undefined)
+    setStaleMessage(null)
+    setReason(DEFAULT_REVISION_REASON)
+    setReasonNote('')
+  }, [open])
+
+  useEffect(() => {
     if (!open) return
     removedBlocks.current.clear()
     if (isEditing) {
@@ -333,7 +350,12 @@ export default function SessionFormModalWide({
       // omitirlo deja intacto el tipo con el que se registró la sesión (una
       // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
-        return sessionApi.update(patientId, session.id, sessionData)
+        return sessionApi.update(patientId, session.id, {
+          ...sessionData,
+          expectedVersion: session.version,
+          reason,
+          reasonNote,
+        })
       }
 
       // Un solo request: la API crea sesión + pago en una transacción, así un
@@ -381,7 +403,23 @@ export default function SessionFormModalWide({
     // The API's message says what to fix (an episode that opens later, an
     // appointment already recorded).
     onError: (err: Error) => {
+      if (err instanceof ApiError && err.status === 409 && isEditing) {
+        setStaleMessage(err.message)
+        return
+      }
       toast.error(err.message || 'Error al guardar la sesión')
+    },
+  })
+
+  const reloadMutation = useMutation({
+    mutationFn: () => sessionApi.get(patientId, session!.id),
+    onSuccess: (fresh) => {
+      setReloadedSession(fresh)
+      setStaleMessage(null)
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId) })
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo recargar la sesión')
     },
   })
 
@@ -866,6 +904,35 @@ export default function SessionFormModalWide({
                     </Card>
                   )
                 })}
+              </div>
+            )}
+
+            {isEditing && (
+              <div className="mt-6 space-y-3">
+                <RevisionReasonField
+                  reason={reason}
+                  note={reasonNote}
+                  onReasonChange={setReason}
+                  onNoteChange={setReasonNote}
+                />
+                {staleMessage && (
+                  <div
+                    role="alert"
+                    className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <p>{staleMessage} Al recargar se pierde lo que escribiste acá.</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={reloadMutation.isPending}
+                      onClick={() => reloadMutation.mutate()}
+                    >
+                      Recargar
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
