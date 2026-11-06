@@ -74,7 +74,19 @@ const ALLOWED_ORIGIN: (string | RegExp)[] = IS_PRODUCTION
   ? envOrigins
   : [DEV_ORIGIN_PATTERN, ...envOrigins];
 
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+const SERVER_TIME_HEADER = 'X-Server-Time';
+
+app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: [SERVER_TIME_HEADER] }));
+
+// The API's clock on every response, so the web can tell when its device's
+// clock is off. Episodes open and audit rows are stamped by this clock, so it
+// is the one a date has to agree with. Not the Date header: that one stops at
+// the second.
+app.use((_req, res, next) => {
+  res.setHeader(SERVER_TIME_HEADER, new Date().toISOString());
+  next();
+});
+
 app.use(express.json());
 
 // Marca del build: el SHA corto del commit que está sirviendo este proceso.

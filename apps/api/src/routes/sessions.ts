@@ -219,6 +219,10 @@ router.post<ParentParams>('/', async (req, res) => {
       res.status(409).json({ error: 'Ese turno ya tiene una sesión registrada' });
       return;
     }
+    if (result.reason === 'discharge_before_opening') {
+      res.status(400).json({ error: 'El episodio abre más adelante: no se puede dar de alta antes de su apertura' });
+      return;
+    }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
     return;
   }

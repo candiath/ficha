@@ -96,7 +96,10 @@ export const prismaEpisodeRepository: EpisodeRepository = {
           tenantId: ctx.tenantId,
           patientId,
           mainComplaint: input.mainComplaint,
-          ...(input.openedAt ? { openedAt: input.openedAt } : {}),
+          // Stamped here and not by the column's default, which Prisma's engine
+          // evaluates: that is another clock, and a close right after the
+          // opening could land a millisecond before it.
+          openedAt: input.openedAt ?? new Date(),
         },
         select: episodeSelect,
       });
@@ -147,7 +150,9 @@ export const prismaEpisodeRepository: EpisodeRepository = {
         },
         data: input,
       });
-      if (count === 0 && input.closedAt) return { ok: false, reason: 'closed_before_opened' };
+      if (count === 0 && input.closedAt) {
+        return { ok: false, reason: 'closed_before_opened', openedAt: before.openedAt };
+      }
 
       const row = await tx.clinicalEpisode.findFirstOrThrow({
         where: { id, tenantId: ctx.tenantId },

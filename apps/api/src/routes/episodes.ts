@@ -146,8 +146,13 @@ router.patch<Params>('/:episodeId', async (req, res) => {
         res.status(404).json({ error: 'Episodio no encontrado' });
         return;
       case 'closed_before_opened':
+        // The opening and the API's time let the client tell a wrong date from
+        // a wrong clock. Nothing here corrects the date it sent.
         res.status(400).json({
           error: 'La fecha de cierre no puede ser anterior a la apertura del episodio',
+          code: 'closed_before_opened',
+          openedAt: result.openedAt,
+          serverTime: new Date().toISOString(),
         });
         return;
       case 'transition_with_correction':

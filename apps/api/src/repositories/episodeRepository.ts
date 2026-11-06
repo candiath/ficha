@@ -45,7 +45,9 @@ export interface EpisodeUpdateInput {
 // el motivo a la vez.
 export type EpisodeUpdateResult =
   | { ok: true; episode: EpisodeDTO }
-  | { ok: false; reason: 'not_found' | 'closed_before_opened' | 'transition_with_correction' };
+  | { ok: false; reason: 'not_found' | 'transition_with_correction' }
+  // Names the opening, so the caller can say what the date ran into.
+  | { ok: false; reason: 'closed_before_opened'; openedAt: string };
 
 export type EpisodeAuditField = keyof typeof AUDIT_EPISODE_FIELDS;
 

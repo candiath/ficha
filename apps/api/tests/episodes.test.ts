@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
@@ -256,6 +256,60 @@ describe('episodios: alta, listado y transiciones de estado', () => {
     expect(
       (despues.body.data as { id: string; status: string }[]).find((e) => e.id === episode.id),
     ).toMatchObject({ status: 'ACTIVE', closedAt: null });
+  });
+
+  it('a closing from a clock running behind is refused as sent, with what the client needs to fix it', async () => {
+    // Opened just now, closed by a device ten minutes behind: its "now" is
+    // before the opening. The API neither stores it nor moves it.
+    const episode = await crearEpisodio();
+    const before = Date.now();
+
+    const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({
+      status: 'ABANDONED',
+      closedAt: new Date(before - 10 * 60 * 1000).toISOString(),
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'closed_before_opened', openedAt: episode.openedAt });
+    const serverTime = new Date(res.body.serverTime as string).getTime();
+    expect(serverTime).toBeGreaterThanOrEqual(before);
+    expect(serverTime).toBeLessThanOrEqual(Date.now());
+
+    const despues = await auth(request(app).get(url()));
+    expect(
+      (despues.body.data as { id: string; status: string }[]).find((e) => e.id === episode.id),
+    ).toMatchObject({ status: 'ACTIVE', closedAt: null });
+  });
+
+  it('an episode opens by the API clock, the one a close right after it reads', async () => {
+    // Not the column's default: Prisma's engine evaluates it, and it can be a
+    // millisecond ahead of the API. Moving the API's clock tells them apart.
+    const apiNow = new Date(Date.now() - 60 * 60 * 1000);
+    vi.useFakeTimers({ toFake: ['Date'], now: apiNow });
+    try {
+      const episode = await crearEpisodio();
+
+      expect(episode.openedAt).toBe(apiNow.toISOString());
+
+      const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({
+        status: 'ABANDONED',
+        closedAt: apiNow.toISOString(),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('every response carries the API clock, readable by the web across origins', async () => {
+    const before = Date.now();
+
+    const res = await auth(request(app).get(url())).set('Origin', 'http://localhost:5173');
+
+    const serverTime = new Date(res.headers['x-server-time']).getTime();
+    expect(serverTime).toBeGreaterThanOrEqual(before);
+    expect(serverTime).toBeLessThanOrEqual(Date.now());
+    expect(res.headers['access-control-expose-headers']).toContain('X-Server-Time');
   });
 
   it('cerrar en el mismo instante en que se abrió sí se permite', async () => {

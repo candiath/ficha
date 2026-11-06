@@ -135,6 +135,7 @@ The modules of `packages/shared` with **runtime values** (the rest is `import ty
   - **Exception: what users read stays in Spanish** — UI text and API error messages (`{"error":"No autenticado"}`).
   - Existing Spanish code and docs are not translated in bulk; translate a piece when it is touched for another reason.
 - La API envuelve respuestas en `{ data: ... }`; todo `/api/*` salvo `/api/auth/*` y `/health` exige `Authorization: Bearer <token>` (401 → `{"error":"No autenticado"}`).
+- **The API never adjusts a date it was sent**: it stores it or refuses it, and the user sees why. Every response carries the API's clock in `X-Server-Time`; the web measures its offset from it (`apps/web/src/lib/serverClock.ts`), warns when the device's clock is off by a minute or more, and uses `serverNow()` for a "now" that has to agree with a date the API stamped.
 - CI (`.github/workflows/test.yml`): jobs paralelos para API (con migraciones) y web.
 
 ### Every write route is classified for audit

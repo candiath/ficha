@@ -133,4 +133,22 @@ describe('creación atómica de sesión con pago', () => {
     expect(episode?.status).toBe('DISCHARGED');
     expect(episode?.closedAt).not.toBeNull();
   });
+
+  it('a discharge of an episode that opens later is refused, and nothing is recorded', async () => {
+    const openedAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const episode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Cervicalgia', openedAt },
+      select: { id: true },
+    });
+    const sessionsBefore = await prisma.session.count({ where: { patientId: patientA.id } });
+
+    const res = await postSession({ sessionType: 'DISCHARGE', episodes: [{ episodeId: episode.id }] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('El episodio abre más adelante: no se puede dar de alta antes de su apertura');
+    await expect(
+      prisma.clinicalEpisode.findUnique({ where: { id: episode.id }, select: { status: true, closedAt: true } }),
+    ).resolves.toEqual({ status: 'ACTIVE', closedAt: null });
+    await expect(prisma.session.count({ where: { patientId: patientA.id } })).resolves.toBe(sessionsBefore);
+  });
 });

@@ -378,8 +378,10 @@ export default function SessionFormModalWide({
       form.reset()
       onSuccess?.()
     },
-    onError: () => {
-      toast.error('Error al guardar la sesión')
+    // The API's message says what to fix (an episode that opens later, an
+    // appointment already recorded).
+    onError: (err: Error) => {
+      toast.error(err.message || 'Error al guardar la sesión')
     },
   })
 

@@ -203,13 +203,14 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   it('an episode update is rolled back when its audit row fails', async () => {
     const patient = await newPatient('Episodio Intacto');
-    const episode = await prisma.clinicalEpisode.create({
-      data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Lumbalgia' },
-    });
+    // Opened through the repository, as the app opens: the opening and the
+    // closing below read the same clock. The failure must be the audit row's
+    // foreign key (P2003), not a closing that never reached it.
+    const episode = await episodeRepo.create(ctx, patient.id, { mainComplaint: 'Lumbalgia' }, validFor(patient.id));
 
     await expect(
       episodeRepo.update(ctx, patient.id, episode.id, { status: 'ABANDONED', closedAt: new Date() }, broken),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'P2003' });
     await expect(
       episodeRepo.update(ctx, patient.id, episode.id, { mainComplaint: 'Cervicalgia' }, broken),
     ).rejects.toThrow();

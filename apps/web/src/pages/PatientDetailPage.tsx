@@ -23,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DirtyLabel } from '@/components/ui/dirty-label';
+import AbandonEpisodeConfirm from '@/components/patients/AbandonEpisodeConfirm';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import ConsentTab from '@/components/patients/ConsentTab';
@@ -1090,27 +1091,16 @@ export default function PatientDetailPage() {
       <Dialog open={editEpisodeOpen} onOpenChange={(o) => { setEditEpisodeOpen(o); setConfirmAbandon(false); }}>
         <DialogContent>
           {confirmAbandon ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>¿Marcar como abandonado?</DialogTitle>
-                <DialogDescription>
-                  El episodio se cerrará sin alta formal. El paciente no tiene sesiones de cierre registradas.
-                  Podrás reactivarlo en cualquier momento.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setConfirmAbandon(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => updateEpisodeMutation.mutate({ status: 'ABANDONED', closedAt: new Date().toISOString() })}
-                  disabled={updateEpisodeMutation.isPending}
-                >
-                  {updateEpisodeMutation.isPending ? 'Guardando...' : 'Confirmar abandono'}
-                </Button>
-              </DialogFooter>
-            </>
+            <AbandonEpisodeConfirm
+              patientId={id!}
+              episodeId={effectiveEpisodeId!}
+              onCancel={() => setConfirmAbandon(false)}
+              onAbandoned={() => {
+                queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
+                setEditEpisodeOpen(false);
+                setConfirmAbandon(false);
+              }}
+            />
           ) : (
             <>
               <DialogHeader>

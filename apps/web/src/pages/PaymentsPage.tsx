@@ -207,7 +207,7 @@ export default function PaymentsPage() {
 
   const markPaidMutation = useMutation({
     mutationFn: ({ id, method }: { id: string; method: 'CASH' | 'TRANSFER' }) =>
-      paymentApi.update(id, { status: 'PAID', method, paidAt: new Date().toISOString() }),
+      paymentApi.update(id, { status: 'PAID', method }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: paymentKeys.all });
       toast.success('Cobro registrado');
