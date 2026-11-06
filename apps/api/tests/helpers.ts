@@ -275,12 +275,26 @@ function requireIds(ids: string[], what: string): void {
   }
 }
 
-// Every audit row of these clinics, clinical and platform.
+// Every audit row of these clinics, clinical and platform. Their clinical
+// revisions go first: each one restricts deleting the audit row it names, and
+// the session it versions (SPEC-clinical-revisions.md, *Test cleanup*).
 export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
   requireIds(tenantIds, 'tenant id');
   await inAuditMaintenance(async (tx) => {
+    await tx.sessionRevision.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await tx.platformAuditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  });
+}
+
+// The revisions of a few aggregates, for a test that deletes one in the middle
+// of a file, while its clinic's audit rows stay.
+export async function deleteRevisions(table: 'session_revisions', aggregateIds: string[]): Promise<void> {
+  requireIds(aggregateIds, 'aggregate id');
+  await inAuditMaintenance(async (tx) => {
+    if (table === 'session_revisions') {
+      await tx.sessionRevision.deleteMany({ where: { sessionId: { in: aggregateIds } } });
+    }
   });
 }
 

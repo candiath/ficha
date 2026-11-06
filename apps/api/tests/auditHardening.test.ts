@@ -449,7 +449,9 @@ describe('audit-guards.sql', () => {
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
     const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
-    const onCopies = TABLES.reduce(
+    // No created_at, so no stamp trigger.
+    const REVISION_TABLES = ['session_revisions'];
+    const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
     );
@@ -480,6 +482,13 @@ describe('audit-guards.sql', () => {
       }
       await db.$executeRawUnsafe(`CREATE TRIGGER audit_logs_check_session BEFORE INSERT ON pg_temp.audit_logs
         FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session()`);
+      for (const table of REVISION_TABLES) {
+        await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE ON pg_temp.${table}
+          FOR EACH ROW EXECUTE FUNCTION public.audit_rows_are_append_only()`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_no_truncate BEFORE TRUNCATE ON pg_temp.${table}
+          FOR EACH STATEMENT EXECUTE FUNCTION public.audit_rows_are_append_only()`);
+      }
     });
 
     afterAll(() => db.$disconnect());
@@ -512,6 +521,22 @@ describe('audit-guards.sql', () => {
           'ALTER TABLE pg_temp.sysadmin_alert_deliveries ENABLE TRIGGER sysadmin_alert_deliveries_append_only',
         );
       }
+    });
+
+    it('notices a disabled trigger on a revisions table', async () => {
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions DISABLE TRIGGER session_revisions_append_only');
+      try {
+        expect(await failure()).toMatch(/trigger session_revisions_append_only on session_revisions is not enabled/);
+      } finally {
+        await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions ENABLE TRIGGER session_revisions_append_only');
+      }
+    });
+
+    it('notices a revisions table that lost its keys', async () => {
+      // LIKE copies no foreign keys.
+      expect(await failure()).toMatch(
+        /foreign key session_revisions_tenant_id_patient_id_audit_log_id_fkey on session_revisions is missing or changed/,
+      );
     });
 
     it('notices a missing trigger on an alert table', async () => {

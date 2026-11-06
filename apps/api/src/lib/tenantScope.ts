@@ -41,6 +41,7 @@ export const TENANT_SCOPED_MODELS = [
   'InitialEvaluation',
   'Session',
   'SessionEpisode',
+  'SessionRevision',
   'SessionPackage',
   'Payment',
   'InformedConsent',

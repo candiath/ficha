@@ -46,6 +46,8 @@ async function main() {
         )`;
     const tenantIds = stale.map((t) => t.id);
 
+    // Revisions first: each one restricts deleting the audit row it names.
+    await tx.sessionRevision.deleteMany({ where: { tenantId: { in: tenantIds } } });
     const clinicalRows = await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     const platformRows = await tx.platformAuditLog.deleteMany({
       where: {
