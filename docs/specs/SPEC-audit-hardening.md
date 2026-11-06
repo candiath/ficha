@@ -222,7 +222,7 @@ model AuditLog {
 
 - **`TenantContext` gains `authSessionId: string`** (non-null), and `req.authSessionId` goes away, leaving one source of truth. The comment in `types/express.d.ts` that kept it out on purpose ("repositories never need it") stops being true: `recordAudit` needs it. Logout, password change and the device routes read `req.context.authSessionId`.
 - **Hand-built contexts in tests** (9 files) get it from a helper that creates a real session, as `createTestToken` already does. This depends on #205, without which `tsc` does not see the tests.
-- **Writes with no clinic user**, like the alert engine's, need a system context. That belongs to `clinical-audit-coverage`, the first module to record them.
+- **Writes with no clinic user** would need a system context, which the first module to record one builds. The alert engine's writes are not audited (decided 2026-11-06, see the map).
 - **"Required whenever there is an author"** is `CHECK (user_id IS NULL OR auth_session_id IS NOT NULL) NOT VALID`, added one release later (see Rollout).
 - **A constraint passed to #178:** prune `auth_sessions` no sooner than `login_events` (180 days), so a recent audit row still resolves to a device. Past that, the id still groups one login's actions. Copying the IP and user agent into every audit row would put personal data in rows that can never change, against decision 3 of the map.
 - **`AuditLogDTO` does not expose it.** Any user who reads a patient's history could otherwise count a colleague's sessions, which `CLAUDE.md` keeps private to each user.
