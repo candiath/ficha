@@ -137,7 +137,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .patch(`${sessionsUrl(patientA.id)}/${created.body.data.id}`)
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ episodes: [{ episodeId: episodeB.id }] });
+      .send({ reason: 'DATA_ENTRY_ERROR', episodes: [{ episodeId: episodeB.id }] });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });

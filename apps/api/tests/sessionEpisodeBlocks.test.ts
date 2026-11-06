@@ -35,7 +35,7 @@ describe('A session treats several episodes, each with its own block', () => {
     auth(request(app).post(sessionsUrl())).send({ sessionDate: new Date().toISOString(), ...body });
 
   const patch = (id: string, body: Record<string, unknown>) =>
-    auth(request(app).patch(`${sessionsUrl()}/${id}`)).send(body);
+    auth(request(app).patch(`${sessionsUrl()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', ...body });
 
   const get = async (id: string) => (await auth(request(app).get(`${sessionsUrl()}/${id}`))).body.data;
 
@@ -247,9 +247,9 @@ describe('A session treats several episodes, each with its own block', () => {
       select: { params: true },
     });
     expect(rows.map((r) => r.params)).toEqual([
-      { sessionType: 'SESSION', changedFields: ['painScaleBefore'] },
-      { sessionType: 'SESSION', changedFields: ['episodeIds'] },
-      { sessionType: 'SESSION', changedFields: ['treatment'] },
+      { sessionType: 'SESSION', changedFields: ['painScaleBefore'], reason: 'DATA_ENTRY_ERROR' },
+      { sessionType: 'SESSION', changedFields: ['episodeIds'], reason: 'DATA_ENTRY_ERROR' },
+      { sessionType: 'SESSION', changedFields: ['treatment'], reason: 'DATA_ENTRY_ERROR' },
     ]);
   });
 });

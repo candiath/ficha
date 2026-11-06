@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // POST /api/payments impone un pago por sesión (unique sobre sessionId).
 // Las dos capas de defensa viven en paymentRepo.create: un pre-chequeo
@@ -26,14 +26,11 @@ describe('pago duplicado por sesión', () => {
   }
 
   async function createSession() {
-    return prisma.session.create({
-      data: {
-        tenantId: clinicA.tenantId,
-        patientId: patientA.id,
-        userId: userA.id,
-        sessionDate: new Date(),
-      },
-      select: { id: true },
+    return createSessionFixture({
+      tenantId: clinicA.tenantId,
+      patientId: patientA.id,
+      userId: userA.id,
+      sessionDate: new Date(),
     });
   }
 

@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { settle } from '../src/lib/paymentSettlement';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // Un cobro de monto cero no es una deuda: si el descuento cancela el costo
 // entero, o la sesión se dio sin cargo, no hay nada que cobrar. Dejarlo en
@@ -172,10 +172,7 @@ describe('cobros de monto cero, de punta a punta', () => {
       const hace20Dias = new Date();
       hace20Dias.setDate(hace20Dias.getDate() - 20);
 
-      const sesion = await prisma.session.create({
-        data: { tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: hace20Dias },
-        select: { id: true },
-      });
+      const sesion = await createSessionFixture({ tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: hace20Dias });
       await prisma.payment.create({
         data: {
           tenantId: clinic.tenantId,

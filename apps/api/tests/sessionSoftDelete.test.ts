@@ -136,6 +136,7 @@ describe('borrado lógico de sesiones', () => {
     expect(leida.status).toBe(404);
 
     const editada = await auth(request(app).patch(`${sessionsUrl()}/${id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'no debería entrar',
     });
     expect(editada.status).toBe(404);

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
 
 // Stats del dashboard: además de los conteos, lo que se prueba es que las
 // agregaciones (count/groupBy/findMany) queden acotadas al tenant del token.
@@ -109,45 +109,45 @@ describe('GET /api/dashboard/stats', () => {
 
     // Sesiones de A: 2 este mes + 1 hace 3 meses. La nota rápida y la sesión
     // vieja (fuera de la ventana de 6 meses) no deben aparecer en el gráfico.
-    await prisma.session.createMany({
-      data: [
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'SESSION',
-          sessionDate: midMonthUtc(0),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'DISCHARGE',
-          sessionDate: midMonthUtc(0),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'SESSION',
-          sessionDate: midMonthUtc(3),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'NOTE',
-          sessionDate: midMonthUtc(0),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'SESSION',
-          sessionDate: midMonthUtc(10),
-        },
-      ],
-    });
+    for (const session of [
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'SESSION' as const,
+        sessionDate: midMonthUtc(0),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'DISCHARGE' as const,
+        sessionDate: midMonthUtc(0),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'SESSION' as const,
+        sessionDate: midMonthUtc(3),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'NOTE' as const,
+        sessionDate: midMonthUtc(0),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'SESSION' as const,
+        sessionDate: midMonthUtc(10),
+      },
+    ]) {
+      await createSessionFixture(session);
+    }
 
     // Un pago PENDING y uno PAID: solo el primero cuenta.
     const sessionsA = await prisma.session.findMany({
@@ -189,15 +189,12 @@ describe('GET /api/dashboard/stats', () => {
         mainComplaint: 'Escoliosis de otra clínica',
       },
     });
-    const sessionB = await prisma.session.create({
-      data: {
-        tenantId: clinicB.tenantId,
-        patientId: patientB.id,
-        userId: userB.id,
-        sessionType: 'SESSION',
-        sessionDate: midMonthUtc(0),
-      },
-      select: { id: true },
+    const sessionB = await createSessionFixture({
+      tenantId: clinicB.tenantId,
+      patientId: patientB.id,
+      userId: userB.id,
+      sessionType: 'SESSION',
+      sessionDate: midMonthUtc(0),
     });
     await prisma.payment.create({
       data: {
@@ -219,6 +216,7 @@ describe('GET /api/dashboard/stats', () => {
 
   afterAll(async () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
+    await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });

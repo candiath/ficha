@@ -18,9 +18,11 @@ export interface SessionEpisodeBlockDTO {
 }
 
 // The session holds the visit itself; `episodes`, one block per problem it
-// treated, ordered by episode. `observations` is the text of a note.
+// treated, ordered by episode. `observations` is the text of a note. `version`
+// is its latest revision: 0 for a session written before revisions existed.
 export interface SessionDTO {
   id: string;
+  version: number;
   patientId: string;
   sessionType: SessionType;
   sessionDate: string;
@@ -101,12 +103,22 @@ export type SessionCreateResult =
 export type SessionUpdateResult =
   | { ok: true; session: SessionDTO }
   // No current session of that patient with that id.
-  | { ok: false; reason: 'not_found' | SessionEpisodeRuleViolation };
+  | { ok: false; reason: 'not_found' | SessionEpisodeRuleViolation }
+  // The editor loaded another version: someone saved in between. Nothing is written.
+  | { ok: false; reason: 'stale' };
 
 // payment queda afuera a propósito: el pago se edita por /api/payments.
 // `episodes`, when it comes, is the whole set of blocks: a block left out is
 // removed, a new one is added, and each kept one is updated field by field.
-export type SessionUpdateInput = Partial<SessionFields> & { episodes?: SessionEpisodeBlockInput[] };
+//
+// `expectedVersion` is the version the editor loaded; without it the edit applies
+// over whatever is there, as the next version. `reasonNote` goes only into the
+// revision: it is clinical text, and the audit row holds codes.
+export type SessionUpdateInput = Partial<SessionFields> & {
+  episodes?: SessionEpisodeBlockInput[];
+  expectedVersion?: number;
+  reasonNote?: string | null;
+};
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
@@ -161,7 +173,8 @@ export interface SessionRepository {
     patientId: string,
     id: string,
     input: SessionUpdateInput,
-    // Called only when a field changed, with the changed fields' names.
+    // Called only when a field changed, with the changed fields' names. A save
+    // that changes nothing writes nothing: no row, no audit row, no revision.
     audit: AuditUpdateBuilder<SessionDTO, SessionAuditField>,
   ): Promise<SessionUpdateResult>;
 }

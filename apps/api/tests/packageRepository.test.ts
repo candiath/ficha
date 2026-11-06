@@ -8,6 +8,7 @@ import { packageRepo, patientRepo } from '../src/repositories';
 import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
 import {
+  createSessionFixture,
   deleteAuditRows,
   createTestContext,
   createTestClinic,
@@ -110,9 +111,7 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
 
   it('a package that was not deleted leaves no row', async () => {
     const used = await crearPaquete(ctxA, patientA.id);
-    const session = await prisma.session.create({
-      data: { tenantId: clinicA.tenantId, patientId: patientA.id, userId: userA.id, sessionDate: new Date() },
-    });
+    const session = await createSessionFixture({ tenantId: clinicA.tenantId, patientId: patientA.id, userId: userA.id, sessionDate: new Date() });
     await prisma.payment.create({
       data: {
         tenantId: clinicA.tenantId,
@@ -137,14 +136,11 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
 
     // Paquete con un pago que lo debitó: in_use, y la fila queda intacta.
     const used = await crearPaquete(ctxA, patientA.id);
-    const session = await prisma.session.create({
-      data: {
-        tenantId: clinicA.tenantId,
-        patientId: patientA.id,
-        userId: userA.id,
-        sessionDate: new Date(),
-      },
-      select: { id: true },
+    const session = await createSessionFixture({
+      tenantId: clinicA.tenantId,
+      patientId: patientA.id,
+      userId: userA.id,
+      sessionDate: new Date(),
     });
     await prisma.payment.create({
       data: {

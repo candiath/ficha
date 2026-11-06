@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { expect } from 'vitest';
-import { Prisma, type PlatformOperator, type User, type UserRole } from '@prisma/client';
+import { Prisma, type PlatformOperator, type SessionType, type User, type UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 import type { TenantContext } from '../src/repositories/types';
-import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
+import { auditEntityOf, auditEntryProblem, SESSION_SNAPSHOT_VERSION } from '@ficha/shared';
+import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
+import { unwatchClinic, watchClinic } from './revisionInvariant';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../src/repositories/auditLogRepository';
 import type { PatientAuditField } from '../src/repositories/patientRepository';
 
@@ -41,6 +43,8 @@ export async function createTestClinic(): Promise<TestClinic> {
     data: { name: `Clínica Test ${runId}`, slug: `test-${runId}` },
   });
 
+  watchClinic(tenant.id);
+
   const email = (local: string) => `${local}-${runId}@test.ficha.local`;
 
   // Cost 4 (el mínimo) en vez de 10: bcrypt.compare usa el costo del hash
@@ -63,6 +67,7 @@ export async function createTestClinic(): Promise<TestClinic> {
   }
 
   async function cleanup(): Promise<void> {
+    unwatchClinic(tenant.id);
     // Los inserts de login_events son fire-and-forget: darles un instante
     // a aterrizar antes de borrar, para no dejar filas huérfanas.
     await sleep(200);
@@ -251,7 +256,7 @@ export function patientDeleteAudit(patientId: string): AuditEntry {
 // that first turns on the maintenance switch, tied to that transaction's id
 // so a leaked value never matches. The append-only triggers honour it only on
 // branches that carry the maintenance flag (development and ci).
-async function inAuditMaintenance<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+export async function inAuditMaintenance<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
     const [{ flagged }] = await tx.$queryRaw<{ flagged: boolean }[]>`
       SELECT to_regclass('ficha_ops.audit_maintenance_allowed') IS NOT NULL AS flagged`;
@@ -336,6 +341,64 @@ export async function insertAuditRowsAt(rows: BackdatedAuditRow[]): Promise<{ id
     }
   }
   return inAuditMaintenance((tx) => tx.auditLog.createManyAndReturn({ data: rows, select: { id: true } }));
+}
+
+// ─── Fixtures ───────────────────────────────────────────────────────────────
+
+type SessionBlockFixture = Prisma.SessionEpisodeUncheckedCreateWithoutSessionInput;
+
+interface SessionFixture {
+  tenantId: string;
+  patientId: string;
+  userId: string;
+  sessionDate: Date;
+  sessionType?: SessionType;
+  observations?: string | null;
+  deletedAt?: Date | null;
+  blocks?: SessionBlockFixture[];
+}
+
+// A session written straight to the database, for tests about what reads it. It
+// comes as the app leaves one: with its blocks, its audit row and version 1,
+// which is what the revision invariant checks (tests/revisionInvariant.ts).
+export async function createSessionFixture(fixture: SessionFixture): Promise<{ id: string }> {
+  const { blocks = [], ...fields } = fixture;
+  const { tenantId, patientId, userId } = fields;
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.session.create({
+      data: {
+        ...fields,
+        episodes: { create: blocks },
+      },
+      select: {
+        id: true,
+        userId: true,
+        sessionType: true,
+        sessionDate: true,
+        observations: true,
+        episodes: { orderBy: { episodeId: 'asc' } },
+      },
+    });
+    const action = (
+      { SESSION: 'SESSION_RECORDED', NOTE: 'NOTE_RECORDED', DISCHARGE: 'DISCHARGE_RECORDED' } as const
+    )[row.sessionType];
+    const { id: auditLogId } = await tx.auditLog.create({
+      data: { tenantId, patientId, userId, entity: 'SESSION', entityId: row.id, action },
+      select: { id: true },
+    });
+    await tx.sessionRevision.create({
+      data: {
+        tenantId,
+        patientId,
+        sessionId: row.id,
+        version: 1,
+        auditLogId,
+        schemaVersion: SESSION_SNAPSHOT_VERSION,
+        snapshot: sessionSnapshot(row),
+      },
+    });
+    return { id: row.id };
+  });
 }
 
 /**

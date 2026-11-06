@@ -77,7 +77,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ observations: 'solo edito notas' });
+      .send({ reason: 'DATA_ENTRY_ERROR', observations: 'solo edito notas' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.observations).toBe('solo edito notas');
@@ -93,7 +93,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ episodes: [] });
+      .send({ reason: 'DATA_ENTRY_ERROR', episodes: [] });
 
     expect(res.status).toBe(200);
     expect(res.body.data.episodes).toEqual([]);
@@ -107,7 +107,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ sessionType: 'NOTE' });
+      .send({ reason: 'DATA_ENTRY_ERROR', sessionType: 'NOTE' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.sessionType).toBe('NOTE');
