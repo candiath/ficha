@@ -1,5 +1,7 @@
 import { forTenant } from '../../lib/tenantScope';
 import { fullName, patientNameSelect } from './patientName';
+import { recordAudit } from './recordAudit';
+import type { AuditBuilder } from '../auditLogRepository';
 import type { TenantContext } from '../types';
 import type { PackageCreateInput, PackageDTO, PackageRepository } from '../packageRepository';
 
@@ -60,39 +62,58 @@ export const prismaPackageRepository: PackageRepository = {
     return rows.map(toDTO);
   },
 
-  async create(ctx: TenantContext, input: PackageCreateInput): Promise<PackageDTO> {
+  // Both writes record their audit row in the same transaction (#188).
+
+  async create(
+    ctx: TenantContext,
+    input: PackageCreateInput,
+    audit: AuditBuilder<PackageDTO>,
+  ): Promise<PackageDTO> {
     const db = forTenant(ctx);
-    const row = await db.sessionPackage.create({
-      data: {
-        patientId: input.patientId,
-        name: input.name,
-        totalSessions: input.totalSessions,
-        pricePerSessionCents: input.pricePerSessionCents,
-        notes: input.notes ?? null,
-      },
-      select: packageSelect,
+    return db.$transaction(async (tx) => {
+      const row = await tx.sessionPackage.create({
+        data: {
+          tenantId: ctx.tenantId,
+          patientId: input.patientId,
+          name: input.name,
+          totalSessions: input.totalSessions,
+          pricePerSessionCents: input.pricePerSessionCents,
+          notes: input.notes ?? null,
+        },
+        select: packageSelect,
+      });
+      const pkg = toDTO(row);
+      await recordAudit(tx, ctx, audit(pkg));
+      return pkg;
     });
-    return toDTO(row);
   },
 
   async deleteIfUnused(
     ctx: TenantContext,
     id: string,
+    audit: AuditBuilder<{ id: string; patientId: string }>,
   ): Promise<'deleted' | 'not_found' | 'in_use'> {
     const db = forTenant(ctx);
-    // La condición "sin pagos" viaja en el where del delete: no hay ventana
-    // en la que un pago nuevo debite el paquete entre chequeo y borrado.
-    const { count } = await db.sessionPackage.deleteMany({
-      where: { id, payments: { none: {} } },
-    });
-    if (count > 0) return 'deleted';
+    return db.$transaction(async (tx) => {
+      // A package never changes patient, so reading it first opens no window:
+      // the audit row needs its patient, and the row will be gone after the
+      // delete. Not finding it also tells "no existe" from "tiene pagos".
+      const found = await tx.sessionPackage.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { id: true, patientId: true },
+      });
+      if (!found) return 'not_found';
 
-    // count 0: distinguir "no existe" de "tiene pagos" solo para el mensaje.
-    const exists = await db.sessionPackage.findFirst({
-      where: { id },
-      select: { id: true },
+      // La condición "sin pagos" viaja en el where del delete: no hay ventana
+      // en la que un pago nuevo debite el paquete entre chequeo y borrado.
+      const { count } = await tx.sessionPackage.deleteMany({
+        where: { id, tenantId: ctx.tenantId, payments: { none: {} } },
+      });
+      if (count === 0) return 'in_use';
+
+      await recordAudit(tx, ctx, audit(found));
+      return 'deleted';
     });
-    return exists ? 'in_use' : 'not_found';
   },
 
   async belongsToPatient(

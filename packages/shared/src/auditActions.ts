@@ -57,6 +57,16 @@ export const AUDIT_EPISODE_STATUSES = {
   ABANDONED: 'abandono',
 } as const;
 
+// The status an appointment was left in (APPOINTMENT_UPDATED), in the words of
+// the agenda.
+export const AUDIT_APPOINTMENT_STATUSES = {
+  SCHEDULED: 'agendado',
+  CONFIRMED: 'confirmado',
+  COMPLETED: 'atendido',
+  CANCELLED: 'cancelado',
+  NO_SHOW: 'no asistió',
+} as const;
+
 // Why a clinical record was corrected or annulled (SPEC-clinical-revisions.md
 // §4). Attached to each *_UPDATED and annulment action in the step that
 // versions its aggregate: the catalog validates strictly, so a parameter is
@@ -129,6 +139,16 @@ export const AUDIT_EPISODE_FIELDS = {
   closedAt: 'la fecha de cierre',
 } as const;
 
+// startsAt and endsAt are the stored columns: moving an appointment names both,
+// and changing only its length names endsAt.
+export const AUDIT_APPOINTMENT_FIELDS = {
+  startsAt: 'el inicio',
+  endsAt: 'el fin',
+  status: 'el estado',
+  episodeId: 'el motivo de consulta',
+  notes: 'las notas',
+} as const;
+
 export const AUDIT_PAYMENT_FIELDS = {
   baseAmountCents: 'el monto',
   discountCents: 'el descuento',
@@ -174,7 +194,9 @@ export type AuditEntity =
   | 'PAYMENT'
   | 'CONSENT'
   | 'PATIENT_EVENT'
-  | 'EPISODE';
+  | 'EPISODE'
+  | 'APPOINTMENT'
+  | 'PACKAGE';
 
 // The object a platform_audit_logs row acted on, when it is neither the clinic
 // (tenant_id) nor a user (target_user_id), which have columns of their own.
@@ -422,6 +444,50 @@ export const AUDIT_ACTIONS = {
         const changed = joinFields(p.changedFields, AUDIT_EPISODE_FIELDS);
         return changed ? `Actualizó ${changed} de un episodio` : 'Actualizó un episodio';
       },
+    }),
+    // One row per appointment, a series included: a row names exactly one
+    // object, and params cannot hold a count (decided 2026-11-06).
+    APPOINTMENT_SCHEDULED: action({
+      entity: 'APPOINTMENT',
+      kind: 'create',
+      params: {},
+      label: 'Turno agendado',
+      describe: () => 'Agendó un turno',
+    }),
+    // Cancelling is a fact of its own, one by one or with the rest of a series.
+    APPOINTMENT_CANCELLED: action({
+      entity: 'APPOINTMENT',
+      kind: 'update',
+      params: {},
+      label: 'Turno cancelado',
+      describe: () => 'Canceló un turno',
+    }),
+    APPOINTMENT_UPDATED: action({
+      entity: 'APPOINTMENT',
+      kind: 'update',
+      // The status after the update: an appointment marked as missed is
+      // findable, as a payment marked paid is.
+      params: { status: code(AUDIT_APPOINTMENT_STATUSES), changedFields: fields(AUDIT_APPOINTMENT_FIELDS) },
+      label: 'Turno actualizado',
+      describe: (p) => {
+        const changed = joinFields(p.changedFields, AUDIT_APPOINTMENT_FIELDS);
+        const text = changed ? `Actualizó ${changed} de un turno` : 'Actualizó un turno';
+        return p.status ? `${text} (${AUDIT_APPOINTMENT_STATUSES[p.status]})` : text;
+      },
+    }),
+    PACKAGE_CREATED: action({
+      entity: 'PACKAGE',
+      kind: 'create',
+      params: {},
+      label: 'Paquete registrado',
+      describe: () => 'Registró un paquete de sesiones',
+    }),
+    PACKAGE_DELETED: action({
+      entity: 'PACKAGE',
+      kind: 'delete',
+      params: {},
+      label: 'Paquete eliminado',
+      describe: () => 'Eliminó un paquete de sesiones',
     }),
     // Before the catalog (until 2026-10), an action was the entity plus one of
     // these, and the fact itself lived in a Spanish description.

@@ -1,17 +1,21 @@
 import {
   Activity,
+  CalendarDays,
   CircleDot,
   ClipboardList,
   CreditCard,
   FileText,
   History,
+  Package,
   ShieldCheck,
   Stethoscope,
   UserPlus,
 } from 'lucide-react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { auditDisplay } from '@/lib/auditDisplay';
 import { auditLogApi, auditLogKeys } from '@/services/auditLog';
@@ -68,6 +72,18 @@ const ENTITY_CONFIG: Record<
       'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400',
     label: 'Episodio',
   },
+  APPOINTMENT: {
+    icon: CalendarDays,
+    color:
+      'bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400',
+    label: 'Turno',
+  },
+  PACKAGE: {
+    icon: Package,
+    color:
+      'bg-lime-100 text-lime-600 dark:bg-lime-950 dark:text-lime-400',
+    label: 'Paquete',
+  },
 };
 
 // An entity this version does not know: neutral, never another entity's badge.
@@ -112,6 +128,19 @@ export default function ActivityTimeline({ patientId }: Props) {
     queryFn: () => auditLogApi.list(patientId),
   });
 
+  // The entities this patient has rows for: a filter with nothing behind it
+  // would only show an empty list.
+  const entities = [...new Set(entries.map((e) => e.entity))];
+  const [filter, setFilter] = useState<string | null>(null);
+  // A filter on an entity that is gone (another patient's) shows everything.
+  const active = filter !== null && entities.includes(filter) ? filter : null;
+  const shownEntries = active ? entries.filter((e) => e.entity === active) : entries;
+
+  const filterOptions = [
+    { value: null, label: 'Todo' },
+    ...entities.map((e) => ({ value: e, label: (ENTITY_CONFIG[e] ?? UNKNOWN_ENTITY).label })),
+  ];
+
   return (
     <Card>
       <CardHeader className="pb-4">
@@ -126,17 +155,33 @@ export default function ActivityTimeline({ patientId }: Props) {
             Sin actividad registrada.
           </p>
         ) : (
+          <>
+          {entities.length > 1 && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              {filterOptions.map((opt) => (
+                <Button
+                  key={opt.value ?? 'all'}
+                  variant={active === opt.value ? 'default' : 'outline'}
+                  size="sm"
+                  aria-pressed={active === opt.value}
+                  onClick={() => setFilter(opt.value)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          )}
           <div className="relative ml-4">
             {/* Línea vertical */}
             <div className="absolute left-0 top-4 bottom-4 w-px bg-border" />
 
             <div className="space-y-0">
-              {entries.map((entry, idx) => {
+              {shownEntries.map((entry, idx) => {
                 const config = ENTITY_CONFIG[entry.entity] ?? UNKNOWN_ENTITY;
                 const shown = auditDisplay('audit_logs', entry);
                 const Icon = config.icon;
                 const ts = formatTimestamp(entry.createdAt);
-                const isLast = idx === entries.length - 1;
+                const isLast = idx === shownEntries.length - 1;
 
                 return (
                   <div key={entry.id} className={cn('flex gap-4 relative', !isLast && 'pb-6')}>
@@ -179,6 +224,7 @@ export default function ActivityTimeline({ patientId }: Props) {
               })}
             </div>
           </div>
+          </>
         )}
       </CardContent>
     </Card>

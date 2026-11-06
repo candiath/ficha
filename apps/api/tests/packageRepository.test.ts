@@ -1,10 +1,34 @@
 import { randomUUID } from 'node:crypto';
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
+import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { packageRepo, patientRepo } from '../src/repositories';
+import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
-import { deleteAuditRows, createTestContext, createTestClinic, type TestClinic, patientAudit } from './helpers';
+import {
+  deleteAuditRows,
+  createTestContext,
+  createTestClinic,
+  createTestToken,
+  type TestClinic,
+  patientAudit,
+} from './helpers';
+
+const created = (p: { id: string; patientId: string }): AuditEntry => ({
+  action: 'PACKAGE_CREATED',
+  patientId: p.patientId,
+  entityId: p.id,
+  params: {},
+});
+
+const deleted = (p: { id: string; patientId: string }): AuditEntry => ({
+  action: 'PACKAGE_DELETED',
+  patientId: p.patientId,
+  entityId: p.id,
+  params: {},
+});
 
 // packageRepo concentra la regla "no borrar un paquete con sesiones ya
 // usadas": deleteIfUnused lleva la condición en el where del delete (sin
@@ -47,19 +71,69 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
   });
 
   function crearPaquete(ctx: TenantContext, patientId: string) {
-    return packageRepo.create(ctx, {
-      patientId,
-      name: 'Paquete x10',
-      totalSessions: 10,
-      pricePerSessionCents: 100,
-    });
+    return packageRepo.create(
+      ctx,
+      {
+        patientId,
+        name: 'Paquete x10',
+        totalSessions: 10,
+        pricePerSessionCents: 100,
+      },
+      created,
+    );
   }
 
+  it('creating and deleting a package each leave one row naming it and its patient', async () => {
+    const token = await createTestToken(userA);
+    const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
+
+    const res = await auth(request(app).post('/api/packages')).send({
+      patientId: patientA.id,
+      name: 'Paquete x4',
+      totalSessions: 4,
+      pricePerSessionCents: 100,
+    });
+    expect(res.status).toBe(201);
+    const id: string = res.body.data.id;
+
+    expect((await auth(request(app).delete(`/api/packages/${id}`))).status).toBe(204);
+
+    const rows = await prisma.auditLog.findMany({
+      where: { entityId: id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    expect(rows.map((r) => r.action)).toEqual(['PACKAGE_CREATED', 'PACKAGE_DELETED']);
+    for (const row of rows) {
+      expect(row).toMatchObject({ entity: 'PACKAGE', patientId: patientA.id, userId: userA.id, params: {} });
+    }
+  });
+
+  it('a package that was not deleted leaves no row', async () => {
+    const used = await crearPaquete(ctxA, patientA.id);
+    const session = await prisma.session.create({
+      data: { tenantId: clinicA.tenantId, patientId: patientA.id, userId: userA.id, sessionDate: new Date() },
+    });
+    await prisma.payment.create({
+      data: {
+        tenantId: clinicA.tenantId,
+        patientId: patientA.id,
+        sessionId: session.id,
+        packageId: used.id,
+        baseAmountCents: 100,
+        finalAmountCents: 100,
+      },
+    });
+
+    await expect(packageRepo.deleteIfUnused(ctxA, used.id, deleted)).resolves.toBe('in_use');
+
+    expect(await prisma.auditLog.count({ where: { entityId: used.id, action: 'PACKAGE_DELETED' } })).toBe(0);
+  });
+
   it('deleteIfUnused: borra un paquete sin pagos y reporta not_found/in_use', async () => {
-    await expect(packageRepo.deleteIfUnused(ctxA, randomUUID())).resolves.toBe('not_found');
+    await expect(packageRepo.deleteIfUnused(ctxA, randomUUID(), deleted)).resolves.toBe('not_found');
 
     const fresh = await crearPaquete(ctxA, patientA.id);
-    await expect(packageRepo.deleteIfUnused(ctxA, fresh.id)).resolves.toBe('deleted');
+    await expect(packageRepo.deleteIfUnused(ctxA, fresh.id, deleted)).resolves.toBe('deleted');
 
     // Paquete con un pago que lo debitó: in_use, y la fila queda intacta.
     const used = await crearPaquete(ctxA, patientA.id);
@@ -84,14 +158,14 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
       },
     });
 
-    await expect(packageRepo.deleteIfUnused(ctxA, used.id)).resolves.toBe('in_use');
+    await expect(packageRepo.deleteIfUnused(ctxA, used.id, deleted)).resolves.toBe('in_use');
     const intact = await prisma.sessionPackage.findUnique({ where: { id: used.id } });
     expect(intact).not.toBeNull();
   });
 
   it('deleteIfUnused: un paquete ajeno cuenta como not_found (no se filtra su existencia)', async () => {
     const foreign = await crearPaquete(ctxB, patientB.id);
-    await expect(packageRepo.deleteIfUnused(ctxA, foreign.id)).resolves.toBe('not_found');
+    await expect(packageRepo.deleteIfUnused(ctxA, foreign.id, deleted)).resolves.toBe('not_found');
   });
 
   it('belongsToPatient: exige tenant Y paciente', async () => {

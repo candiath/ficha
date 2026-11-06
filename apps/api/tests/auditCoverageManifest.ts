@@ -16,7 +16,6 @@ export type AuditTable =
 export type DebtModule =
   | 'clinic-audit'
   | 'account-audit'
-  | 'clinical-audit-coverage'
   | 'security-events';
 
 export type AuditCoverage =
@@ -30,14 +29,14 @@ const debt = (module: DebtModule): AuditCoverage => ({ status: 'debt', module })
 
 export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // Alerts (routes/alerts.ts)
-  'POST /api/alerts': debt('clinical-audit-coverage'),
-  'PATCH /api/alerts/:id/read': debt('clinical-audit-coverage'),
-  'PATCH /api/alerts/read-all': debt('clinical-audit-coverage'),
+  'POST /api/alerts': exempt('a reminder for the clinic, not part of the patient history; no screen calls it (#283)'),
+  'PATCH /api/alerts/:id/read': exempt('the state of a notification, not a clinical fact'),
+  'PATCH /api/alerts/read-all': exempt('the state of a notification, not a clinical fact'),
 
   // Appointments (routes/appointments.ts)
-  'POST /api/appointments': debt('clinical-audit-coverage'),
-  'PATCH /api/appointments/:id': debt('clinical-audit-coverage'),
-  'POST /api/appointments/:id/cancel-series': debt('clinical-audit-coverage'),
+  'POST /api/appointments': audited('audit_logs'),
+  'PATCH /api/appointments/:id': audited('audit_logs'),
+  'POST /api/appointments/:id/cancel-series': audited('audit_logs'),
 
   // Auth, clinic side (routes/auth.ts)
   'POST /api/auth/login': audited('login_events'),
@@ -66,8 +65,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'DELETE /api/patients/:patientId/events/:eventId': audited('audit_logs'),
 
   // Packages (routes/packages.ts)
-  'POST /api/packages': debt('clinical-audit-coverage'),
-  'DELETE /api/packages/:id': debt('clinical-audit-coverage'),
+  'POST /api/packages': audited('audit_logs'),
+  'DELETE /api/packages/:id': audited('audit_logs'),
 
   // Payments (routes/payments.ts)
   'POST /api/payments': audited('audit_logs'),

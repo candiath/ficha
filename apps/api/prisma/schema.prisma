@@ -795,6 +795,11 @@ enum AuditAction {
   EPISODE_CLOSED
   EPISODE_REOPENED
   EPISODE_UPDATED
+  APPOINTMENT_SCHEDULED
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_UPDATED
+  PACKAGE_CREATED
+  PACKAGE_DELETED
 }
 
 enum AuditEntity {
@@ -806,6 +811,8 @@ enum AuditEntity {
   SCALE
   PATIENT_EVENT
   EPISODE
+  APPOINTMENT
+  PACKAGE
 }
 
 // Who acted, on every audit table: a person of a clinic, the platform
