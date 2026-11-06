@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntity,
+  AppointmentStatus,
   EpisodeStatus,
   PatientEventKind,
   PaymentStatus,
@@ -12,6 +13,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   AUDIT_ACTIONS,
+  AUDIT_APPOINTMENT_FIELDS,
+  AUDIT_APPOINTMENT_STATUSES,
   AUDIT_EPISODE_FIELDS,
   AUDIT_EPISODE_STATUSES,
   AUDIT_EVALUATION_FIELDS,
@@ -78,6 +81,7 @@ describe('the audit catalog matches the schema', () => {
     ['PaymentStatus', PaymentStatus, AUDIT_PAYMENT_STATUSES],
     ['UserRole', UserRole, AUDIT_ROLES],
     ['PatientEventKind', PatientEventKind, AUDIT_PATIENT_EVENT_KINDS],
+    ['AppointmentStatus', AppointmentStatus, AUDIT_APPOINTMENT_STATUSES],
   ] as const)('every %s value has a label in the catalog', (_name, prismaEnum, labels) => {
     for (const value of Object.values(prismaEnum)) expect(Object.keys(labels)).toContain(value);
   });
@@ -97,6 +101,7 @@ describe('the audit catalog matches the schema', () => {
       AUDIT_PAYMENT_FIELDS,
       AUDIT_PATIENT_EVENT_FIELDS,
       AUDIT_EPISODE_FIELDS,
+      AUDIT_APPOINTMENT_FIELDS,
     ]) {
       for (const name of Object.keys(fields)) expect(name).toMatch(/^[a-z][A-Za-z]{0,63}$/);
     }
@@ -110,6 +115,7 @@ describe('the audit catalog matches the schema', () => {
       AUDIT_ROLES,
       AUDIT_PATIENT_EVENT_KINDS,
       AUDIT_EPISODE_STATUSES,
+      AUDIT_APPOINTMENT_STATUSES,
       AUDIT_REVISION_REASONS,
     ]) {
       for (const value of Object.keys(values)) {
@@ -177,6 +183,9 @@ describe('reading is lenient', () => {
   });
 
   it("an episode's actions read as what was done to it", () => {
+    expect(describeAuditEntry('audit_logs', 'APPOINTMENT_UPDATED', { status: 'NO_SHOW', changedFields: ['status'] })).toBe(
+      'Actualizó el estado de un turno (no asistió)',
+    );
     expect(describeAuditEntry('audit_logs', 'EPISODE_CLOSED', { status: 'DISCHARGED' })).toBe('Cerró un episodio (alta)');
     expect(describeAuditEntry('audit_logs', 'EPISODE_CLOSED', { status: 'ABANDONED' })).toBe('Cerró un episodio (abandono)');
     expect(describeAuditEntry('audit_logs', 'EPISODE_UPDATED', { changedFields: ['mainComplaint', 'closedAt'] })).toBe(

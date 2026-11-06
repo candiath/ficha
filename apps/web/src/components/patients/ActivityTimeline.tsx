@@ -1,10 +1,12 @@
 import {
   Activity,
+  CalendarDays,
   CircleDot,
   ClipboardList,
   CreditCard,
   FileText,
   History,
+  Package,
   ShieldCheck,
   Stethoscope,
   UserPlus,
@@ -67,6 +69,18 @@ const ENTITY_CONFIG: Record<
     color:
       'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400',
     label: 'Episodio',
+  },
+  APPOINTMENT: {
+    icon: CalendarDays,
+    color:
+      'bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400',
+    label: 'Turno',
+  },
+  PACKAGE: {
+    icon: Package,
+    color:
+      'bg-lime-100 text-lime-600 dark:bg-lime-950 dark:text-lime-400',
+    label: 'Paquete',
   },
 };
 
