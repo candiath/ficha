@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SessionFormModalWide from '@/components/sessions/SessionFormModalWide';
 import { episodeApi } from '@/services/episodes';
+import { ApiError } from '@/lib/api';
 import { sessionApi } from '@/services/sessions';
 import type { ClinicalEpisode } from '@/types/episode';
 import type { Session } from '@/types/session';
@@ -13,7 +14,7 @@ import type { Session } from '@/types/session';
 // every open episode, each with its own block, and sends the whole set.
 vi.mock('@/services/sessions', () => ({
   sessionKeys: { list: (patientId: string) => ['patients', patientId, 'sessions'] },
-  sessionApi: { create: vi.fn(), update: vi.fn(), remove: vi.fn() },
+  sessionApi: { create: vi.fn(), update: vi.fn(), remove: vi.fn(), get: vi.fn() },
 }));
 
 vi.mock('@/services/episodes', () => ({
@@ -64,6 +65,115 @@ beforeEach(() => {
   vi.mocked(episodeApi.list).mockResolvedValue([BACK, ANKLE, SHOULDER]);
 });
 
+const session: Session = {
+  id: 's1',
+  version: 3,
+  patientId: 'p1',
+  sessionType: 'SESSION',
+  sessionDate: '2026-02-24T13:00:00.000Z',
+  observations: null,
+  createdAt: '2026-02-24T13:00:00.000Z',
+  updatedAt: '2026-02-24T13:00:00.000Z',
+  episodes: [
+    {
+      episodeId: BACK.id,
+      preSessionState: null,
+      treatment: 'Rana en el suelo',
+      painScaleBefore: 5,
+      painScaleAfter: 2,
+      patientExercises: 'Pared',
+      reEvaluationNotes: null,
+    },
+    {
+      episodeId: ANKLE.id,
+      preSessionState: 'Llega rengueando',
+      treatment: 'Drenaje',
+      painScaleBefore: 6,
+      painScaleAfter: 4,
+      patientExercises: 'Hielo',
+      reEvaluationNotes: null,
+    },
+  ],
+};
+
+describe('SessionFormModalWide: revisions', () => {
+  const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
+
+  async function editAndSave() {
+    renderForm({ session });
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
+    return dialog;
+  }
+
+  it('an edit sends the version it loaded, the preselected reason and the note', async () => {
+    update.mockResolvedValue(session);
+    renderForm({ session });
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByRole('combobox', { name: 'Motivo del cambio' })).toHaveTextContent('Error de confección');
+    await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
+    await userEvent.type(within(dialog).getByLabelText('Nota del cambio (opcional)'), 'Dictado por la paciente');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0][2]).toMatchObject({
+      expectedVersion: 3,
+      reason: 'DATA_ENTRY_ERROR',
+      reasonNote: 'Dictado por la paciente',
+    });
+  });
+
+  it('an untouched field still sends the loaded value', async () => {
+    update.mockResolvedValue(session);
+    await editAndSave();
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0][2].sessionDate).toBe(session.sessionDate);
+    expect(update.mock.calls[0][2].episodes?.[0]).toMatchObject({ treatment: 'Rana en el suelo', painScaleBefore: 5 });
+  });
+
+  it('a new session asks for no reason and sends neither', async () => {
+    create.mockResolvedValue({} as Session);
+    renderForm({ episodeId: BACK.id });
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).queryByText('Motivo del cambio')).not.toBeInTheDocument();
+    await userEvent.type(within(dialog).getAllByPlaceholderText('0.00')[0], '100');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0][1]).not.toHaveProperty('expectedVersion');
+    expect(create.mock.calls[0][1]).not.toHaveProperty('reason');
+  });
+
+  it('a 409 shows the message, keeps what was typed, and reloads on request', async () => {
+    update.mockRejectedValue(new ApiError(STALE, 409, { error: STALE }));
+    vi.mocked(sessionApi.get).mockResolvedValue({
+      ...session,
+      version: 4,
+      episodes: [{ ...session.episodes[1], treatment: 'Lo que guardó la otra persona' }],
+    });
+    const dialog = await editAndSave();
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent(STALE);
+    expect(within(dialog).getByDisplayValue('Drenaje y movilidad')).toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole('button', { name: 'Recargar' }));
+
+    expect(await within(dialog).findByDisplayValue('Lo que guardó la otra persona')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+
+    update.mockResolvedValue(session);
+    await userEvent.type(within(dialog).getByDisplayValue('Lo que guardó la otra persona'), ' y más');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update.mock.calls[1][2].expectedVersion).toBe(4);
+  });
+});
+
 describe('SessionFormModalWide: several motives', () => {
   it('offers every open episode, not the closed ones, and sends one block per ticked motive', async () => {
     create.mockResolvedValue({} as Session);
@@ -96,35 +206,6 @@ describe('SessionFormModalWide: several motives', () => {
   });
 
   it('an edit keeps the other block as it was loaded', async () => {
-    const session: Session = {
-      id: 's1',
-      patientId: 'p1',
-      sessionType: 'SESSION',
-      sessionDate: '2026-02-24T13:00:00.000Z',
-      observations: null,
-      createdAt: '2026-02-24T13:00:00.000Z',
-      updatedAt: '2026-02-24T13:00:00.000Z',
-      episodes: [
-        {
-          episodeId: BACK.id,
-          preSessionState: null,
-          treatment: 'Rana en el suelo',
-          painScaleBefore: 5,
-          painScaleAfter: 2,
-          patientExercises: 'Pared',
-          reEvaluationNotes: null,
-        },
-        {
-          episodeId: ANKLE.id,
-          preSessionState: 'Llega rengueando',
-          treatment: 'Drenaje',
-          painScaleBefore: 6,
-          painScaleAfter: 4,
-          patientExercises: 'Hielo',
-          reEvaluationNotes: null,
-        },
-      ],
-    };
     update.mockResolvedValue(session);
     renderForm({ session });
     const dialog = await screen.findByRole('dialog');

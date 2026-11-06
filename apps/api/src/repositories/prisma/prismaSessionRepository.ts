@@ -1,10 +1,11 @@
 import { Prisma } from '@prisma/client';
-import { AUDIT_SESSION_FIELDS } from '@ficha/shared';
+import { AUDIT_SESSION_FIELDS, SESSION_SNAPSHOT_VERSION } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import { fullName, patientNameSelect } from './patientName';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
 import type { SessionType } from '@prisma/client';
+import type { SessionSnapshotV1 } from '@ficha/shared';
 import type {
   SessionAuditField,
   SessionCreateInput,
@@ -21,6 +22,8 @@ import type {
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
+import { recordRevision } from './recordRevision';
+import { latestSessionRevision, sessionSnapshot } from './sessionSnapshot';
 
 // Política del repositorio: todo método opera sobre sesiones vigentes. Una
 // sesión borrada no se lista, no se lee y no se edita — el mismo criterio que
@@ -51,6 +54,10 @@ const sessionSelect = {
   observations: true,
   createdAt: true,
   updatedAt: true,
+  // The therapist: part of the snapshot, not of the DTO.
+  userId: true,
+  // The latest version; none is version 0.
+  revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
   // orderBy explícito: sin él, una sesión con varios episodios devuelve los
   // bloques en orden indefinido (Postgres no garantiza ninguno sin ORDER BY)
   // y el mismo GET puede responder distinto entre llamadas. Por episodeId:
@@ -87,21 +94,24 @@ type SessionRow = Prisma.SessionGetPayload<{ select: typeof sessionSelect }>;
 type SessionIndexRow = Prisma.SessionGetPayload<{ select: typeof sessionIndexSelect }>;
 
 const AUDIT_FIELDS = Object.keys(AUDIT_SESSION_FIELDS) as SessionAuditField[];
+const BLOCK_FIELDS = Object.keys(EMPTY_BLOCK) as BlockField[];
 
-function toDTO(row: SessionRow): SessionDTO {
+function toDTO({ userId: _userId, revisions, ...row }: SessionRow): SessionDTO {
   return {
     ...row,
+    version: revisions[0]?.version ?? 0,
     sessionDate: row.sessionDate.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-// The session as the audit compares it: one value per catalog field. A block
+// The session as an update compares it: one value per catalog field. A block
 // field becomes the list of (episode, value) pairs that hold a value, so adding
 // an empty block changes only episodeIds, and a value that changes in any
-// block changes its field.
-function auditView(s: SessionDTO): Record<SessionAuditField, unknown> {
+// block changes its field. It covers everything an update can change; the
+// snapshot's other field, the therapist, no update touches.
+function auditView(s: Omit<SessionSnapshotV1, 'userId'>): Record<SessionAuditField, unknown> {
   const valuesOf = (field: BlockField) =>
     s.episodes.filter((b) => b[field] !== null).map((b) => [b.episodeId, b[field]]);
   return {
@@ -140,18 +150,20 @@ function blockData(block: SessionEpisodeBlockInput) {
 }
 
 // The blocks a session ends up with: each one in the input, over what that
-// block held before (or empty, for a new one).
+// block held before (or empty, for a new one), in the snapshot's order.
 function mergeBlocks(
   before: SessionEpisodeBlockDTO[],
   input: SessionEpisodeBlockInput[],
 ): SessionEpisodeBlockDTO[] {
   const previous = new Map(before.map((b) => [b.episodeId, b]));
-  return input.map((block) => ({
-    ...EMPTY_BLOCK,
-    ...previous.get(block.episodeId),
-    ...blockData(block),
-    episodeId: block.episodeId,
-  }));
+  return input
+    .map((block) => ({
+      ...EMPTY_BLOCK,
+      ...previous.get(block.episodeId),
+      ...blockData(block),
+      episodeId: block.episodeId,
+    }))
+    .sort((a, b) => (a.episodeId < b.episodeId ? -1 : 1));
 }
 
 function toIndexItemDTO(row: SessionIndexRow): SessionIndexItemDTO {
@@ -317,17 +329,25 @@ export const prismaSessionRepository: SessionRepository = {
         if (count === 0) throw new TurnoYaRegistrado();
       }
 
-      const dto = toDTO(
-        await tx.session.findUniqueOrThrow({
-          where: { id: created.id, tenantId: ctx.tenantId },
-          select: sessionSelect,
-        }),
-      );
+      const row = await tx.session.findUniqueOrThrow({
+        where: { id: created.id, tenantId: ctx.tenantId },
+        select: sessionSelect,
+      });
+      const dto = toDTO(row);
 
-      // The audit row goes in the same transaction as everything above (#188).
-      await recordAudit(tx, ctx, audit(dto));
+      // The audit row and version 1 go in the same transaction as everything
+      // above (#188, SPEC-clinical-revisions.md §5).
+      const auditLogId = await recordAudit(tx, ctx, audit(dto));
+      await recordRevision(tx, ctx, 'session_revisions', {
+        aggregateId: created.id,
+        patientId,
+        version: 1,
+        auditLogId,
+        schemaVersion: SESSION_SNAPSHOT_VERSION,
+        snapshot: sessionSnapshot(row),
+      });
 
-      return dto;
+      return { ...dto, version: 1 };
     }).catch((e: unknown) => {
       // The two cases where the transaction is aborted on purpose: the
       // appointment already had its session, or the episode opens later.
@@ -352,11 +372,12 @@ export const prismaSessionRepository: SessionRepository = {
     const notFound = { ok: false, reason: 'not_found' } as const;
 
     try {
-      // The audit row goes in the same transaction as the write (#188). A
-      // P2025 thrown inside rolls it back and becomes not_found below.
+      // The audit row and the revision go in the same transaction as the write
+      // (#188, SPEC-clinical-revisions.md §5). A P2025 thrown inside rolls it
+      // back and becomes not_found below.
       return await db.$transaction(async (tx): Promise<SessionUpdateResult> => {
-        // Locked and read first, to record which fields changed (#186): a
-        // concurrent edit waits for this one. No row (gone, deleted, another
+        // Locked and read first: a concurrent edit waits for this one, so the
+        // version it reads next is the one it writes over. No row (gone, deleted, another
         // patient's) is the same 404 as the update's P2025 below.
         await lockRow(tx, 'sessions', id, ctx.tenantId);
         const beforeRow = await tx.session.findFirst({
@@ -366,12 +387,35 @@ export const prismaSessionRepository: SessionRepository = {
         if (!beforeRow) return notFound;
         const before = toDTO(beforeRow);
 
+        const latest = await latestSessionRevision(tx, ctx.tenantId, id);
+        const version = latest?.version ?? 0;
+        if (input.expectedVersion !== undefined && input.expectedVersion !== version) {
+          return { ok: false, reason: 'stale' };
+        }
+
         // `episodes` is the whole set of blocks when it comes (issue #97: a
         // missing field is "leave it", never "empty it").
         const blocks =
           input.episodes === undefined ? before.episodes : mergeBlocks(before.episodes, input.episodes);
         const violation = episodeRuleViolation(input.sessionType ?? before.sessionType, blocks.length);
         if (violation) return { ok: false, reason: violation };
+
+        // Compared with the latest snapshot, before writing: a save that changes
+        // nothing writes nothing. A session with no revision yet (version 0) is
+        // compared with its row.
+        const changed = nonEmpty(
+          changedFields(
+            auditView(latest?.snapshot ?? before),
+            auditView({
+              sessionType: input.sessionType ?? before.sessionType,
+              sessionDate: input.sessionDate?.toISOString() ?? before.sessionDate,
+              observations: input.observations === undefined ? before.observations : input.observations,
+              episodes: blocks,
+            }),
+            AUDIT_FIELDS,
+          ),
+        );
+        if (!changed) return { ok: true, session: before };
 
         // patientId en el where del update (Prisma 5 acepta campos no únicos en
         // WhereUniqueInput): pertenencia y tenant se deciden en la misma query
@@ -386,10 +430,10 @@ export const prismaSessionRepository: SessionRepository = {
         });
 
         if (input.episodes !== undefined) {
-          // A block left out is removed, a new one added, a kept one rewritten
-          // with its merged fields.
+          // A block left out is removed, a new one added, and a kept one
+          // rewritten only if one of its fields changed.
           const kept = new Set(blocks.map((b) => b.episodeId));
-          const existing = new Set(before.episodes.map((b) => b.episodeId));
+          const existing = new Map(before.episodes.map((b) => [b.episodeId, b]));
           const removed = before.episodes.map((b) => b.episodeId).filter((e) => !kept.has(e));
           if (removed.length > 0) {
             await tx.sessionEpisode.deleteMany({
@@ -397,11 +441,14 @@ export const prismaSessionRepository: SessionRepository = {
             });
           }
           for (const { episodeId, ...fields } of blocks) {
-            if (existing.has(episodeId)) {
-              await tx.sessionEpisode.update({
-                where: { sessionId_episodeId: { sessionId: id, episodeId }, tenantId: ctx.tenantId },
-                data: fields,
-              });
+            const previous = existing.get(episodeId);
+            if (previous) {
+              if (changedFields(previous, fields, BLOCK_FIELDS).length > 0) {
+                await tx.sessionEpisode.update({
+                  where: { sessionId_episodeId: { sessionId: id, episodeId }, tenantId: ctx.tenantId },
+                  data: fields,
+                });
+              }
             } else {
               await tx.sessionEpisode.create({
                 data: { ...fields, tenantId: ctx.tenantId, patientId, sessionId: id, episodeId },
@@ -410,14 +457,22 @@ export const prismaSessionRepository: SessionRepository = {
           }
         }
 
-        const session = toDTO(
-          await tx.session.findUniqueOrThrow({
-            where: { id, tenantId: ctx.tenantId },
-            select: sessionSelect,
-          }),
-        );
-        const changed = nonEmpty(changedFields(auditView(before), auditView(session), AUDIT_FIELDS));
-        if (changed) await recordAudit(tx, ctx, audit(session, changed));
+        const row = await tx.session.findUniqueOrThrow({
+          where: { id, tenantId: ctx.tenantId },
+          select: sessionSelect,
+        });
+        const session = { ...toDTO(row), version: version + 1 };
+        const auditLogId = await recordAudit(tx, ctx, audit(session, changed));
+        await recordRevision(tx, ctx, 'session_revisions', {
+          aggregateId: id,
+          patientId,
+          version: version + 1,
+          auditLogId,
+          schemaVersion: SESSION_SNAPSHOT_VERSION,
+          // From what was read back, so the version is what the rows hold.
+          snapshot: sessionSnapshot(row),
+          reasonNote: input.reasonNote,
+        });
         return { ok: true, session };
       });
     } catch (e) {
@@ -437,6 +492,10 @@ export const prismaSessionRepository: SessionRepository = {
     const db = forTenant(ctx);
 
     return db.$transaction(async (tx) => {
+      // Locked first: this write takes a version, so it waits for a concurrent
+      // edit and then reads the version that edit wrote.
+      await lockRow(tx, 'sessions', id, ctx.tenantId);
+
       // 1. Sacar el cobro, salvo que esté PAGADO. La condición va en el where
       //    del delete: si estaba pagado no borra nada y la fila sigue ahí.
       //
@@ -472,8 +531,22 @@ export const prismaSessionRepository: SessionRepository = {
           where: { sessionId: id, tenantId: ctx.tenantId },
           data: { sessionId: null },
         });
-        // The audit row goes in the same transaction as the deletion (#188).
-        await recordAudit(tx, ctx, audit);
+        // The audit row and a version with the same content go in the same
+        // transaction as the deletion (#188): the action is what the audit row
+        // says. Step 5 of SPEC-clinical-revisions.md turns this into annulling.
+        const auditLogId = await recordAudit(tx, ctx, audit);
+        const row = await tx.session.findUniqueOrThrow({
+          where: { id, tenantId: ctx.tenantId },
+          select: sessionSelect,
+        });
+        await recordRevision(tx, ctx, 'session_revisions', {
+          aggregateId: id,
+          patientId,
+          version: (row.revisions[0]?.version ?? 0) + 1,
+          auditLogId,
+          schemaVersion: SESSION_SNAPSHOT_VERSION,
+          snapshot: sessionSnapshot(row),
+        });
         return 'deleted';
       }
 

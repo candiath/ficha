@@ -16,7 +16,7 @@ import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
 import { AuditEntryError } from '../src/repositories/prisma/recordAudit';
 import { ZodError } from 'zod';
-import { deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic, splitName } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic, splitName } from './helpers';
 
 // #188: an audited write and its audit row commit together or not at all.
 // Each test forces the audit insert to fail — an entry pointing at a patient
@@ -55,14 +55,12 @@ describe('audit rows are written in the same transaction as their action', () =>
       data: { tenantId: clinic.tenantId, patientId },
       select: { id: true },
     });
-    return prisma.session.create({
-      data: {
-        tenantId: clinic.tenantId,
-        patientId,
-        userId: user.id,
-        sessionDate: new Date(),
-        episodes: { create: [{ episodeId: episode.id }] },
-      },
+    return createSessionFixture({
+      tenantId: clinic.tenantId,
+      patientId,
+      userId: user.id,
+      sessionDate: new Date(),
+      blocks: [{ episodeId: episode.id }],
     });
   };
 
@@ -154,13 +152,11 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   it('a payment is not created when its audit row fails', async () => {
     const patient = await patientRepo.create(ctx, { firstName: 'Con', lastName: 'Cobro' }, patientAudit('CREATED'));
-    const session = await prisma.session.create({
-      data: {
-        tenantId: clinic.tenantId,
-        patientId: patient.id,
-        userId: user.id,
-        sessionDate: new Date(),
-      },
+    const session = await createSessionFixture({
+      tenantId: clinic.tenantId,
+      patientId: patient.id,
+      userId: user.id,
+      sessionDate: new Date(),
     });
 
     await expect(

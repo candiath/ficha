@@ -95,7 +95,7 @@ Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScop
 
 1. **Lock** the aggregate's root row (`SELECT … FOR UPDATE`). For a creation that has no row yet (first evaluation of an episode, first consent), lock the parent row (episode, patient). Multi-aggregate writes lock in a fixed order (patient, then session, then episodes by id) to avoid deadlocks. `LOCKABLE` in `changedFields.ts` gains `clinical_episodes`, `informed_consents` and `patient_events`.
 2. **Read the latest revision.** If the request carries `expectedVersion` and it is not the latest, return `{ ok: false, reason: 'stale' }`; the route answers `409` ("Otra persona editó este registro. Recargá para ver los cambios."). Edit forms send the version they loaded; record DTOs carry `version`.
-3. **Build the new state's projection** from the current state plus the input, and compare it with the latest snapshot. If equal, **write nothing**: no update, no audit row, no revision. The session's forced `updatedAt` and the rewrite of unchanged blocks go away.
+3. **Build the new state's projection** from the current state plus the input, and compare it with the latest snapshot. If equal, **write nothing**: no update, no audit row, no revision. A save that changes something rewrites only the blocks that changed; the session's forced `updatedAt` stays for it, because an edit of a block alone writes no column of the session.
 4. **Write** the clinical rows, then the audit row, then one revision per changed aggregate with `version = latest + 1`.
 
 Creation writes version 1. A revisions insert that fails rolls the whole action back.
@@ -130,21 +130,21 @@ Sessions and patient events have a soft delete today. It becomes `POST …/annul
 
 ### 11. Logs
 
-Revision code paths and triggers never put row values in an error message. A failed revision insert is logged as code, table and id. A test forces a failure and checks the log for marker text.
+Revision code paths and triggers never put row values in an error message. A failed revision insert is logged as code, table and id. A test forces a failure and checks the log for marker text. Postgres puts the failing row in the detail of a constraint error and Prisma's `error` log prints it, so that log is off outside development; errors are still thrown, and logged by the error handler.
 
 ## Testing Strategy
 
 Vitest + supertest against the throwaway Postgres (`npm test`), repository tests with `createTestContext`. Per aggregate: creation writes version 1; an edit writes N+1 with the right snapshot, author and reason; a no-op save writes nothing and answers `200`; a stale `expectedVersion` answers `409` and writes nothing; two concurrent edits produce consecutive versions or a `409`, never a lost write. Sessions: removing a block is visible in the next snapshot; a discharge writes the session and episode revisions under one audit row. Plus: append-only and truncate rejection, the IDOR test, the projection coverage test, the repository manifest, the invariant helper, the migration scan, old schema fixtures, and the log test.
 
-**Test cleanup.** Revisions reference clinical rows with `RESTRICT`, so cleanup deletes revisions first. `tests/helpers.ts` gains `deleteRevisions(...)` under the maintenance switch; the ~35 test files that hard-delete clinical rows call it before deleting. This is the largest mechanical cost of the module.
+**Test cleanup.** Revisions reference clinical rows and audit rows with `RESTRICT`, so cleanup deletes revisions first: `deleteAuditRows` does it for the clinics it is given, in its maintenance transaction, and test files that delete clinical rows after it need no change. `deleteRevisions(table, ids)` is for deleting one aggregate in the middle of a file.
 
 ## Rollout
 
 Each step is a PR against `dev`, in order:
 
 0. **Postgres 18**: a new Neon project, with its branches moved by dump and restore (`production` included, before the relaunch), the test container in `docker-compose.yml`, CI, and `docs/infra.md`. Rehearsed on a throwaway branch first.
-1. Prerequisites: composite unique keys, `recordAudit` returns its id, `LOCKABLE` additions, catalog changes (`EPISODE`, episode actions, `reason`), episode writes in a transaction with audit.
-2. `session_revisions` + `recordRevision` + the session write path, `expectedVersion`, no-op skip, test helpers and cleanup, coverage tests.
+1. Prerequisites: composite unique keys, `recordAudit` returns its id, `LOCKABLE` additions, catalog changes (`EPISODE`, episode actions, the list of reason codes), episode writes in a transaction with audit.
+2. `session_revisions` + `recordRevision` + the session write path, `expectedVersion`, the `reason` parameter of `SESSION_UPDATED`, no-op skip, test helpers and cleanup, coverage tests. Each later step attaches `reason` to the aggregates it versions: the catalog validates strictly, so a parameter is required from the commit that adds it.
 3. The other five aggregates.
 4. Reading routes and the history view in the record.
 5. Annulment as an action with reason.

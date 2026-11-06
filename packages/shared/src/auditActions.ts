@@ -336,7 +336,11 @@ export const AUDIT_ACTIONS = {
       kind: 'update',
       // The type after the update: a session turned into a discharge by
       // editing it is findable too.
-      params: { sessionType: code(AUDIT_SESSION_TYPES), changedFields: fields(AUDIT_SESSION_FIELDS) },
+      params: {
+        sessionType: code(AUDIT_SESSION_TYPES),
+        changedFields: fields(AUDIT_SESSION_FIELDS),
+        reason: code(AUDIT_REVISION_REASONS),
+      },
       label: 'Sesión actualizada',
       describe: (p) => {
         const what = p.sessionType === 'DISCHARGE' ? 'del alta' : p.sessionType === 'NOTE' ? 'de la nota clínica' : 'de la sesión';

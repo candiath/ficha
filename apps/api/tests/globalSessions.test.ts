@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 
 // GET /api/sessions es la vista de "todas las sesiones" de la clínica: sin un
 // paciente en la URL, con el nombre de cada uno y el motivo de cada episodio.
@@ -17,6 +17,8 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   let token: string;
   let patient: { id: string };
   let episode: { id: string };
+  let patientId: string;
+  let episodeId: string;
   let sessionConEpisodio: string;
   let sessionSinEpisodio: string;
   let sessionBorrada: string;
@@ -48,6 +50,8 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
       return res.body.data.id as string;
     };
 
+    patientId = patient.id;
+    episodeId = episode.id;
     sessionConEpisodio = await crear(patient.id, {
       episodes: [{ episodeId: episode.id }],
       sessionDate: new Date(Date.now() - 2 * DAY_MS).toISOString(),
@@ -71,14 +75,11 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
       select: { id: true },
     });
     sessionDeB = (
-      await prisma.session.create({
-        data: {
-          tenantId: clinicB.tenantId,
-          patientId: patientB.id,
-          userId: userB.id,
-          sessionDate: new Date(),
-        },
-        select: { id: true },
+      await createSessionFixture({
+        tenantId: clinicB.tenantId,
+        patientId: patientB.id,
+        userId: userB.id,
+        sessionDate: new Date(),
       })
     ).id;
   });
@@ -112,14 +113,12 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   // when, nothing clinical. The clinical fields and the episodes' complaints
   // are read from the patient's own routes.
   it('each session carries only who and when', async () => {
-    await prisma.session.update({
-      where: { id: sessionConEpisodio },
-      data: { observations: 'MKobs' },
+    const edited = await auth(request(app).patch(`/api/patients/${patientId}/sessions/${sessionConEpisodio}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'MKobs',
+      episodes: [{ episodeId, patientExercises: 'MKresp', painScaleBefore: 7 }],
     });
-    await prisma.sessionEpisode.updateMany({
-      where: { sessionId: sessionConEpisodio },
-      data: { patientExercises: 'MKresp', painScaleBefore: 7 },
-    });
+    expect(edited.status).toBe(200);
 
     const res = await auth(request(app).get('/api/sessions'));
     const item = res.body.data.find((s: { id: string }) => s.id === sessionConEpisodio);

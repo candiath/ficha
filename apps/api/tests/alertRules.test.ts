@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AlertType, User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
 
 // El motor de alertas corre al LEER las alertas, no por un cron: el plan free
 // de Render no tiene uno. Antes la única regla que existía vivía en el GET de
@@ -63,14 +63,12 @@ describe('motor de alertas', () => {
       select: { id: true },
     });
     if (diasAtras !== null) {
-      await prisma.session.create({
-        data: {
-          tenantId: clinic.tenantId,
-          patientId,
-          userId: user.id,
-          sessionDate: haceDias(diasAtras),
-          episodes: { create: [{ episodeId: episodio.id }] },
-        },
+      await createSessionFixture({
+        tenantId: clinic.tenantId,
+        patientId,
+        userId: user.id,
+        sessionDate: haceDias(diasAtras),
+        blocks: [{ episodeId: episodio.id }],
       });
     }
     return episodio;
@@ -138,14 +136,11 @@ describe('motor de alertas', () => {
 
   /** Una sesión con su cobro pendiente, fechada `diasAtras`. */
   async function crearCobroPendiente(patientId: string, diasAtras: number, monto: number) {
-    const sesion = await prisma.session.create({
-      data: {
-        tenantId: clinic.tenantId,
-        patientId,
-        userId: user.id,
-        sessionDate: haceDias(diasAtras),
-      },
-      select: { id: true },
+    const sesion = await createSessionFixture({
+      tenantId: clinic.tenantId,
+      patientId,
+      userId: user.id,
+      sessionDate: haceDias(diasAtras),
     });
     await prisma.payment.create({
       data: {

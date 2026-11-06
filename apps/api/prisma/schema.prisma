@@ -93,6 +93,7 @@ model Tenant {
   clinicalAlerts      ClinicalAlert[]
   clinicalEpisodes    ClinicalEpisode[]
   sessionEpisodes     SessionEpisode[]
+  sessionRevisions    SessionRevision[]
   patientEvents       PatientEvent[]
   loginEvents         LoginEvent[]
   appointments        Appointment[]
@@ -613,6 +614,7 @@ model Session {
   episodes    SessionEpisode[]
   payment     Payment?
   appointment Appointment?
+  revisions   SessionRevision[]
 
   // Referenced by SessionEpisode, so a block cannot name another clinic's or
   // another patient's session.
@@ -655,6 +657,38 @@ model SessionEpisode {
   @@index([episodeId])
   @@index([tenantId])
   @@map("session_episodes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One version of a session: a snapshot of its whole state, blocks included, as
+// of the write that made it (docs/specs/SPEC-clinical-revisions.md). Append-only,
+// like the audit tables: triggers reject every UPDATE and TRUNCATE, and every
+// DELETE outside maintenance. Who, when and why live in the audit row it points
+// at; the composite keys keep both inside the row's clinic and patient. Pinned
+// by audit-guards.sql.
+// ─────────────────────────────────────────────────────────────────────────────
+model SessionRevision {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  tenantId      String  @map("tenant_id") @db.Uuid
+  patientId     String  @map("patient_id") @db.Uuid
+  sessionId     String  @map("session_id") @db.Uuid
+  version       Int
+  // Not unique: one action can own several revisions (a discharge, from step 3).
+  auditLogId    String  @map("audit_log_id") @db.Uuid
+  snapshot      Json
+  schemaVersion Int     @map("schema_version")
+  // Why the record was corrected, in the editor's words. Clinical content: it
+  // never goes into an audit row, a log or a global list.
+  reasonNote    String? @map("reason_note")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  session  Session  @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog AuditLog @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([sessionId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("session_revisions")
 }
 
 enum PaymentStatus {
@@ -854,6 +888,8 @@ model AuditLog {
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   user    User?   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  sessionRevisions SessionRevision[]
 
   // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
   // §2): a version can only name an audit row of its own clinic and patient.
