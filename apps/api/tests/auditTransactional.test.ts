@@ -3,9 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import {
+  appointmentRepo,
   consentRepo,
   episodeRepo,
   evaluationRepo,
+  packageRepo,
   patientRepo,
   paymentRepo,
   sessionRepo,
@@ -73,7 +75,9 @@ describe('audit rows are written in the same transaction as their action', () =>
   afterAll(async () => {
     const tenantId = clinic.tenantId;
     await deleteAuditRows([tenantId]);
+    await prisma.appointment.deleteMany({ where: { tenantId } });
     await prisma.payment.deleteMany({ where: { tenantId } });
+    await prisma.sessionPackage.deleteMany({ where: { tenantId } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
@@ -269,6 +273,84 @@ describe('audit rows are written in the same transaction as their action', () =>
 
     const row = await prisma.payment.findUniqueOrThrow({ where: { id: created.payment.id } });
     expect(Number(row.discountCents)).toBe(0);
+  });
+
+  const slot = (daysAhead: number) => {
+    const startsAt = new Date(Date.now() + daysAhead * 86_400_000);
+    return { startsAt, endsAt: new Date(startsAt.getTime() + 3_600_000) };
+  };
+
+  // Written directly, so a test only exercises the write it is about.
+  const newAppointment = (patientId: string, seriesId: string | null = null, daysAhead = 1) =>
+    prisma.appointment.create({
+      data: { tenantId: clinic.tenantId, patientId, userId: user.id, seriesId, ...slot(daysAhead) },
+    });
+
+  it('a series of appointments is not created when an audit row fails', async () => {
+    const patient = await newPatient('Sin Turnos');
+
+    await expect(
+      appointmentRepo.create(ctx, { patientId: patient.id, slots: [slot(1), slot(8)] }, broken),
+    ).rejects.toThrow();
+
+    expect(await prisma.appointment.count({ where: { patientId: patient.id } })).toBe(0);
+  });
+
+  it('an appointment update is rolled back when its audit row fails', async () => {
+    const patient = await newPatient('Turno Intacto');
+    const appointment = await newAppointment(patient.id);
+
+    await expect(
+      appointmentRepo.update(ctx, appointment.id, { status: 'CANCELLED' }, () => [broken()]),
+    ).rejects.toThrow();
+    await expect(
+      appointmentRepo.update(ctx, appointment.id, { notes: 'Otra nota' }, () => [broken()]),
+    ).rejects.toThrow();
+
+    const row = await prisma.appointment.findUniqueOrThrow({ where: { id: appointment.id } });
+    expect(row).toMatchObject({ status: 'SCHEDULED', cancelledAt: null, notes: null });
+  });
+
+  it('cancelling a series is rolled back when an audit row fails', async () => {
+    const patient = await newPatient('Serie Intacta');
+    const seriesId = randomUUID();
+    await newAppointment(patient.id, seriesId, 1);
+    await newAppointment(patient.id, seriesId, 8);
+
+    await expect(appointmentRepo.cancelSeriesFrom(ctx, seriesId, new Date(), broken)).rejects.toThrow();
+
+    expect(await prisma.appointment.count({ where: { seriesId, status: 'SCHEDULED' } })).toBe(2);
+  });
+
+  it('a package is not created when its audit row fails', async () => {
+    const patient = await newPatient('Sin Paquete');
+
+    await expect(
+      packageRepo.create(
+        ctx,
+        { patientId: patient.id, name: 'Paquete', totalSessions: 4, pricePerSessionCents: 100 },
+        broken,
+      ),
+    ).rejects.toThrow();
+
+    expect(await prisma.sessionPackage.count({ where: { patientId: patient.id } })).toBe(0);
+  });
+
+  it('a package is not deleted when its audit row fails', async () => {
+    const patient = await newPatient('Paquete Intacto');
+    const pkg = await prisma.sessionPackage.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        name: 'Paquete',
+        totalSessions: 4,
+        pricePerSessionCents: 100,
+      },
+    });
+
+    await expect(packageRepo.deleteIfUnused(ctx, pkg.id, broken)).rejects.toThrow();
+
+    expect(await prisma.sessionPackage.count({ where: { id: pkg.id } })).toBe(1);
   });
 
   it('a successful write leaves exactly one audit row, attributed to the actor', async () => {

@@ -51,3 +51,27 @@ export async function recordAudit(
   });
   return id;
 }
+
+// Several rows of one write in a single INSERT: a series of appointments is one
+// request and up to 52 rows, and a loop of inserts would eat the transaction's
+// timeout on a slow connection.
+export async function recordAudits(
+  tx: Prisma.TransactionClient,
+  ctx: TenantContext,
+  entries: readonly AuditEntry[],
+): Promise<void> {
+  for (const entry of entries) assertAuditEntry('audit_logs', entry.action, entry.params);
+  await tx.auditLog.createMany({
+    data: entries.map((entry) => ({
+      tenantId: ctx.tenantId,
+      patientId: entry.patientId,
+      entity: auditEntityOf('audit_logs', entry.action)!,
+      entityId: entry.entityId,
+      action: entry.action,
+      params: entry.params,
+      actorType: 'USER' as const,
+      userId: ctx.userId,
+      authSessionId: ctx.authSessionId,
+    })),
+  });
+}
