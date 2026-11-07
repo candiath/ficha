@@ -74,24 +74,19 @@ BEGIN
      'session_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'session_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (patient_revs,
-     'patient_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'
-' ||
+     'patient_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'patient_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (episode_revs,
-     'episode_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'
-' ||
+     'episode_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'episode_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (evaluation_revs,
-     'evaluation_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'
-' ||
+     'evaluation_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'evaluation_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (consent_revs,
-     'consent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'
-' ||
+     'consent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'consent_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (event_revs,
-     'patient_event_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'
-' ||
+     'patient_event_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'patient_event_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
   LOOP
     -- A missing table is already reported above.
