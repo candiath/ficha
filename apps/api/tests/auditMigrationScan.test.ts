@@ -59,6 +59,15 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261106180000_session_revisions': {
+    reason:
+      'The table of session versions (SPEC-clinical-revisions.md §6) is born with the append-only ' +
+      'triggers of the audit tables, calling their existing function.',
+    violations: [
+      'CREATE TRIGGER: CREATE TRIGGER session_revisions_append_only BEFORE UPDATE OR DELETE ON public.session_revisions FOR EACH ROW EXECUTE FU',
+      'CREATE TRIGGER: CREATE TRIGGER session_revisions_no_truncate BEFORE TRUNCATE ON public.session_revisions FOR EACH STATEMENT EXECUTE FUNC',
+    ],
+  },
   '20261012030000_drop_audit_description': {
     reason:
       'Release 2 of audit rows as codes (SPEC-audit-structured-entries.md): the Spanish description ' +
@@ -96,7 +105,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 };
 
 const AUDIT_NAMES =
-  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
+  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|session_revisions|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
 
 const FORBIDDEN: [string, RegExp][] = [
   ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],

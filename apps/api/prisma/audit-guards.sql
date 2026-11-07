@@ -10,7 +10,8 @@
 --
 -- The audit tables are audit_logs, platform_audit_logs, and since
 -- sysadmin-alerts (docs/specs/SPEC-sysadmin-alerts.md) sysadmin_alerts and
--- sysadmin_alert_deliveries.
+-- sysadmin_alert_deliveries. The clinical revisions tables get the same checks
+-- (docs/specs/SPEC-clinical-revisions.md §6): session_revisions.
 DO $guards$
 DECLARE
   -- The audit tables, resolved without erroring: a missing one is reported
@@ -20,6 +21,7 @@ DECLARE
   platform regclass := to_regclass('public.platform_audit_logs');
   alerts regclass := to_regclass('public.sysadmin_alerts');
   deliveries regclass := to_regclass('public.sysadmin_alert_deliveries');
+  session_revs regclass := to_regclass('public.session_revisions');
 
   problems text[] := '{}';
   tbl regclass;
@@ -31,6 +33,7 @@ BEGIN
   IF platform IS NULL THEN problems := problems || 'table platform_audit_logs is missing'::text; END IF;
   IF alerts IS NULL THEN problems := problems || 'table sysadmin_alerts is missing'::text; END IF;
   IF deliveries IS NULL THEN problems := problems || 'table sysadmin_alert_deliveries is missing'::text; END IF;
+  IF session_revs IS NULL THEN problems := problems || 'table session_revisions is missing'::text; END IF;
 
   -- Triggers: exactly these, enabled. Each one is described by its name,
   -- timing/events/level (tgtype), the function it calls, its WHEN condition
@@ -54,7 +57,10 @@ BEGIN
     (deliveries,
      'sysadmin_alert_deliveries_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alert_deliveries_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'sysadmin_alert_deliveries_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f')
+     'sysadmin_alert_deliveries_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
+    (session_revs,
+     'session_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'session_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
   LOOP
     -- A missing table is already reported above.
     CONTINUE WHEN tbl IS NULL;
@@ -115,7 +121,10 @@ BEGIN
       (platform, 'platform_audit_logs_operator_id_fkey', 'operator_id', 'public.platform_operators'::regclass, 'id'),
       (platform, 'platform_audit_logs_tenant_id_target_user_id_fkey', 'tenant_id,target_user_id', 'public.users'::regclass, 'tenant_id,id'),
       (alerts, 'sysadmin_alerts_operator_id_fkey', 'operator_id', 'public.platform_operators'::regclass, 'id'),
-      (deliveries, 'sysadmin_alert_deliveries_alert_id_fkey', 'alert_id', alerts, 'id')
+      (deliveries, 'sysadmin_alert_deliveries_alert_id_fkey', 'alert_id', alerts, 'id'),
+      (session_revs, 'session_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (session_revs, 'session_revisions_tenant_id_patient_id_session_id_fkey', 'tenant_id,patient_id,session_id', 'public.sessions'::regclass, 'tenant_id,patient_id,id'),
+      (session_revs, 'session_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
     ) AS fk(tbl, name, cols, target, target_cols)
   LOOP
     CONTINUE WHEN r.tbl IS NULL OR r.target IS NULL;
@@ -154,7 +163,8 @@ BEGIN
       (clinical, 'audit_logs_actor_matches_user',
        $$CHECK (((actor_type <> 'OPERATOR'::"AuditActorType") AND ((actor_type = 'USER'::"AuditActorType") = (user_id IS NOT NULL))))$$),
       (platform, 'platform_audit_logs_actor_is_operator', $$CHECK ((actor_type = 'OPERATOR'::"AuditActorType"))$$),
-      (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$)
+      (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$),
+      (session_revs, 'session_revisions_version_positive', $$CHECK ((version >= 1))$$)
     ) AS c(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -176,7 +186,14 @@ BEGIN
       (platform, 'actor_type'),
       (alerts, 'kind'),
       (deliveries, 'alert_id'),
-      (deliveries, 'outcome')
+      (deliveries, 'outcome'),
+      (session_revs, 'tenant_id'),
+      (session_revs, 'patient_id'),
+      (session_revs, 'session_id'),
+      (session_revs, 'version'),
+      (session_revs, 'audit_log_id'),
+      (session_revs, 'snapshot'),
+      (session_revs, 'schema_version')
     ) AS c(tbl, col)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -212,7 +229,9 @@ BEGIN
       (platform, 'platform_audit_logs_action_entity_key',
        'CREATE UNIQUE INDEX platform_audit_logs_action_entity_key ON public.platform_audit_logs USING btree (action, entity, entity_id) WHERE (entity IS NOT NULL)'),
       (clinical, 'audit_logs_tenant_id_patient_id_id_key',
-       'CREATE UNIQUE INDEX audit_logs_tenant_id_patient_id_id_key ON public.audit_logs USING btree (tenant_id, patient_id, id)')
+       'CREATE UNIQUE INDEX audit_logs_tenant_id_patient_id_id_key ON public.audit_logs USING btree (tenant_id, patient_id, id)'),
+      (session_revs, 'session_revisions_session_id_version_key',
+       'CREATE UNIQUE INDEX session_revisions_session_id_version_key ON public.session_revisions USING btree (session_id, version)')
     ) AS i(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;

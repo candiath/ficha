@@ -56,7 +56,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - After the switch, the staging deploy's build log shows `migrate:prod` and both checks passing.
   - *Files:* none in the repo. **S**
   - *Depends on:* 0.3.
-- [ ] **Task 0.5: `production` on 18, before the relaunch**
+- [x] **Task 0.5: `production` on 18, before the relaunch**
   - *Acceptance:*
     - The move happens in a window agreed with the clinic:
       - a manual run of the backup workflow takes the old project's last dump;
@@ -129,7 +129,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ### Step 2: Session revisions (PR 2, highest risk)
 
-- [ ] **Task 2.1: The `session_revisions` table**
+- [x] **Task 2.1: The `session_revisions` table**
   - *Acceptance:*
     - Model and migration as spec §2:
       - composite `RESTRICT` keys to `sessions` and `audit_logs`;
@@ -146,7 +146,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
     Plus `tenantScopeCoverage`, `auditHardening`, the migration scan, and the full suite (for the cleanup order).
   - *Files:* `schema.prisma` + migration, `src/lib/tenantScope.ts`, `prisma/audit-guards.sql`, `tests/auditMigrationScan.test.ts`, `tests/helpers.ts`, the new test. **M**
-- [ ] **Task 2.2: Session snapshot and projection coverage**
+- [x] **Task 2.2: Session snapshot and projection coverage**
   - *Acceptance:*
     - Session projection, as spec §3: the field list and the excluded columns. It holds `userId`, the type, the date, the observations and the blocks ordered by `episodeId`.
     - `SessionSnapshotV1` is a `strictObject` in `packages/shared`, as a new runtime module, added to the list in `CLAUDE.md`.
@@ -154,7 +154,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - A fixture test proves a v1 snapshot parses.
   - *Verify:* `npm test -- historyProjectionCoverage`; a column added to `Session` by hand makes it fail (checked once, reverted).
   - *Files:* `packages/shared/src/clinicalSnapshots.ts` (new), `packages/shared/src/index.ts`, `tests/historyProjectionCoverage.test.ts`, `CLAUDE.md`. **S**
-- [ ] **Task 2.3: `recordRevision` and the session write path**
+- [x] **Task 2.3: `recordRevision` and the session write path**
   - *Acceptance:*
     - `recordRevision(tx, ctx, …)` sits next to `recordAudit`.
     - `create` writes version 1, linked to the `*_RECORDED` audit row.
@@ -176,7 +176,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     Plus `sessionsCrud`, `sessionPatchPartial`, `sessionEpisodeBlocks`, `auditEntries`.
   - *Files:* `repositories/prisma/recordRevision.ts` (new), `repositories/prisma/prismaSessionRepository.ts`, `repositories/sessionRepository.ts`, `packages/shared/src/index.ts` (`Session.version`), the new test. **M**
   - *Depends on:* 2.1, 2.2.
-- [ ] **Task 2.4: Stale edits and the reason (API)**
+- [x] **Task 2.4: Stale edits and the reason (API)**
   - *Acceptance:*
     - The `PATCH` body takes `expectedVersion` (optional), `reason` (required, a code) and `reasonNote` (optional, `optionalText`).
     - A stale `expectedVersion` returns `{ ok: false, reason: 'stale' }`, and the route answers `409` "Otra persona editó este registro. Recargá para ver los cambios.".
@@ -187,14 +187,14 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - a missing reason answers `400`.
   - *Files:* `routes/sessions.ts`, `packages/shared/src/auditActions.ts`, `prismaSessionRepository.ts`, `tests/sessionRevisions.test.ts`. **S**
   - *Depends on:* 2.3.
-- [ ] **Task 2.5: Stale edits and the reason (web)**
+- [x] **Task 2.5: Stale edits and the reason (web)**
   - *Acceptance:*
     - Editing a session in `SessionFormModalWide` sends the version it loaded, plus a reason select ("Error de confección" preselected) and an optional note. Creating one sends neither.
     - A `409` shows the API's message, keeps what was typed, and offers to reload.
   - *Verify:* `npm test -w apps/web -- SessionFormModalWide`: the body carries `expectedVersion` and `reason`, a `409` shows the message, and an untouched save still sends the loaded values.
   - *Files:* `apps/web/src/components/sessions/SessionFormModalWide.tsx`, `apps/web/src/services/sessions.ts`, a shared reason field component, its test. **M**
   - *Depends on:* 2.4.
-- [ ] **Task 2.6: The repository manifest and the migration scan**
+- [x] **Task 2.6: The repository manifest and the migration scan**
   - *Acceptance:*
     - `tests/historyCoverageManifest.ts` declares every repository method that writes `sessions` or `session_episodes` as `versions` or `exempt` (with a reason).
     - The test scans `repositories/prisma/*.ts` and fails on a write method missing from the manifest, or on an entry that no longer writes one.
@@ -202,7 +202,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
   - *Verify:* both pass on today's files. An unlisted write method, and a fixture migration with `UPDATE sessions`, each make them fail (checked once, reverted).
   - *Files:* `tests/historyCoverageManifest.ts`, `tests/historyCoverage.test.ts`, `tests/historyMigrationScan.test.ts`. **S**
   - *Depends on:* 2.3.
-- [ ] **Task 2.7: The invariant helper and the session fixtures**
+- [x] **Task 2.7: The invariant helper and the session fixtures**
   - *Acceptance:*
     - After each test, the projection of every session of the test's clinics equals its latest snapshot, and every session has a revision.
       - Mechanism: `createTestClinic` registers the clinic, and an `afterEach` in `tests/setup.ts` checks it. Check vitest's hook order first: an `afterAll` would run after the files' own cleanup and prove nothing.
@@ -210,7 +210,7 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
   - *Verify:* the full suite is green. A repository write that skips `recordRevision` makes the helper fail (checked once, reverted).
   - *Files:* `tests/setup.ts`, `tests/helpers.ts`, the test files that insert sessions directly. **M** (mechanical)
   - *Depends on:* 2.3.
-- [ ] **Task 2.8: Docs, rehearsal and PR**
+- [x] **Task 2.8: Docs, rehearsal and PR**
   - *Acceptance:*
     - `CLAUDE.md`:
       - under *Acceso a datos*, versioning in the write's transaction and the manifest rule;
@@ -224,8 +224,8 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ### Checkpoint 2
 
-- [ ] Full suites and `npm run check` are green.
-- [ ] By hand (skill `verify`):
+- [x] Full suites and `npm run check` are green.
+- [x] By hand (skill `verify`):
   - the same session edited in two tabs gives a `409` in the second;
   - a save with no change leaves no audit row;
   - removing a block shows in the next revision.
@@ -449,3 +449,19 @@ None open.
 - **The reason's request schema lives in `auditActions.ts`**: `revisionReasonFields`, which a correction's body schema spreads, and `revisionReasonSchema` for an annulment's body. No new runtime module. `reasonNote` repeats the single-empty rule of `optionalText` (the package cannot import the API's), with a 500-character limit like the appointment notes.
 - **The record's activity timeline gets an `EPISODE` badge** ("Episodio"); without it, episode rows showed the neutral "Registro".
 - **A discharge still closes its episodes under `DISCHARGE_RECORDED` alone**, with no `EPISODE_CLOSED` row: one action, one audit row (spec §4). Its episode revisions arrive in Task 3.1.
+
+### Step 2
+
+- **`scripts/purge-test-audit.ts` deletes revisions too.** The plan named only `deleteAuditRows`, but the script deletes audit rows of test clinics, and each revision restricts that.
+- **The migration has an `ALLOWED` entry in `auditMigrationScan.test.ts`**, with its two `CREATE TRIGGER`: with `session_revisions` in `AUDIT_NAMES`, the scan flags them.
+- **The session's forced `updatedAt` stays on a real edit.** An edit of a block alone writes no column of `sessions`, and the session did change. It leaves the no-op, and unchanged blocks are no longer rewritten. The spec's §5 now says so.
+- **`softDelete` locks the session first.** It takes a version, so without the lock a concurrent edit would collide on `UNIQUE (session_id, version)` and answer `500`.
+- **"Changed" is decided with the audit view of the latest snapshot and of the new state**, the same list `changedFields` reports. It covers every field an update can change; the snapshot's other field, `userId`, no update touches.
+- **A stale `expectedVersion` answers `409` before anything else**, a save that changes nothing included: that form is stale too.
+- **`createSessionFixture` also writes a `*_RECORDED` audit row**, because `audit_log_id` is required. Sessions were 14 direct inserts in 9 files, not the plan's share of 115 in 29; the rest of that count is step 3's.
+- **`Session.version` lives in `sessionRepository.ts` and `apps/web/src/types/session.ts`**, where the type is; `packages/shared` has no `Session`.
+- **Prisma's `error` log is off outside development.** The test of Task 2.3 found it: Prisma prints Postgres's detail, which for a `CHECK` violation is the failing row, `reason_note` included. Every error is still thrown. The error handler's own `console.error(err)` still prints what a non-revision write throws; that path was not changed.
+- **The restore procedure needs no new step, and `ficha-backups` no change.** The revisions triggers do not fire on `INSERT`, and the table has no `created_at` to stamp.
+- **The form's reload replaces what was typed**, after saying so: the `409` keeps it until the user chooses to reload, and then the form holds the version just read. The session comes from the patient's list item or the record, so the reload reads it itself instead of waiting for the parent.
+- **The rehearsal** (2026-11-06). `rehearsal-session-revisions`, copied from `production` in `ficha-pg18`: the ten migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed; `sessions` and `audit_logs` kept their counts (2 and 8) and row hashes; `session_revisions` is empty; no maintenance flag.
+- **The check by hand** ran against the Docker database, seeded, so it also went through version 0: the same session in two tabs gave a `409` in the second, keeping the text, and "Recargar" brought the first tab's edit; a `PATCH` with the loaded values answered `200` with the same `updatedAt` and wrote nothing; a block added and then removed gave versions 2 (two blocks) and 3 (one).

@@ -133,7 +133,7 @@ When a Render build fails on a check, the previous deploy keeps serving. Find ou
 
 ### Orphans
 
-Interrupted test runs leave test clinics behind, and their audit rows now block deleting them. `npm run purge:test-audit -w apps/api` deletes the audit rows of test clinics older than an hour (and of test operators); it refuses to run without the flag.
+Interrupted test runs leave test clinics behind, and their audit rows now block deleting them. `npm run purge:test-audit -w apps/api` deletes the audit rows of test clinics older than an hour, with their clinical revisions (and those of test operators); it refuses to run without the flag.
 
 ### The pre-launch wipe
 
@@ -144,7 +144,7 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy` and `audit-guards.sql`, as in the Render build). It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy` and `audit-guards.sql`, as in the Render build). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
 
 - it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
 - for `production` it first runs the backup and stops if the backup fails;
@@ -175,6 +175,8 @@ psql "$URL" -1 -v ON_ERROR_STOP=1 \
   -c 'ALTER TABLE public.sysadmin_alert_deliveries ENABLE TRIGGER USER'
 psql "$URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/audit-guards.sql
 ```
+
+`session_revisions`, and the other clinical revisions tables as they arrive, stays out of that list on purpose: its triggers fire on `UPDATE`, `DELETE` and `TRUNCATE`, not on the `INSERT`s of a load, and it has no `created_at` to stamp. Its rows load after the sessions and audit rows they name, as `session_episodes` does after `sessions`.
 
 Then compare the row counts per table with the dump: better, per table, the count and an md5 of its rows as text, ordered, on the source and on the restored database. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable. Rehearsed again on 2026-11-01 for the move to 18, on real branches: `staging` and `development` were dumped from the 16 project by `pg_dump` 18 and restored into the 18 one with exactly these commands, and every table matched by count and row hash.
 

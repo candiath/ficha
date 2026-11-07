@@ -33,6 +33,7 @@ export * from './partialDate';
 // SPEC-audit-structured-entries.md). The API validates every audit row with
 // it, and the web builds each row's sentence from it.
 export * from './auditActions';
+export * from './clinicalSnapshots';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 

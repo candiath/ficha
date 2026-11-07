@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, type TestClinic, splitName } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, type TestClinic, splitName } from './helpers';
 
 // The database refuses what the API already refuses (20261024120000_model_integrity):
 // rows that join two clinics or two patients, and values out of range. These
@@ -39,10 +39,7 @@ describe('The database keeps the model consistent', () => {
     otherPatientsEpisode = await createEpisode(otherPatient);
 
     otherPatientsSession = (
-      await prisma.session.create({
-        data: { tenantId, patientId: otherPatient, userId: user.id, sessionDate: new Date() },
-        select: { id: true },
-      })
+      await createSessionFixture({ tenantId, patientId: otherPatient, userId: user.id, sessionDate: new Date() })
     ).id;
     otherPatientsPackage = (
       await prisma.sessionPackage.create({
@@ -54,6 +51,7 @@ describe('The database keeps the model consistent', () => {
 
   afterAll(async () => {
     const where = { tenantId: clinic.tenantId };
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.appointment.deleteMany({ where });
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
@@ -67,10 +65,7 @@ describe('The database keeps the model consistent', () => {
   });
 
   const session = () =>
-    prisma.session.create({
-      data: { tenantId: clinic.tenantId, patientId: patient, userId: user.id, sessionDate: new Date() },
-      select: { id: true },
-    });
+    createSessionFixture({ tenantId: clinic.tenantId, patientId: patient, userId: user.id, sessionDate: new Date() });
 
   describe('a row cannot join two clinics or two patients', () => {
     it("refuses a session by another clinic's therapist", async () => {

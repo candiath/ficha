@@ -159,6 +159,7 @@ describe('CRUD de sesiones por HTTP', () => {
     expect(res.status).toBe(201);
     expect(res.body.data).toEqual({
       id: expect.any(String),
+      version: 1,
       patientId: patient.id,
       sessionType: 'SESSION',
       sessionDate: fecha,
@@ -396,6 +397,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const nueva = new Date(Date.now() - 3 * DAY_MS).toISOString();
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       sessionDate: nueva,
     });
 
@@ -413,6 +415,7 @@ describe('CRUD de sesiones por HTTP', () => {
       '1025-01-01T10:00:00.000Z',
     ]) {
       const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+        reason: 'DATA_ENTRY_ERROR',
         sessionDate: fecha,
       });
       expect(res.status, fecha).toBe(400);
@@ -428,6 +431,7 @@ describe('CRUD de sesiones por HTTP', () => {
     });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'después',
       episodes: [
         { episodeId: episodeA.id, painScaleBefore: 6, painScaleAfter: 2, patientExercises: 'Rana en el suelo' },
@@ -452,6 +456,7 @@ describe('CRUD de sesiones por HTTP', () => {
     });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeA.id, painScaleBefore: null, painScaleAfter: null }],
       observations: null,
     });
@@ -467,6 +472,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id, painScaleBefore: 5 }] });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeA.id, painScaleBefore: 12 }],
     });
 
@@ -480,6 +486,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeB.id }],
     });
 
@@ -495,6 +502,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeDelOtro.id }],
     });
 
@@ -509,6 +517,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const delOtro = await crearSesion({ observations: 'del otro' }, otroPaciente.id);
 
     const res = await auth(request(app).patch(`${url()}/${delOtro.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'pisado desde otro paciente',
     });
 
@@ -519,6 +528,7 @@ describe('CRUD de sesiones por HTTP', () => {
 
   it('PATCH inexistente da 404', async () => {
     const res = await auth(request(app).patch(`${url()}/${randomUUID()}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'nada',
     });
 
@@ -532,6 +542,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ payment: { baseAmountCents: 5000 } });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'con payment colado',
       payment: { baseAmountCents: 1 },
     });
@@ -624,6 +635,7 @@ describe('CRUD de sesiones por HTTP', () => {
     expect((await auth(request(app).delete(`/api/patients/${borrado.id}`))).status).toBe(204);
 
     const editada = await auth(request(app).patch(`${url(borrado.id)}/${sesion.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'post mortem',
     });
     expect(editada.status).toBe(404);
@@ -645,7 +657,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({
       episodes: [{ episodeId: episodeA.id, painScaleBefore: 7, painScaleAfter: 3 }],
     });
-    await auth(request(app).patch(`${url()}/${creada.id}`)).send({ observations: 'x' });
+    await auth(request(app).patch(`${url()}/${creada.id}`)).send({ reason: 'DATA_ENTRY_ERROR', observations: 'x' });
     await auth(request(app).delete(`${url()}/${creada.id}`));
 
     const buscar = (action: 'SESSION_RECORDED' | 'SESSION_UPDATED' | 'SESSION_DELETED') =>
@@ -667,12 +679,13 @@ describe('CRUD de sesiones por HTTP', () => {
     }
     // Codes only: the pain values stay in the session, never in the audit row.
     expect(alta.params).toEqual({});
-    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'] });
+    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'], reason: 'DATA_ENTRY_ERROR' });
   });
 
   it('editing the exercises records the field name, never the text', async () => {
     const creada = await crearSesion();
     await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeA.id, patientExercises: 'Rana en el suelo' }],
     });
 
@@ -682,7 +695,7 @@ describe('CRUD de sesiones por HTTP', () => {
         select: { params: true },
       }),
     );
-    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['patientExercises'] });
+    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['patientExercises'], reason: 'DATA_ENTRY_ERROR' });
   });
 
   it('una NOTE y un DISCHARGE se registran con su propia acción', async () => {
@@ -710,7 +723,7 @@ describe('CRUD de sesiones por HTTP', () => {
       request(app).get(url()),
       request(app).get(`${url()}/${creada.id}`),
       request(app).post(url()).send({ sessionDate: new Date().toISOString() }),
-      request(app).patch(`${url()}/${creada.id}`).send({ observations: 'intruso' }),
+      request(app).patch(`${url()}/${creada.id}`).send({ reason: 'DATA_ENTRY_ERROR', observations: 'intruso' }),
       request(app).delete(`${url()}/${creada.id}`),
     ];
 

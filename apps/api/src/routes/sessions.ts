@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { revisionReasonFields } from '@ficha/shared';
 import { CentsSchema, IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
 import {
@@ -94,8 +95,15 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 
 // payment queda afuera a propósito: el pago se edita por /api/payments. Un
 // cliente que lo mande igual no rompe nada: se acepta y se descarta acá.
+//
+// An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
+// §4), and which version it was made over, so a stale form gets a 409.
 const SessionUpdateSchema = SessionFieldsSchema.partial()
-  .extend({ payment: z.unknown().optional() })
+  .extend({
+    payment: z.unknown().optional(),
+    expectedVersion: z.number().int().min(0).optional(),
+    ...revisionReasonFields,
+  })
   .transform(({ payment: _payment, ...fields }) => fields);
 
 // A session, a clinical note and a discharge are three facts for the clinic,
@@ -237,7 +245,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     return;
   }
 
-  const { episodes, sessionDate, ...rest } = SessionUpdateSchema.parse(req.body);
+  const { episodes, sessionDate, reason, ...rest } = SessionUpdateSchema.parse(req.body);
 
   // !== undefined y no truthy: [] es un valor (una nota sin episodios) y hay
   // que distinguirlo de "el campo no vino".
@@ -266,7 +274,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
       action: 'SESSION_UPDATED',
       patientId: req.params.patientId,
       entityId: s.id,
-      params: { sessionType: s.sessionType, changedFields },
+      params: { sessionType: s.sessionType, changedFields, reason },
     }),
   );
 
@@ -274,6 +282,10 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     // Inexistente, borrada o de otro paciente: mismo 404, sin revelar cuál.
     if (result.reason === 'not_found') {
       res.status(404).json({ error: 'Sesión no encontrada' });
+      return;
+    }
+    if (result.reason === 'stale') {
+      res.status(409).json({ error: 'Otra persona editó este registro. Recargá para ver los cambios.' });
       return;
     }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });

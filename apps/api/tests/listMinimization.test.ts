@@ -8,7 +8,7 @@ import app from '../src/app';
 import { instantToClinicTime } from '../src/lib/clinicTime';
 import { prisma } from '../src/lib/prisma';
 import { LIST_SCOPE, type Shape } from './listScopeManifest';
-import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
 
 // Global lists carry no clinical text (#186, docs/specs/SPEC-list-minimization.md
 // §6). Two parts:
@@ -112,6 +112,7 @@ const CLINICAL_MODELS = [
   'InitialEvaluation',
   'Session',
   'SessionEpisode',
+  'SessionRevision',
   'InformedConsent',
 ] as const;
 
@@ -287,22 +288,20 @@ describe('global lists carry no clinical text', () => {
 
     // Old enough for the engine: the episode has had no session for 40 days,
     // and the session's payment is overdue.
-    const session = await prisma.session.create({
-      data: {
-        tenantId,
-        patientId,
-        userId: user.id,
-        sessionDate: new Date(Date.now() - 40 * DAY_MS),
-        // A session's clinical text is in its blocks (#238): marked too.
-        episodes: {
-          create: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
-        },
-        ...marked('Session'),
-      },
-      select: { id: true },
+    const session = await createSessionFixture({
+      tenantId,
+      patientId,
+      userId: user.id,
+      sessionDate: new Date(Date.now() - 40 * DAY_MS),
+      // A session's clinical text is in its blocks (#238): marked too.
+      blocks: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
+      ...marked('Session'),
     });
     createdClinicalModels.add('Session');
     createdClinicalModels.add('SessionEpisode');
+    // Its snapshot holds the session's markers. reason_note gets its own with the
+    // revision routes (PLAN-clinical-revisions.md, Task 4.1).
+    createdClinicalModels.add('SessionRevision');
 
     await prisma.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
     createdClinicalModels.add('InformedConsent');
