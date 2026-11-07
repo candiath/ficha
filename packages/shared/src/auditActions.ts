@@ -266,7 +266,7 @@ export const AUDIT_ACTIONS = {
     PATIENT_UPDATED: action({
       entity: 'PATIENT',
       kind: 'update',
-      params: { changedFields: fields(AUDIT_PATIENT_FIELDS) },
+      params: { changedFields: fields(AUDIT_PATIENT_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Ficha actualizada',
       describe: (p) => {
         const changed = joinFields(p.changedFields, AUDIT_PATIENT_FIELDS);
@@ -290,7 +290,7 @@ export const AUDIT_ACTIONS = {
     EVALUATION_UPDATED: action({
       entity: 'EVALUATION',
       kind: 'update',
-      params: { changedFields: fields(AUDIT_EVALUATION_FIELDS) },
+      params: { changedFields: fields(AUDIT_EVALUATION_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Evaluación inicial actualizada',
       describe: (p) => {
         const changed = joinFields(p.changedFields, AUDIT_EVALUATION_FIELDS);
@@ -399,7 +399,7 @@ export const AUDIT_ACTIONS = {
       entity: 'PATIENT_EVENT',
       kind: 'update',
       // The kind after the update, as SESSION_UPDATED keeps the type.
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), changedFields: fields(AUDIT_PATIENT_EVENT_FIELDS) },
+      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), changedFields: fields(AUDIT_PATIENT_EVENT_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Antecedente actualizado',
       describe: (p) => {
         const changed = joinFields(p.changedFields, AUDIT_PATIENT_EVENT_FIELDS);
@@ -442,7 +442,7 @@ export const AUDIT_ACTIONS = {
     EPISODE_UPDATED: action({
       entity: 'EPISODE',
       kind: 'update',
-      params: { changedFields: fields(AUDIT_EPISODE_FIELDS) },
+      params: { changedFields: fields(AUDIT_EPISODE_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Episodio actualizado',
       describe: (p) => {
         const changed = joinFields(p.changedFields, AUDIT_EPISODE_FIELDS);

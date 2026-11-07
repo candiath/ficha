@@ -450,7 +450,14 @@ describe('audit-guards.sql', () => {
 
     const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
     // No created_at, so no stamp trigger.
-    const REVISION_TABLES = ['session_revisions'];
+    const REVISION_TABLES = [
+      'session_revisions',
+      'patient_revisions',
+      'episode_revisions',
+      'evaluation_revisions',
+      'consent_revisions',
+      'patient_event_revisions',
+    ];
     const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
