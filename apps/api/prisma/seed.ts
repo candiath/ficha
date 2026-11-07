@@ -759,7 +759,7 @@ async function main() {
     { id: devId('dev-audit-p2-010'), entity: 'SESSION', entityId: devId('dev-session-p2-006'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-30T11:00:00.000Z' },
     { id: devId('dev-audit-p2-012'), entity: 'SESSION', entityId: devId('dev-session-p2-007'), action: 'SESSION_RECORDED', params: {}, date: '2026-02-06T11:00:00.000Z' },
     { id: devId('dev-audit-p2-013'), entity: 'SESSION', entityId: devId('dev-session-p2-008'), action: 'SESSION_RECORDED', params: {}, date: '2026-03-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale', 'notes'] }, date: '2026-01-30T10:00:00.000Z' },
+    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale', 'notes'], reason: 'LATE_INFORMATION' }, date: '2026-01-30T10:00:00.000Z' },
   ] as const;
 
   await seedAuditRows(
