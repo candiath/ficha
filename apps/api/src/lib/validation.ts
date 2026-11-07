@@ -26,7 +26,13 @@ export const PasswordSchema = z
 //   - en el body o el query, 400: el cliente mandó un dato inválido;
 //   - en la URL, 404 (middlewares/idParam.ts): un id con forma imposible es
 //     un recurso que no existe, y responder otra cosa cambiaría el contrato.
-export const IdSchema = z.uuid('Id inválido');
+//
+// It comes out in lowercase, the form Postgres returns a `uuid` in. Postgres
+// compares uuids regardless of case, but the API also compares ids in code: a
+// session's blocks are matched to the stored ones by `episodeId`, and an
+// uppercase id would miss, rebuild its block from empty and write a revision
+// for a save that changed nothing.
+export const IdSchema = z.uuid('Id inválido').transform((id) => id.toLowerCase());
 
 // An amount of money, in integer cents: $1.234,56 is 123456. Integers keep the
 // arithmetic exact; a float of pesos rounds differently in two places, and a
