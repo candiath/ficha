@@ -1,5 +1,5 @@
 import type { EpisodeStatus } from '@prisma/client';
-import type { AUDIT_EPISODE_FIELDS } from '@ficha/shared';
+import type { AUDIT_EPISODE_FIELDS, RevisionReason } from '@ficha/shared';
 import type { AuditBuilder, AuditEntry } from './auditLogRepository';
 import type { TenantContext } from './types';
 
@@ -14,6 +14,8 @@ export interface EpisodeDTO {
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // The latest version (SPEC-clinical-revisions.md); 0 if it has none yet.
+  version: number;
 }
 
 // Un episodio abierto de la clínica, con cuándo fue su última sesión. Lo
@@ -37,6 +39,13 @@ export interface EpisodeUpdateInput {
   status?: EpisodeStatus;
   mainComplaint?: string | null;
   closedAt?: Date | null;
+  // The version the form loaded: another one answers `stale`.
+  expectedVersion?: number;
+  // Required by a correction, and only by it (SPEC-clinical-revisions.md §4):
+  // closing and reopening are facts, not corrections.
+  reason?: RevisionReason;
+  // The correction's note, which goes only into the revision.
+  reasonNote?: string | null;
 }
 
 // Resultado discriminado (convención del repo, misma forma que
@@ -45,7 +54,7 @@ export interface EpisodeUpdateInput {
 // el motivo a la vez.
 export type EpisodeUpdateResult =
   | { ok: true; episode: EpisodeDTO }
-  | { ok: false; reason: 'not_found' | 'transition_with_correction' }
+  | { ok: false; reason: 'not_found' | 'transition_with_correction' | 'stale' | 'reason_required' }
   // Names the opening, so the caller can say what the date ran into.
   | { ok: false; reason: 'closed_before_opened'; openedAt: string };
 

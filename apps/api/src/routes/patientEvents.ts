@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { partialDateSchema } from '@ficha/shared';
+import { partialDateSchema, revisionReasonFields } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { requiredText } from '../lib/validation';
 import { patientEventRepo, patientRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
@@ -30,7 +31,12 @@ const EventSchema = z.strictObject({
   occurred: notInTheFuture.nullable(),
 });
 
-const EventUpdateSchema = EventSchema.partial();
+// An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
+// §4), and which version it was made over, so a stale form gets a 409.
+const EventUpdateSchema = EventSchema.partial().extend({
+  expectedVersion: ExpectedVersionSchema,
+  ...revisionReasonFields,
+});
 
 // GET /api/patients/:patientId/events
 router.get<ParentParams>('/', async (req, res) => {
@@ -65,9 +71,9 @@ router.patch<EventParams>('/:eventId', async (req, res) => {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
-  const input = EventUpdateSchema.parse(req.body);
+  const { reason, ...input } = EventUpdateSchema.parse(req.body);
 
-  const event = await patientEventRepo.update(
+  const result = await patientEventRepo.update(
     req.context,
     req.params.patientId,
     req.params.eventId,
@@ -76,16 +82,20 @@ router.patch<EventParams>('/:eventId', async (req, res) => {
       action: 'PATIENT_EVENT_UPDATED',
       patientId: req.params.patientId,
       entityId: e.id,
-      params: { kind: e.kind, changedFields },
+      params: { kind: e.kind, changedFields, reason },
     }),
   );
 
-  // Missing, deleted or another patient's: the same 404, without saying which.
-  if (!event) {
-    res.status(404).json({ error: 'Antecedente no encontrado' });
+  if (!result.ok) {
+    // Missing, deleted or another patient's: the same 404, without saying which.
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Antecedente no encontrado' });
+      return;
+    }
+    res.status(409).json(STALE_EDIT);
     return;
   }
-  res.json({ data: event });
+  res.json({ data: result.event });
 });
 
 // DELETE /api/patients/:patientId/events/:eventId

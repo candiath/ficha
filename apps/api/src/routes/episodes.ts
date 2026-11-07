@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { revisionReasonFields } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { clinicalDateField } from '../lib/clinicalDate';
 import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, patientRepo } from '../repositories';
 import type { AuditEntry } from '../repositories/auditLogRepository';
 import type { EpisodeUpdateAudit } from '../repositories/episodeRepository';
+import type { RevisionReason } from '@ficha/shared';
 import { idParam } from '../middlewares/idParam';
 
 type Params = { patientId: string; episodeId: string };
@@ -34,6 +37,11 @@ const EpisodeUpdateSchema = z
     status: z.enum(['ACTIVE', 'DISCHARGED', 'ABANDONED']).optional(),
     mainComplaint: OptionalTextSchema,
     closedAt: clinicalDateField('La fecha de cierre').nullable().optional(),
+    expectedVersion: ExpectedVersionSchema,
+    // A correction says why; closing and reopening do not (the repository
+    // decides which one the request is, against the stored row).
+    reason: revisionReasonFields.reason.optional(),
+    reasonNote: revisionReasonFields.reasonNote,
   })
   .superRefine((data, ctx) => {
     if (cierra(data.status) && typeof data.closedAt !== 'string') {
@@ -101,7 +109,7 @@ router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
 // The audit entry of what an update did (SPEC-clinical-revisions.md §4): a
 // change of status is its own fact, with no reason; a correction names the
 // fields it changed.
-function episodeAudit(patientId: string): EpisodeUpdateAudit {
+function episodeAudit(patientId: string, reason: RevisionReason | undefined): EpisodeUpdateAudit {
   return (episode, change): AuditEntry => {
     const base = { patientId, entityId: episode.id };
     switch (change.kind) {
@@ -110,7 +118,8 @@ function episodeAudit(patientId: string): EpisodeUpdateAudit {
       case 'reopened':
         return { ...base, action: 'EPISODE_REOPENED', params: {} };
       case 'corrected':
-        return { ...base, action: 'EPISODE_UPDATED', params: { changedFields: change.changedFields } };
+        // The repository refuses a correction with no reason before asking.
+        return { ...base, action: 'EPISODE_UPDATED', params: { changedFields: change.changedFields, reason: reason! } };
     }
   };
 }
@@ -135,8 +144,11 @@ router.patch<Params>('/:episodeId', async (req, res) => {
       // episodio ACTIVE con fecha de cierre es el estado incoherente que el
       // schema ya no deja escribir a propósito.
       closedAt: body.status === 'ACTIVE' ? null : body.closedAt ? new Date(body.closedAt) : undefined,
+      expectedVersion: body.expectedVersion,
+      reason: body.reason,
+      reasonNote: body.reasonNote,
     },
-    episodeAudit(req.params.patientId),
+    episodeAudit(req.params.patientId, body.reason),
   );
 
   if (!result.ok) {
@@ -154,6 +166,12 @@ router.patch<Params>('/:episodeId', async (req, res) => {
           openedAt: result.openedAt,
           serverTime: new Date().toISOString(),
         });
+        return;
+      case 'stale':
+        res.status(409).json(STALE_EDIT);
+        return;
+      case 'reason_required':
+        res.status(400).json({ error: 'Elegí el motivo del cambio' });
         return;
       case 'transition_with_correction':
         res.status(400).json({

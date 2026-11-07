@@ -47,6 +47,12 @@ function canonical(value: unknown): string {
   );
 }
 
+// Whether two values are equal as JSON, whatever the order of their keys: how a
+// new snapshot is compared with the latest one.
+export function sameValue(a: unknown, b: unknown): boolean {
+  return canonical(a) === canonical(b);
+}
+
 // The fields, among `fields`, whose value differs between the two reads. Both
 // must come from the same select and mapping (dates as ISO strings, decimals as
 // numbers), so equal values serialize equally.

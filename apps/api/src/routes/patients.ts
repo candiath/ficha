@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { revisionReasonFields } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import {
   OptionalDateSchema,
   OptionalTextSchema,
@@ -30,7 +32,13 @@ const PatientCreateSchema = z.object({
   insurancePlan: OptionalTextSchema,
 });
 
-const PatientUpdateSchema = PatientCreateSchema.partial();
+// An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
+// §4), even when it changes only contact or coverage, which are not versioned,
+// and which version it was made over, so a stale form gets a 409.
+const PatientUpdateSchema = PatientCreateSchema.partial().extend({
+  expectedVersion: ExpectedVersionSchema,
+  ...revisionReasonFields,
+});
 
 // GET /api/patients
 router.get('/', async (req, res) => {
@@ -66,23 +74,27 @@ router.post('/', async (req, res) => {
 
 // PATCH /api/patients/:id
 router.patch('/:id', async (req, res) => {
-  const body = PatientUpdateSchema.parse(req.body);
+  const { reason, ...body } = PatientUpdateSchema.parse(req.body);
 
-  // null = no existe, es de otro tenant o está borrado: mismo 404 en los
-  // tres casos, sin revelar cuál fue.
-  const patient = await patientRepo.update(req.context, req.params.id, body, (p, changedFields) => ({
+  const result = await patientRepo.update(req.context, req.params.id, body, (p, changedFields) => ({
     action: 'PATIENT_UPDATED',
     patientId: p.id,
     entityId: p.id,
-    params: { changedFields },
+    params: { changedFields, reason },
   }));
 
-  if (!patient) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
+  if (!result.ok) {
+    // No existe, es de otro tenant o está borrado: mismo 404 en los tres
+    // casos, sin revelar cuál fue.
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Paciente no encontrado' });
+      return;
+    }
+    res.status(409).json(STALE_EDIT);
     return;
   }
 
-  res.json({ data: patient });
+  res.json({ data: result.patient });
 });
 
 // DELETE /api/patients/:id

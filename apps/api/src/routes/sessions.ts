@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { revisionReasonFields } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { CentsSchema, IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
 import {
@@ -101,7 +102,7 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 const SessionUpdateSchema = SessionFieldsSchema.partial()
   .extend({
     payment: z.unknown().optional(),
-    expectedVersion: z.number().int().min(0).optional(),
+    expectedVersion: ExpectedVersionSchema,
     ...revisionReasonFields,
   })
   .transform(({ payment: _payment, ...fields }) => fields);
@@ -285,7 +286,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
       return;
     }
     if (result.reason === 'stale') {
-      res.status(409).json({ error: 'Otra persona editó este registro. Recargá para ver los cambios.' });
+      res.status(409).json(STALE_EDIT);
       return;
     }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
