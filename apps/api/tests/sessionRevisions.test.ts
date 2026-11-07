@@ -216,6 +216,16 @@ describe('session revisions', () => {
       expect(await revisions(id)).toHaveLength(1);
     });
 
+    it('matches a block sent with its episode id in uppercase, and keeps the fields it left out', async () => {
+      const id = await newSession({ episodes: [{ episodeId: episodeA, treatment: 'Igual', painScaleBefore: 6 }] });
+
+      const res = await patch(id, { episodes: [{ episodeId: episodeA.toUpperCase(), treatment: 'Igual' }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.episodes).toEqual([expect.objectContaining({ episodeId: episodeA, painScaleBefore: 6 })]);
+      expect(await revisions(id)).toHaveLength(1);
+    });
+
     it('counts a real change after one, once', async () => {
       const id = await newSession();
       await patch(id, {});
