@@ -12,13 +12,16 @@ import { HISTORY_COVERAGE } from './historyCoverageManifest';
 const REPOSITORIES = path.join(__dirname, '..', 'src', 'repositories', 'prisma');
 
 const VERB = '(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)';
+const DELEGATES = '(?:session|sessionEpisode|patient|clinicalEpisode|initialEvaluation|informedConsent|patientEvent)';
+const RELATIONS = '(?:sessions?|episodes|patients?|clinicalEpisodes?|initialEvaluations?|informedConsent|events)';
+const TABLES = '(?:sessions|session_episodes|patients|clinical_episodes|initial_evaluations|informed_consents|patient_events)';
 const WRITES = [
-  // A delegate call: tx.session.update(…), db.sessionEpisode.deleteMany(…).
-  new RegExp(`\\.(?:session|sessionEpisode)\\s*\\.\\s*${VERB}\\b`),
+  // A delegate call: tx.session.update(…), db.patientEvent.updateMany(…).
+  new RegExp(String.raw`\.${DELEGATES}\s*\.\s*${VERB}\b`),
   // A nested write through a relation: sessions: { update: … }, episodes: { create: … }.
-  new RegExp(`\\b(?:sessions?|episodes):\\s*\\{\\s*${VERB}\\b`),
+  new RegExp(String.raw`\b${RELATIONS}:\s*\{\s*${VERB}\b`),
   // Raw SQL.
-  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(?:sessions|session_episodes)\b/i,
+  new RegExp(String.raw`\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?${TABLES}\b`, 'i'),
 ];
 
 // A method of the repository object, or a function of the file.
@@ -77,11 +80,19 @@ describe('history coverage', () => {
   async raw(ctx) {
     await tx.$executeRaw\`UPDATE sessions SET observations = null\`;
   },
+  async event(ctx) {
+    await db.patientEvent.updateMany({ where, data });
+  },
+  async rawConsent(ctx) {
+    await tx.$executeRaw\`DELETE FROM informed_consents WHERE true\`;
+  },
 };`;
     expect(methodsOf('repo', source).filter((m) => writes(m.source)).map((m) => m.key)).toEqual([
       'repo.sneak',
       'repo.nested',
       'repo.raw',
+      'repo.event',
+      'repo.rawConsent',
     ]);
   });
 });

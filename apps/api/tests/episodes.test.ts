@@ -5,6 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // El episodio es la unidad de tratamiento: todo lo clínico cuelga de él y su
 // estado decide qué mira el motor de alertas (listStale solo recorre los
@@ -32,7 +33,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Episodios' },
       select: { id: true },
     });
@@ -114,11 +115,11 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   it('GET de un paciente de otra clínica responde 404, no una lista vacía', async () => {
     const otra = await createTestClinic();
     try {
-      const ajeno = await prisma.patient.create({
+      const ajeno = await fixture.patient.create({
         data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
-      await prisma.clinicalEpisode.create({
+      await fixture.clinicalEpisode.create({
         data: { tenantId: otra.tenantId, patientId: ajeno.id, mainComplaint: 'Secreto' },
       });
 
@@ -126,6 +127,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Paciente no encontrado');
 
+      await deleteAuditRows([otra.tenantId]);
       await prisma.clinicalEpisode.deleteMany({ where: { tenantId: otra.tenantId } });
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });
     } finally {
@@ -134,7 +136,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   });
 
   it('un paciente borrado no lista ni abre episodios nuevos', async () => {
-    const borrado = await prisma.patient.create({
+    const borrado = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Borrado', deletedAt: new Date() },
       select: { id: true },
     });
@@ -352,6 +354,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
     const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({
       mainComplaint: 'Lumbociatalgia derecha',
+      reason: 'DATA_ENTRY_ERROR',
     });
 
     expect(res.body.data).toMatchObject({
@@ -374,11 +377,11 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   });
 
   it('un episodio de otro paciente de la misma clínica es un 404, no un update', async () => {
-    const otroPaciente = await prisma.patient.create({
+    const otroPaciente = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
       select: { id: true },
     });
-    const ajeno = await prisma.clinicalEpisode.create({
+    const ajeno = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: otroPaciente.id, status: 'ACTIVE' },
       select: { id: true },
     });
@@ -459,15 +462,19 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
     // Same status: correcting the closing date of a closed episode is a
     // correction, not a second closing.
-    const date = await patchEpisode(episode.id, { status: 'DISCHARGED', closedAt: '2025-08-02T12:00:00.000Z' });
-    const complaint = await patchEpisode(episode.id, { mainComplaint: 'Lumbociatalgia derecha' });
+    const date = await patchEpisode(episode.id, {
+      status: 'DISCHARGED',
+      closedAt: '2025-08-02T12:00:00.000Z',
+      reason: 'DATA_ENTRY_ERROR',
+    });
+    const complaint = await patchEpisode(episode.id, { mainComplaint: 'Lumbociatalgia derecha', reason: 'LATE_INFORMATION' });
     expect(date.status).toBe(200);
     expect(complaint.status).toBe(200);
 
     const rows = await rowsOf(episode.id);
     expect(rows.slice(2)).toEqual([
-      { action: 'EPISODE_UPDATED', entity: 'EPISODE', params: { changedFields: ['closedAt'] } },
-      { action: 'EPISODE_UPDATED', entity: 'EPISODE', params: { changedFields: ['mainComplaint'] } },
+      { action: 'EPISODE_UPDATED', entity: 'EPISODE', params: { changedFields: ['closedAt'], reason: 'DATA_ENTRY_ERROR' } },
+      { action: 'EPISODE_UPDATED', entity: 'EPISODE', params: { changedFields: ['mainComplaint'], reason: 'LATE_INFORMATION' } },
     ]);
     expect(JSON.stringify(rows)).not.toContain('Lumbociatalgia');
   });

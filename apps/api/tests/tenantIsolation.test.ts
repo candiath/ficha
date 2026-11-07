@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // Aislamiento entre clínicas en las rutas de dominio: los ids que viajan en
 // el body (episodios, packageId, patientId) no deben poder apuntar a datos
@@ -45,11 +46,11 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     tokenA = await createTestToken(userA);
 
     async function createPatientWithEpisode(tenantId: string, fullName: string) {
-      const patient = await prisma.patient.create({
+      const patient = await fixture.patient.create({
         data: { tenantId, ...splitName(fullName) },
         select: { id: true },
       });
-      const episode = await prisma.clinicalEpisode.create({
+      const episode = await fixture.clinicalEpisode.create({
         data: { tenantId, patientId: patient.id, mainComplaint: `Motivo de ${fullName}` },
         select: { id: true },
       });

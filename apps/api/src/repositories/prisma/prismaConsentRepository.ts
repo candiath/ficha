@@ -34,27 +34,6 @@ function toDTO(row: ConsentRow): InformedConsentDTO {
   };
 }
 
-// Signing and revoking are facts, not corrections: each is a version, with no
-// reason (SPEC-clinical-revisions.md §4).
-async function versioned(
-  tx: Prisma.TransactionClient,
-  ctx: TenantContext,
-  row: ConsentRow,
-  version: number,
-  audit: AuditBuilder<InformedConsentDTO>,
-): Promise<InformedConsentDTO> {
-  const consent = { ...toDTO(row), version };
-  const auditLogId = await recordAudit(tx, ctx, audit(consent));
-  await recordRevision(tx, ctx, 'consent_revisions', {
-    aggregateId: row.id,
-    patientId: row.patientId,
-    version,
-    auditLogId,
-    snapshot: consentSnapshot(row),
-  });
-  return consent;
-}
-
 export const prismaConsentRepository: ConsentRepository = {
   async getByPatient(ctx: TenantContext, patientId: string): Promise<InformedConsentDTO | null> {
     const db = forTenant(ctx);
@@ -98,7 +77,17 @@ export const prismaConsentRepository: ConsentRepository = {
         },
         select: consentSelect,
       });
-      return { ok: true, consent: await versioned(tx, ctx, row, version + 1, audit) };
+      // Signing is a fact, not a correction: a version with no reason (§4).
+      const consent = { ...toDTO(row), version: version + 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(consent));
+      await recordRevision(tx, ctx, 'consent_revisions', {
+        aggregateId: row.id,
+        patientId,
+        version: consent.version,
+        auditLogId,
+        snapshot: consentSnapshot(row),
+      });
+      return { ok: true, consent };
     });
   },
 
@@ -122,7 +111,17 @@ export const prismaConsentRepository: ConsentRepository = {
         where: { patientId, tenantId: ctx.tenantId },
         select: consentSelect,
       });
-      return versioned(tx, ctx, row, (row.revisions[0]?.version ?? 0) + 1, audit);
+      // Revoking is a fact too: a version with no reason.
+      const consent = { ...toDTO(row), version: (row.revisions[0]?.version ?? 0) + 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(consent));
+      await recordRevision(tx, ctx, 'consent_revisions', {
+        aggregateId: row.id,
+        patientId,
+        version: consent.version,
+        auditLogId,
+        snapshot: consentSnapshot(row),
+      });
+      return consent;
     });
   },
 };

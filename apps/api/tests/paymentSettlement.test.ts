@@ -5,6 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { settle } from '../src/lib/paymentSettlement';
 import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Un cobro de monto cero no es una deuda: si el descuento cancela el costo
 // entero, o la sesión se dio sin cargo, no hay nada que cobrar. Dejarlo en
@@ -59,12 +60,12 @@ describe('cobros de monto cero, de punta a punta', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Bonificado' },
       select: { id: true },
     });
     // Every session treats an episode (#238).
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -195,7 +196,7 @@ describe('cobros de monto cero, de punta a punta', () => {
     }
 
     it('no alerta por un pendiente de $0', async () => {
-      const paciente = await prisma.patient.create({
+      const paciente = await fixture.patient.create({
         data: { tenantId: clinic.tenantId, firstName: 'Paciente Sin', lastName: 'Deuda' },
         select: { id: true },
       });
@@ -210,7 +211,7 @@ describe('cobros de monto cero, de punta a punta', () => {
     });
 
     it('no cuenta el de $0 al agrupar con una deuda real', async () => {
-      const paciente = await prisma.patient.create({
+      const paciente = await fixture.patient.create({
         data: { tenantId: clinic.tenantId, firstName: 'Paciente Con Una', lastName: 'Deuda' },
         select: { id: true },
       });

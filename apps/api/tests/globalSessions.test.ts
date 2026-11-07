@@ -5,6 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
 import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // GET /api/sessions es la vista de "todas las sesiones" de la clínica: sin un
 // paciente en la URL, con el nombre de cada uno y el motivo de cada episodio.
@@ -32,11 +33,11 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
 
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Global' },
       select: { id: true },
     });
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Dorsalgia' },
       select: { id: true },
     });
@@ -70,7 +71,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     // La sesión de la otra clínica se inserta directo: su usuario no hace
     // falta para nada más.
     const userB = await clinicB.createUser();
-    const patientB = await prisma.patient.create({
+    const patientB = await fixture.patient.create({
       data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
       select: { id: true },
     });
@@ -140,7 +141,7 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   // Issue #72, cerrado by design: borrar un paciente lo oculta, no reescribe
   // el pasado. Sus sesiones siguen en el historial, con su nombre.
   it('sigue nombrando al paciente aunque se lo haya borrado', async () => {
-    const borrado = await prisma.patient.create({
+    const borrado = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente Que Se', lastName: 'Borra' },
       select: { id: true },
     });

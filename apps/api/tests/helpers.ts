@@ -11,6 +11,7 @@ import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
 import { unwatchClinic, watchClinic } from './revisionInvariant';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../src/repositories/auditLogRepository';
 import type { PatientAuditField } from '../src/repositories/patientRepository';
+import type { RevisionTable } from '../src/repositories/prisma/recordRevision';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
 // su propia clínica con emails únicos y la borra al final, así no se pisa
@@ -241,7 +242,7 @@ export function patientAudit(action: 'CREATED' | 'UPDATED') {
         action: 'PATIENT_UPDATED',
         patientId: p.id,
         entityId: p.id,
-        params: { changedFields },
+        params: { changedFields, reason: 'DATA_ENTRY_ERROR' },
       });
 }
 
@@ -286,7 +287,13 @@ function requireIds(ids: string[], what: string): void {
 export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
   requireIds(tenantIds, 'tenant id');
   await inAuditMaintenance(async (tx) => {
-    await tx.sessionRevision.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    const clinics = { where: { tenantId: { in: tenantIds } } };
+    await tx.sessionRevision.deleteMany(clinics);
+    await tx.patientRevision.deleteMany(clinics);
+    await tx.episodeRevision.deleteMany(clinics);
+    await tx.evaluationRevision.deleteMany(clinics);
+    await tx.consentRevision.deleteMany(clinics);
+    await tx.patientEventRevision.deleteMany(clinics);
     await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await tx.platformAuditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
   });
@@ -294,11 +301,23 @@ export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
 
 // The revisions of a few aggregates, for a test that deletes one in the middle
 // of a file, while its clinic's audit rows stay.
-export async function deleteRevisions(table: 'session_revisions', aggregateIds: string[]): Promise<void> {
+export async function deleteRevisions(table: RevisionTable, aggregateIds: string[]): Promise<void> {
   requireIds(aggregateIds, 'aggregate id');
+  const ids = { in: aggregateIds };
   await inAuditMaintenance(async (tx) => {
-    if (table === 'session_revisions') {
-      await tx.sessionRevision.deleteMany({ where: { sessionId: { in: aggregateIds } } });
+    switch (table) {
+      case 'session_revisions':
+        return tx.sessionRevision.deleteMany({ where: { sessionId: ids } });
+      case 'patient_revisions':
+        return tx.patientRevision.deleteMany({ where: { patientId: ids } });
+      case 'episode_revisions':
+        return tx.episodeRevision.deleteMany({ where: { episodeId: ids } });
+      case 'evaluation_revisions':
+        return tx.evaluationRevision.deleteMany({ where: { evaluationId: ids } });
+      case 'consent_revisions':
+        return tx.consentRevision.deleteMany({ where: { consentId: ids } });
+      case 'patient_event_revisions':
+        return tx.patientEventRevision.deleteMany({ where: { patientEventId: ids } });
     }
   });
 }

@@ -6,6 +6,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // El CRUD de sesiones por HTTP: los caminos que las otras suites no cubren.
 //
@@ -46,17 +47,17 @@ describe('CRUD de sesiones por HTTP', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
 
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente CRUD', lastName: 'Sesiones' },
       select: { id: true },
     });
-    otroPaciente = await prisma.patient.create({
+    otroPaciente = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otro Paciente Misma', lastName: 'Clínica' },
       select: { id: true },
     });
 
     const crearEpisodio = (patientId: string, tenantId: string, mainComplaint: string) =>
-      prisma.clinicalEpisode.create({
+      fixture.clinicalEpisode.create({
         data: { tenantId, patientId, mainComplaint },
         select: { id: true },
       });
@@ -75,7 +76,7 @@ describe('CRUD de sesiones por HTTP', () => {
       select: { id: true },
     });
 
-    const patientB = await prisma.patient.create({
+    const patientB = await fixture.patient.create({
       data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
       select: { id: true },
     });
@@ -624,7 +625,7 @@ describe('CRUD de sesiones por HTTP', () => {
   // patientRepository.test.ts cubre GET y POST bajo un paciente borrado; acá
   // van las otras dos escrituras, que también pasan por patientRepo.exists.
   it('PATCH y DELETE de una sesión de un paciente borrado dan 404 y no tocan nada', async () => {
-    const borrado = await prisma.patient.create({
+    const borrado = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado Con', lastName: 'Sesión' },
       select: { id: true },
     });

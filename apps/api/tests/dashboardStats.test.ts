@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // Stats del dashboard: además de los conteos, lo que se prueba es que las
 // agregaciones (count/groupBy/findMany) queden acotadas al tenant del token.
@@ -52,7 +53,7 @@ describe('GET /api/dashboard/stats', () => {
       fullName: string,
       opts: { deleted?: boolean } = {},
     ) {
-      return prisma.patient.create({
+      return fixture.patient.create({
         data: { tenantId, ...splitName(fullName), deletedAt: opts.deleted ? new Date() : null },
         select: { id: true },
       });
@@ -67,7 +68,7 @@ describe('GET /api/dashboard/stats', () => {
 
     // Dos episodios con el mismo mainComplaint para probar el agrupado, y uno
     // con complaint vacío que debe quedar fuera del top de patologías.
-    await prisma.clinicalEpisode.createMany({
+    await fixture.clinicalEpisode.createMany({
       data: [
         {
           tenantId: clinicA.tenantId,
@@ -181,7 +182,7 @@ describe('GET /api/dashboard/stats', () => {
     // Ruido de la clínica B: nada de esto debe aparecer en las stats de A.
     const userB = await clinicB.createUser();
     const patientB = await createPatient(clinicB.tenantId, 'Paciente B');
-    await prisma.clinicalEpisode.create({
+    await fixture.clinicalEpisode.create({
       data: {
         tenantId: clinicB.tenantId,
         patientId: patientB.id,

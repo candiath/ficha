@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // A visit can treat several problems, the back and an ankle sprain say (#238).
 // The session holds the visit itself; each episode it treated gets a block with
@@ -25,7 +26,7 @@ describe('A session treats several episodes, each with its own block', () => {
 
   const createEpisode = async (patientId: string, mainComplaint: string) =>
     (
-      await prisma.clinicalEpisode.create({
+      await fixture.clinicalEpisode.create({
         data: { tenantId: clinic.tenantId, patientId, mainComplaint },
         select: { id: true },
       })
@@ -43,11 +44,11 @@ describe('A session treats several episodes, each with its own block', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Dos', lastName: 'problemas' },
       select: { id: true },
     });
-    otherPatient = await prisma.patient.create({
+    otherPatient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'paciente' },
       select: { id: true },
     });

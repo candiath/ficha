@@ -129,7 +129,9 @@ describe('the audit catalog matches the schema', () => {
 describe('writing is strict', () => {
   it('accepts an action with its parameters', () => {
     expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE' })).toBeNull();
-    expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['phone'] })).toBeNull();
+    expect(
+      auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['phone'], reason: 'DATA_ENTRY_ERROR' }),
+    ).toBeNull();
   });
 
   it('refuses unknown and deprecated actions', () => {

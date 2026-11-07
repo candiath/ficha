@@ -5,6 +5,7 @@ import { describeAuditEntry } from '@ficha/shared';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Audit rows record what happened as codes (#186,
 // docs/specs/SPEC-audit-structured-entries.md): one action per fact, and
@@ -24,7 +25,7 @@ describe('audit rows record codes, never values', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Coded', lastName: 'Patient' },
       select: { id: true },
     });
@@ -58,7 +59,7 @@ describe('audit rows record codes, never values', () => {
   // Each session treats an episode of its own (#238), with `block` as its
   // block: a discharge closes that episode and no other.
   async function createSession(body: Record<string, unknown> = {}, block: Record<string, unknown> = {}) {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -155,6 +156,7 @@ describe('audit rows record codes, never values', () => {
       status: payment.status,
     });
     const samePatient = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       firstName: 'Coded', lastName: 'Patient',
     });
     expect(samePayment.status).toBe(200);
@@ -166,6 +168,7 @@ describe('audit rows record codes, never values', () => {
 
   it('a patient update names the fields it changed, never their values', async () => {
     const res = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       phone: '11 5555-0000',
       insuranceName: 'OSDE',
       occupation: null,
@@ -174,25 +177,25 @@ describe('audit rows record codes, never values', () => {
 
     const updates = (await actionsOf(patient.id)).filter((r) => r.action === 'PATIENT_UPDATED');
     expect(updates).toEqual([
-      { action: 'PATIENT_UPDATED', params: { changedFields: ['phone', 'insuranceName'] } },
+      { action: 'PATIENT_UPDATED', params: { changedFields: ['phone', 'insuranceName'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
     expect(JSON.stringify(updates)).not.toContain('5555');
   });
 
   it('an evaluation is recorded when created, and by field when corrected', async () => {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Coded complaint' },
       select: { id: true },
     });
     const url = `/api/patients/${patient.id}/episodes/${episode.id}/evaluation`;
 
-    const created = await auth(request(app).put(url)).send({ evaScale: 6, notes: 'Primera' });
-    await auth(request(app).put(url)).send({ evaScale: 4, notes: 'Primera' });
-    await auth(request(app).put(url)).send({ evaScale: 4, notes: 'Primera' });
+    const created = await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 6, notes: 'Primera' });
+    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4, notes: 'Primera' });
+    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4, notes: 'Primera' });
 
     expect(await actionsOf(created.body.data.id)).toEqual([
       { action: 'EVALUATION_CREATED', params: {} },
-      { action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale'] } },
+      { action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
   });
 
