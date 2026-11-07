@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { AUDIT_REVISION_REASONS, type RevisionReason } from '@ficha/shared'
 import { Label } from '@/components/ui/label'
 import {
@@ -32,16 +33,18 @@ export default function RevisionReasonField({
   onReasonChange,
   onNoteChange,
 }: RevisionReasonFieldProps) {
+  // Several forms of one record can be on the page at once.
+  const id = useId()
   return (
     <div className="grid gap-3 sm:grid-cols-[16rem_1fr]">
       <div className="space-y-1.5">
-        <Label id="revision-reason-label">Motivo del cambio</Label>
+        <Label id={`${id}-reason`}>Motivo del cambio</Label>
         <Select
           items={REASONS}
           value={reason}
           onValueChange={(value) => value !== null && onReasonChange(value)}
         >
-          <SelectTrigger className="w-full" aria-labelledby="revision-reason-label">
+          <SelectTrigger className="w-full" aria-labelledby={`${id}-reason`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -54,9 +57,9 @@ export default function RevisionReasonField({
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="revision-reason-note">Nota del cambio (opcional)</Label>
+        <Label htmlFor={`${id}-note`}>Nota del cambio (opcional)</Label>
         <Textarea
-          id="revision-reason-note"
+          id={`${id}-note`}
           rows={1}
           maxLength={500}
           value={note}

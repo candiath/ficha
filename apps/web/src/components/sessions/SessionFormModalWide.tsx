@@ -15,7 +15,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField'
-import { ApiError } from '@/lib/api'
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit'
 import { Button } from '@/components/ui/button'
 import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
@@ -403,7 +404,7 @@ export default function SessionFormModalWide({
     // The API's message says what to fix (an episode that opens later, an
     // appointment already recorded).
     onError: (err: Error) => {
-      if (err instanceof ApiError && err.status === 409 && isEditing) {
+      if (isStaleEdit(err) && isEditing) {
         setStaleMessage(err.message)
         return
       }
@@ -916,22 +917,11 @@ export default function SessionFormModalWide({
                   onNoteChange={setReasonNote}
                 />
                 {staleMessage && (
-                  <div
-                    role="alert"
-                    className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <p>{staleMessage} Al recargar se pierde lo que escribiste acá.</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={reloadMutation.isPending}
-                      onClick={() => reloadMutation.mutate()}
-                    >
-                      Recargar
-                    </Button>
-                  </div>
+                  <StaleRecordNotice
+                    message={staleMessage}
+                    reloading={reloadMutation.isPending}
+                    onReload={() => reloadMutation.mutate()}
+                  />
                 )}
               </div>
             )}

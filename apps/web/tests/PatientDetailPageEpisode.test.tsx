@@ -43,6 +43,7 @@ const PATIENT: Patient = {
   insurancePlan: null,
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
+  version: 1,
 };
 
 const EPISODE: ClinicalEpisode = {
@@ -54,6 +55,7 @@ const EPISODE: ClinicalEpisode = {
   closedAt: null,
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
+  version: 2,
 };
 
 function setClockOffset(offsetMs: number) {
@@ -159,5 +161,61 @@ describe('PatientDetailPage: closing an episode', () => {
     await confirm();
 
     expect((await screen.findByRole('alert')).textContent).toBe('Episodio no encontrado');
+  });
+});
+
+// Versions (SPEC-clinical-revisions.md §4, §5): closing is a fact and takes no
+// reason; correcting the complaint is a correction and says why.
+describe('PatientDetailPage: the episode over its version', () => {
+  const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
+
+  it('abandons over the version on screen, with no reason', async () => {
+    renderPage();
+    await openAbandonConfirm();
+
+    await confirm();
+
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
+    const body = vi.mocked(episodeApi.update).mock.calls[0][2];
+    expect(body).toMatchObject({ status: 'ABANDONED', expectedVersion: 2 });
+    expect(body).not.toHaveProperty('reason');
+  });
+
+  it('corrects the complaint with the preselected reason, its note and the version', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
+    const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
+    await userEvent.clear(complaint);
+    await userEvent.type(complaint, 'Lumbociatalgia');
+    await userEvent.type(screen.getByLabelText('Nota del cambio (opcional)'), 'Irradia');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toEqual({
+      mainComplaint: 'Lumbociatalgia',
+      reason: 'DATA_ENTRY_ERROR',
+      reasonNote: 'Irradia',
+      expectedVersion: 2,
+    });
+  });
+
+  it('on a 409 shows the message, keeps what was typed, and reloads on request', async () => {
+    vi.mocked(episodeApi.update).mockRejectedValueOnce(new ApiError(STALE, 409, { error: STALE }));
+    renderPage();
+    await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
+    const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
+    await userEvent.clear(complaint);
+    await userEvent.type(complaint, 'Mío');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(STALE);
+    expect((complaint as HTMLInputElement).value).toBe('Mío');
+
+    vi.mocked(episodeApi.list).mockResolvedValue([{ ...EPISODE, mainComplaint: 'De otra persona', version: 3 }]);
+    await userEvent.click(screen.getByRole('button', { name: 'Recargar' }));
+
+    await waitFor(() => expect((complaint as HTMLInputElement).value).toBe('De otra persona'));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

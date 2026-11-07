@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,9 @@ import {
 import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
 import { toast } from 'sonner';
+import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField';
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit';
 
 const schema = z.object({
   firstName: z.string().trim().min(1, 'El nombre es obligatorio'),
@@ -50,7 +53,24 @@ type FormValues = z.infer<typeof schema>;
 interface Props {
   open: boolean;
   onClose: () => void;
+  // The patient to edit, from a list or the record: the form reads the record
+  // itself, with its version, and renders from it.
   patient?: Patient;
+}
+
+function valuesOf(patient: Patient | undefined): FormValues {
+  return {
+    firstName: patient?.firstName ?? '',
+    lastName: patient?.lastName ?? '',
+    birthDate: patient?.birthDate ? patient.birthDate.slice(0, 10) : '',
+    sex: patient?.sex ?? undefined,
+    phone: patient?.phone ?? '',
+    occupation: patient?.occupation ?? '',
+    referringDoctor: patient?.referringDoctor ?? '',
+    insuranceName: patient?.insuranceName ?? '',
+    insuranceNumber: patient?.insuranceNumber ?? '',
+    insurancePlan: patient?.insurancePlan ?? '',
+  };
 }
 
 export default function PatientFormDialog({ open, onClose, patient }: Props) {
@@ -73,40 +93,64 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
     },
   });
 
-  // Reinicializa el form cada vez que se abre (o cambia el paciente a editar)
+  // An edit renders from the record, read fresh each time the dialog opens: a
+  // list item has no version (SPEC-clinical-revisions.md §5). Its own key, so a
+  // refetch of the record page does not replace what is being typed.
+  const recordQuery = useQuery({
+    queryKey: [...patientKeys.detail(patient?.id ?? ''), 'edit'],
+    queryFn: () => patientApi.get(patient!.id),
+    enabled: open && isEditing,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const record = isEditing ? recordQuery.data : undefined;
+  const loading = isEditing && (!record || recordQuery.isFetching);
+
+  const [reason, setReason] = useState(DEFAULT_REVISION_REASON);
+  const [reasonNote, setReasonNote] = useState('');
+  // The API's message when someone else saved first; what was typed stays.
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
+
+  // Reinicializa el form cada vez que se abre, y con la versión recién leída.
   useEffect(() => {
-    if (open) {
-      form.reset({
-        firstName: patient?.firstName ?? '',
-        lastName: patient?.lastName ?? '',
-        birthDate: patient?.birthDate ? patient.birthDate.slice(0, 10) : '',
-        sex: patient?.sex ?? undefined,
-        phone: patient?.phone ?? '',
-        occupation: patient?.occupation ?? '',
-        referringDoctor: patient?.referringDoctor ?? '',
-        insuranceName: patient?.insuranceName ?? '',
-        insuranceNumber: patient?.insuranceNumber ?? '',
-        insurancePlan: patient?.insurancePlan ?? '',
-      });
-    }
-  }, [open, patient, form]);
+    if (open && (!isEditing || record)) form.reset(valuesOf(record));
+  }, [open, isEditing, record, form]);
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>
-      isEditing ? patientApi.update(patient.id, values) : patientApi.create(values),
+      isEditing
+        ? patientApi.update(patient.id, { ...values, expectedVersion: record?.version, reason, reasonNote })
+        : patientApi.create(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientKeys.all });
       toast.success(isEditing ? 'Paciente actualizado' : 'Paciente creado');
       form.reset();
-      onClose();
+      close();
     },
-    onError: () => {
-      toast.error('Error al guardar el paciente');
+    onError: (err: Error) => {
+      if (isEditing && isStaleEdit(err)) {
+        setStaleMessage(err.message);
+        return;
+      }
+      toast.error(err.message || 'Error al guardar el paciente');
     },
   });
 
+  function close() {
+    setStaleMessage(null);
+    setReason(DEFAULT_REVISION_REASON);
+    setReasonNote('');
+    onClose();
+  }
+
+  async function reload() {
+    await recordQuery.refetch();
+    setStaleMessage(null);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && close()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -114,6 +158,9 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
           </DialogTitle>
         </DialogHeader>
 
+        {loading ? (
+          <p className="py-6 text-sm text-muted-foreground">Cargando...</p>
+        ) : (
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit((v) => mutation.mutate(v))}
@@ -279,14 +326,22 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
               </div>
             </div>
 
-            {mutation.isError && (
-              <p className="text-destructive text-sm">
-                {mutation.error?.message ?? 'Error al guardar'}
-              </p>
+            {isEditing && (
+              <div className="space-y-3 border-t pt-4">
+                <RevisionReasonField
+                  reason={reason}
+                  note={reasonNote}
+                  onReasonChange={setReason}
+                  onNoteChange={setReasonNote}
+                />
+                {staleMessage && (
+                  <StaleRecordNotice message={staleMessage} reloading={recordQuery.isFetching} onReload={() => void reload()} />
+                )}
+              </div>
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button type="button" variant="outline" onClick={close}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={mutation.isPending}>
@@ -295,6 +350,7 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
             </div>
           </form>
         </Form>
+        )}
       </DialogContent>
     </Dialog>
   );

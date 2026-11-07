@@ -1,3 +1,5 @@
+import type { RevisionReason } from '@ficha/shared';
+
 export interface Patient {
   id: string;
   firstName: string;
@@ -14,6 +16,9 @@ export interface Patient {
   insurancePlan: string | null;
   createdAt: string;
   updatedAt: string;
+  // The latest version of the record (0: none yet). Only the record carries
+  // it, not the list: an edit form reads the record.
+  version?: number;
 }
 
 export interface PatientFormData {
@@ -27,4 +32,12 @@ export interface PatientFormData {
   insuranceName?: string | null;
   insuranceNumber?: string | null;
   insurancePlan?: string | null;
+}
+
+// An edit of the record: the version it was made over, and why
+// (SPEC-clinical-revisions.md §4, §5).
+export interface RevisionMeta {
+  expectedVersion?: number;
+  reason?: RevisionReason;
+  reasonNote?: string | null;
 }

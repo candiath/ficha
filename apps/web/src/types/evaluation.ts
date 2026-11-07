@@ -1,3 +1,5 @@
+import type { RevisionMeta } from './patient';
+
 export interface InitialEvaluation {
   id: string;
   patientId: string;
@@ -12,6 +14,8 @@ export interface InitialEvaluation {
   evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
+  // The latest version (0: none yet).
+  version: number;
 }
 
 export interface BodyMarker {
@@ -24,4 +28,6 @@ export interface BodyMarker {
   view: 'front' | 'back' | 'left' | 'right';
 }
 
-export type EvaluationUpsertData = Omit<InitialEvaluation, 'id' | 'patientId' | 'evaluatedAt' | 'updatedAt'>;
+// The first save sends expectedVersion 0 and no reason; a correction, both.
+export type EvaluationUpsertData = Omit<InitialEvaluation, 'id' | 'patientId' | 'evaluatedAt' | 'updatedAt' | 'version'> &
+  RevisionMeta;
