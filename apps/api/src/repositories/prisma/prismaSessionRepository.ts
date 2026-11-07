@@ -504,8 +504,11 @@ export const prismaSessionRepository: SessionRepository = {
       //    trabajo pendiente sobre algo que no pasó. Borrarlo también evita
       //    tener que filtrar sesiones borradas en Cobros y en el remanente de
       //    los paquetes, que es justo el filtro que después alguien olvida.
+      //    The patient goes in the where too: a session of another patient,
+      //    sent under this patient's URL, is not found below, and its payment
+      //    must not be deleted on the way.
       await tx.payment.deleteMany({
-        where: { sessionId: id, tenantId: ctx.tenantId, status: { not: 'PAID' } },
+        where: { sessionId: id, patientId, tenantId: ctx.tenantId, status: { not: 'PAID' } },
       });
 
       // 2. Borrar la sesión solo si ya no le queda ningún cobro colgando. Si
