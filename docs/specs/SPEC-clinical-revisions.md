@@ -53,7 +53,7 @@ Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for
 | Informed consent | `informed_consents` | `consent_revisions` |
 | Patient event | `patient_events` | `patient_event_revisions` |
 
-**Patient fields.** Versioned: identification (`firstName`, `lastName`, `birthDate`, `sex`, and the document fields when they land) and clinical context (`occupation`, `referringDoctor`). Not versioned: contact (`phone`) and coverage (`insuranceName`, `insuranceNumber`, `insurancePlan`); their changes are still recorded as `changedFields` in the audit row. Versioning coverage later is a schema bump (§3). The patient's soft delete and restore are versions (events), not a field of the snapshot.
+**Patient fields.** Versioned: identification (`firstName`, `lastName`, `birthDate`, `sex`, and the document fields when they land) and clinical context (`occupation`, `referringDoctor`). Not versioned: contact (`phone`) and coverage (`insuranceName`, `insuranceNumber`, `insurancePlan`); their changes are still recorded as `changedFields` in the audit row, and still take a version, of unchanged content, so `expectedVersion` sees every write (decided in step 3's review). Versioning coverage later is a schema bump (§3). The patient's soft delete and restore are versions (events), not a field of the snapshot.
 
 **Not versioned:** payments (billing, not clinical record; if the coverage a session was billed under matters, the payment stores it), appointments, clinical alerts.
 

@@ -6,7 +6,8 @@ import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestCli
 
 // The write path of a patient's versions (SPEC-clinical-revisions.md §1, §5):
 // identification and clinical context are versioned, contact and coverage are
-// not.
+// not, but a change to them still takes a version, so it is never lost to a stale
+// form.
 describe('patient revisions', () => {
   let clinic: TestClinic;
   let token: string;
@@ -84,17 +85,29 @@ describe('patient revisions', () => {
     });
   });
 
-  it('records a phone or coverage change in the audit row, and writes no version', async () => {
+  it('names a phone or coverage change in the audit row, under a version of unchanged content', async () => {
     const id = await newPatient();
-    const res = await patch(id, { phone: '11 4444-0000', insuranceName: 'OSDE' });
+    const res = await patch(id, { phone: '11 4444-0000', insuranceName: 'OSDE', reasonNote: 'Cambió de obra social' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.version).toBe(1);
-    expect(await revisions(id)).toHaveLength(1);
-    expect((await auditRows(id)).map((r) => r.params)).toEqual([
-      {},
-      { changedFields: ['phone', 'insuranceName'], reason: 'DATA_ENTRY_ERROR' },
-    ]);
+    expect(res.body.data.version).toBe(2);
+    const [first, second] = await revisions(id);
+    const [, audit] = await auditRows(id);
+    expect(second).toMatchObject({ version: 2, auditLogId: audit.id, reasonNote: 'Cambió de obra social' });
+    expect(second.snapshot).toEqual(first.snapshot);
+    expect(audit.params).toEqual({ changedFields: ['phone', 'insuranceName'], reason: 'DATA_ENTRY_ERROR' });
+  });
+
+  it('answers 409 to a form loaded before a phone change, and keeps the new phone', async () => {
+    // A and B load version 1; B changes the phone, A then saves the occupation
+    // with the form's old phone.
+    const id = await newPatient({ phone: '111' });
+    expect((await patch(id, { phone: '222', expectedVersion: 1 })).status).toBe(200);
+
+    const res = await patch(id, { phone: '111', occupation: 'Docente', expectedVersion: 1 });
+
+    expect(res.status).toBe(409);
+    expect(await get(id)).toMatchObject({ phone: '222', occupation: null, version: 2 });
   });
 
   it('answers 200 to a save that changes nothing, and writes no row, no audit row and no version', async () => {

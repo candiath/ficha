@@ -15,7 +15,6 @@ import {
 } from '@ficha/shared';
 import type { z } from 'zod';
 import type { TenantContext } from '../types';
-import { sameValue } from './changedFields';
 
 // Clinical revisions (docs/specs/SPEC-clinical-revisions.md): every write to a
 // clinical aggregate stores a snapshot of its new state, in the same transaction
@@ -154,12 +153,6 @@ export async function latestRevision<T extends RevisionTable>(
     throw new RevisionError(`revision unreadable: schema=${revision.schemaVersion} table=${table} id=${aggregateId}`);
   }
   return { version: revision.version, snapshot: parsed.data as SnapshotOf<T> };
-}
-
-// Whether a new projection differs from the latest version. An aggregate with
-// none (version 0) is compared with the projection of its row before the write.
-export function snapshotChanged<S>(latestSnapshot: S | undefined, before: S, after: S): boolean {
-  return !sameValue(latestSnapshot ?? before, after);
 }
 
 export async function recordRevision<T extends RevisionTable>(

@@ -5,7 +5,7 @@ import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRe
 import type { TenantContext } from '../types';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
-import { latestRevision, recordRevision, Rollback, snapshotChanged, unlessRolledBack } from './recordRevision';
+import { latestRevision, recordRevision, Rollback, unlessRolledBack } from './recordRevision';
 import { patientSnapshot } from './clinicalSnapshots';
 import type {
   PatientCreateInput,
@@ -174,18 +174,17 @@ export const prismaPatientRepository: PatientRepository = {
         if (!changed) throw new Rollback<PatientUpdateResult>({ ok: true, patient: { ...toDTO(before), version } });
 
         const auditLogId = await recordAudit(tx, ctx, audit(patient, changed));
-        // Contact and coverage are not versioned: a change only to those is in
-        // the audit row alone.
-        const snapshot = patientSnapshot(row);
-        if (!snapshotChanged(latest?.snapshot, patientSnapshot(before), snapshot)) {
-          return { ok: true, patient: { ...patient, version } };
-        }
+        // Every write takes a version, a change only to contact or coverage
+        // included: their values are not in the snapshot, so that version repeats
+        // the last content and its audit row names what changed. Otherwise a form
+        // loaded before a phone change would pass `expectedVersion` and save the
+        // old phone back.
         await recordRevision(tx, ctx, 'patient_revisions', {
           aggregateId: id,
           patientId: id,
           version: version + 1,
           auditLogId,
-          snapshot,
+          snapshot: patientSnapshot(row),
           reasonNote,
         });
         return { ok: true, patient: { ...patient, version: version + 1 } };

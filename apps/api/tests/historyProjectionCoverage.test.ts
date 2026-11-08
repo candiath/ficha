@@ -25,7 +25,7 @@ const IDENTITY = 'Identifies the row; the revision carries it in its own columns
 const TIMESTAMP = 'When the row was written: the audit row says when each version was.';
 const DELETION = 'Deleting is a version of its own, told by its audit action.';
 const NOT_VERSIONED =
-  'Contact and coverage are not versioned (spec §1): a change is named in the audit row only. ' +
+  'Contact and coverage are not versioned (spec §1): a change takes a version of unchanged content, and its audit row names it. ' +
   'Versioning them later is a schema bump.';
 
 const fieldsOf = (schema: { shape: object }) => Object.keys(schema.shape);
