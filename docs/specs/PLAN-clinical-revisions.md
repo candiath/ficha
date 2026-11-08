@@ -82,7 +82,12 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ### Checkpoint 0
 
-- [ ] Every Neon branch and the test container run 18; `audit-guards.sql` passes on all of them; CI is green on a PR to `dev` and on a manual run on `ci`.
+- [x] Every Neon branch and the test container run 18; `audit-guards.sql` passes on all of them; CI is green on a PR to `dev` and on a manual run on `ci`.
+  - Checked 2026-11-08:
+    - The four branches of `ficha-pg18` and the test container report 18.6.
+    - `audit-guards.sql` passed in the `production` build and startup of 2026-11-06 and in `staging`'s of 2026-11-08. It also passed on `development`, run by hand with `dev`'s file; `no-audit-maintenance.sql` failed there, on the flag, as it should.
+    - `ci` passed both in the manual run of 2026-11-02. It is two migrations behind `dev`, which is expected: only release PRs and manual runs migrate it.
+    - The old project `ficha` (16) is still there, to be deleted from 2026-11-13 with Nath's OK.
 
 ### Step 1: Prerequisites (PR 1)
 
@@ -119,13 +124,16 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
     - The catalog gains `AUDIT_REVISION_REASONS` (`DATA_ENTRY_ERROR` "Error de confección", `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`), attached to no action yet.
     - `packages/shared` exports the request schema for a reason and an optional note, reused by every route from step 2 on.
     - Full local suites, then a PR against `dev`.
-    - After the merge (pending): `migrate deploy` on `development`, and the staging build log shows both checks passing.
+    - After the merge: `migrate deploy` on `development`, and the staging build log shows both checks passing. Both done (checked 2026-11-08).
   - *Verify:* `npm test -- auditCatalog`; `npm test`; `npm test -w apps/web`; `npm run check`.
   - *Files:* `packages/shared/src/auditActions.ts`, `packages/shared/src/index.ts`. **XS**
 
 ### Checkpoint 1
 
-- [ ] Episodes leave audit rows; the four unique keys exist on `staging`; nothing visible changed for users.
+- [x] Episodes leave audit rows; the four unique keys exist on `staging`; nothing visible changed for users.
+  - Checked 2026-11-08:
+    - The four `(tenant_id, patient_id, id)` keys exist on `staging`, and `development` has `20261101120000_clinical_revisions_prereqs`.
+    - Episode audit rows are proven by `episodes.test.ts` and step 3's check by hand. `staging` has none yet, since nobody has written an episode there since the release.
 
 ### Step 2: Session revisions (PR 2, highest risk)
 
