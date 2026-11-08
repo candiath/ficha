@@ -69,7 +69,7 @@ describe('revision routes', () => {
         expectedVersion: 0,
         notes: 'Primera',
       }),
-      201,
+      200,
     );
     sessionId = (
       await created(`/api/patients/${patientA}/sessions`, {
@@ -88,7 +88,11 @@ describe('revision routes', () => {
     );
     await created(`/api/patients/${patientA}/consent`, { expectedVersion: 0 });
     eventId = (
-      await created(`/api/patients/${patientA}/events`, { kind: 'SURGERY', description: 'Rodilla' })
+      await created(`/api/patients/${patientA}/events`, {
+        kind: 'SURGERY',
+        description: 'Rodilla',
+        occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
+      })
     ).id;
 
     const episodeB = (await created(`/api/patients/${patientB}/episodes`, { mainComplaint: 'Cervicalgia' })).id;

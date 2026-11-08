@@ -36,6 +36,10 @@ const GET_CALL = /\b(?:router|app)\.get\b/g;
 const GET_ROUTE = /\b(?:router|app)\.get\s*(?:<[^()]*?>)?\(\s*'([^']*)'/g;
 const MOUNT = /app\.use\(\s*'([^']*)'\s*,(?:[^;]*?,)?\s*(\w+Router)\s*\)/g;
 const IMPORT = /import\s+(\w+)\s+from\s+'\.\/routes\/(\w+)'/g;
+// A router a route file builds from another file's factory and mounts under
+// its own paths: `router.use('/:sessionId/revisions', revisionRoutes(…))`.
+const NESTED_IMPORT = /import\s+\{\s*(\w+)\s*\}\s+from\s+'\.\/(\w+)'/g;
+const NESTED_MOUNT = /router\.use\(\s*'([^']*)'\s*,\s*(\w+)\(/g;
 
 function getRoutes(source: string, prefixes: string[]): string[] {
   const keys: string[] = [];
@@ -55,11 +59,24 @@ function extract() {
     if (file) prefixesOfFile.set(file, [...(prefixesOfFile.get(file) ?? []), prefix]);
   }
 
+  // Nested mounts, under every prefix of the file that mounts them.
+  const files = readdirSync(ROUTES).filter((f) => f.endsWith('.ts'));
+  for (const file of files) {
+    const source = readFileSync(path.join(ROUTES, file), 'utf8');
+    const fileOfFactory = new Map([...source.matchAll(NESTED_IMPORT)].map(([, name, child]) => [name, `${child}.ts`]));
+    for (const [, sub, factory] of source.matchAll(NESTED_MOUNT)) {
+      const child = fileOfFactory.get(factory);
+      if (!child) continue;
+      const nested = (prefixesOfFile.get(file) ?? []).map((p) => `${p}${sub}`);
+      prefixesOfFile.set(child, [...(prefixesOfFile.get(child) ?? []), ...nested]);
+    }
+  }
+
   const keys = getRoutes(appSource, ['']);
   let calls = [...appSource.matchAll(GET_CALL)].length;
   let literals = [...appSource.matchAll(GET_ROUTE)].length;
   const unmounted: string[] = [];
-  for (const file of readdirSync(ROUTES).filter((f) => f.endsWith('.ts'))) {
+  for (const file of files) {
     const source = readFileSync(path.join(ROUTES, file), 'utf8');
     const count = [...source.matchAll(GET_ROUTE)].length;
     calls += [...source.matchAll(GET_CALL)].length;
@@ -72,7 +89,9 @@ function extract() {
 
 // The record itself: its routes may return clinical text.
 const isPatientRecord = (key: string) =>
-  key.startsWith('GET /api/patients/:patientId') || key === 'GET /api/patients/:id';
+  key.startsWith('GET /api/patients/:patientId') ||
+  key === 'GET /api/patients/:id' ||
+  key.startsWith('GET /api/patients/:id/');
 
 describe('every GET route is classified', () => {
   const { keys, calls, literals, unmounted } = extract();
@@ -306,8 +325,7 @@ describe('global lists carry no clinical text', () => {
     });
     createdClinicalModels.add('Session');
     createdClinicalModels.add('SessionEpisode');
-    // Its snapshot holds the session's markers. reason_note gets its own with the
-    // revision routes (PLAN-clinical-revisions.md, Task 4.1).
+    // Its snapshot holds the session's markers; reason_note gets its own below.
     createdClinicalModels.add('SessionRevision');
     // The fixtures above wrote version 1 of each, with the markers of its row.
     for (const model of ['PatientRevision', 'EpisodeRevision', 'EvaluationRevision', 'PatientEventRevision'] as const) {
@@ -317,6 +335,30 @@ describe('global lists carry no clinical text', () => {
     await rows.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
     createdClinicalModels.add('InformedConsent');
     createdClinicalModels.add('ConsentRevision');
+
+    // A second version of each aggregate, with the content of the first and a
+    // marker in its reason note: every revision column then holds a marker
+    // (SPEC-clinical-revisions.md §7). It reuses the first's audit row, which
+    // a revision may share.
+    const second = async (
+      delegate: { findFirstOrThrow(a: object): Promise<Record<string, unknown>>; create(a: object): Promise<unknown> },
+    ) => {
+      const { id: _id, version, ...first } = await delegate.findFirstOrThrow({
+        where: { tenantId, patientId },
+        orderBy: { version: 'desc' },
+      });
+      await delegate.create({ data: { ...first, version: (version as number) + 1, reasonNote: marker() } });
+    };
+    for (const delegate of [
+      prisma.sessionRevision,
+      prisma.patientRevision,
+      prisma.episodeRevision,
+      prisma.evaluationRevision,
+      prisma.consentRevision,
+      prisma.patientEventRevision,
+    ]) {
+      await second(delegate as unknown as Parameters<typeof second>[0]);
+    }
 
     const pkg = await prisma.sessionPackage.create({
       data: { tenantId, patientId, name: 'Paquete Sonda', totalSessions: 10, pricePerSessionCents: 100 },
