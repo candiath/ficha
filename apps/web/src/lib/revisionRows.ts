@@ -26,8 +26,9 @@ export interface SnapshotRow {
   label: string;
   value: string;
   compare?: string;
-  // Rows of one block of a session share a group: the problem it treated.
-  group?: string;
+  // Rows of one block of a session share a group: the problem it treated,
+  // by its episode's id and named by its complaint (two may share a name).
+  group?: { key: string; label: string };
 }
 
 export interface SnapshotRenderContext {
@@ -73,7 +74,7 @@ export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) 
     { key: 'sessionDate', label: 'Fecha', value: dateTime(s.sessionDate) },
     ...(s.sessionType === 'NOTE' || s.observations ? [{ key: 'observations', label: 'Nota', value: text(s.observations) }] : []),
     ...s.episodes.flatMap((b) => {
-      const group = `Motivo: ${ctx.episodeName?.(b.episodeId) ?? 'episodio'}`;
+      const group = { key: b.episodeId, label: `Motivo: ${ctx.episodeName?.(b.episodeId) ?? 'episodio'}` };
       const row = (field: string, label: string, value: string): SnapshotRow => ({
         key: `episodes.${b.episodeId}.${field}`,
         label,
@@ -160,6 +161,8 @@ export function changedKeys(rows: SnapshotRow[], previous: SnapshotRow[] | null)
 // from a session.
 export function removedGroups(rows: SnapshotRow[], previous: SnapshotRow[] | null): string[] {
   if (!previous) return [];
-  const now = new Set(rows.map((r) => r.group));
-  return [...new Set(previous.map((r) => r.group).filter((g): g is string => !!g && !now.has(g)))];
+  const now = new Set(rows.map((r) => r.group?.key));
+  const removed = new Map<string, string>();
+  for (const { group } of previous) if (group && !now.has(group.key)) removed.set(group.key, group.label);
+  return [...removed.values()];
 }

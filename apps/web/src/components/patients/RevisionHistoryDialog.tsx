@@ -182,7 +182,7 @@ function SnapshotRows({ rows, changed }: { rows: SnapshotRow[]; changed: Set<str
   return (
     <dl className="flex flex-col gap-2 text-sm">
       {rows.map((row, i) => {
-        const heading = row.group && row.group !== rows[i - 1]?.group ? row.group : null
+        const heading = row.group && row.group.key !== rows[i - 1]?.group?.key ? row.group.label : null
         const isChanged = changed.has(row.key)
         return (
           <div key={row.key}>

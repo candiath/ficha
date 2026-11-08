@@ -111,7 +111,7 @@ describe('snapshot renderers', () => {
       1,
       { episodeName: () => 'Lumbalgia' },
     );
-    expect(rows?.filter((r) => r.group === 'Motivo: Lumbalgia').map((r) => r.label)).toEqual([
+    expect(rows?.filter((r) => r.group?.label === 'Motivo: Lumbalgia').map((r) => r.label)).toEqual([
       'Estado previo',
       'Tratamiento',
       'Dolor al inicio',
@@ -137,7 +137,7 @@ describe('snapshot renderers', () => {
 
 describe('what a version changed', () => {
   const rows = (pairs: [string, string, string?][]): SnapshotRow[] =>
-    pairs.map(([key, value, group]) => ({ key, label: key, value, group }));
+    pairs.map(([key, value, group]) => ({ key, label: key, value, group: group ? { key: group, label: `Motivo: ${group}` } : undefined }));
 
   it('marks nothing on the first version', () => {
     expect(changedKeys(rows([['a', '1']]), null).size).toBe(0);
@@ -150,8 +150,13 @@ describe('what a version changed', () => {
   });
 
   it('names the groups the version before had and this one does not', () => {
-    const before = rows([['x.a', '1', 'Motivo: A'], ['y.a', '1', 'Motivo: B']]);
-    const now = rows([['x.a', '1', 'Motivo: A']]);
-    expect(removedGroups(now, before)).toEqual(['Motivo: B']);
+    const before = rows([['x.a', '1', 'x'], ['y.a', '1', 'y']]);
+    const now = rows([['x.a', '1', 'x']]);
+    expect(removedGroups(now, before)).toEqual(['Motivo: y']);
+  });
+
+  it('tells two blocks apart by their episode, not by their name', () => {
+    const named = (key: string) => ({ key: `${key}.a`, label: 'a', value: '1', group: { key, label: 'Motivo: Lumbalgia' } });
+    expect(removedGroups([named('x')], [named('x'), named('y')])).toEqual(['Motivo: Lumbalgia']);
   });
 });
