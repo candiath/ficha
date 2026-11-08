@@ -6,6 +6,7 @@ import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import { ApiError } from '@/lib/api';
 import { patientApi } from '@/services/patients';
 import type { Patient } from '@/types/patient';
+import { chooseReason } from './revisionReason';
 
 // Editing a patient (SPEC-clinical-revisions.md §4, §5): the form reads the
 // record itself, with its version, and says why it corrects it.
@@ -64,11 +65,30 @@ describe('PatientFormDialog', () => {
     expect(get).toHaveBeenCalledWith('p1');
   });
 
-  it('sends the version it read, the preselected reason and the note', async () => {
+  it('sends nothing until a reason is chosen, and says so on the field', async () => {
+    renderDialog(LISTED);
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByPlaceholderText('Docente');
+    const reason = within(dialog).getByRole('combobox', { name: 'Motivo del cambio' });
+    expect(reason).toHaveTextContent('Elegí un motivo');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await within(dialog).findByText('Elegí el motivo del cambio')).toBeInTheDocument();
+    expect(reason).toHaveAttribute('aria-invalid', 'true');
+    expect(reason).toHaveFocus();
+    expect(update).not.toHaveBeenCalled();
+
+    await chooseReason('Información recibida después', dialog);
+    expect(within(dialog).queryByText('Elegí el motivo del cambio')).toBeNull();
+  });
+
+  it('sends the version it read, the chosen reason and the note', async () => {
     renderDialog(LISTED);
     const dialog = await screen.findByRole('dialog');
     await within(dialog).findByPlaceholderText('Docente');
 
+    await chooseReason('Información recibida después', dialog);
     await userEvent.type(within(dialog).getByLabelText('Nota del cambio (opcional)'), 'Cambió de trabajo');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
@@ -76,7 +96,7 @@ describe('PatientFormDialog', () => {
     expect(update.mock.calls[0][1]).toMatchObject({
       occupation: 'Abogada',
       expectedVersion: 4,
-      reason: 'DATA_ENTRY_ERROR',
+      reason: 'LATE_INFORMATION',
       reasonNote: 'Cambió de trabajo',
     });
   });
@@ -103,6 +123,7 @@ describe('PatientFormDialog', () => {
     const occupation = (await within(dialog).findByPlaceholderText('Docente')) as HTMLInputElement;
     await userEvent.clear(occupation);
     await userEvent.type(occupation, 'Mía');
+    await chooseReason(undefined, dialog);
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
     expect((await within(dialog).findByRole('alert')).textContent).toContain(STALE);

@@ -11,6 +11,7 @@ import { patientApi } from '@/services/patients';
 import type { ClinicalEpisode } from '@/types/episode';
 import type { InitialEvaluation } from '@/types/evaluation';
 import type { Patient } from '@/types/patient';
+import { chooseReason } from './revisionReason';
 
 // The initial evaluation over its version (SPEC-clinical-revisions.md §4, §5).
 // It also saves the patient's occupation, which is a correction of the patient:
@@ -120,9 +121,10 @@ beforeEach(() => {
 });
 
 describe('PatientDetailPage: the initial evaluation over its version', () => {
-  it('corrects with the version it loaded and the preselected reason', async () => {
+  it('corrects with the version it loaded and the chosen reason', async () => {
     const notes = await openEvaluation();
     await userEvent.type(notes, ' y segunda');
+    await chooseReason('Aclaración');
 
     await save();
 
@@ -130,7 +132,7 @@ describe('PatientDetailPage: the initial evaluation over its version', () => {
     expect(upsert.mock.calls[0][2]).toMatchObject({
       notes: 'Primera y segunda',
       expectedVersion: 2,
-      reason: 'DATA_ENTRY_ERROR',
+      reason: 'CLARIFICATION',
       reasonNote: '',
     });
     expect(updatePatient).not.toHaveBeenCalled();
@@ -156,6 +158,7 @@ describe('PatientDetailPage: the initial evaluation over its version', () => {
     await userEvent.clear(occupation);
     await userEvent.type(occupation, 'Abogada');
     // Changing the occupation corrects the patient, so the reason shows.
+    await chooseReason();
     await userEvent.type(screen.getByLabelText('Nota del cambio (opcional)'), 'Cambió de trabajo');
 
     await save();
@@ -173,6 +176,7 @@ describe('PatientDetailPage: the initial evaluation over its version', () => {
     upsert.mockRejectedValueOnce(new ApiError(STALE, 409, { error: STALE }));
     const notes = await openEvaluation();
     await userEvent.type(notes, ' mía');
+    await chooseReason();
     await save();
 
     expect((await screen.findByRole('alert')).textContent).toContain(STALE);

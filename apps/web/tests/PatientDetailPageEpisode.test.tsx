@@ -10,6 +10,7 @@ import { episodeApi } from '@/services/episodes';
 import { patientApi } from '@/services/patients';
 import type { ClinicalEpisode } from '@/types/episode';
 import type { Patient } from '@/types/patient';
+import { chooseReason } from './revisionReason';
 
 // Closing an episode shows its time before sending it, by the API's clock, and
 // what is sent is what was shown. When the API refuses it, the user sees why
@@ -183,12 +184,13 @@ describe('PatientDetailPage: the episode over its version', () => {
     expect(body).not.toHaveProperty('reason');
   });
 
-  it('corrects the complaint with the preselected reason, its note and the version', async () => {
+  it('corrects the complaint with the chosen reason, its note and the version', async () => {
     renderPage();
     await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
     const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
     await userEvent.clear(complaint);
     await userEvent.type(complaint, 'Lumbociatalgia');
+    await chooseReason('Información recibida después');
     await userEvent.type(screen.getByLabelText('Nota del cambio (opcional)'), 'Irradia');
 
     await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
@@ -196,7 +198,7 @@ describe('PatientDetailPage: the episode over its version', () => {
     await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
     expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toEqual({
       mainComplaint: 'Lumbociatalgia',
-      reason: 'DATA_ENTRY_ERROR',
+      reason: 'LATE_INFORMATION',
       reasonNote: 'Irradia',
       expectedVersion: 2,
     });
@@ -209,6 +211,7 @@ describe('PatientDetailPage: the episode over its version', () => {
     const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
     await userEvent.clear(complaint);
     await userEvent.type(complaint, 'Mío');
+    await chooseReason();
     await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(STALE);
@@ -242,6 +245,7 @@ describe('PatientDetailPage: the episode over its version', () => {
     );
     expect((complaint as HTMLInputElement).value).toBe('Mío');
 
+    await chooseReason();
     await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));

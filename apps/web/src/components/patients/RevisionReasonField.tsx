@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, type RefObject } from 'react'
 import { AUDIT_REVISION_REASONS, type RevisionReason } from '@ficha/shared'
 import { Label } from '@/components/ui/label'
 import {
@@ -11,18 +11,22 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 
 // Why a clinical record is being corrected (SPEC-clinical-revisions.md §4). The
-// reason is required and "Error de confección" comes chosen; the note is optional
-// and goes only into the record's history.
-export const DEFAULT_REVISION_REASON: RevisionReason = 'DATA_ENTRY_ERROR'
+// reason is required and starts unchosen (its state: `useRevisionReason`); the
+// note is optional and goes only into the record's history.
 
 const REASONS = Object.entries(AUDIT_REVISION_REASONS).map(([value, label]) => ({
   value: value as RevisionReason,
   label: label.charAt(0).toUpperCase() + label.slice(1),
 }))
 
-interface RevisionReasonFieldProps {
-  reason: RevisionReason
+export const MISSING_REASON = 'Elegí el motivo del cambio'
+
+export interface RevisionReasonFieldProps {
+  reason: RevisionReason | null
   note: string
+  // Saving was tried with no reason chosen.
+  missing: boolean
+  triggerRef: RefObject<HTMLButtonElement | null>
   onReasonChange: (reason: RevisionReason) => void
   onNoteChange: (note: string) => void
 }
@@ -30,6 +34,8 @@ interface RevisionReasonFieldProps {
 export default function RevisionReasonField({
   reason,
   note,
+  missing,
+  triggerRef,
   onReasonChange,
   onNoteChange,
 }: RevisionReasonFieldProps) {
@@ -44,8 +50,14 @@ export default function RevisionReasonField({
           value={reason}
           onValueChange={(value) => value !== null && onReasonChange(value)}
         >
-          <SelectTrigger className="w-full" aria-labelledby={`${id}-reason`}>
-            <SelectValue />
+          <SelectTrigger
+            ref={triggerRef}
+            className="w-full"
+            aria-labelledby={`${id}-reason`}
+            aria-invalid={missing || undefined}
+            aria-describedby={missing ? `${id}-missing` : undefined}
+          >
+            <SelectValue placeholder="Elegí un motivo" />
           </SelectTrigger>
           <SelectContent>
             {REASONS.map(({ value, label }) => (
@@ -55,6 +67,11 @@ export default function RevisionReasonField({
             ))}
           </SelectContent>
         </Select>
+        {missing && (
+          <p id={`${id}-missing`} className="text-xs text-destructive">
+            {MISSING_REASON}
+          </p>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-note`}>Nota del cambio (opcional)</Label>

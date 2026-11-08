@@ -29,7 +29,8 @@ import { PATIENT_EVENT_KIND_LABELS } from '@/lib/labels';
 import { patientEventApi, patientEventKeys } from '@/services/patientEvents';
 import { tenantApi, tenantKeys } from '@/services/tenant';
 import { PATIENT_EVENT_KINDS, type PatientEvent, type PatientEventKind } from '@/types/patientEvent';
-import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField';
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
 
@@ -256,8 +257,7 @@ function PatientEventDialog({
   const [whenState, setWhenState] = useState<WhenState>(() => initialWhen(event?.occurred));
   // An edit is a correction: it says why, and names the version it was made
   // over (SPEC-clinical-revisions.md §4, §5).
-  const [reason, setReason] = useState(DEFAULT_REVISION_REASON);
-  const [reasonNote, setReasonNote] = useState('');
+  const revision = useRevisionReason();
   const [staleMessage, setStaleMessage] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
 
@@ -269,9 +269,15 @@ function PatientEventDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const data = { kind: kind!, description, occurred: occurred ?? null };
-      return event
-        ? patientEventApi.update(patientId, event.id, { ...data, expectedVersion: event.version, reason, reasonNote })
-        : patientEventApi.create(patientId, data);
+      if (!event) return patientEventApi.create(patientId, data);
+      // The button checked it; this keeps a correction from leaving without one.
+      if (!revision.reason) throw new Error(MISSING_REASON);
+      return patientEventApi.update(patientId, event.id, {
+        ...data,
+        expectedVersion: event.version,
+        reason: revision.reason,
+        reasonNote: revision.note,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
@@ -421,12 +427,7 @@ function PatientEventDialog({
           </div>
 
           {event && (
-            <RevisionReasonField
-              reason={reason}
-              note={reasonNote}
-              onReasonChange={setReason}
-              onNoteChange={setReasonNote}
-            />
+            <RevisionReasonField {...revision.fieldProps} />
           )}
           {staleMessage && (
             <StaleRecordNotice
@@ -444,7 +445,7 @@ function PatientEventDialog({
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button disabled={!canSave || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button disabled={!canSave || mutation.isPending} onClick={() => (!event || revision.require()) && mutation.mutate()}>
             {mutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </DialogFooter>

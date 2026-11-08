@@ -29,7 +29,8 @@ import {
 import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
 import { toast } from 'sonner';
-import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField';
+import RevisionReasonField from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
 
@@ -107,8 +108,7 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
   const record = isEditing ? recordQuery.data : undefined;
   const loading = isEditing && (!record || recordQuery.isFetching);
 
-  const [reason, setReason] = useState(DEFAULT_REVISION_REASON);
-  const [reasonNote, setReasonNote] = useState('');
+  const revision = useRevisionReason();
   // The API's message when someone else saved first; what was typed stays.
   const [staleMessage, setStaleMessage] = useState<string | null>(null);
 
@@ -120,7 +120,12 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>
       isEditing
-        ? patientApi.update(patient.id, { ...values, expectedVersion: record?.version, reason, reasonNote })
+        ? patientApi.update(patient.id, {
+            ...values,
+            expectedVersion: record?.version,
+            reason: revision.reason ?? undefined,
+            reasonNote: revision.note,
+          })
         : patientApi.create(values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientKeys.all });
@@ -139,8 +144,7 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
 
   function close() {
     setStaleMessage(null);
-    setReason(DEFAULT_REVISION_REASON);
-    setReasonNote('');
+    revision.reset();
     onClose();
   }
 
@@ -163,7 +167,10 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
         ) : (
         <Form {...form}>
           <form
-            onSubmit={form.handleSubmit((v) => mutation.mutate(v))}
+            onSubmit={form.handleSubmit((v) => {
+              if (isEditing && !revision.require()) return;
+              mutation.mutate(v);
+            })}
             className="space-y-4"
           >
             <div className="grid grid-cols-2 gap-4">
@@ -328,12 +335,7 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
 
             {isEditing && (
               <div className="space-y-3 border-t pt-4">
-                <RevisionReasonField
-                  reason={reason}
-                  note={reasonNote}
-                  onReasonChange={setReason}
-                  onNoteChange={setReasonNote}
-                />
+                <RevisionReasonField {...revision.fieldProps} />
                 {staleMessage && (
                   <StaleRecordNotice message={staleMessage} reloading={recordQuery.isFetching} onReload={() => void reload()} />
                 )}

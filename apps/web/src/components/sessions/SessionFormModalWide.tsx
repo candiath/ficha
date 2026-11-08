@@ -14,7 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField'
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField'
+import { useRevisionReason } from '@/hooks/useRevisionReason'
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit'
 import { Button } from '@/components/ui/button'
@@ -187,8 +188,7 @@ export default function SessionFormModalWide({
   const [reloadedSession, setReloadedSession] = useState<Session>()
   const session = reloadedSession ?? loadedSession
   const isEditing = !!session
-  const [reason, setReason] = useState(DEFAULT_REVISION_REASON)
-  const [reasonNote, setReasonNote] = useState('')
+  const revision = useRevisionReason()
   // The API's message when someone else saved first; what was typed stays.
   const [staleMessage, setStaleMessage] = useState<string | null>(null)
   const dateTolerances = useSessionDateTolerances()
@@ -275,8 +275,8 @@ export default function SessionFormModalWide({
     if (open) return
     setReloadedSession(undefined)
     setStaleMessage(null)
-    setReason(DEFAULT_REVISION_REASON)
-    setReasonNote('')
+    revision.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on close only
   }, [open])
 
   useEffect(() => {
@@ -351,11 +351,13 @@ export default function SessionFormModalWide({
       // omitirlo deja intacto el tipo con el que se registró la sesión (una
       // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
+        // The submit checked it; this keeps a correction from leaving without one.
+        if (!revision.reason) throw new Error(MISSING_REASON)
         return sessionApi.update(patientId, session.id, {
           ...sessionData,
           expectedVersion: session.version,
-          reason,
-          reasonNote,
+          reason: revision.reason,
+          reasonNote: revision.note,
         })
       }
 
@@ -531,6 +533,7 @@ export default function SessionFormModalWide({
                 form.setError('blocks', { message: 'Elegí al menos un motivo' })
                 return
               }
+              if (isEditing && !revision.require()) return
               mutation.mutate(v)
             })}
             className="p-4 sm:p-6"
@@ -910,12 +913,7 @@ export default function SessionFormModalWide({
 
             {isEditing && (
               <div className="mt-6 space-y-3">
-                <RevisionReasonField
-                  reason={reason}
-                  note={reasonNote}
-                  onReasonChange={setReason}
-                  onNoteChange={setReasonNote}
-                />
+                <RevisionReasonField {...revision.fieldProps} />
                 {staleMessage && (
                   <StaleRecordNotice
                     message={staleMessage}

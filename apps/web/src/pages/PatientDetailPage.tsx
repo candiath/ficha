@@ -26,7 +26,8 @@ import { DirtyLabel } from '@/components/ui/dirty-label';
 import AbandonEpisodeConfirm from '@/components/patients/AbandonEpisodeConfirm';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
-import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField';
+import RevisionReasonField from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
 import ConsentTab from '@/components/patients/ConsentTab';
@@ -209,8 +210,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
   const [retractionMapDirty, setRetractionMapDirty] = useState(false);
   // A correction says why (SPEC-clinical-revisions.md §4); the first
   // evaluation does not, unless it also corrects the patient's occupation.
-  const [reason, setReason] = useState(DEFAULT_REVISION_REASON);
-  const [reasonNote, setReasonNote] = useState('');
+  const revision = useRevisionReason();
   const [staleMessage, setStaleMessage] = useState<string | null>(null);
 
   const { data: evaluation, isLoading } = useQuery({
@@ -279,14 +279,14 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         painFrequency: values.painFrequency,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
         expectedVersion: evaluation?.version ?? 0,
-        ...(evaluation ? { reason, reasonNote } : {}),
+        ...(evaluation ? { reason: revision.reason ?? undefined, reasonNote: revision.note } : {}),
       });
       if (values.occupation !== (occupation ?? '')) {
         await patientApi.update(patientId, {
           occupation: values.occupation,
           expectedVersion: patientVersion,
-          reason,
-          reasonNote,
+          reason: revision.reason ?? undefined,
+          reasonNote: revision.note,
         });
       }
       return saved;
@@ -295,7 +295,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
       setRetractionMapDirty(false);
-      setReasonNote('');
+      revision.reset();
       toast.success('Evaluación guardada');
     },
     onError: (err: Error) => {
@@ -326,7 +326,12 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
       {/* The patient's history: hers, not the episode's, with its own saves. */}
       <PatientHistoryCard patientId={patientId} />
       <Form {...form}>
-        <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))}>
+        <form
+          onSubmit={form.handleSubmit((v) => {
+            if (correcting && !revision.require()) return;
+            mutation.mutate(v);
+          })}
+        >
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-base">Evaluación inicial</CardTitle>
@@ -491,14 +496,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
                   </FormItem>
                 )}
               />
-              {correcting && (
-                <RevisionReasonField
-                  reason={reason}
-                  note={reasonNote}
-                  onReasonChange={setReason}
-                  onNoteChange={setReasonNote}
-                />
-              )}
+              {correcting && <RevisionReasonField {...revision.fieldProps} />}
               {staleMessage && (
                 <StaleRecordNotice message={staleMessage} reloading={false} onReload={() => void reload()} />
               )}
@@ -842,8 +840,7 @@ export default function PatientDetailPage() {
   // a newer version without a 409.
   const [editEpisodeVersion, setEditEpisodeVersion] = useState(0);
   // Correcting the complaint says why; closing and reopening do not.
-  const [episodeReason, setEpisodeReason] = useState(DEFAULT_REVISION_REASON);
-  const [episodeReasonNote, setEpisodeReasonNote] = useState('');
+  const episodeRevision = useRevisionReason();
   const [episodeStale, setEpisodeStale] = useState<string | null>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
@@ -900,19 +897,22 @@ export default function PatientDetailPage() {
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
       setEditEpisodeOpen(false);
       setEpisodeStale(null);
-      setEpisodeReasonNote('');
+      episodeRevision.reset();
       setConfirmAbandon(false);
     },
   });
   // Over the version the text was read from, not the list's latest. Reopening
   // goes over the list's latest: it acts on the status on screen, which is live.
-  const saveEpisodeComplaint = () =>
+  const saveEpisodeComplaint = () => {
+    const reason = episodeRevision.require();
+    if (!reason) return;
     updateEpisodeMutation.mutate({
       mainComplaint: editEpisodeComplaint,
-      reason: episodeReason,
-      reasonNote: episodeReasonNote,
+      reason,
+      reasonNote: episodeRevision.note,
       expectedVersion: editEpisodeVersion,
     });
+  };
 
   useEffect(() => { document.title = TAB_COMPONENT[activeTab] ?? 'PatientDetailPage'; }, [activeTab]);
 
@@ -1019,6 +1019,7 @@ export default function PatientDetailPage() {
                 setActiveEpisodeId(effectiveEpisodeId);
                 setEditEpisodeComplaint(ep?.mainComplaint ?? '');
                 setEditEpisodeVersion(ep?.version ?? 0);
+                episodeRevision.reset();
                 setConfirmAbandon(false);
                 setEditEpisodeOpen(true);
               }}
@@ -1210,12 +1211,7 @@ export default function PatientDetailPage() {
                   autoFocus
                 />
               </div>
-              <RevisionReasonField
-                reason={episodeReason}
-                note={episodeReasonNote}
-                onReasonChange={setEpisodeReason}
-                onNoteChange={setEpisodeReasonNote}
-              />
+              <RevisionReasonField {...episodeRevision.fieldProps} />
               {episodeStale && (
                 <StaleRecordNotice
                   message={episodeStale}
