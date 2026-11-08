@@ -252,8 +252,10 @@ export const prismaSessionRepository: SessionRepository = {
       // (SPEC-clinical-revisions.md §5): a concurrent edit of one waits, and two
       // discharges of one episode cannot both take a share lock through
       // session_episodes and then deadlock asking for the row. The patient is
-      // not locked: the discharge does not write it, and holding it would
-      // deadlock with an episode edit, whose audit row needs a share lock on it.
+      // not locked: the discharge does not write it. (Since lockRow takes FOR NO
+      // KEY UPDATE it could, without deadlocking with an episode edit, whose
+      // audit row takes a share lock on the patient; it would only make
+      // discharges wait for patient edits for nothing.)
       const closing = input.sessionType === 'DISCHARGE' ? [...new Set(episodes.map((b) => b.episodeId))].sort() : [];
       for (const episodeId of closing) await lockRow(tx, 'clinical_episodes', episodeId, ctx.tenantId);
 
