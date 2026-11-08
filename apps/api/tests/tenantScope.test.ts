@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma';
 import { forTenant, scopeArgs } from '../src/lib/tenantScope';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestContext, createTestClinic, type TestClinic } from './helpers';
+import { createTestContext, createTestClinic, deleteAuditRows, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
 // Unit tests de scopeArgs, sin DB: verifican la mecánica de inyección y que
@@ -71,6 +71,8 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
   });
 
   afterAll(async () => {
+    // The patients' audit rows and versions restrict deleting them: they go first.
+    await deleteAuditRows([clinicA.tenantId, clinicB.tenantId]);
     await prisma.patient.deleteMany({
       where: { tenantId: { in: [clinicA.tenantId, clinicB.tenantId] } },
     });
