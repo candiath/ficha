@@ -155,11 +155,11 @@ describe('borrado lógico de sesiones', () => {
   // session's own write checked the patient: a session of another patient, sent
   // under this patient's URL, answered 404 and still lost its payment.
   it("answers 404 to another patient's session and leaves its payment alone", async () => {
-    const other = await prisma.patient.create({
+    const other = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otra', lastName: 'Paciente' },
       select: { id: true },
     });
-    const otherEpisode = await prisma.clinicalEpisode.create({
+    const otherEpisode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: other.id },
       select: { id: true },
     });
