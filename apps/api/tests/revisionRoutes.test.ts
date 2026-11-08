@@ -248,13 +248,19 @@ describe('revision routes', () => {
       },
     );
 
-    it('answers 404 to a malformed id', async () => {
-      await expectStatus(get('/api/patients/no-es-un-id/revisions'), 404);
-      await expectStatus(get(`/api/patients/no-es-un-id/sessions/${sessionId}/revisions`), 404);
-      const res = await expectStatus(get(`/api/patients/${patientA}/sessions/no-es-un-id/revisions/1`), 404);
-      expect(res.body).toEqual({ error: 'Sesión no encontrada' });
-      await expectStatus(get(`/api/patients/${patientA}/episodes/no-es-un-id/evaluation/revisions`), 404);
-      await expectStatus(get(`/api/patients/${patientA}/events/no-es-un-id/revisions`), 404);
+    // With the entity's message, not the errorHandler's "No encontrado": that
+    // one is the P2023 safety net, which an unvalidated id would reach.
+    it.each([
+      ['/api/patients/no-es-un-id/revisions', 'Paciente no encontrado'],
+      ['/api/patients/no-es-un-id/revisions/1', 'Paciente no encontrado'],
+      ['/api/patients/no-es-un-id/sessions/{session}/revisions', 'Paciente no encontrado'],
+      ['/api/patients/{patient}/sessions/no-es-un-id/revisions/1', 'Sesión no encontrada'],
+      ['/api/patients/{patient}/episodes/no-es-un-id/revisions', 'Episodio no encontrado'],
+      ['/api/patients/{patient}/episodes/no-es-un-id/evaluation/revisions', 'Episodio no encontrado'],
+      ['/api/patients/{patient}/events/no-es-un-id/revisions', 'Antecedente no encontrado'],
+    ])('answers 404 to a malformed id: %s', async (template, error) => {
+      const path = template.replace('{patient}', patientA).replace('{session}', sessionId);
+      expect((await expectStatus(get(path), 404)).body).toEqual({ error });
     });
 
     it('asks for a login', async () => {
