@@ -151,6 +151,33 @@ describe('borrado lógico de sesiones', () => {
     expect(res.body).toEqual({ error: 'Sesión no encontrada' });
   });
 
+  // The pending payment used to be deleted by session id alone, before the
+  // session's own write checked the patient: a session of another patient, sent
+  // under this patient's URL, answered 404 and still lost its payment.
+  it("answers 404 to another patient's session and leaves its payment alone", async () => {
+    const other = await prisma.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otra', lastName: 'Paciente' },
+      select: { id: true },
+    });
+    const otherEpisode = await prisma.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: other.id },
+      select: { id: true },
+    });
+    const created = await auth(request(app).post(`/api/patients/${other.id}/sessions`)).send({
+      sessionDate: new Date().toISOString(),
+      episodes: [{ episodeId: otherEpisode.id }],
+      payment: { baseAmountCents: 12000 },
+    });
+    expect(created.status).toBe(201);
+    const otherSessionId = created.body.data.id as string;
+
+    const res = await borrar(otherSessionId);
+
+    expect(res.status).toBe(404);
+    expect(await prisma.payment.findFirst({ where: { sessionId: otherSessionId } })).not.toBeNull();
+    expect((await prisma.session.findUnique({ where: { id: otherSessionId } }))?.deletedAt).toBeNull();
+  });
+
   it('deja de contar en las métricas del dashboard', async () => {
     const antes = await auth(request(app).get('/api/dashboard/stats'));
     const totalAntes = antes.body.data.totalSessions as number;
