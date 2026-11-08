@@ -86,7 +86,7 @@ Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScop
 
 - `recordAudit` returns the id of the row it inserted.
 - `AuditEntity` gains `EPISODE`, and the catalog gains episode actions: `EPISODE_OPENED`; `EPISODE_CLOSED`, with its status (`DISCHARGED`, `ABANDONED`); `EPISODE_REOPENED`; and `EPISODE_UPDATED`, only for corrections of the complaint or the dates. A request that changes the status and corrects data at once is refused (`400`): one write, one fact. Episode writes move into a transaction with their audit row: this is the episode part of `clinical-audit-coverage`, a prerequisite.
-- Corrections and annulments gain a `reason` parameter with codes: `DATA_ENTRY_ERROR`, `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`. **Required on every correction (`*_UPDATED`) and every annulment** of a versioned aggregate (decided 2026-11-01); the UI preselects `DATA_ENTRY_ERROR` ("Error de confección"). **State transitions take none** (decided 2026-11-01): closing or reopening an episode, and signing or revoking a consent, are facts, not corrections, so "Error de confección" has no meaning there. New codes only: existing codes are never renamed or reused.
+- Corrections and annulments gain a `reason` parameter with codes: `DATA_ENTRY_ERROR`, `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`. **Required on every correction (`*_UPDATED`) and every annulment** of a versioned aggregate (decided 2026-11-01); the UI preselects none (decided 2026-11-08, replacing the preselected `DATA_ENTRY_ERROR` of 2026-11-01): saving without one marks the field and moves the focus to it, so every reason recorded was chosen by someone. **State transitions take none** (decided 2026-11-01): closing or reopening an episode, and signing or revoking a consent, are facts, not corrections, so "Error de confección" has no meaning there. New codes only: existing codes are never renamed or reused.
 - A multi-aggregate action (`DISCHARGE_RECORDED`, which closes episodes) owns one session revision and one revision per closed episode.
 
 ### 5. Write path
@@ -184,7 +184,7 @@ Depends on this module and on #206 (a runtime role that owns nothing; migrations
 Settled 2026-10-31 and 2026-11-01:
 
 1. **Reading past versions:** every user of the clinic for now (§7).
-2. **Reasons:** always asked, `DATA_ENTRY_ERROR` preselected (§4).
+2. **Reasons:** always asked, none preselected (§4; until 2026-11-08, `DATA_ENTRY_ERROR` was).
 3. **Reset-link impersonation:** accepted until the mailer (*What this module does not protect against*).
 4. **Postgres 18:** now, as rollout step 0, in a new Neon project. Every branch moves by dump and restore, `production` included, before the relaunch rather than at its wipe (*Tech Stack*, *Rollout*).
 5. **No reason on state transitions:** the episode's closing and reopening get their own actions; consent sign and revoke take no reason either (§4).
