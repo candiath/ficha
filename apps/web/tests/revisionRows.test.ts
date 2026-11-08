@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   changedKeys,
-  removedGroups,
+  removedParts,
   renderConsentSnapshot,
   renderEpisodeSnapshot,
   renderEvaluationSnapshot,
@@ -152,11 +152,18 @@ describe('what a version changed', () => {
   it('names the groups the version before had and this one does not', () => {
     const before = rows([['x.a', '1', 'x'], ['y.a', '1', 'y']]);
     const now = rows([['x.a', '1', 'x']]);
-    expect(removedGroups(now, before)).toEqual(['Motivo: y']);
+    expect(removedParts(now, before)).toEqual(['Motivo: y']);
   });
 
   it('tells two blocks apart by their episode, not by their name', () => {
     const named = (key: string) => ({ key: `${key}.a`, label: 'a', value: '1', group: { key, label: 'Motivo: Lumbalgia' } });
-    expect(removedGroups([named('x')], [named('x'), named('y')])).toEqual(['Motivo: Lumbalgia']);
+    expect(removedParts([named('x')], [named('x'), named('y')])).toEqual(['Motivo: Lumbalgia']);
+  });
+
+  it('names a row the version before had and this one does not', () => {
+    // A session's note is shown only when it has one: clearing it drops the row.
+    const before = rows([['observations', 'Llegó tarde'], ['x.a', '1', 'x']]);
+    const now = rows([['x.a', '1', 'x']]);
+    expect(removedParts(now, before)).toEqual(['observations']);
   });
 });

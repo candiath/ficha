@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import {
   changedKeys,
-  removedGroups,
+  removedParts,
   type SnapshotRenderContext,
   type SnapshotRenderer,
   type SnapshotRow,
@@ -153,7 +153,7 @@ function RevisionDetail({
   const rows = render(revision.snapshot, revision.schemaVersion, renderContext)
   const before = previous.data ? render(previous.data.snapshot, previous.data.schemaVersion, renderContext) : null
   const changed = rows ? changedKeys(rows, before) : new Set<string>()
-  const removed = rows ? removedGroups(rows, before) : []
+  const removed = rows ? removedParts(rows, before) : []
 
   return (
     <section aria-label={`Versión ${revision.version}`} className="flex flex-col gap-3 min-w-0">
@@ -171,40 +171,59 @@ function RevisionDetail({
       )}
 
       {removed.length > 0 && (
-        <p className="text-sm text-muted-foreground">Se quitó en esta versión: {removed.join(', ')}.</p>
+        <div className="text-sm text-muted-foreground">
+          <p>Se quitó en esta versión:</p>
+          <ul className="list-disc pl-5">
+            {removed.map((name, i) => (
+              <li key={i}>{name}</li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   )
 }
 
 function SnapshotRows({ rows, changed }: { rows: SnapshotRow[]; changed: Set<string> }) {
-  // Rows in order, a heading before each new group.
+  // Consecutive rows of one group under its heading, each run its own list: a
+  // <dl> holds only its terms and values.
+  const runs: { group?: SnapshotRow['group']; rows: SnapshotRow[] }[] = []
+  for (const row of rows) {
+    const last = runs.at(-1)
+    if (last && last.group?.key === row.group?.key) last.rows.push(row)
+    else runs.push({ group: row.group, rows: [row] })
+  }
+
   return (
-    <dl className="flex flex-col gap-2 text-sm">
-      {rows.map((row, i) => {
-        const heading = row.group && row.group.key !== rows[i - 1]?.group?.key ? row.group.label : null
-        const isChanged = changed.has(row.key)
-        return (
-          <div key={row.key}>
-            {heading && <p className="mt-2 mb-1 font-medium">{heading}</p>}
-            <div
-              data-changed={isChanged || undefined}
-              className={cn('rounded-md px-2 py-1', isChanged && 'bg-amber-50 dark:bg-amber-950/40')}
-            >
-              <dt className="flex items-center gap-2 text-xs text-muted-foreground">
-                {row.label}
-                {isChanged && (
-                  <Badge variant="outline" className="h-4 px-1 text-[10px]">
-                    Modificado
-                  </Badge>
-                )}
-              </dt>
-              <dd className="whitespace-pre-wrap break-words">{row.value}</dd>
-            </div>
-          </div>
-        )
-      })}
-    </dl>
+    <div className="flex flex-col gap-2 text-sm">
+      {runs.map((run, i) => (
+        <div key={run.group?.key ?? `rows-${i}`}>
+          {run.group && <h3 className="mt-2 mb-1 font-medium">{run.group.label}</h3>}
+          <dl className="flex flex-col gap-2">
+            {run.rows.map((row) => {
+              const isChanged = changed.has(row.key)
+              return (
+                <div
+                  key={row.key}
+                  data-changed={isChanged || undefined}
+                  className={cn('rounded-md px-2 py-1', isChanged && 'bg-amber-50 dark:bg-amber-950/40')}
+                >
+                  <dt className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {row.label}
+                    {isChanged && (
+                      <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                        Modificado
+                      </Badge>
+                    )}
+                  </dt>
+                  <dd className="whitespace-pre-wrap break-words">{row.value}</dd>
+                </div>
+              )
+            })}
+          </dl>
+        </div>
+      ))}
+    </div>
   )
 }
 

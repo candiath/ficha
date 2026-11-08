@@ -157,12 +157,20 @@ export function changedKeys(rows: SnapshotRow[], previous: SnapshotRow[] | null)
   return new Set(rows.filter((r) => before.get(r.key) !== (r.compare ?? r.value)).map((r) => r.key));
 }
 
-// The groups the version before had and this one does not: a block removed
-// from a session.
-export function removedGroups(rows: SnapshotRow[], previous: SnapshotRow[] | null): string[] {
+// What the version before had and this one does not, by name: a block removed
+// from a session (its group), or a row shown only when it has a value (a
+// session's note, cleared). Without it, a removal would mark nothing.
+export function removedParts(rows: SnapshotRow[], previous: SnapshotRow[] | null): string[] {
   if (!previous) return [];
-  const now = new Set(rows.map((r) => r.group?.key));
+  const groups = new Set(rows.map((r) => r.group?.key));
+  const keys = new Set(rows.map((r) => r.key));
   const removed = new Map<string, string>();
-  for (const { group } of previous) if (group && !now.has(group.key)) removed.set(group.key, group.label);
+  for (const { key, label, group } of previous) {
+    if (group) {
+      if (!groups.has(group.key)) removed.set(`group:${group.key}`, group.label);
+    } else if (!keys.has(key)) {
+      removed.set(`row:${key}`, label);
+    }
+  }
   return [...removed.values()];
 }

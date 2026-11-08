@@ -114,7 +114,8 @@ describe('RevisionHistoryDialog', () => {
     const treatment = within(detail).getByText('Lumbar, con elongación').closest('[data-changed]');
     expect(treatment).not.toBeNull();
     expect(within(detail).getAllByText('Modificado')).toHaveLength(1);
-    expect(within(detail).getByText(/Se quitó en esta versión: Motivo: Esguince de tobillo/)).toBeInTheDocument();
+    expect(within(detail).getByText('Se quitó en esta versión:')).toBeInTheDocument();
+    expect(within(detail).getByRole('listitem')).toHaveTextContent('Motivo: Esguince de tobillo');
     expect(within(detail).queryByText('Tobillo')).not.toBeInTheDocument();
   });
 
@@ -126,7 +127,7 @@ describe('RevisionHistoryDialog', () => {
 
     const detail = await screen.findByRole('region', { name: 'Versión 1' });
     expect(await within(detail).findByText('Tobillo')).toBeInTheDocument();
-    expect(within(detail).getByText('Motivo: Esguince de tobillo')).toBeInTheDocument();
+    expect(within(detail).getByRole('heading', { name: 'Motivo: Esguince de tobillo' })).toBeInTheDocument();
     expect(within(detail).getByText('Lumbar')).toBeInTheDocument();
     expect(within(detail).queryByText('Modificado')).not.toBeInTheDocument();
     expect(revisionApi.get).toHaveBeenCalledWith(BASE, 1);
