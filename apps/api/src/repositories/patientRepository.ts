@@ -42,6 +42,24 @@ export interface PatientCreateInput {
 
 export type PatientUpdateInput = Partial<PatientCreateInput>;
 
+// What an edit carries besides the fields (SPEC-clinical-revisions.md §5): the
+// version the form loaded, and the note of the correction, which goes only into
+// the revision.
+export interface PatientEditMeta {
+  expectedVersion?: number;
+  reasonNote?: string | null;
+}
+
+// The patient as the record reads it, with its latest version (0: none yet).
+// Lists carry no version: an edit form renders only from the record.
+export interface PatientRecordDTO extends PatientDTO {
+  version: number;
+}
+
+export type PatientUpdateResult =
+  | { ok: true; patient: PatientRecordDTO }
+  | { ok: false; reason: 'not_found' | 'stale' };
+
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 // Política del repositorio: TODO método opera sobre pacientes vigentes
@@ -67,20 +85,23 @@ export type PatientAuditField = keyof typeof AUDIT_PATIENT_FIELDS;
 
 export interface PatientRepository {
   list(ctx: TenantContext): Promise<PatientDTO[]>;
-  getById(ctx: TenantContext, id: string): Promise<PatientDTO | null>;
+  getById(ctx: TenantContext, id: string): Promise<PatientRecordDTO | null>;
   /** true si el paciente existe, es del tenant y no está borrado. */
   exists(ctx: TenantContext, id: string): Promise<boolean>;
-  create(ctx: TenantContext, input: PatientCreateInput, audit: AuditBuilder<PatientDTO>): Promise<PatientDTO>;
+  /** Writes version 1 with its audit row. */
+  create(ctx: TenantContext, input: PatientCreateInput, audit: AuditBuilder<PatientDTO>): Promise<PatientRecordDTO>;
   /**
-   * null si el paciente no existe, es de otro tenant o está borrado. Records
-   * an audit row only when a field changed, with the changed fields' names.
+   * `not_found` si el paciente no existe, es de otro tenant o está borrado;
+   * `stale` if `expectedVersion` is not the latest. Records an audit row only
+   * when a field changed, with the changed fields' names, and a version only
+   * when a versioned field changed (contact and coverage are not).
    */
   update(
     ctx: TenantContext,
     id: string,
-    input: PatientUpdateInput,
+    input: PatientUpdateInput & PatientEditMeta,
     audit: AuditUpdateBuilder<PatientDTO, PatientAuditField>,
-  ): Promise<PatientDTO | null>;
-  /** Borrado lógico. false si no había paciente vigente que borrar. */
+  ): Promise<PatientUpdateResult>;
+  /** Borrado lógico, with a version of unchanged content. false si no había paciente vigente que borrar. */
   softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;
 }

@@ -59,6 +59,23 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261107120000_clinical_revisions_aggregates': {
+    reason:
+      'The tables of the other five clinical aggregates (SPEC-clinical-revisions.md §6) are born ' +
+      'with the append-only triggers of the audit tables, calling their existing function.',
+    violations: [
+      'CREATE TRIGGER: CREATE TRIGGER patient_revisions_append_only BEFORE UPDATE OR DELETE ON public.patient_revisions FOR EACH ROW EXECUTE FU',
+      'CREATE TRIGGER: CREATE TRIGGER patient_revisions_no_truncate BEFORE TRUNCATE ON public.patient_revisions FOR EACH STATEMENT EXECUTE FUNC',
+      'CREATE TRIGGER: CREATE TRIGGER episode_revisions_append_only BEFORE UPDATE OR DELETE ON public.episode_revisions FOR EACH ROW EXECUTE FU',
+      'CREATE TRIGGER: CREATE TRIGGER episode_revisions_no_truncate BEFORE TRUNCATE ON public.episode_revisions FOR EACH STATEMENT EXECUTE FUNC',
+      'CREATE TRIGGER: CREATE TRIGGER evaluation_revisions_append_only BEFORE UPDATE OR DELETE ON public.evaluation_revisions FOR EACH ROW EXEC',
+      'CREATE TRIGGER: CREATE TRIGGER evaluation_revisions_no_truncate BEFORE TRUNCATE ON public.evaluation_revisions FOR EACH STATEMENT EXECUT',
+      'CREATE TRIGGER: CREATE TRIGGER consent_revisions_append_only BEFORE UPDATE OR DELETE ON public.consent_revisions FOR EACH ROW EXECUTE FU',
+      'CREATE TRIGGER: CREATE TRIGGER consent_revisions_no_truncate BEFORE TRUNCATE ON public.consent_revisions FOR EACH STATEMENT EXECUTE FUNC',
+      'CREATE TRIGGER: CREATE TRIGGER patient_event_revisions_append_only BEFORE UPDATE OR DELETE ON public.patient_event_revisions FOR EACH RO',
+      'CREATE TRIGGER: CREATE TRIGGER patient_event_revisions_no_truncate BEFORE TRUNCATE ON public.patient_event_revisions FOR EACH STATEMENT ',
+    ],
+  },
   '20261106180000_session_revisions': {
     reason:
       'The table of session versions (SPEC-clinical-revisions.md §6) is born with the append-only ' +
@@ -105,7 +122,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 };
 
 const AUDIT_NAMES =
-  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|session_revisions|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
+  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|session_revisions|patient_revisions|episode_revisions|evaluation_revisions|consent_revisions|patient_event_revisions|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
 
 const FORBIDDEN: [string, RegExp][] = [
   ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],

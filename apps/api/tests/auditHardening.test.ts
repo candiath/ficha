@@ -13,6 +13,7 @@ import {
   type TestClinic,
   type TestOperator,
 } from './helpers';
+import { fixture } from './fixtures';
 
 // What the database itself enforces on audit rows (#186,
 // docs/specs/SPEC-audit-hardening.md): they cannot be changed, only deleted
@@ -31,7 +32,7 @@ describe('audit rows are append-only', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     ({ authSessionId } = await createTestAuthSession(user));
-    ({ id: patientId } = await prisma.patient.create({
+    ({ id: patientId } = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Hardened', lastName: 'Patient' },
       select: { id: true },
     }));
@@ -79,7 +80,7 @@ describe('audit rows are append-only', () => {
     try {
       const author = await other.createUser();
       const session = await createTestAuthSession(author);
-      const patient = await prisma.patient.create({
+      const patient = await fixture.patient.create({
         data: { tenantId: other.tenantId, firstName: 'Purged', lastName: 'Patient' },
         select: { id: true },
       });
@@ -258,7 +259,7 @@ describe("the session on an audit row is its author's", () => {
     colleague = await clinic.createUser();
     ({ authSessionId: authorSession } = await createTestAuthSession(author));
     ({ authSessionId: colleagueSession } = await createTestAuthSession(colleague));
-    ({ id: patientId } = await prisma.patient.create({
+    ({ id: patientId } = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Session Checked', lastName: 'Patient' },
       select: { id: true },
     }));
@@ -335,11 +336,11 @@ describe('audit rows keep who they name, within their clinic', () => {
     operator = await createTestOperator();
     author = await clinic.createUser();
     stranger = await otherClinic.createUser();
-    ({ id: patientId } = await prisma.patient.create({
+    ({ id: patientId } = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Kept', lastName: 'Patient' },
       select: { id: true },
     }));
-    ({ id: strangerPatientId } = await prisma.patient.create({
+    ({ id: strangerPatientId } = await fixture.patient.create({
       data: { tenantId: otherClinic.tenantId, firstName: 'Stranger', lastName: 'Patient' },
       select: { id: true },
     }));
@@ -450,7 +451,14 @@ describe('audit-guards.sql', () => {
 
     const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
     // No created_at, so no stamp trigger.
-    const REVISION_TABLES = ['session_revisions'];
+    const REVISION_TABLES = [
+      'session_revisions',
+      'patient_revisions',
+      'episode_revisions',
+      'evaluation_revisions',
+      'consent_revisions',
+      'patient_event_revisions',
+    ];
     const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,

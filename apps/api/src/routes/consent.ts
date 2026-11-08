@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { z } from 'zod';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { consentRepo, patientRepo } from '../repositories';
 
 type Params = { patientId: string };
@@ -14,6 +16,11 @@ type Params = { patientId: string };
 // una firma contra el paciente de otra clínica dejaba una fila con nuestro
 // tenantId que le impedía firmar al dueño real para siempre.
 const router = Router({ mergeParams: true });
+
+// The version the screen showed (0: none), so signing over a consent someone
+// else signed or revoked meanwhile is a 409. Revoking is a DELETE, which the
+// web client sends with no body.
+const SignSchema = z.strictObject({ expectedVersion: ExpectedVersionSchema });
 
 // GET — estado del consentimiento
 router.get<Params>('/', async (req, res) => {
@@ -33,14 +40,19 @@ router.post<Params>('/', async (req, res) => {
     return;
   }
 
-  const data = await consentRepo.sign(req.context, req.params.patientId, (c) => ({
+  const { expectedVersion } = SignSchema.parse(req.body ?? {});
+  const result = await consentRepo.sign(req.context, req.params.patientId, expectedVersion, (c) => ({
     action: 'CONSENT_SIGNED',
     patientId: req.params.patientId,
     entityId: c.id,
     params: {},
   }));
 
-  res.status(201).json({ data });
+  if (!result.ok) {
+    res.status(409).json(STALE_EDIT);
+    return;
+  }
+  res.status(201).json({ data: result.consent });
 });
 
 // DELETE — revocar el consentimiento

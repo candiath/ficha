@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api';
 import { sessionApi } from '@/services/sessions';
 import type { ClinicalEpisode } from '@/types/episode';
 import type { Session } from '@/types/session';
+import { chooseReason } from './revisionReason';
 
 // A visit can treat several problems (#238): the form lets the therapist tick
 // every open episode, each with its own block, and sends the whole set.
@@ -103,24 +104,26 @@ describe('SessionFormModalWide: revisions', () => {
     renderForm({ session });
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
+    await chooseReason(undefined, dialog);
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
     return dialog;
   }
 
-  it('an edit sends the version it loaded, the preselected reason and the note', async () => {
+  it('an edit sends the version it loaded, the chosen reason and the note', async () => {
     update.mockResolvedValue(session);
     renderForm({ session });
     const dialog = await screen.findByRole('dialog');
 
-    expect(within(dialog).getByRole('combobox', { name: 'Motivo del cambio' })).toHaveTextContent('Error de confección');
+    expect(within(dialog).getByRole('combobox', { name: 'Motivo del cambio' })).toHaveTextContent('Elegí un motivo');
     await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
+    await chooseReason('Aclaración', dialog);
     await userEvent.type(within(dialog).getByLabelText('Nota del cambio (opcional)'), 'Dictado por la paciente');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     expect(update.mock.calls[0][2]).toMatchObject({
       expectedVersion: 3,
-      reason: 'DATA_ENTRY_ERROR',
+      reason: 'CLARIFICATION',
       reasonNote: 'Dictado por la paciente',
     });
   });
@@ -211,6 +214,7 @@ describe('SessionFormModalWide: several motives', () => {
     const dialog = await screen.findByRole('dialog');
 
     await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
+    await chooseReason(undefined, dialog);
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));

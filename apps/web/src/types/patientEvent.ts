@@ -13,6 +13,8 @@ export interface PatientEvent {
   occurred: PartialDate | null;
   createdAt: string;
   updatedAt: string;
+  // The latest version (0: none yet).
+  version: number;
 }
 
 export interface PatientEventInput {

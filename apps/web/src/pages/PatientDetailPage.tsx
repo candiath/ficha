@@ -26,6 +26,10 @@ import { DirtyLabel } from '@/components/ui/dirty-label';
 import AbandonEpisodeConfirm from '@/components/patients/AbandonEpisodeConfirm';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
+import RevisionReasonField from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit';
 import ConsentTab from '@/components/patients/ConsentTab';
 import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
@@ -199,10 +203,15 @@ function EpisodeCombobox({
   );
 }
 
-function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; onUnsavedChangesChange?: (v: boolean) => void }) {
+// The patient's occupation is edited here too, so the tab carries her version.
+function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; patientVersion?: number; onUnsavedChangesChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
   const [retractionMapDirty, setRetractionMapDirty] = useState(false);
+  // A correction says why (SPEC-clinical-revisions.md §4); the first
+  // evaluation does not, unless it also corrects the patient's occupation.
+  const revision = useRevisionReason();
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
 
   const { data: evaluation, isLoading } = useQuery({
     queryKey: evaluationKeys.detail(patientId, episodeId),
@@ -259,7 +268,9 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
 
   const mutation = useMutation({
     mutationFn: async (values: EvalFormValues) => {
-      const evalPromise = evaluationApi.upsert(patientId, episodeId, {
+      // Over the versions on screen: the first evaluation is version 0. Two
+      // requests, as before: if the second is refused, the first one stays.
+      const saved = await evaluationApi.upsert(patientId, episodeId, {
         patientNarrative: values.patientNarrative,
         otherHistory: values.otherHistory,
         notes: values.notes,
@@ -267,19 +278,44 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
+        expectedVersion: evaluation?.version ?? 0,
+        ...(evaluation ? { reason: revision.reason ?? undefined, reasonNote: revision.note } : {}),
       });
       if (values.occupation !== (occupation ?? '')) {
-        await patientApi.update(patientId, { occupation: values.occupation });
+        await patientApi.update(patientId, {
+          occupation: values.occupation,
+          expectedVersion: patientVersion,
+          reason: revision.reason ?? undefined,
+          reasonNote: revision.note,
+        });
       }
-      return evalPromise;
+      return saved;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
       setRetractionMapDirty(false);
+      revision.reset();
       toast.success('Evaluación guardada');
     },
+    onError: (err: Error) => {
+      if (isStaleEdit(err)) {
+        setStaleMessage(err.message);
+        return;
+      }
+      toast.error(err.message || 'No se pudo guardar la evaluación');
+    },
   });
+
+  // After a 409: the evaluation and the patient as they are now replace the form.
+  async function reload() {
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) }),
+      queryClient.refetchQueries({ queryKey: patientKeys.detail(patientId), exact: true }),
+    ]);
+    setStaleMessage(null);
+  }
+  const correcting = !!evaluation || !!dirtyFields.occupation;
 
   if (isLoading) {
     return <div className="py-8 text-sm text-muted-foreground">Cargando...</div>;
@@ -290,7 +326,12 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
       {/* The patient's history: hers, not the episode's, with its own saves. */}
       <PatientHistoryCard patientId={patientId} />
       <Form {...form}>
-        <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))}>
+        <form
+          onSubmit={form.handleSubmit((v) => {
+            if (correcting && !revision.require()) return;
+            mutation.mutate(v);
+          })}
+        >
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-base">Evaluación inicial</CardTitle>
@@ -455,6 +496,10 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   </FormItem>
                 )}
               />
+              {correcting && <RevisionReasonField {...revision.fieldProps} />}
+              {staleMessage && (
+                <StaleRecordNotice message={staleMessage} reloading={false} onReload={() => void reload()} />
+              )}
               <div className="flex justify-end pt-2">
                 <TooltipProvider>
                   <Tooltip>
@@ -517,14 +562,22 @@ function SessionsTab({
     episodes.find((ep) => ep.id === id)?.mainComplaint || 'Otro motivo';
 
   const reopenMutation = useMutation({
-    mutationFn: () => episodeApi.update(patientId, episodeId, { status: 'ACTIVE', closedAt: null }),
+    mutationFn: () =>
+      episodeApi.update(patientId, episodeId, {
+        status: 'ACTIVE',
+        closedAt: null,
+        expectedVersion: episodes.find((ep) => ep.id === episodeId)?.version,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) });
       toast.success('Episodio reabierto');
       setClosedWarning(false);
       setNewOpen(true);
     },
-    onError: () => toast.error('No se pudo reabrir el episodio'),
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo reabrir el episodio');
+      if (isStaleEdit(err)) queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) });
+    },
   });
 
   const dischargeSession = sessions.find((s) => s.sessionType === 'DISCHARGE') ?? null;
@@ -782,6 +835,13 @@ export default function PatientDetailPage() {
   const [newEpisodeComplaint, setNewEpisodeComplaint] = useState('');
   const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
   const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
+  // The version the complaint on screen was read from, kept with it: a refetch
+  // while the dialog is open (on window focus, say) must not save that text over
+  // a newer version without a 409.
+  const [editEpisodeVersion, setEditEpisodeVersion] = useState(0);
+  // Correcting the complaint says why; closing and reopening do not.
+  const episodeRevision = useRevisionReason();
+  const [episodeStale, setEpisodeStale] = useState<string | null>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
   // cierra el episodio en la misma transacción. Por eso se abre el mismo modal
@@ -821,15 +881,38 @@ export default function PatientDetailPage() {
     },
   });
 
+  const editedEpisode = episodes.find((e) => e.id === effectiveEpisodeId);
+  // Each write carries the version it was decided on; a 409 shows the message
+  // and offers a reload.
   const updateEpisodeMutation = useMutation({
-    mutationFn: (data: EpisodeUpdateData) =>
-      episodeApi.update(id!, effectiveEpisodeId!, data),
+    mutationFn: (data: EpisodeUpdateData) => episodeApi.update(id!, effectiveEpisodeId!, data),
+    onError: (err: Error) => {
+      if (isStaleEdit(err)) {
+        setEpisodeStale(err.message);
+        return;
+      }
+      toast.error(err.message || 'No se pudo guardar el episodio');
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
       setEditEpisodeOpen(false);
+      setEpisodeStale(null);
+      episodeRevision.reset();
       setConfirmAbandon(false);
     },
   });
+  // Over the version the text was read from, not the list's latest. Reopening
+  // goes over the list's latest: it acts on the status on screen, which is live.
+  const saveEpisodeComplaint = () => {
+    const reason = episodeRevision.require();
+    if (!reason) return;
+    updateEpisodeMutation.mutate({
+      mainComplaint: editEpisodeComplaint,
+      reason,
+      reasonNote: episodeRevision.note,
+      expectedVersion: editEpisodeVersion,
+    });
+  };
 
   useEffect(() => { document.title = TAB_COMPONENT[activeTab] ?? 'PatientDetailPage'; }, [activeTab]);
 
@@ -931,7 +1014,12 @@ export default function PatientDetailPage() {
               title="Editar motivo del episodio"
               onClick={() => {
                 const ep = episodes.find((e) => e.id === effectiveEpisodeId);
+                // The selection is pinned, so a refetch cannot move the dialog
+                // to another episode.
+                setActiveEpisodeId(effectiveEpisodeId);
                 setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                setEditEpisodeVersion(ep?.version ?? 0);
+                episodeRevision.reset();
                 setConfirmAbandon(false);
                 setEditEpisodeOpen(true);
               }}
@@ -1020,6 +1108,7 @@ export default function PatientDetailPage() {
               patientId={id!}
               episodeId={effectiveEpisodeId}
               occupation={patient.occupation}
+              patientVersion={patient.version}
               onUnsavedChangesChange={setEvalHasChanges}
             />
           ) : (
@@ -1088,12 +1177,13 @@ export default function PatientDetailPage() {
       </Dialog>
 
       {/* Dialog: Editar episodio (motivo + estado) */}
-      <Dialog open={editEpisodeOpen} onOpenChange={(o) => { setEditEpisodeOpen(o); setConfirmAbandon(false); }}>
+      <Dialog open={editEpisodeOpen} onOpenChange={(o) => { setEditEpisodeOpen(o); setConfirmAbandon(false); setEpisodeStale(null); }}>
         <DialogContent>
           {confirmAbandon ? (
             <AbandonEpisodeConfirm
               patientId={id!}
               episodeId={effectiveEpisodeId!}
+              episodeVersion={editedEpisode?.version ?? 0}
               onCancel={() => setConfirmAbandon(false)}
               onAbandoned={() => {
                 queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
@@ -1116,11 +1206,28 @@ export default function PatientDetailPage() {
                   value={editEpisodeComplaint}
                   onChange={(e) => setEditEpisodeComplaint(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint });
+                    if (e.key === 'Enter') saveEpisodeComplaint();
                   }}
                   autoFocus
                 />
               </div>
+              <RevisionReasonField {...episodeRevision.fieldProps} />
+              {episodeStale && (
+                <StaleRecordNotice
+                  message={episodeStale}
+                  reloading={false}
+                  onReload={() => {
+                    void queryClient
+                      .fetchQuery({ queryKey: episodeKeys.list(id!), queryFn: () => episodeApi.list(id!), staleTime: 0 })
+                      .then((fresh) => {
+                        const ep = fresh.find((e) => e.id === effectiveEpisodeId);
+                        setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                        setEditEpisodeVersion(ep?.version ?? 0);
+                        setEpisodeStale(null);
+                      });
+                  }}
+                />
+              )}
               <DialogFooter className="flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
                 <div className="flex gap-2">
                   {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
@@ -1161,7 +1268,9 @@ export default function PatientDetailPage() {
                     <Button
                       variant="ghost"
                       className="text-xs"
-                      onClick={() => updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null })}
+                      onClick={() =>
+                        updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null, expectedVersion: editedEpisode?.version })
+                      }
                       disabled={updateEpisodeMutation.isPending}
                     >
                       Reactivar episodio
@@ -1173,7 +1282,7 @@ export default function PatientDetailPage() {
                     Cancelar
                   </Button>
                   <Button
-                    onClick={() => updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint })}
+                    onClick={saveEpisodeComplaint}
                     disabled={updateEpisodeMutation.isPending}
                   >
                     {updateEpisodeMutation.isPending ? 'Guardando...' : 'Guardar'}

@@ -9,6 +9,7 @@ import { instantToClinicTime } from '../src/lib/clinicTime';
 import { prisma } from '../src/lib/prisma';
 import { LIST_SCOPE, type Shape } from './listScopeManifest';
 import { createSessionFixture, createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
+import { fixture as rows } from './fixtures';
 
 // Global lists carry no clinical text (#186, docs/specs/SPEC-list-minimization.md
 // §6). Two parts:
@@ -114,6 +115,12 @@ const CLINICAL_MODELS = [
   'SessionEpisode',
   'SessionRevision',
   'InformedConsent',
+  // Snapshots of clinical records, and the notes of their corrections.
+  'PatientRevision',
+  'EpisodeRevision',
+  'EvaluationRevision',
+  'ConsentRevision',
+  'PatientEventRevision',
 ] as const;
 
 const NOT_CLINICAL: Record<string, string> = {
@@ -262,26 +269,26 @@ describe('global lists carry no clinical text', () => {
     const { timezone } = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     today = instantToClinicTime(new Date(), timezone).date;
 
-    const patient = await prisma.patient.create({
+    const patient = await rows.patient.create({
       data: { tenantId, firstName: 'Paciente', lastName: 'Sonda', referringDoctor: 'Dr. Derivante' },
       select: { id: true },
     });
     const patientId = patient.id;
 
     const episodeData = marked('ClinicalEpisode');
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await rows.clinicalEpisode.create({
       data: { tenantId, patientId, status: 'ACTIVE', ...episodeData },
       select: { id: true },
     });
     createdClinicalModels.add('ClinicalEpisode');
 
-    await prisma.initialEvaluation.create({
+    await rows.initialEvaluation.create({
       data: { tenantId, patientId, episodeId: episode.id, ...(marked('InitialEvaluation') as object) },
     });
     createdClinicalModels.add('InitialEvaluation');
 
     // The patient's history (#238): a dated fact, with clinical text.
-    await prisma.patientEvent.create({
+    await rows.patientEvent.create({
       data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientEvent') as { description: string }) },
     });
     createdClinicalModels.add('PatientEvent');
@@ -302,9 +309,14 @@ describe('global lists carry no clinical text', () => {
     // Its snapshot holds the session's markers. reason_note gets its own with the
     // revision routes (PLAN-clinical-revisions.md, Task 4.1).
     createdClinicalModels.add('SessionRevision');
+    // The fixtures above wrote version 1 of each, with the markers of its row.
+    for (const model of ['PatientRevision', 'EpisodeRevision', 'EvaluationRevision', 'PatientEventRevision'] as const) {
+      createdClinicalModels.add(model);
+    }
 
-    await prisma.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
+    await rows.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
     createdClinicalModels.add('InformedConsent');
+    createdClinicalModels.add('ConsentRevision');
 
     const pkg = await prisma.sessionPackage.create({
       data: { tenantId, patientId, name: 'Paquete Sonda', totalSessions: 10, pricePerSessionCents: 100 },

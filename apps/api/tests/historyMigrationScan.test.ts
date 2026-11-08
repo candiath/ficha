@@ -11,7 +11,15 @@ import { describe, expect, it } from 'vitest';
 
 const MIGRATIONS = path.join(__dirname, '..', 'prisma', 'migrations');
 
-const VERSIONED_TABLES = ['sessions', 'session_episodes'];
+const VERSIONED_TABLES = [
+  'sessions',
+  'session_episodes',
+  'patients',
+  'clinical_episodes',
+  'initial_evaluations',
+  'informed_consents',
+  'patient_events',
+];
 
 // Every migration that existed before this scan. Written by hand, not "older
 // than X": a branch started earlier, with an older timestamp, is still scanned.

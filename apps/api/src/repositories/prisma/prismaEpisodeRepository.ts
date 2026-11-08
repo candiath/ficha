@@ -15,6 +15,8 @@ import type {
 } from '../episodeRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
+import { recordRevision, Rollback, unlessRolledBack } from './recordRevision';
+import { episodeSnapshot } from './clinicalSnapshots';
 
 const episodeSelect = {
   id: true,
@@ -25,6 +27,8 @@ const episodeSelect = {
   closedAt: true,
   createdAt: true,
   updatedAt: true,
+  // The latest version; none is version 0.
+  revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
 } as const;
 
 type EpisodeRow = {
@@ -36,13 +40,15 @@ type EpisodeRow = {
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  revisions: { version: number }[];
 };
 
 const AUDIT_FIELDS = Object.keys(AUDIT_EPISODE_FIELDS) as EpisodeAuditField[];
 
-function toDTO(row: EpisodeRow): EpisodeDTO {
+function toDTO({ revisions, ...row }: EpisodeRow): EpisodeDTO {
   return {
     ...row,
+    version: revisions[0]?.version ?? 0,
     openedAt: row.openedAt.toISOString(),
     closedAt: row.closedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -103,8 +109,15 @@ export const prismaEpisodeRepository: EpisodeRepository = {
         },
         select: episodeSelect,
       });
-      const episode = toDTO(row);
-      await recordAudit(tx, ctx, audit(episode));
+      const episode = { ...toDTO(row), version: 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(episode));
+      await recordRevision(tx, ctx, 'episode_revisions', {
+        aggregateId: row.id,
+        patientId,
+        version: 1,
+        auditLogId,
+        snapshot: episodeSnapshot(row),
+      });
       return episode;
     });
   },
@@ -113,56 +126,78 @@ export const prismaEpisodeRepository: EpisodeRepository = {
     ctx: TenantContext,
     patientId: string,
     id: string,
-    input: EpisodeUpdateInput,
+    { expectedVersion, reason, reasonNote, ...input }: EpisodeUpdateInput,
     audit: EpisodeUpdateAudit,
   ): Promise<EpisodeUpdateResult> {
     const db = forTenant(ctx);
-    return db.$transaction(async (tx): Promise<EpisodeUpdateResult> => {
-      // Locked and read first: what the request does (close, reopen or
-      // correct) is decided against the stored row, and a concurrent edit
-      // waits for this one.
-      await lockRow(tx, 'clinical_episodes', id, ctx.tenantId);
-      const found = await tx.clinicalEpisode.findFirst({
-        where: { id, patientId, tenantId: ctx.tenantId },
-        select: episodeSelect,
-      });
-      // Inexistente, de otro paciente o de otro tenant: lo mismo.
-      if (!found) return { ok: false, reason: 'not_found' };
-      const before = toDTO(found);
+    return unlessRolledBack(
+      db.$transaction(async (tx): Promise<EpisodeUpdateResult> => {
+        // Locked and read first: what the request does (close, reopen or
+        // correct) is decided against the stored row, and a concurrent edit
+        // waits for this one, then reads the version this one wrote.
+        await lockRow(tx, 'clinical_episodes', id, ctx.tenantId);
+        const found = await tx.clinicalEpisode.findFirst({
+          where: { id, patientId, tenantId: ctx.tenantId },
+          select: episodeSelect,
+        });
+        // Inexistente, de otro paciente o de otro tenant: lo mismo.
+        if (!found) return { ok: false, reason: 'not_found' };
+        const before = toDTO(found);
+        if (expectedVersion !== undefined && expectedVersion !== before.version) {
+          return { ok: false, reason: 'stale' };
+        }
 
-      // One write, one fact: a status change that also corrects the complaint
-      // would be two, under one audit row that could only name one.
-      const transition = input.status !== undefined && input.status !== before.status;
-      if (transition && input.mainComplaint !== undefined && input.mainComplaint !== before.mainComplaint) {
-        return { ok: false, reason: 'transition_with_correction' };
-      }
+        // One write, one fact: a status change that also corrects the complaint
+        // would be two, under one audit row that could only name one.
+        const transition = input.status !== undefined && input.status !== before.status;
+        if (transition && input.mainComplaint !== undefined && input.mainComplaint !== before.mainComplaint) {
+          return { ok: false, reason: 'transition_with_correction' };
+        }
 
-      // La coherencia de las fechas va en el where del write: un episodio no
-      // puede cerrarse antes de abrirse, y openedAt vive en la base. Con la
-      // fila bloqueada y encontrada, no escribir solo puede ser eso, o un
-      // pedido sin campos: Prisma no escribe nada y cuenta 0.
-      const { count } = await tx.clinicalEpisode.updateMany({
-        where: {
-          id,
+        // La coherencia de las fechas va en el where del write: un episodio no
+        // puede cerrarse antes de abrirse, y openedAt vive en la base. Con la
+        // fila bloqueada y encontrada, no escribir solo puede ser eso, o un
+        // pedido sin campos: Prisma no escribe nada y cuenta 0.
+        const { count } = await tx.clinicalEpisode.updateMany({
+          where: {
+            id,
+            patientId,
+            tenantId: ctx.tenantId,
+            ...(input.closedAt ? { openedAt: { lte: input.closedAt } } : {}),
+          },
+          data: input,
+        });
+        if (count === 0 && input.closedAt) {
+          return { ok: false, reason: 'closed_before_opened', openedAt: before.openedAt };
+        }
+
+        const row = await tx.clinicalEpisode.findFirstOrThrow({
+          where: { id, tenantId: ctx.tenantId },
+          select: episodeSelect,
+        });
+        const after = toDTO(row);
+        // Decided after the write, from what the row holds: a write that
+        // changed nothing, or a correction with no reason, is rolled back whole.
+        const change = changeOf(before, after);
+        if (!change) throw new Rollback<EpisodeUpdateResult>({ ok: true, episode: before });
+        if (change.kind === 'corrected' && reason === undefined) {
+          throw new Rollback<EpisodeUpdateResult>({ ok: false, reason: 'reason_required' });
+        }
+
+        const episode = { ...after, version: before.version + 1 };
+        const auditLogId = await recordAudit(tx, ctx, audit(episode, change));
+        await recordRevision(tx, ctx, 'episode_revisions', {
+          aggregateId: id,
           patientId,
-          tenantId: ctx.tenantId,
-          ...(input.closedAt ? { openedAt: { lte: input.closedAt } } : {}),
-        },
-        data: input,
-      });
-      if (count === 0 && input.closedAt) {
-        return { ok: false, reason: 'closed_before_opened', openedAt: before.openedAt };
-      }
-
-      const row = await tx.clinicalEpisode.findFirstOrThrow({
-        where: { id, tenantId: ctx.tenantId },
-        select: episodeSelect,
-      });
-      const episode = toDTO(row);
-      const change = changeOf(before, episode);
-      if (change) await recordAudit(tx, ctx, audit(episode, change));
-      return { ok: true, episode };
-    });
+          version: episode.version,
+          auditLogId,
+          snapshot: episodeSnapshot(row),
+          // A transition takes no reason, so it has no note either.
+          reasonNote: change.kind === 'corrected' ? reasonNote : undefined,
+        });
+        return { ok: true, episode };
+      }),
+    );
   },
 
   async allBelongToPatient(

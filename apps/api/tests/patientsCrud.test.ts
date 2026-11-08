@@ -190,6 +190,7 @@ describe('CRUD de pacientes por HTTP', () => {
     });
 
     const res = await auth(request(app).patch(`/api/patients/${creado.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       phone: '222',
     });
 
@@ -213,6 +214,7 @@ describe('CRUD de pacientes por HTTP', () => {
     });
 
     const res = await auth(request(app).patch(`/api/patients/${creado.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       birthDate: null,
       phone: null,
       insuranceName: null,
@@ -231,6 +233,7 @@ describe('CRUD de pacientes por HTTP', () => {
     const creado = await crearPaciente({ firstName: 'Nombre', lastName: 'Intacto' });
 
     const res = await auth(request(app).patch(`/api/patients/${creado.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       lastName: '   ',
     });
 
@@ -242,6 +245,7 @@ describe('CRUD de pacientes por HTTP', () => {
 
   it('PATCH de un id que no existe da 404', async () => {
     const res = await auth(request(app).patch(`/api/patients/${randomUUID()}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       phone: '444',
     });
 
@@ -277,7 +281,7 @@ describe('CRUD de pacientes por HTTP', () => {
   // espera con waitFor en vez de asertar de inmediato.
   it('crear, editar y borrar dejan cada uno su entrada de auditoría', async () => {
     const creado = await crearPaciente({ firstName: 'Auditado', lastName: 'Test' });
-    await auth(request(app).patch(`/api/patients/${creado.id}`)).send({ phone: '555' });
+    await auth(request(app).patch(`/api/patients/${creado.id}`)).send({ reason: 'DATA_ENTRY_ERROR', phone: '555' });
     await auth(request(app).delete(`/api/patients/${creado.id}`));
 
     const [creada, editada, borrada] = await Promise.all([
@@ -302,7 +306,7 @@ describe('CRUD de pacientes por HTTP', () => {
       request(app).get('/api/patients'),
       request(app).get(`/api/patients/${creado.id}`),
       request(app).post('/api/patients').send({ firstName: 'Intruso', lastName: 'Test' }),
-      request(app).patch(`/api/patients/${creado.id}`).send({ firstName: 'Hackeado', lastName: 'Test' }),
+      request(app).patch(`/api/patients/${creado.id}`).send({ reason: 'DATA_ENTRY_ERROR', firstName: 'Hackeado', lastName: 'Test' }),
       request(app).delete(`/api/patients/${creado.id}`),
     ];
 

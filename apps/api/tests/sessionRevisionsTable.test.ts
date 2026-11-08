@@ -11,6 +11,7 @@ import {
   inAuditMaintenance,
   type TestClinic,
 } from './helpers';
+import { fixture } from './fixtures';
 
 // What the database itself guarantees about a session's versions
 // (SPEC-clinical-revisions.md §2, §6), written straight to the table.
@@ -25,7 +26,7 @@ describe('session_revisions', () => {
 
   const newPatient = async (tenantId: string) =>
     (
-      await prisma.patient.create({
+      await fixture.patient.create({
         data: { tenantId, firstName: 'Con', lastName: 'Versiones' },
         select: { id: true },
       })

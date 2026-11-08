@@ -53,7 +53,7 @@ Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for
 | Informed consent | `informed_consents` | `consent_revisions` |
 | Patient event | `patient_events` | `patient_event_revisions` |
 
-**Patient fields.** Versioned: identification (`firstName`, `lastName`, `birthDate`, `sex`, and the document fields when they land) and clinical context (`occupation`, `referringDoctor`). Not versioned: contact (`phone`) and coverage (`insuranceName`, `insuranceNumber`, `insurancePlan`); their changes are still recorded as `changedFields` in the audit row. Versioning coverage later is a schema bump (§3). The patient's soft delete and restore are versions (events), not a field of the snapshot.
+**Patient fields.** Versioned: identification (`firstName`, `lastName`, `birthDate`, `sex`, and the document fields when they land) and clinical context (`occupation`, `referringDoctor`). Not versioned: contact (`phone`) and coverage (`insuranceName`, `insuranceNumber`, `insurancePlan`); their changes are still recorded as `changedFields` in the audit row, and still take a version, of unchanged content, so `expectedVersion` sees every write (decided in step 3's review). Versioning coverage later is a schema bump (§3). The patient's soft delete and restore are versions (events), not a field of the snapshot.
 
 **Not versioned:** payments (billing, not clinical record; if the coverage a session was billed under matters, the payment stores it), appointments, clinical alerts.
 
@@ -86,14 +86,14 @@ Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScop
 
 - `recordAudit` returns the id of the row it inserted.
 - `AuditEntity` gains `EPISODE`, and the catalog gains episode actions: `EPISODE_OPENED`; `EPISODE_CLOSED`, with its status (`DISCHARGED`, `ABANDONED`); `EPISODE_REOPENED`; and `EPISODE_UPDATED`, only for corrections of the complaint or the dates. A request that changes the status and corrects data at once is refused (`400`): one write, one fact. Episode writes move into a transaction with their audit row: this is the episode part of `clinical-audit-coverage`, a prerequisite.
-- Corrections and annulments gain a `reason` parameter with codes: `DATA_ENTRY_ERROR`, `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`. **Required on every correction (`*_UPDATED`) and every annulment** of a versioned aggregate (decided 2026-11-01); the UI preselects `DATA_ENTRY_ERROR` ("Error de confección"). **State transitions take none** (decided 2026-11-01): closing or reopening an episode, and signing or revoking a consent, are facts, not corrections, so "Error de confección" has no meaning there. New codes only: existing codes are never renamed or reused.
+- Corrections and annulments gain a `reason` parameter with codes: `DATA_ENTRY_ERROR`, `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`. **Required on every correction (`*_UPDATED`) and every annulment** of a versioned aggregate (decided 2026-11-01); the UI preselects none (decided 2026-11-08, replacing the preselected `DATA_ENTRY_ERROR` of 2026-11-01): saving without one marks the field and moves the focus to it, so every reason recorded was chosen by someone. **State transitions take none** (decided 2026-11-01): closing or reopening an episode, and signing or revoking a consent, are facts, not corrections, so "Error de confección" has no meaning there. New codes only: existing codes are never renamed or reused.
 - A multi-aggregate action (`DISCHARGE_RECORDED`, which closes episodes) owns one session revision and one revision per closed episode.
 
 ### 5. Write path
 
 `recordRevision(tx, ctx, …)` lives next to `recordAudit`. In the same transaction as the clinical write:
 
-1. **Lock** the aggregate's root row (`SELECT … FOR UPDATE`). For a creation that has no row yet (first evaluation of an episode, first consent), lock the parent row (episode, patient). Multi-aggregate writes lock in a fixed order (patient, then session, then episodes by id) to avoid deadlocks. `LOCKABLE` in `changedFields.ts` gains `clinical_episodes`, `informed_consents` and `patient_events`.
+1. **Lock** the aggregate's root row (`SELECT … FOR UPDATE`). For a creation that has no row yet (first evaluation of an episode, first consent), lock the parent row (episode, patient). A multi-aggregate write (the discharge) locks what it writes, its episodes by id, before anything else, and not the patient: an episode edit holds the episode and its audit row then takes a share lock on the patient, so holding the patient would deadlock with it (decided in step 3). `LOCKABLE` in `changedFields.ts` gains `clinical_episodes`, `informed_consents` and `patient_events`.
 2. **Read the latest revision.** If the request carries `expectedVersion` and it is not the latest, return `{ ok: false, reason: 'stale' }`; the route answers `409` ("Otra persona editó este registro. Recargá para ver los cambios."). Edit forms send the version they loaded; record DTOs carry `version`.
 3. **Build the new state's projection** from the current state plus the input, and compare it with the latest snapshot. If equal, **write nothing**: no update, no audit row, no revision. A save that changes something rewrites only the blocks that changed; the session's forced `updatedAt` stays for it, because an edit of a block alone writes no column of the session.
 4. **Write** the clinical rows, then the audit row, then one revision per changed aggregate with `version = latest + 1`.
@@ -184,7 +184,7 @@ Depends on this module and on #206 (a runtime role that owns nothing; migrations
 Settled 2026-10-31 and 2026-11-01:
 
 1. **Reading past versions:** every user of the clinic for now (§7).
-2. **Reasons:** always asked, `DATA_ENTRY_ERROR` preselected (§4).
+2. **Reasons:** always asked, none preselected (§4; until 2026-11-08, `DATA_ENTRY_ERROR` was).
 3. **Reset-link impersonation:** accepted until the mailer (*What this module does not protect against*).
 4. **Postgres 18:** now, as rollout step 0, in a new Neon project. Every branch moves by dump and restore, `production` included, before the relaunch rather than at its wipe (*Tech Stack*, *Rollout*).
 5. **No reason on state transitions:** the episode's closing and reopening get their own actions; consent sign and revoke take no reason either (§4).

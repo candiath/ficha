@@ -5,6 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // La evaluación inicial es 1:1 con el episodio y se escribe con un PUT que es
 // upsert. evaluationFamilies.test.ts ya fija qué se puede guardar en las
@@ -30,7 +31,7 @@ describe('CRUD de la evaluación inicial', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Evaluación' },
       select: { id: true },
     });
@@ -39,6 +40,7 @@ describe('CRUD de la evaluación inicial', () => {
 
   afterAll(async () => {
     await sleep(300);
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.initialEvaluation.deleteMany({ where: { tenantId: clinic.tenantId } });
     await deleteAuditRows([clinic.tenantId]);
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -49,7 +51,7 @@ describe('CRUD de la evaluación inicial', () => {
   // Cada test que escribe usa su propio episodio: la evaluación es única por
   // episodio, así que compartirlo acoplaría el alta con la actualización.
   async function nuevoEpisodio() {
-    return prisma.clinicalEpisode.create({
+    return fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Dorsalgia' },
       select: { id: true },
     });
@@ -86,6 +88,7 @@ describe('CRUD de la evaluación inicial', () => {
     const propio = await nuevoEpisodio();
 
     const res = await auth(request(app).put(url(propio.id))).send({
+      reason: 'DATA_ENTRY_ERROR',
       patientNarrative: 'Dolor dorsal desde que cambió de silla en el trabajo',
       otherHistory: 'Toma anticoagulantes',
       physicalActivity: 'Natación 2x semana',
@@ -116,8 +119,8 @@ describe('CRUD de la evaluación inicial', () => {
   it('el segundo PUT actualiza la misma fila y la audita como corrección', async () => {
     const propio = await nuevoEpisodio();
 
-    const alta = await auth(request(app).put(url(propio.id))).send({ evaScale: 5 });
-    const correccion = await auth(request(app).put(url(propio.id))).send({ evaScale: 3 });
+    const alta = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 5 });
+    const correccion = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 3 });
 
     expect(correccion.status).toBe(200);
     expect(correccion.body.data.id).toBe(alta.body.data.id);
@@ -136,9 +139,10 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('un campo mandado en null se borra', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ notes: 'Primera consulta', evaScale: 8 });
+    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', notes: 'Primera consulta', evaScale: 8 });
 
     const res = await auth(request(app).put(url(propio.id))).send({
+      reason: 'DATA_ENTRY_ERROR',
       notes: null,
       evaScale: null,
     });
@@ -154,11 +158,13 @@ describe('CRUD de la evaluación inicial', () => {
   it('el campo ausente no se toca, sea escalar o JSON', async () => {
     const propio = await nuevoEpisodio();
     await auth(request(app).put(url(propio.id))).send({
+      reason: 'DATA_ENTRY_ERROR',
       notes: 'Primera consulta',
       retractionMap: MAPA,
     });
 
     const res = await auth(request(app).put(url(propio.id))).send({
+      reason: 'DATA_ENTRY_ERROR',
       patientNarrative: 'Dolor dorsal',
     });
 
@@ -170,9 +176,9 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('una columna JSON se borra mandándola en null, como cualquier otro campo', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ retractionMap: MAPA, notes: 'Queda' });
+    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', retractionMap: MAPA, notes: 'Queda' });
 
-    const res = await auth(request(app).put(url(propio.id))).send({ retractionMap: null });
+    const res = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', retractionMap: null });
 
     expect(res.status).toBe(200);
     expect(res.body.data.retractionMap).toBeNull();
@@ -182,9 +188,9 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('un texto se borra con "" igual que con null, porque lo normaliza la API', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ notes: 'Primera consulta' });
+    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', notes: 'Primera consulta' });
 
-    const res = await auth(request(app).put(url(propio.id))).send({ notes: '   ' });
+    const res = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', notes: '   ' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.notes).toBeNull();
@@ -192,7 +198,7 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('el GET devuelve lo último que se guardó', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ physicalActivity: 'Camina 30 minutos' });
+    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', physicalActivity: 'Camina 30 minutos' });
 
     const res = await auth(request(app).get(url(propio.id)));
 
@@ -204,7 +210,7 @@ describe('CRUD de la evaluación inicial', () => {
   // still sending one gets a 400, not a silent drop.
   it('rechaza un campo que ya no es de la evaluación', async () => {
     for (const campo of ['globalPosture', 'postureFamilies', 'painAppearanceMoment', 'reasonForConsultation', 'flexibilityNotes']) {
-      const res = await auth(request(app).put(url())).send({ [campo]: 'algo' });
+      const res = await auth(request(app).put(url())).send({ reason: 'DATA_ENTRY_ERROR', [campo]: 'algo' });
       expect(res.status, campo).toBe(400);
     }
   });
@@ -212,7 +218,7 @@ describe('CRUD de la evaluación inicial', () => {
   // ── Validación ────────────────────────────────────────────────────────────
 
   it('rechaza una EVA fuera de 0 a 10', async () => {
-    const res = await auth(request(app).put(url())).send({ evaScale: 11 });
+    const res = await auth(request(app).put(url())).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 11 });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Datos inválidos');
@@ -221,7 +227,7 @@ describe('CRUD de la evaluación inicial', () => {
 
   it('acepta EVA 0: no tener dolor es un dato, no un campo vacío', async () => {
     const propio = await nuevoEpisodio();
-    const res = await auth(request(app).put(url(propio.id))).send({ evaScale: 0 });
+    const res = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 0 });
 
     expect(res.status).toBe(200);
     expect(res.body.data.evaScale).toBe(0);
@@ -233,7 +239,7 @@ describe('CRUD de la evaluación inicial', () => {
     const inexistente = randomUUID();
 
     const get = await auth(request(app).get(url(inexistente)));
-    const put = await auth(request(app).put(url(inexistente))).send({ evaScale: 4 });
+    const put = await auth(request(app).put(url(inexistente))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4 });
 
     expect(get.status).toBe(404);
     expect(get.body.error).toBe('Episodio no encontrado');
@@ -241,16 +247,16 @@ describe('CRUD de la evaluación inicial', () => {
   });
 
   it('un episodio de otro paciente de la misma clínica es 404: no se escribe nada', async () => {
-    const otroPaciente = await prisma.patient.create({
+    const otroPaciente = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Vecino' },
       select: { id: true },
     });
-    const suEpisodio = await prisma.clinicalEpisode.create({
+    const suEpisodio = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: otroPaciente.id },
       select: { id: true },
     });
 
-    const res = await auth(request(app).put(url(suEpisodio.id))).send({ evaScale: 9 });
+    const res = await auth(request(app).put(url(suEpisodio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 9 });
 
     expect(res.status).toBe(404);
     await expect(
@@ -261,15 +267,15 @@ describe('CRUD de la evaluación inicial', () => {
   it('la evaluación de otra clínica no se lee ni se pisa', async () => {
     const otra = await createTestClinic();
     try {
-      const ajeno = await prisma.patient.create({
+      const ajeno = await fixture.patient.create({
         data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
-      const suEpisodio = await prisma.clinicalEpisode.create({
+      const suEpisodio = await fixture.clinicalEpisode.create({
         data: { tenantId: otra.tenantId, patientId: ajeno.id },
         select: { id: true },
       });
-      await prisma.initialEvaluation.create({
+      await fixture.initialEvaluation.create({
         data: {
           tenantId: otra.tenantId,
           patientId: ajeno.id,
@@ -283,6 +289,7 @@ describe('CRUD de la evaluación inicial', () => {
       // de la otra clínica intacta.
       const conPacienteAjeno = await auth(request(app).get(url(suEpisodio.id, ajeno.id)));
       const conPacientePropio = await auth(request(app).put(url(suEpisodio.id))).send({
+        reason: 'DATA_ENTRY_ERROR',
         notes: 'Pisado',
       });
 
@@ -295,6 +302,7 @@ describe('CRUD de la evaluación inicial', () => {
         }),
       ).resolves.toEqual({ notes: 'Historia de otra clínica' });
 
+      await deleteAuditRows([otra.tenantId]);
       await prisma.initialEvaluation.deleteMany({ where: { tenantId: otra.tenantId } });
       await prisma.clinicalEpisode.deleteMany({ where: { tenantId: otra.tenantId } });
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });

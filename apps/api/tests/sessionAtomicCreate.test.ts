@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // POST /api/patients/:id/sessions con payment: sesión, cobro y cierre de
 // episodios se crean en una sola transacción. Antes el frontend encadenaba
@@ -32,11 +33,11 @@ describe('creación atómica de sesión con pago', () => {
     userA = await clinicA.createUser();
     tokenA = await createTestToken(userA);
 
-    patientA = await prisma.patient.create({
+    patientA = await fixture.patient.create({
       data: { tenantId: clinicA.tenantId, firstName: 'Paciente', lastName: 'Atómico' },
       select: { id: true },
     });
-    episodeA = await prisma.clinicalEpisode.create({
+    episodeA = await fixture.clinicalEpisode.create({
       data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Lumbalgia' },
       select: { id: true },
     });
@@ -136,7 +137,7 @@ describe('creación atómica de sesión con pago', () => {
 
   it('a discharge of an episode that opens later is refused, and nothing is recorded', async () => {
     const openedAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Cervicalgia', openedAt },
       select: { id: true },
     });

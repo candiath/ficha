@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { AUDIT_SESSION_FIELDS, SESSION_SNAPSHOT_VERSION } from '@ficha/shared';
+import { AUDIT_SESSION_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import { fullName, patientNameSelect } from './patientName';
 import { settle } from '../../lib/paymentSettlement';
@@ -22,8 +22,9 @@ import type {
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
-import { recordRevision } from './recordRevision';
-import { latestSessionRevision, sessionSnapshot } from './sessionSnapshot';
+import { latestRevision, recordRevision } from './recordRevision';
+import { sessionSnapshot } from './sessionSnapshot';
+import { episodeSnapshot, episodeSnapshotSelect } from './clinicalSnapshots';
 
 // Política del repositorio: todo método opera sobre sesiones vigentes. Una
 // sesión borrada no se lista, no se lee y no se edita — el mismo criterio que
@@ -247,6 +248,15 @@ export const prismaSessionRepository: SessionRepository = {
     // además arrastra la extension (el objeto es el cliente extendido), como
     // defensa en profundidad.
     const session = await db.$transaction(async (tx) => {
+      // A discharge also writes its episodes, so it locks them first, by id
+      // (SPEC-clinical-revisions.md §5): a concurrent edit of one waits, and two
+      // discharges of one episode cannot both take a share lock through
+      // session_episodes and then deadlock asking for the row. The patient is
+      // not locked: the discharge does not write it, and holding it would
+      // deadlock with an episode edit, whose audit row needs a share lock on it.
+      const closing = input.sessionType === 'DISCHARGE' ? [...new Set(episodes.map((b) => b.episodeId))].sort() : [];
+      for (const episodeId of closing) await lockRow(tx, 'clinical_episodes', episodeId, ctx.tenantId);
+
       const created = await tx.session.create({
         data: {
           ...sessionData(input),
@@ -310,6 +320,11 @@ export const prismaSessionRepository: SessionRepository = {
         });
         if (count === 0) throw new DischargeBeforeOpening();
       }
+      const closed = await tx.clinicalEpisode.findMany({
+        where: { id: { in: closing }, tenantId: ctx.tenantId },
+        select: { id: true, ...episodeSnapshotSelect, revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 } },
+        orderBy: { id: 'asc' },
+      });
 
       // El vínculo con el turno va en la MISMA transacción: si la sesión se
       // crea y el vínculo no, el turno queda pidiendo que se registre algo
@@ -337,15 +352,25 @@ export const prismaSessionRepository: SessionRepository = {
 
       // The audit row and version 1 go in the same transaction as everything
       // above (#188, SPEC-clinical-revisions.md §5).
+      // A discharge's audit row owns one revision per aggregate it wrote: the
+      // session's first and each closed episode's next (§4).
       const auditLogId = await recordAudit(tx, ctx, audit(dto));
       await recordRevision(tx, ctx, 'session_revisions', {
         aggregateId: created.id,
         patientId,
         version: 1,
         auditLogId,
-        schemaVersion: SESSION_SNAPSHOT_VERSION,
         snapshot: sessionSnapshot(row),
       });
+      for (const episode of closed) {
+        await recordRevision(tx, ctx, 'episode_revisions', {
+          aggregateId: episode.id,
+          patientId,
+          version: (episode.revisions[0]?.version ?? 0) + 1,
+          auditLogId,
+          snapshot: episodeSnapshot(episode),
+        });
+      }
 
       return { ...dto, version: 1 };
     }).catch((e: unknown) => {
@@ -387,7 +412,7 @@ export const prismaSessionRepository: SessionRepository = {
         if (!beforeRow) return notFound;
         const before = toDTO(beforeRow);
 
-        const latest = await latestSessionRevision(tx, ctx.tenantId, id);
+        const latest = await latestRevision(tx, ctx.tenantId, 'session_revisions', id);
         const version = latest?.version ?? 0;
         if (input.expectedVersion !== undefined && input.expectedVersion !== version) {
           return { ok: false, reason: 'stale' };
@@ -468,7 +493,6 @@ export const prismaSessionRepository: SessionRepository = {
           patientId,
           version: version + 1,
           auditLogId,
-          schemaVersion: SESSION_SNAPSHOT_VERSION,
           // From what was read back, so the version is what the rows hold.
           snapshot: sessionSnapshot(row),
           reasonNote: input.reasonNote,
@@ -547,7 +571,6 @@ export const prismaSessionRepository: SessionRepository = {
           patientId,
           version: (row.revisions[0]?.version ?? 0) + 1,
           auditLogId,
-          schemaVersion: SESSION_SNAPSHOT_VERSION,
           snapshot: sessionSnapshot(row),
         });
         return 'deleted';

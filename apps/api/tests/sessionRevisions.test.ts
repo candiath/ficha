@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // The write path of a session's versions (SPEC-clinical-revisions.md §5).
 describe('session revisions', () => {
@@ -38,12 +39,12 @@ describe('session revisions', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     const { tenantId } = clinic;
-    ({ id: patientId } = await prisma.patient.create({
+    ({ id: patientId } = await fixture.patient.create({
       data: { tenantId, firstName: 'Con', lastName: 'Historia' },
       select: { id: true },
     }));
     const episode = () =>
-      prisma.clinicalEpisode.create({ data: { tenantId, patientId, mainComplaint: 'Lumbalgia' }, select: { id: true } });
+      fixture.clinicalEpisode.create({ data: { tenantId, patientId, mainComplaint: 'Lumbalgia' }, select: { id: true } });
     // Sorted, so a test can send them out of order on purpose.
     [episodeA, episodeB] = [(await episode()).id, (await episode()).id].sort();
   });

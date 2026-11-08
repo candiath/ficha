@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma';
 import { forTenant, scopeArgs } from '../src/lib/tenantScope';
 import type { TenantContext } from '../src/repositories/types';
-import { createTestContext, createTestClinic, type TestClinic } from './helpers';
+import { createTestContext, createTestClinic, deleteAuditRows, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Unit tests de scopeArgs, sin DB: verifican la mecánica de inyección y que
 // el guard sea fail-closed ante operaciones que no reconoce.
@@ -59,17 +60,19 @@ describe('forTenant: guardia estructural de multi-tenancy', () => {
     ctxA = await createTestContext(clinicA.tenantId, userA);
     dbA = forTenant(ctxA);
 
-    patientA = await prisma.patient.create({
+    patientA = await fixture.patient.create({
       data: { tenantId: clinicA.tenantId, firstName: 'Paciente', lastName: 'A' },
       select: { id: true },
     });
-    patientB = await prisma.patient.create({
+    patientB = await fixture.patient.create({
       data: { tenantId: clinicB.tenantId, firstName: 'Paciente', lastName: 'B' },
       select: { id: true },
     });
   });
 
   afterAll(async () => {
+    // The patients' audit rows and versions restrict deleting them: they go first.
+    await deleteAuditRows([clinicA.tenantId, clinicB.tenantId]);
     await prisma.patient.deleteMany({
       where: { tenantId: { in: [clinicA.tenantId, clinicB.tenantId] } },
     });

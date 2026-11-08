@@ -17,6 +17,7 @@ import type { TenantContext } from '../src/repositories/types';
 import { AuditEntryError } from '../src/repositories/prisma/recordAudit';
 import { ZodError } from 'zod';
 import { createSessionFixture, deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // #188: an audited write and its audit row commit together or not at all.
 // Each test forces the audit insert to fail — an entry pointing at a patient
@@ -51,7 +52,7 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   // A session treating an episode of its own, as every session does (#238).
   const newSession = async (patientId: string) => {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId },
       select: { id: true },
     });
@@ -126,7 +127,7 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   it('a clinical session, its blocks and its payment are not created when the audit row fails', async () => {
     const patient = await patientRepo.create(ctx, { firstName: 'Con', lastName: 'Sesión' }, patientAudit('CREATED'));
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -178,14 +179,14 @@ describe('audit rows are written in the same transaction as their action', () =>
   it('a consent is not signed when its audit row fails', async () => {
     const patient = await newPatient('Sin Firma');
 
-    await expect(consentRepo.sign(ctx, patient.id, broken)).rejects.toThrow();
+    await expect(consentRepo.sign(ctx, patient.id, undefined, broken)).rejects.toThrow();
 
     expect(await prisma.informedConsent.count({ where: { patientId: patient.id } })).toBe(0);
   });
 
   it('a consent revocation is rolled back when its audit row fails', async () => {
     const patient = await newPatient('Firma Vigente');
-    await consentRepo.sign(ctx, patient.id, validFor(patient.id));
+    await consentRepo.sign(ctx, patient.id, undefined, validFor(patient.id));
 
     await expect(consentRepo.revoke(ctx, patient.id, broken)).rejects.toThrow();
 
@@ -212,7 +213,7 @@ describe('audit rows are written in the same transaction as their action', () =>
       episodeRepo.update(ctx, patient.id, episode.id, { status: 'ABANDONED', closedAt: new Date() }, broken),
     ).rejects.toMatchObject({ code: 'P2003' });
     await expect(
-      episodeRepo.update(ctx, patient.id, episode.id, { mainComplaint: 'Cervicalgia' }, broken),
+      episodeRepo.update(ctx, patient.id, episode.id, { mainComplaint: 'Cervicalgia', reason: 'DATA_ENTRY_ERROR' }, broken),
     ).rejects.toThrow();
 
     const row = await prisma.clinicalEpisode.findUniqueOrThrow({ where: { id: episode.id } });
@@ -221,7 +222,7 @@ describe('audit rows are written in the same transaction as their action', () =>
 
   it('an initial evaluation is not saved when its audit row fails', async () => {
     const patient = await newPatient('Sin Evaluación');
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
     });
 

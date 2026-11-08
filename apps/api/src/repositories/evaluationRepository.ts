@@ -1,11 +1,21 @@
-import type { AUDIT_EVALUATION_FIELDS } from '@ficha/shared';
+import type { AUDIT_EVALUATION_FIELDS, RevisionReason } from '@ficha/shared';
 
 import type { TenantContext } from './types';
 import type { AuditEntry } from './auditLogRepository';
 
-export interface EvaluationUpsertResult {
-  evaluation: EvaluationDTO;
-  created: boolean;
+export type EvaluationUpsertResult =
+  | { ok: true; evaluation: EvaluationDTO; created: boolean }
+  // `stale`: the form loaded another version. `reason_required`: a correction
+  // with no reason (a first evaluation needs none).
+  | { ok: false; reason: 'stale' | 'reason_required' };
+
+// What a save carries besides the fields (SPEC-clinical-revisions.md §5): the
+// version the form loaded (0 before the first evaluation), and the reason and
+// note of a correction.
+export interface EvaluationEditMeta {
+  expectedVersion?: number;
+  reason?: RevisionReason;
+  reasonNote?: string | null;
 }
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -25,6 +35,8 @@ export interface EvaluationDTO {
   evaScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
+  // The latest version; 0 if it has none yet.
+  version: number;
 }
 
 // El PUT actualiza lo que viene y deja el resto como estaba, con la regla que
@@ -52,7 +64,7 @@ export interface EvaluationUpsertInput {
 export type EvaluationAuditField = keyof typeof AUDIT_EVALUATION_FIELDS;
 
 export type EvaluationAuditBuilder = (
-  result: EvaluationUpsertResult,
+  result: { evaluation: EvaluationDTO; created: boolean },
   changedFields: [EvaluationAuditField, ...EvaluationAuditField[]] | null,
 ) => AuditEntry;
 
@@ -71,7 +83,7 @@ export interface EvaluationRepository {
     ctx: TenantContext,
     patientId: string,
     episodeId: string,
-    input: EvaluationUpsertInput,
+    input: EvaluationUpsertInput & EvaluationEditMeta,
     audit: EvaluationAuditBuilder,
   ): Promise<EvaluationUpsertResult>;
 }

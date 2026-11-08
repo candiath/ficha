@@ -29,6 +29,10 @@ import { PATIENT_EVENT_KIND_LABELS } from '@/lib/labels';
 import { patientEventApi, patientEventKeys } from '@/services/patientEvents';
 import { tenantApi, tenantKeys } from '@/services/tenant';
 import { PATIENT_EVENT_KINDS, type PatientEvent, type PatientEventKind } from '@/types/patientEvent';
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit';
 
 // The patient's history ("Antecedentes", #238): what she lived, as dated facts.
 // It belongs to the patient, so the same list shows from every episode.
@@ -48,7 +52,7 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
   const [editing, setEditing] = useState<PatientEvent | 'new' | null>(null);
   const [deleting, setDeleting] = useState<PatientEvent | null>(null);
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, refetch } = useQuery({
     queryKey: patientEventKeys.list(patientId),
     queryFn: () => patientEventApi.list(patientId),
   });
@@ -127,13 +131,20 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
       </CardContent>
 
       {editing && (
-        // Mounted per event, so its state starts from that event.
+        // Mounted per event and version, so its state starts from that one,
+        // and a reload after a 409 starts it again from the version just read.
         <PatientEventDialog
-          key={editing === 'new' ? 'new' : editing.id}
+          key={editing === 'new' ? 'new' : `${editing.id}:${editing.version}`}
           patientId={patientId}
           event={editing === 'new' ? undefined : editing}
           today={today}
           onClose={() => setEditing(null)}
+          onReload={async () => {
+            if (editing === 'new') return;
+            const fresh = (await refetch()).data?.find((e) => e.id === editing.id);
+            // Gone meanwhile: nothing left to edit.
+            setEditing(fresh ?? null);
+          }}
         />
       )}
 
@@ -231,16 +242,24 @@ function PatientEventDialog({
   event,
   today,
   onClose,
+  onReload,
 }: {
   patientId: string;
   event?: PatientEvent;
   today: string;
   onClose: () => void;
+  // Reads the event again after a 409, and opens this dialog on it.
+  onReload: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<PatientEventKind | null>(event?.kind ?? null);
   const [description, setDescription] = useState(event?.description ?? '');
   const [whenState, setWhenState] = useState<WhenState>(() => initialWhen(event?.occurred));
+  // An edit is a correction: it says why, and names the version it was made
+  // over (SPEC-clinical-revisions.md §4, §5).
+  const revision = useRevisionReason();
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
 
   const occurred = occurredFrom(whenState, today);
   const isFuture = !!occurred && occurred.date > today;
@@ -250,14 +269,28 @@ function PatientEventDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const data = { kind: kind!, description, occurred: occurred ?? null };
-      return event ? patientEventApi.update(patientId, event.id, data) : patientEventApi.create(patientId, data);
+      if (!event) return patientEventApi.create(patientId, data);
+      // The button checked it; this keeps a correction from leaving without one.
+      if (!revision.reason) throw new Error(MISSING_REASON);
+      return patientEventApi.update(patientId, event.id, {
+        ...data,
+        expectedVersion: event.version,
+        reason: revision.reason,
+        reasonNote: revision.note,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
       toast.success(event ? 'Antecedente actualizado' : 'Antecedente registrado');
       onClose();
     },
-    onError: () => toast.error('No se pudo guardar el antecedente'),
+    onError: (err: Error) => {
+      if (event && isStaleEdit(err)) {
+        setStaleMessage(err.message);
+        return;
+      }
+      toast.error(err.message || 'No se pudo guardar el antecedente');
+    },
   });
 
   return (
@@ -392,13 +425,27 @@ function PatientEventDialog({
               </p>
             )}
           </div>
+
+          {event && (
+            <RevisionReasonField {...revision.fieldProps} />
+          )}
+          {staleMessage && (
+            <StaleRecordNotice
+              message={staleMessage}
+              reloading={reloading}
+              onReload={() => {
+                setReloading(true);
+                void onReload().finally(() => setReloading(false));
+              }}
+            />
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button disabled={!canSave || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button disabled={!canSave || mutation.isPending} onClick={() => (!event || revision.require()) && mutation.mutate()}>
             {mutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </DialogFooter>

@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Hay un solo vacío en la API y es `null`. Un formulario web no tiene null:
 // tiene "". Hasta ahora esa traducción la hacía React, con un `.trim() || null`
@@ -74,6 +75,7 @@ describe('un solo vacío: "" entra como null', () => {
     const patient = await crearPaciente({ phone: '11-5555-0000', occupation: 'Docente' });
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       phone: '',
     });
 
@@ -87,6 +89,7 @@ describe('un solo vacío: "" entra como null', () => {
     const patient = await crearPaciente({ occupation: 'Docente' });
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       occupation: null,
     });
 
@@ -155,7 +158,7 @@ describe('un solo vacío: "" entra como null', () => {
 
   it('el cobro embebido en el alta de sesión sigue la misma regla', async () => {
     const patient = await crearPaciente();
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });

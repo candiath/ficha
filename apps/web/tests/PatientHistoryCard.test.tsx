@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
 import { patientEventApi } from '@/services/patientEvents';
 import type { PatientEvent } from '@/types/patientEvent';
+import { ApiError } from '@/lib/api';
+import { chooseReason } from './revisionReason';
 
 // The patient's history (#238): "hace dos meses" is stored as the month it
 // meant, computed with the clinic's today.
@@ -24,6 +26,8 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const list = vi.mocked(patientEventApi.list);
 const create = vi.mocked(patientEventApi.create);
+const update = vi.mocked(patientEventApi.update);
+const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
 
 const FRACTURE: PatientEvent = {
   id: 'ev1',
@@ -33,6 +37,7 @@ const FRACTURE: PatientEvent = {
   occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
+  version: 2,
 };
 
 function renderCard() {
@@ -77,5 +82,55 @@ describe('PatientHistoryCard', () => {
       description: 'Dolor lumbar',
       occurred: { date: '2026-08-01', precision: 'MONTH', approximate: true },
     });
+  });
+
+  it('an edit sends the version it loaded, the chosen reason and the note', async () => {
+    update.mockResolvedValue({ ...FRACTURE, version: 3 });
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar antecedente' }));
+    const dialog = await screen.findByRole('dialog');
+
+    await userEvent.type(within(dialog).getByLabelText('Descripción'), ', con yeso');
+    await chooseReason('Información recibida después', dialog);
+    await userEvent.type(within(dialog).getByLabelText('Nota del cambio (opcional)'), 'Lo recordó');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update).toHaveBeenCalledWith('p1', 'ev1', {
+      kind: 'FRACTURE',
+      description: 'Fractura de muñeca izquierda, con yeso',
+      occurred: FRACTURE.occurred,
+      expectedVersion: 2,
+      reason: 'LATE_INFORMATION',
+      reasonNote: 'Lo recordó',
+    });
+  });
+
+  it('a new event asks for no reason', async () => {
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Agregar' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByText('Motivo del cambio')).toBeNull();
+  });
+
+  it('a 409 shows the message, keeps what was typed, and reloads on request', async () => {
+    update.mockRejectedValueOnce(new ApiError(STALE, 409, { error: STALE }));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar antecedente' }));
+    const dialog = await screen.findByRole('dialog');
+    const description = within(dialog).getByLabelText('Descripción') as HTMLInputElement;
+    await userEvent.type(description, ' (mía)');
+    await chooseReason(undefined, dialog);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect((await within(dialog).findByRole('alert')).textContent).toContain(STALE);
+    expect(description.value).toBe('Fractura de muñeca izquierda (mía)');
+
+    list.mockResolvedValue([{ ...FRACTURE, description: 'De otra persona', version: 3 }]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Recargar' }));
+
+    const reloaded = await screen.findByRole('dialog');
+    await waitFor(() => expect((within(reloaded).getByLabelText('Descripción') as HTMLInputElement).value).toBe('De otra persona'));
+    expect(within(reloaded).queryByRole('alert')).toBeNull();
   });
 });

@@ -133,34 +133,34 @@ describe('patientRepo: política de vigencia (repo directo)', () => {
 
     const updated = await patientRepo.update(ctxA, patient.id, { phone: '11-2222' }, patientAudit('UPDATED'));
 
-    expect(updated).toMatchObject({ id: patient.id, phone: '11-2222' });
+    expect(updated).toMatchObject({ ok: true, patient: { id: patient.id, phone: '11-2222' } });
     // updatedAt lo mueve Prisma con @updatedAt: el DTO debe traer el valor de
     // después de escribir, no el que se leyó antes.
-    expect(updated!.updatedAt >= patient.updatedAt).toBe(true);
+    expect(updated.ok && updated.patient.updatedAt >= patient.updatedAt).toBe(true);
   });
 
   // El where con deletedAt viaja en la MISMA query que escribe (updateMany, no
   // update): sin eso habría una ventana entre chequear y actualizar, y un
   // paciente borrado en el medio se podría editar igual.
-  it('update de un paciente borrado devuelve null y no lo resucita', async () => {
+  it('update de un paciente borrado devuelve not_found y no lo resucita', async () => {
     const patient = await crearPaciente('Borrado Intacto');
     await patientRepo.softDelete(ctxA, patient.id, patientDeleteAudit(patient.id));
 
     await expect(
       patientRepo.update(ctxA, patient.id, { firstName: 'Editado post', lastName: 'mortem' }, patientAudit('UPDATED')),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ ok: false, reason: 'not_found' });
 
     const fila = await filaCruda(patient.id);
     expect(fila).toMatchObject({ firstName: 'Borrado', lastName: 'Intacto' });
     expect(fila?.deletedAt).not.toBeNull();
   });
 
-  it('update de un paciente de otro tenant devuelve null', async () => {
+  it('update de un paciente de otro tenant devuelve not_found', async () => {
     const deB = await crearPaciente('Intocable de B', ctxB);
 
     await expect(
       patientRepo.update(ctxA, deB.id, { firstName: 'hackeado', lastName: 'Test' }, patientAudit('UPDATED')),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ ok: false, reason: 'not_found' });
     await expect(filaCruda(deB.id)).resolves.toMatchObject({ firstName: 'Intocable de', lastName: 'B' });
   });
 
@@ -234,6 +234,7 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
     const ajeno = await crearPaciente('Ajeno PATCH', ctxB);
 
     const res = await auth(request(app).patch(`/api/patients/${ajeno.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       firstName: 'hackeado', lastName: 'Test',
     });
 

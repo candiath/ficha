@@ -11,7 +11,9 @@
 -- The audit tables are audit_logs, platform_audit_logs, and since
 -- sysadmin-alerts (docs/specs/SPEC-sysadmin-alerts.md) sysadmin_alerts and
 -- sysadmin_alert_deliveries. The clinical revisions tables get the same checks
--- (docs/specs/SPEC-clinical-revisions.md §6): session_revisions.
+-- (docs/specs/SPEC-clinical-revisions.md §6): session_revisions, patient_revisions,
+-- episode_revisions, evaluation_revisions, consent_revisions and
+-- patient_event_revisions.
 DO $guards$
 DECLARE
   -- The audit tables, resolved without erroring: a missing one is reported
@@ -22,6 +24,11 @@ DECLARE
   alerts regclass := to_regclass('public.sysadmin_alerts');
   deliveries regclass := to_regclass('public.sysadmin_alert_deliveries');
   session_revs regclass := to_regclass('public.session_revisions');
+  patient_revs regclass := to_regclass('public.patient_revisions');
+  episode_revs regclass := to_regclass('public.episode_revisions');
+  evaluation_revs regclass := to_regclass('public.evaluation_revisions');
+  consent_revs regclass := to_regclass('public.consent_revisions');
+  event_revs regclass := to_regclass('public.patient_event_revisions');
 
   problems text[] := '{}';
   tbl regclass;
@@ -34,6 +41,11 @@ BEGIN
   IF alerts IS NULL THEN problems := problems || 'table sysadmin_alerts is missing'::text; END IF;
   IF deliveries IS NULL THEN problems := problems || 'table sysadmin_alert_deliveries is missing'::text; END IF;
   IF session_revs IS NULL THEN problems := problems || 'table session_revisions is missing'::text; END IF;
+  IF patient_revs IS NULL THEN problems := problems || 'table patient_revisions is missing'::text; END IF;
+  IF episode_revs IS NULL THEN problems := problems || 'table episode_revisions is missing'::text; END IF;
+  IF evaluation_revs IS NULL THEN problems := problems || 'table evaluation_revisions is missing'::text; END IF;
+  IF consent_revs IS NULL THEN problems := problems || 'table consent_revisions is missing'::text; END IF;
+  IF event_revs IS NULL THEN problems := problems || 'table patient_event_revisions is missing'::text; END IF;
 
   -- Triggers: exactly these, enabled. Each one is described by its name,
   -- timing/events/level (tgtype), the function it calls, its WHEN condition
@@ -60,7 +72,22 @@ BEGIN
      'sysadmin_alert_deliveries_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
     (session_revs,
      'session_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'session_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
+     'session_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (patient_revs,
+     'patient_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'patient_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (episode_revs,
+     'episode_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'episode_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (evaluation_revs,
+     'evaluation_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'evaluation_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (consent_revs,
+     'consent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'consent_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (event_revs,
+     'patient_event_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'patient_event_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
   LOOP
     -- A missing table is already reported above.
     CONTINUE WHEN tbl IS NULL;
@@ -124,7 +151,22 @@ BEGIN
       (deliveries, 'sysadmin_alert_deliveries_alert_id_fkey', 'alert_id', alerts, 'id'),
       (session_revs, 'session_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
       (session_revs, 'session_revisions_tenant_id_patient_id_session_id_fkey', 'tenant_id,patient_id,session_id', 'public.sessions'::regclass, 'tenant_id,patient_id,id'),
-      (session_revs, 'session_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
+      (session_revs, 'session_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (patient_revs, 'patient_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (patient_revs, 'patient_revisions_tenant_id_patient_id_fkey', 'tenant_id,patient_id', 'public.patients'::regclass, 'tenant_id,id'),
+      (patient_revs, 'patient_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (episode_revs, 'episode_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (episode_revs, 'episode_revisions_tenant_id_patient_id_episode_id_fkey', 'tenant_id,patient_id,episode_id', 'public.clinical_episodes'::regclass, 'tenant_id,patient_id,id'),
+      (episode_revs, 'episode_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (evaluation_revs, 'evaluation_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (evaluation_revs, 'evaluation_revisions_tenant_id_patient_id_evaluation_id_fkey', 'tenant_id,patient_id,evaluation_id', 'public.initial_evaluations'::regclass, 'tenant_id,patient_id,id'),
+      (evaluation_revs, 'evaluation_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (consent_revs, 'consent_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (consent_revs, 'consent_revisions_tenant_id_patient_id_consent_id_fkey', 'tenant_id,patient_id,consent_id', 'public.informed_consents'::regclass, 'tenant_id,patient_id,id'),
+      (consent_revs, 'consent_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (event_revs, 'patient_event_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (event_revs, 'patient_event_revisions_tenant_id_patient_id_patient_event_fkey', 'tenant_id,patient_id,patient_event_id', 'public.patient_events'::regclass, 'tenant_id,patient_id,id'),
+      (event_revs, 'patient_event_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
     ) AS fk(tbl, name, cols, target, target_cols)
   LOOP
     CONTINUE WHEN r.tbl IS NULL OR r.target IS NULL;
@@ -164,7 +206,12 @@ BEGIN
        $$CHECK (((actor_type <> 'OPERATOR'::"AuditActorType") AND ((actor_type = 'USER'::"AuditActorType") = (user_id IS NOT NULL))))$$),
       (platform, 'platform_audit_logs_actor_is_operator', $$CHECK ((actor_type = 'OPERATOR'::"AuditActorType"))$$),
       (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$),
-      (session_revs, 'session_revisions_version_positive', $$CHECK ((version >= 1))$$)
+      (session_revs, 'session_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      (patient_revs, 'patient_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      (episode_revs, 'episode_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      (evaluation_revs, 'evaluation_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      (consent_revs, 'consent_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      (event_revs, 'patient_event_revisions_version_positive', $$CHECK ((version >= 1))$$)
     ) AS c(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -193,7 +240,41 @@ BEGIN
       (session_revs, 'version'),
       (session_revs, 'audit_log_id'),
       (session_revs, 'snapshot'),
-      (session_revs, 'schema_version')
+      (session_revs, 'schema_version'),
+      (patient_revs, 'tenant_id'),
+      (patient_revs, 'patient_id'),
+      (patient_revs, 'version'),
+      (patient_revs, 'audit_log_id'),
+      (patient_revs, 'snapshot'),
+      (patient_revs, 'schema_version'),
+      (episode_revs, 'tenant_id'),
+      (episode_revs, 'patient_id'),
+      (episode_revs, 'episode_id'),
+      (episode_revs, 'version'),
+      (episode_revs, 'audit_log_id'),
+      (episode_revs, 'snapshot'),
+      (episode_revs, 'schema_version'),
+      (evaluation_revs, 'tenant_id'),
+      (evaluation_revs, 'patient_id'),
+      (evaluation_revs, 'evaluation_id'),
+      (evaluation_revs, 'version'),
+      (evaluation_revs, 'audit_log_id'),
+      (evaluation_revs, 'snapshot'),
+      (evaluation_revs, 'schema_version'),
+      (consent_revs, 'tenant_id'),
+      (consent_revs, 'patient_id'),
+      (consent_revs, 'consent_id'),
+      (consent_revs, 'version'),
+      (consent_revs, 'audit_log_id'),
+      (consent_revs, 'snapshot'),
+      (consent_revs, 'schema_version'),
+      (event_revs, 'tenant_id'),
+      (event_revs, 'patient_id'),
+      (event_revs, 'patient_event_id'),
+      (event_revs, 'version'),
+      (event_revs, 'audit_log_id'),
+      (event_revs, 'snapshot'),
+      (event_revs, 'schema_version')
     ) AS c(tbl, col)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -231,7 +312,17 @@ BEGIN
       (clinical, 'audit_logs_tenant_id_patient_id_id_key',
        'CREATE UNIQUE INDEX audit_logs_tenant_id_patient_id_id_key ON public.audit_logs USING btree (tenant_id, patient_id, id)'),
       (session_revs, 'session_revisions_session_id_version_key',
-       'CREATE UNIQUE INDEX session_revisions_session_id_version_key ON public.session_revisions USING btree (session_id, version)')
+       'CREATE UNIQUE INDEX session_revisions_session_id_version_key ON public.session_revisions USING btree (session_id, version)'),
+      (patient_revs, 'patient_revisions_patient_id_version_key',
+       'CREATE UNIQUE INDEX patient_revisions_patient_id_version_key ON public.patient_revisions USING btree (patient_id, version)'),
+      (episode_revs, 'episode_revisions_episode_id_version_key',
+       'CREATE UNIQUE INDEX episode_revisions_episode_id_version_key ON public.episode_revisions USING btree (episode_id, version)'),
+      (evaluation_revs, 'evaluation_revisions_evaluation_id_version_key',
+       'CREATE UNIQUE INDEX evaluation_revisions_evaluation_id_version_key ON public.evaluation_revisions USING btree (evaluation_id, version)'),
+      (consent_revs, 'consent_revisions_consent_id_version_key',
+       'CREATE UNIQUE INDEX consent_revisions_consent_id_version_key ON public.consent_revisions USING btree (consent_id, version)'),
+      (event_revs, 'patient_event_revisions_patient_event_id_version_key',
+       'CREATE UNIQUE INDEX patient_event_revisions_patient_event_id_version_key ON public.patient_event_revisions USING btree (patient_event_id, version)')
     ) AS i(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;

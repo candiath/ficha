@@ -15,7 +15,19 @@ export interface PatientEventDTO {
   occurred: PartialDate | null;
   createdAt: string;
   updatedAt: string;
+  // The latest version (SPEC-clinical-revisions.md); 0 if it has none yet.
+  version: number;
 }
+
+// What an edit carries besides the fields (SPEC-clinical-revisions.md §5).
+export interface PatientEventEditMeta {
+  expectedVersion?: number;
+  reasonNote?: string | null;
+}
+
+export type PatientEventUpdateResult =
+  | { ok: true; event: PatientEventDTO }
+  | { ok: false; reason: 'not_found' | 'stale' };
 
 export interface PatientEventInput {
   kind: PatientEventKind;
@@ -39,15 +51,15 @@ export interface PatientEventRepository {
     input: PatientEventInput,
     audit: AuditBuilder<PatientEventDTO>,
   ): Promise<PatientEventDTO>;
-  /** null: no current event of that patient with that id. */
+  /** `not_found`: no current event of that patient with that id. */
   update(
     ctx: TenantContext,
     patientId: string,
     id: string,
-    input: Partial<PatientEventInput>,
+    input: Partial<PatientEventInput> & PatientEventEditMeta,
     // Called only when a field changed, with the changed fields' names.
     audit: AuditUpdateBuilder<PatientEventDTO, PatientEventAuditField>,
-  ): Promise<PatientEventDTO | null>;
+  ): Promise<PatientEventUpdateResult>;
   /** Logical: the row stays for the audit trail. */
   softDelete(
     ctx: TenantContext,

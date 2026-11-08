@@ -10,6 +10,7 @@ import { episodeApi } from '@/services/episodes';
 import { patientApi } from '@/services/patients';
 import type { ClinicalEpisode } from '@/types/episode';
 import type { Patient } from '@/types/patient';
+import { chooseReason } from './revisionReason';
 
 // Closing an episode shows its time before sending it, by the API's clock, and
 // what is sent is what was shown. When the API refuses it, the user sees why
@@ -43,6 +44,7 @@ const PATIENT: Patient = {
   insurancePlan: null,
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
+  version: 1,
 };
 
 const EPISODE: ClinicalEpisode = {
@@ -54,6 +56,7 @@ const EPISODE: ClinicalEpisode = {
   closedAt: null,
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
+  version: 2,
 };
 
 function setClockOffset(offsetMs: number) {
@@ -61,8 +64,10 @@ function setClockOffset(offsetMs: number) {
   act(() => recordServerTime(new Date(now + offsetMs).toISOString(), now, now));
 }
 
+let queryClient: QueryClient;
+
 function renderPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/patients/p1']}>
@@ -159,5 +164,91 @@ describe('PatientDetailPage: closing an episode', () => {
     await confirm();
 
     expect((await screen.findByRole('alert')).textContent).toBe('Episodio no encontrado');
+  });
+});
+
+// Versions (SPEC-clinical-revisions.md §4, §5): closing is a fact and takes no
+// reason; correcting the complaint is a correction and says why.
+describe('PatientDetailPage: the episode over its version', () => {
+  const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
+
+  it('abandons over the version on screen, with no reason', async () => {
+    renderPage();
+    await openAbandonConfirm();
+
+    await confirm();
+
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
+    const body = vi.mocked(episodeApi.update).mock.calls[0][2];
+    expect(body).toMatchObject({ status: 'ABANDONED', expectedVersion: 2 });
+    expect(body).not.toHaveProperty('reason');
+  });
+
+  it('corrects the complaint with the chosen reason, its note and the version', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
+    const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
+    await userEvent.clear(complaint);
+    await userEvent.type(complaint, 'Lumbociatalgia');
+    await chooseReason('Información recibida después');
+    await userEvent.type(screen.getByLabelText('Nota del cambio (opcional)'), 'Irradia');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toEqual({
+      mainComplaint: 'Lumbociatalgia',
+      reason: 'LATE_INFORMATION',
+      reasonNote: 'Irradia',
+      expectedVersion: 2,
+    });
+  });
+
+  it('on a 409 shows the message, keeps what was typed, and reloads on request', async () => {
+    vi.mocked(episodeApi.update).mockRejectedValueOnce(new ApiError(STALE, 409, { error: STALE }));
+    renderPage();
+    await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
+    const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
+    await userEvent.clear(complaint);
+    await userEvent.type(complaint, 'Mío');
+    await chooseReason();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(STALE);
+    expect((complaint as HTMLInputElement).value).toBe('Mío');
+
+    vi.mocked(episodeApi.list).mockResolvedValue([{ ...EPISODE, mainComplaint: 'De otra persona', version: 3 }]);
+    await userEvent.click(screen.getByRole('button', { name: 'Recargar' }));
+
+    await waitFor(() => expect((complaint as HTMLInputElement).value).toBe('De otra persona'));
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    // What is saved now goes over the version just reloaded.
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(episodeApi.update).mock.calls[1][2]).toMatchObject({ expectedVersion: 3 });
+  });
+
+  it('saves over the version the text was read from, even after the list refetches', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
+    const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
+    await userEvent.clear(complaint);
+    await userEvent.type(complaint, 'Mío');
+
+    // Another person corrects it while the dialog is open, and the list refetches
+    // (on window focus, say): the dialog still shows the text of version 2.
+    vi.mocked(episodeApi.list).mockResolvedValue([{ ...EPISODE, mainComplaint: 'De otra persona', version: 3 }]);
+    await act(() => queryClient.invalidateQueries({ queryKey: ['patients', 'p1', 'episodes'] }));
+    await waitFor(() =>
+      expect(queryClient.getQueryData<ClinicalEpisode[]>(['patients', 'p1', 'episodes'])?.[0].version).toBe(3),
+    );
+    expect((complaint as HTMLInputElement).value).toBe('Mío');
+
+    await chooseReason();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toMatchObject({ mainComplaint: 'Mío', expectedVersion: 2 });
   });
 });

@@ -9,6 +9,8 @@ import { episodeApi } from '@/services/episodes';
 interface AbandonEpisodeConfirmProps {
   patientId: string;
   episodeId: string;
+  // The version on screen: closing an episode someone changed meanwhile is a 409.
+  episodeVersion: number;
   onCancel: () => void;
   onAbandoned: () => void;
 }
@@ -36,6 +38,7 @@ function closedBeforeOpened(error: unknown): { openedAt: string; serverTime: str
 export default function AbandonEpisodeConfirm({
   patientId,
   episodeId,
+  episodeVersion,
   onCancel,
   onAbandoned,
 }: AbandonEpisodeConfirmProps) {
@@ -46,7 +49,11 @@ export default function AbandonEpisodeConfirm({
 
   const mutation = useMutation({
     mutationFn: () =>
-      episodeApi.update(patientId, episodeId, { status: 'ABANDONED', closedAt: closingAt.toISOString() }),
+      episodeApi.update(patientId, episodeId, {
+        status: 'ABANDONED',
+        closedAt: closingAt.toISOString(),
+        expectedVersion: episodeVersion,
+      }),
     onSuccess: onAbandoned,
     onError: (error: Error) => {
       const refusal = closedBeforeOpened(error);

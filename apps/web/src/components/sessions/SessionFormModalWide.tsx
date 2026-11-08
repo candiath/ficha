@@ -14,8 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import RevisionReasonField, { DEFAULT_REVISION_REASON } from '@/components/patients/RevisionReasonField'
-import { ApiError } from '@/lib/api'
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField'
+import { useRevisionReason } from '@/hooks/useRevisionReason'
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit'
 import { Button } from '@/components/ui/button'
 import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
@@ -186,8 +188,7 @@ export default function SessionFormModalWide({
   const [reloadedSession, setReloadedSession] = useState<Session>()
   const session = reloadedSession ?? loadedSession
   const isEditing = !!session
-  const [reason, setReason] = useState(DEFAULT_REVISION_REASON)
-  const [reasonNote, setReasonNote] = useState('')
+  const revision = useRevisionReason()
   // The API's message when someone else saved first; what was typed stays.
   const [staleMessage, setStaleMessage] = useState<string | null>(null)
   const dateTolerances = useSessionDateTolerances()
@@ -274,8 +275,8 @@ export default function SessionFormModalWide({
     if (open) return
     setReloadedSession(undefined)
     setStaleMessage(null)
-    setReason(DEFAULT_REVISION_REASON)
-    setReasonNote('')
+    revision.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on close only
   }, [open])
 
   useEffect(() => {
@@ -350,11 +351,13 @@ export default function SessionFormModalWide({
       // omitirlo deja intacto el tipo con el que se registró la sesión (una
       // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
+        // The submit checked it; this keeps a correction from leaving without one.
+        if (!revision.reason) throw new Error(MISSING_REASON)
         return sessionApi.update(patientId, session.id, {
           ...sessionData,
           expectedVersion: session.version,
-          reason,
-          reasonNote,
+          reason: revision.reason,
+          reasonNote: revision.note,
         })
       }
 
@@ -403,7 +406,7 @@ export default function SessionFormModalWide({
     // The API's message says what to fix (an episode that opens later, an
     // appointment already recorded).
     onError: (err: Error) => {
-      if (err instanceof ApiError && err.status === 409 && isEditing) {
+      if (isStaleEdit(err) && isEditing) {
         setStaleMessage(err.message)
         return
       }
@@ -530,6 +533,7 @@ export default function SessionFormModalWide({
                 form.setError('blocks', { message: 'Elegí al menos un motivo' })
                 return
               }
+              if (isEditing && !revision.require()) return
               mutation.mutate(v)
             })}
             className="p-4 sm:p-6"
@@ -909,29 +913,13 @@ export default function SessionFormModalWide({
 
             {isEditing && (
               <div className="mt-6 space-y-3">
-                <RevisionReasonField
-                  reason={reason}
-                  note={reasonNote}
-                  onReasonChange={setReason}
-                  onNoteChange={setReasonNote}
-                />
+                <RevisionReasonField {...revision.fieldProps} />
                 {staleMessage && (
-                  <div
-                    role="alert"
-                    className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <p>{staleMessage} Al recargar se pierde lo que escribiste acá.</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={reloadMutation.isPending}
-                      onClick={() => reloadMutation.mutate()}
-                    >
-                      Recargar
-                    </Button>
-                  </div>
+                  <StaleRecordNotice
+                    message={staleMessage}
+                    reloading={reloadMutation.isPending}
+                    onReload={() => reloadMutation.mutate()}
+                  />
                 )}
               </div>
             )}

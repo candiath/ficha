@@ -5,6 +5,7 @@ import { prisma } from '../src/lib/prisma';
 import { authRepo } from '../src/repositories';
 import { authSessionCleanupCutoffs } from '../src/lib/retentionPolicy';
 import { createTestClinic, deleteAuditRows, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Ended login sessions are deleted 180 days after they ended (#178,
 // docs/specs/SPEC-auth-session-cleanup.md). The delete is global and other
@@ -85,7 +86,7 @@ describe('deleteEndedAuthSessions', () => {
 
   it('leaves an audit row that names a deleted session readable, with its session id', async () => {
     const authSessionId = await session({});
-    const patient = await prisma.patient.create({
+    const patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Retained', lastName: 'Patient' },
       select: { id: true },
     });

@@ -5,6 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // The patient's history ("Antecedentes", #238): what she lived, as dated facts.
 // It belongs to the patient, and its date is partial (a day, a month, a year,
@@ -33,11 +34,11 @@ describe('The patient history', () => {
     clinicB = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Con', lastName: 'antecedentes' },
       select: { id: true },
     });
-    otherPatient = await prisma.patient.create({
+    otherPatient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'paciente' },
       select: { id: true },
     });
@@ -65,6 +66,7 @@ describe('The patient history', () => {
       occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
+      version: 1,
     });
   });
 
@@ -76,7 +78,7 @@ describe('The patient history', () => {
   });
 
   it('lists dated events newest first and undated ones last', async () => {
-    const own = await prisma.patient.create({
+    const own = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Orden', lastName: 'Test' },
       select: { id: true },
     });
@@ -133,6 +135,7 @@ describe('The patient history', () => {
     const id = (await post(fracture)).body.data.id;
 
     const res = await auth(request(app).patch(`${url()}/${id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       occurred: { date: '2019-05-01', precision: 'MONTH', approximate: true },
     });
 
@@ -150,7 +153,7 @@ describe('The patient history', () => {
     });
     expect(rows).toEqual([
       { action: 'PATIENT_EVENT_RECORDED', entity: 'PATIENT_EVENT', params: { kind: 'FRACTURE' } },
-      { action: 'PATIENT_EVENT_UPDATED', entity: 'PATIENT_EVENT', params: { kind: 'FRACTURE', changedFields: ['occurred'] } },
+      { action: 'PATIENT_EVENT_UPDATED', entity: 'PATIENT_EVENT', params: { kind: 'FRACTURE', changedFields: ['occurred'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
   });
 
@@ -163,16 +166,16 @@ describe('The patient history', () => {
     expect(list.body.data.map((e: { id: string }) => e.id)).not.toContain(id);
     const row = await prisma.patientEvent.findUniqueOrThrow({ where: { id }, select: { deletedAt: true } });
     expect(row.deletedAt).not.toBeNull();
-    expect((await auth(request(app).patch(`${url()}/${id}`)).send({ description: 'Tarde' })).status).toBe(404);
+    expect((await auth(request(app).patch(`${url()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Tarde' })).status).toBe(404);
     expect((await auth(request(app).delete(`${url()}/${id}`))).status).toBe(404);
   });
 
   it('answers 404 for another patient’s event, another clinic’s patient and an unknown id', async () => {
     const othersEvent = (await post(fracture, otherPatient.id)).body.data.id;
-    expect((await auth(request(app).patch(`${url()}/${othersEvent}`)).send({ description: 'Ajeno' })).status).toBe(404);
+    expect((await auth(request(app).patch(`${url()}/${othersEvent}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Ajeno' })).status).toBe(404);
     expect((await auth(request(app).delete(`${url()}/${othersEvent}`))).status).toBe(404);
 
-    const patientB = await prisma.patient.create({
+    const patientB = await fixture.patient.create({
       data: { tenantId: clinicB.tenantId, firstName: 'De otra', lastName: 'clínica' },
       select: { id: true },
     });

@@ -6,6 +6,7 @@ import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
 import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
+import { fixture } from './fixtures';
 
 // Regresión del issue #97: SessionUpdateSchema se deriva con .partial() de
 // SessionFieldsSchema, y en Zod un .default() del schema base SOBREVIVE al
@@ -46,7 +47,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
   // (DISCHARGE es lo que dispara el cierre de episodios, y NOTE queda fuera
   // de los conteos del dashboard).
   async function crearConEpisodio(sessionType: 'DISCHARGE' | 'NOTE' = 'DISCHARGE') {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: {
         tenantId: clinic.tenantId,
         patientId: patient.id,

@@ -5,12 +5,17 @@ import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRe
 import type { TenantContext } from '../types';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
+import { latestRevision, recordRevision, Rollback, unlessRolledBack } from './recordRevision';
+import { patientSnapshot } from './clinicalSnapshots';
 import type {
   PatientCreateInput,
   PatientAuditField,
   PatientDTO,
+  PatientEditMeta,
+  PatientRecordDTO,
   PatientRepository,
   PatientUpdateInput,
+  PatientUpdateResult,
 } from '../patientRepository';
 
 // tenantId y deletedAt se excluyen a propósito: el primero es interno,
@@ -58,13 +63,23 @@ function toDTO(row: PatientRow): PatientDTO {
   };
 }
 
-async function getById(ctx: TenantContext, id: string): Promise<PatientDTO | null> {
+// The latest version of each patient read here; none is version 0.
+const withVersion = {
+  ...patientSelect,
+  revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
+} as const;
+
+function toRecordDTO({ revisions, ...row }: PatientRow & { revisions: { version: number }[] }): PatientRecordDTO {
+  return { ...toDTO(row), version: revisions[0]?.version ?? 0 };
+}
+
+async function getById(ctx: TenantContext, id: string): Promise<PatientRecordDTO | null> {
   const db = forTenant(ctx);
   const row = await db.patient.findFirst({
     where: { id, deletedAt: null },
-    select: patientSelect,
+    select: withVersion,
   });
-  return row ? toDTO(row) : null;
+  return row ? toRecordDTO(row) : null;
 }
 
 export const prismaPatientRepository: PatientRepository = {
@@ -90,13 +105,14 @@ export const prismaPatientRepository: PatientRepository = {
     return row !== null;
   },
 
-  // Every write below records its audit row in the same transaction (#188).
+  // Every write below records its audit row and its version in the same
+  // transaction (#188, SPEC-clinical-revisions.md §5).
 
   async create(
     ctx: TenantContext,
     input: PatientCreateInput,
     audit: AuditBuilder<PatientDTO>,
-  ): Promise<PatientDTO> {
+  ): Promise<PatientRecordDTO> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
       const row = await tx.patient.create({
@@ -104,50 +120,84 @@ export const prismaPatientRepository: PatientRepository = {
         select: patientSelect,
       });
       const patient = toDTO(row);
-      await recordAudit(tx, ctx, audit(patient));
-      return patient;
+      const auditLogId = await recordAudit(tx, ctx, audit(patient));
+      await recordRevision(tx, ctx, 'patient_revisions', {
+        aggregateId: row.id,
+        patientId: row.id,
+        version: 1,
+        auditLogId,
+        snapshot: patientSnapshot(row),
+      });
+      return { ...patient, version: 1 };
     });
   },
 
   async update(
     ctx: TenantContext,
     id: string,
-    input: PatientUpdateInput,
+    { expectedVersion, reasonNote, ...input }: PatientUpdateInput & PatientEditMeta,
     audit: AuditUpdateBuilder<PatientDTO, PatientAuditField>,
-  ): Promise<PatientDTO | null> {
+  ): Promise<PatientUpdateResult> {
     const db = forTenant(ctx);
-    return db.$transaction(async (tx) => {
-      // Locked and read first, to record which fields changed (#186): a
-      // concurrent edit waits for this one.
-      await lockRow(tx, 'patients', id, ctx.tenantId);
-      const before = await tx.patient.findFirst({
-        where: { id, tenantId: ctx.tenantId, deletedAt: null },
-        select: patientSelect,
-      });
-      if (!before) return null;
+    return unlessRolledBack(
+      db.$transaction(async (tx): Promise<PatientUpdateResult> => {
+        // Locked and read first: a concurrent edit waits for this one, and then
+        // reads the version this one wrote.
+        await lockRow(tx, 'patients', id, ctx.tenantId);
+        const before = await tx.patient.findFirst({
+          where: { id, tenantId: ctx.tenantId, deletedAt: null },
+          select: patientSelect,
+        });
+        if (!before) return { ok: false, reason: 'not_found' };
 
-      // updateMany y no update: el where con deletedAt hace que existencia,
-      // pertenencia y vigencia se decidan en la misma query que escribe
-      // (count 0 = no había paciente vigente), sin ventana entre chequeo y update.
-      const { count } = await tx.patient.updateMany({
-        where: { id, tenantId: ctx.tenantId, deletedAt: null },
-        data: input,
-      });
-      if (count === 0) return null;
-      const row = await tx.patient.findFirstOrThrow({
-        where: { id, tenantId: ctx.tenantId },
-        select: patientSelect,
-      });
-      const patient = toDTO(row);
-      const changed = nonEmpty(changedFields(toDTO(before), patient, AUDIT_FIELDS));
-      if (changed) await recordAudit(tx, ctx, audit(patient, changed));
-      return patient;
-    });
+        const latest = await latestRevision(tx, ctx.tenantId, 'patient_revisions', id);
+        const version = latest?.version ?? 0;
+        if (expectedVersion !== undefined && expectedVersion !== version) return { ok: false, reason: 'stale' };
+
+        // updateMany y no update: el where con deletedAt hace que existencia,
+        // pertenencia y vigencia se decidan en la misma query que escribe.
+        const { count } = await tx.patient.updateMany({
+          where: { id, tenantId: ctx.tenantId, deletedAt: null },
+          data: input,
+        });
+        if (count === 0) return { ok: false, reason: 'not_found' };
+        const row = await tx.patient.findFirstOrThrow({
+          where: { id, tenantId: ctx.tenantId },
+          select: patientSelect,
+        });
+        const patient = toDTO(row);
+
+        // Compared after the write, with the same select and mapping as the
+        // snapshot: a write that changed nothing is rolled back whole, so it
+        // leaves no update, no audit row and no version.
+        const changed = nonEmpty(changedFields(toDTO(before), patient, AUDIT_FIELDS));
+        if (!changed) throw new Rollback<PatientUpdateResult>({ ok: true, patient: { ...toDTO(before), version } });
+
+        const auditLogId = await recordAudit(tx, ctx, audit(patient, changed));
+        // Every write takes a version, a change only to contact or coverage
+        // included: their values are not in the snapshot, so that version repeats
+        // the last content and its audit row names what changed. Otherwise a form
+        // loaded before a phone change would pass `expectedVersion` and save the
+        // old phone back.
+        await recordRevision(tx, ctx, 'patient_revisions', {
+          aggregateId: id,
+          patientId: id,
+          version: version + 1,
+          auditLogId,
+          snapshot: patientSnapshot(row),
+          reasonNote,
+        });
+        return { ok: true, patient: { ...patient, version: version + 1 } };
+      }),
+    );
   },
 
   async softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
+      // Locked first: this write takes a version, so it waits for a concurrent
+      // edit and then reads the version that edit wrote.
+      await lockRow(tx, 'patients', id, ctx.tenantId);
       // El deletedAt: null del where hace el borrado idempotente hacia afuera:
       // borrar dos veces da 404 la segunda, no re-marca la fila.
       const { count } = await tx.patient.updateMany({
@@ -155,7 +205,17 @@ export const prismaPatientRepository: PatientRepository = {
         data: { deletedAt: new Date() },
       });
       if (count === 0) return false;
-      await recordAudit(tx, ctx, audit);
+      // A version with the same content: the deletion is what its audit row
+      // says (SPEC-clinical-revisions.md §1, §8).
+      const auditLogId = await recordAudit(tx, ctx, audit);
+      const row = await tx.patient.findUniqueOrThrow({ where: { id, tenantId: ctx.tenantId }, select: withVersion });
+      await recordRevision(tx, ctx, 'patient_revisions', {
+        aggregateId: id,
+        patientId: id,
+        version: (row.revisions[0]?.version ?? 0) + 1,
+        auditLogId,
+        snapshot: patientSnapshot(row),
+      });
       return true;
     });
   },

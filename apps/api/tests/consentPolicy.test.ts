@@ -36,6 +36,7 @@ describe('consentimiento: vigencia y pertenencia del paciente', () => {
 
   afterAll(async () => {
     for (const c of [clinic, otherClinic]) {
+      await deleteAuditRows([c.tenantId]);
       await prisma.informedConsent.deleteMany({ where: { tenantId: c.tenantId } });
       await deleteAuditRows([c.tenantId]);
       await prisma.patient.deleteMany({ where: { tenantId: c.tenantId } });

@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // POST /api/payments impone un pago por sesión (unique sobre sessionId).
 // Las dos capas de defensa viven en paymentRepo.create: un pre-chequeo
@@ -39,7 +40,7 @@ describe('pago duplicado por sesión', () => {
     userA = await clinicA.createUser();
     tokenA = await createTestToken(userA);
 
-    patientA = await prisma.patient.create({
+    patientA = await fixture.patient.create({
       data: { tenantId: clinicA.tenantId, firstName: 'Paciente Pago', lastName: 'Dup' },
       select: { id: true },
     });

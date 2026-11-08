@@ -8,6 +8,7 @@ import { globalSessionApi } from '@/services/globalSessions';
 import { sessionApi } from '@/services/sessions';
 import type { SessionIndexItem } from '@/types/globalSession';
 import type { Session } from '@/types/session';
+import { chooseReason } from './revisionReason';
 
 // Sesiones lists every session of the clinic as an index, with no clinical
 // text (#186, SPEC-list-minimization.md §1). The session itself is read from
@@ -125,6 +126,7 @@ describe('SessionsPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Ver detalles' }));
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByDisplayValue('Trabajo de cadena posterior'), ' y diafragma');
+    await chooseReason(undefined, dialog);
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));

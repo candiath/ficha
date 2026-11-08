@@ -5,6 +5,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Una sesión cargada por error no se podía sacar de ningún lado: no existía
 // DELETE ni método de borrado en el repositorio. Ahora se borra lógicamente,
@@ -24,12 +25,12 @@ describe('borrado lógico de sesiones', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado de', lastName: 'Sesión' },
       select: { id: true },
     });
     // Every session treats an episode (#238).
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -154,11 +155,11 @@ describe('borrado lógico de sesiones', () => {
   // session's own write checked the patient: a session of another patient, sent
   // under this patient's URL, answered 404 and still lost its payment.
   it("answers 404 to another patient's session and leaves its payment alone", async () => {
-    const other = await prisma.patient.create({
+    const other = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otra', lastName: 'Paciente' },
       select: { id: true },
     });
-    const otherEpisode = await prisma.clinicalEpisode.create({
+    const otherEpisode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: other.id },
       select: { id: true },
     });

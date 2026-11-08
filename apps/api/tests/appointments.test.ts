@@ -13,6 +13,7 @@ import {
   waitFor,
   type TestClinic,
 } from './helpers';
+import { fixture } from './fixtures';
 
 const AR = 'America/Argentina/Buenos_Aires';
 
@@ -35,11 +36,11 @@ describe('turnos', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
+    patient = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Turnos' },
       select: { id: true },
     });
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: {
         tenantId: clinic.tenantId,
         patientId: patient.id,
@@ -460,7 +461,7 @@ describe('turnos', () => {
   });
 
   it('rechaza vincular el turno de otro paciente', async () => {
-    const otro = await prisma.patient.create({
+    const otro = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente Sin', lastName: 'Turno' },
       select: { id: true },
     });
@@ -519,11 +520,11 @@ describe('turnos', () => {
   });
 
   it('rechaza un episodio que no es del paciente', async () => {
-    const otro = await prisma.patient.create({
+    const otro = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
       select: { id: true },
     });
-    const episodioAjeno = await prisma.clinicalEpisode.create({
+    const episodioAjeno = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: otro.id },
       select: { id: true },
     });
@@ -558,7 +559,7 @@ describe('turnos', () => {
     try {
       const otroUser = await otra.createUser();
       const otroToken = await createTestToken(otroUser);
-      const otroPaciente = await prisma.patient.create({
+      const otroPaciente = await fixture.patient.create({
         data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });

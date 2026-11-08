@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { createSessionFixture, deleteAuditRows, createTestClinic, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // The database refuses what the API already refuses (20261024120000_model_integrity):
 // rows that join two clinics or two patients, and values out of range. These
@@ -29,12 +30,12 @@ describe('The database keeps the model consistent', () => {
     const tenantId = clinic.tenantId;
 
     const createPatient = async (fullName: string) =>
-      (await prisma.patient.create({ data: { tenantId, ...splitName(fullName) }, select: { id: true } })).id;
+      (await fixture.patient.create({ data: { tenantId, ...splitName(fullName) }, select: { id: true } })).id;
     patient = await createPatient('Paciente');
     otherPatient = await createPatient('Otro paciente');
 
     const createEpisode = async (patientId: string) =>
-      (await prisma.clinicalEpisode.create({ data: { tenantId, patientId }, select: { id: true } })).id;
+      (await fixture.clinicalEpisode.create({ data: { tenantId, patientId }, select: { id: true } })).id;
     episode = await createEpisode(patient);
     otherPatientsEpisode = await createEpisode(otherPatient);
 
