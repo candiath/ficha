@@ -50,6 +50,9 @@ import {
 } from '@/lib/labels';
 import type { BodyMarker } from '@/types/evaluation';
 import { blockFor, type Session } from '@/types/session';
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
+import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot } from '@/lib/revisionRows';
+import { revisionPaths } from '@/services/revisions';
 
 const evalSchema = z.object({
   occupation: z.string(),
@@ -212,6 +215,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
   // evaluation does not, unless it also corrects the patient's occupation.
   const revision = useRevisionReason();
   const [staleMessage, setStaleMessage] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: evaluation, isLoading } = useQuery({
     queryKey: evaluationKeys.detail(patientId, episodeId),
@@ -334,7 +338,20 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         >
           <Card>
             <CardHeader className="pb-4">
-              <CardTitle className="text-base">Evaluación inicial</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Evaluación inicial</CardTitle>
+                {evaluation && <RevisionHistoryButton onClick={() => setHistoryOpen(true)} />}
+              </div>
+              {evaluation && (
+                <RevisionHistoryDialog
+                  open={historyOpen}
+                  onOpenChange={setHistoryOpen}
+                  patientId={patientId}
+                  base={revisionPaths.evaluation(patientId, episodeId)}
+                  title="Historial de la evaluación inicial"
+                  render={renderEvaluationSnapshot}
+                />
+              )}
               {evaluation && (
                 <p className="text-xs text-muted-foreground">
                   Última actualización:{' '}
@@ -827,6 +844,8 @@ export default function PatientDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
+  // Whose history is open: the patient's data, or the selected episode's.
+  const [history, setHistory] = useState<'patient' | 'episode' | null>(null);
   const [activeTab, setActiveTab] = useState('resumen');
   const [evalHasChanges, setEvalHasChanges] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -1028,6 +1047,7 @@ export default function PatientDetailPage() {
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
+          {effectiveEpisodeId && <RevisionHistoryButton onClick={() => setHistory('episode')} />}
           {effectiveEpisodeId && episodes.find((e) => e.id === effectiveEpisodeId)?.status !== 'ACTIVE' && (
             <span className="text-xs text-muted-foreground">
               Episodio cerrado.{' '}
@@ -1064,7 +1084,10 @@ export default function PatientDetailPage() {
         <TabsContent value="resumen" className="mt-6">
           <Card>
             <CardHeader className="pb-4">
-              <CardTitle className="text-base">Datos personales</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Datos personales</CardTitle>
+                <RevisionHistoryButton onClick={() => setHistory('patient')} />
+              </div>
             </CardHeader>
             <CardContent>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
@@ -1301,6 +1324,25 @@ export default function PatientDetailPage() {
           patientId={id!}
           episodeId={effectiveEpisodeId}
           sessionType="DISCHARGE"
+        />
+      )}
+
+      <RevisionHistoryDialog
+        open={history === 'patient'}
+        onOpenChange={(o) => !o && setHistory(null)}
+        patientId={id!}
+        base={revisionPaths.patient(id!)}
+        title="Historial de los datos del paciente"
+        render={renderPatientSnapshot}
+      />
+      {effectiveEpisodeId && (
+        <RevisionHistoryDialog
+          open={history === 'episode'}
+          onOpenChange={(o) => !o && setHistory(null)}
+          patientId={id!}
+          base={revisionPaths.episode(id!, effectiveEpisodeId)}
+          title="Historial del episodio"
+          render={renderEpisodeSnapshot}
         />
       )}
 

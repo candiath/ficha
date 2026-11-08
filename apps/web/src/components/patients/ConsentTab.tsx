@@ -14,6 +14,10 @@ import type { Patient } from '@/types/patient';
 import { consentApi, consentKeys } from '@/services/consent';
 import { isStaleEdit } from '@/lib/staleEdit';
 import { toast } from 'sonner';
+import { useState } from 'react';
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
+import { renderConsentSnapshot } from '@/lib/revisionRows';
+import { revisionPaths } from '@/services/revisions';
 
 interface Props {
   patient: Patient;
@@ -46,6 +50,7 @@ export default function ConsentTab({ patient }: Props) {
     },
   });
 
+  const [historyOpen, setHistoryOpen] = useState(false);
   const signed = consent?.signed ?? false;
   const signedAt = consent?.signedAt ?? null;
 
@@ -68,6 +73,19 @@ export default function ConsentTab({ patient }: Props) {
           {signed ? 'Firmado' : 'Pendiente'}
         </Badge>
       </div>
+      {consent && (
+        <>
+          <RevisionHistoryButton className="-ml-2" onClick={() => setHistoryOpen(true)} />
+          <RevisionHistoryDialog
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            patientId={patient.id}
+            base={revisionPaths.consent(patient.id)}
+            title="Historial del consentimiento"
+            render={renderConsentSnapshot}
+          />
+        </>
+      )}
 
       {/* Documento */}
       <Card>

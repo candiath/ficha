@@ -38,6 +38,19 @@ vi.mock('@/services/patientEvents', () => ({
   patientEventApi: { list: vi.fn().mockResolvedValue([]) },
 }));
 
+// The page mounts the discharge form, which asks for the last price, the
+// packages and the clinic's settings: answered, so no request leaves the test.
+vi.mock('@/services/payments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/payments')>()),
+  paymentApi: { lastBasePrice: vi.fn().mockResolvedValue(null) },
+  packageApi: { list: vi.fn().mockResolvedValue([]) },
+}));
+
+vi.mock('@/services/tenant', () => ({
+  tenantKeys: { config: ['tenant'] },
+  tenantApi: { get: vi.fn().mockResolvedValue({ timezone: 'America/Argentina/Buenos_Aires' }) },
+}));
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';

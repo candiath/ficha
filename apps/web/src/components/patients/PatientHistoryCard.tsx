@@ -33,6 +33,9 @@ import RevisionReasonField, { MISSING_REASON } from '@/components/patients/Revis
 import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
+import RevisionHistoryDialog from '@/components/patients/RevisionHistoryDialog';
+import { renderPatientEventSnapshot } from '@/lib/revisionRows';
+import { revisionPaths } from '@/services/revisions';
 
 // The patient's history ("Antecedentes", #238): what she lived, as dated facts.
 // It belongs to the patient, so the same list shows from every episode.
@@ -51,6 +54,7 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
   const today = useClinicToday();
   const [editing, setEditing] = useState<PatientEvent | 'new' | null>(null);
   const [deleting, setDeleting] = useState<PatientEvent | null>(null);
+  const [historyOf, setHistoryOf] = useState<PatientEvent | null>(null);
 
   const { data: events = [], isLoading, refetch } = useQuery({
     queryKey: patientEventKeys.list(patientId),
@@ -108,6 +112,17 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8"
+                    aria-label="Ver historial del antecedente"
+                    title="Ver historial"
+                    onClick={() => setHistoryOf(event)}
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
                     aria-label="Editar antecedente"
                     onClick={() => setEditing(event)}
                   >
@@ -129,6 +144,17 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
           </ul>
         )}
       </CardContent>
+
+      {historyOf && (
+        <RevisionHistoryDialog
+          open
+          onOpenChange={(o) => !o && setHistoryOf(null)}
+          patientId={patientId}
+          base={revisionPaths.patientEvent(patientId, historyOf.id)}
+          title="Historial del antecedente"
+          render={renderPatientEventSnapshot}
+        />
+      )}
 
       {editing && (
         // Mounted per event and version, so its state starts from that one,
