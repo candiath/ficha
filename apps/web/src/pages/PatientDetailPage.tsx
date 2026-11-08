@@ -837,6 +837,10 @@ export default function PatientDetailPage() {
   const [newEpisodeComplaint, setNewEpisodeComplaint] = useState('');
   const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
   const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
+  // The version the complaint on screen was read from, kept with it: a refetch
+  // while the dialog is open (on window focus, say) must not save that text over
+  // a newer version without a 409.
+  const [editEpisodeVersion, setEditEpisodeVersion] = useState(0);
   // Correcting the complaint says why; closing and reopening do not.
   const [episodeReason, setEpisodeReason] = useState(DEFAULT_REVISION_REASON);
   const [episodeReasonNote, setEpisodeReasonNote] = useState('');
@@ -881,10 +885,10 @@ export default function PatientDetailPage() {
   });
 
   const editedEpisode = episodes.find((e) => e.id === effectiveEpisodeId);
-  // Over the version on screen; a 409 shows the message and offers a reload.
+  // Each write carries the version it was decided on; a 409 shows the message
+  // and offers a reload.
   const updateEpisodeMutation = useMutation({
-    mutationFn: (data: EpisodeUpdateData) =>
-      episodeApi.update(id!, effectiveEpisodeId!, { ...data, expectedVersion: editedEpisode?.version }),
+    mutationFn: (data: EpisodeUpdateData) => episodeApi.update(id!, effectiveEpisodeId!, data),
     onError: (err: Error) => {
       if (isStaleEdit(err)) {
         setEpisodeStale(err.message);
@@ -900,6 +904,15 @@ export default function PatientDetailPage() {
       setConfirmAbandon(false);
     },
   });
+  // Over the version the text was read from, not the list's latest. Reopening
+  // goes over the list's latest: it acts on the status on screen, which is live.
+  const saveEpisodeComplaint = () =>
+    updateEpisodeMutation.mutate({
+      mainComplaint: editEpisodeComplaint,
+      reason: episodeReason,
+      reasonNote: episodeReasonNote,
+      expectedVersion: editEpisodeVersion,
+    });
 
   useEffect(() => { document.title = TAB_COMPONENT[activeTab] ?? 'PatientDetailPage'; }, [activeTab]);
 
@@ -1001,7 +1014,11 @@ export default function PatientDetailPage() {
               title="Editar motivo del episodio"
               onClick={() => {
                 const ep = episodes.find((e) => e.id === effectiveEpisodeId);
+                // The selection is pinned, so a refetch cannot move the dialog
+                // to another episode.
+                setActiveEpisodeId(effectiveEpisodeId);
                 setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                setEditEpisodeVersion(ep?.version ?? 0);
                 setConfirmAbandon(false);
                 setEditEpisodeOpen(true);
               }}
@@ -1188,7 +1205,7 @@ export default function PatientDetailPage() {
                   value={editEpisodeComplaint}
                   onChange={(e) => setEditEpisodeComplaint(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint, reason: episodeReason, reasonNote: episodeReasonNote });
+                    if (e.key === 'Enter') saveEpisodeComplaint();
                   }}
                   autoFocus
                 />
@@ -1207,7 +1224,9 @@ export default function PatientDetailPage() {
                     void queryClient
                       .fetchQuery({ queryKey: episodeKeys.list(id!), queryFn: () => episodeApi.list(id!), staleTime: 0 })
                       .then((fresh) => {
-                        setEditEpisodeComplaint(fresh.find((e) => e.id === effectiveEpisodeId)?.mainComplaint ?? '');
+                        const ep = fresh.find((e) => e.id === effectiveEpisodeId);
+                        setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                        setEditEpisodeVersion(ep?.version ?? 0);
                         setEpisodeStale(null);
                       });
                   }}
@@ -1253,7 +1272,9 @@ export default function PatientDetailPage() {
                     <Button
                       variant="ghost"
                       className="text-xs"
-                      onClick={() => updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null })}
+                      onClick={() =>
+                        updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null, expectedVersion: editedEpisode?.version })
+                      }
                       disabled={updateEpisodeMutation.isPending}
                     >
                       Reactivar episodio
@@ -1265,7 +1286,7 @@ export default function PatientDetailPage() {
                     Cancelar
                   </Button>
                   <Button
-                    onClick={() => updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint, reason: episodeReason, reasonNote: episodeReasonNote })}
+                    onClick={saveEpisodeComplaint}
                     disabled={updateEpisodeMutation.isPending}
                   >
                     {updateEpisodeMutation.isPending ? 'Guardando...' : 'Guardar'}

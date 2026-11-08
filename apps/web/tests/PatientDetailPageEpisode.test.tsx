@@ -63,8 +63,10 @@ function setClockOffset(offsetMs: number) {
   act(() => recordServerTime(new Date(now + offsetMs).toISOString(), now, now));
 }
 
+let queryClient: QueryClient;
+
 function renderPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/patients/p1']}>
@@ -217,5 +219,32 @@ describe('PatientDetailPage: the episode over its version', () => {
 
     await waitFor(() => expect((complaint as HTMLInputElement).value).toBe('De otra persona'));
     expect(screen.queryByRole('alert')).toBeNull();
+
+    // What is saved now goes over the version just reloaded.
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(episodeApi.update).mock.calls[1][2]).toMatchObject({ expectedVersion: 3 });
+  });
+
+  it('saves over the version the text was read from, even after the list refetches', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByTitle('Editar motivo del episodio'));
+    const complaint = await screen.findByPlaceholderText('Ej: Dolor lumbar, cervicalgia...');
+    await userEvent.clear(complaint);
+    await userEvent.type(complaint, 'Mío');
+
+    // Another person corrects it while the dialog is open, and the list refetches
+    // (on window focus, say): the dialog still shows the text of version 2.
+    vi.mocked(episodeApi.list).mockResolvedValue([{ ...EPISODE, mainComplaint: 'De otra persona', version: 3 }]);
+    await act(() => queryClient.invalidateQueries({ queryKey: ['patients', 'p1', 'episodes'] }));
+    await waitFor(() =>
+      expect(queryClient.getQueryData<ClinicalEpisode[]>(['patients', 'p1', 'episodes'])?.[0].version).toBe(3),
+    );
+    expect((complaint as HTMLInputElement).value).toBe('Mío');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toMatchObject({ mainComplaint: 'Mío', expectedVersion: 2 });
   });
 });
