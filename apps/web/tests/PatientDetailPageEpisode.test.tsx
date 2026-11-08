@@ -25,6 +25,14 @@ vi.mock('@/services/episodes', () => ({
   episodeApi: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 }));
 
+// The page mounts the session form, which asks for the last price and the
+// patient's packages. Answered here, or the requests would reach a dev API.
+vi.mock('@/services/payments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/payments')>()),
+  paymentApi: { lastBasePrice: vi.fn().mockResolvedValue(null) },
+  packageApi: { list: vi.fn().mockResolvedValue([]) },
+}));
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const MINUTE_MS = 60_000;
