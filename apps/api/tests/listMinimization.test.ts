@@ -343,11 +343,9 @@ describe('global lists carry no clinical text', () => {
     const second = async (
       delegate: { findFirstOrThrow(a: object): Promise<Record<string, unknown>>; create(a: object): Promise<unknown> },
     ) => {
-      const { id: _id, version, ...first } = await delegate.findFirstOrThrow({
-        where: { tenantId, patientId },
-        orderBy: { version: 'desc' },
-      });
-      await delegate.create({ data: { ...first, version: (version as number) + 1, reasonNote: marker() } });
+      const first = await delegate.findFirstOrThrow({ where: { tenantId, patientId }, orderBy: { version: 'desc' } });
+      delete first.id;
+      await delegate.create({ data: { ...first, version: Number(first.version) + 1, reasonNote: marker() } });
     };
     for (const delegate of [
       prisma.sessionRevision,
@@ -357,7 +355,7 @@ describe('global lists carry no clinical text', () => {
       prisma.consentRevision,
       prisma.patientEventRevision,
     ]) {
-      await second(delegate as unknown as Parameters<typeof second>[0]);
+      await second(delegate);
     }
 
     const pkg = await prisma.sessionPackage.create({

@@ -1,4 +1,4 @@
-import { Router, type Request } from 'express';
+import { Router } from 'express';
 import { revisionRepo } from '../repositories';
 import type { RevisionTarget } from '../repositories/revisionRepository';
 import { versionParam } from '../middlewares/idParam';
@@ -22,10 +22,12 @@ export function revisionRoutes(
   const router = Router({ mergeParams: true });
   router.param('version', versionParam(VERSION_NOT_FOUND));
 
-  const patientId = (req: Request) => (req.params as Record<string, string>).patientId ?? req.params.id;
+  // The patient's router names her `:id`; the others `:patientId`.
+  type Params = Record<string, string>;
+  const patientId = (params: Params) => params.patientId ?? params.id;
 
-  router.get('/', async (req, res) => {
-    const data = await revisionRepo.list(req.context, patientId(req), target(req.params as Record<string, string>));
+  router.get<Params>('/', async (req, res) => {
+    const data = await revisionRepo.list(req.context, patientId(req.params), target(req.params));
     if (!data) {
       res.status(404).json({ error: notFoundMessage });
       return;
@@ -33,11 +35,11 @@ export function revisionRoutes(
     res.json({ data });
   });
 
-  router.get('/:version', async (req, res) => {
+  router.get<Params>('/:version', async (req, res) => {
     const result = await revisionRepo.get(
       req.context,
-      patientId(req),
-      target(req.params as Record<string, string>),
+      patientId(req.params),
+      target(req.params),
       Number(req.params.version),
     );
     if (!result.ok) {
