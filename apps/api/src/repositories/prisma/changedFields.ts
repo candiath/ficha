@@ -25,8 +25,16 @@ const LOCKABLE = {
 
 type LockableTable = keyof typeof LOCKABLE;
 
-// SELECT … FOR UPDATE on one row of a clinic. Raw SQL escapes the tenant-scope
-// extension, so the tenant goes in the WHERE by hand.
+// SELECT … FOR NO KEY UPDATE on one row of a clinic. Raw SQL escapes the
+// tenant-scope extension, so the tenant goes in the WHERE by hand.
+//
+// NO KEY UPDATE, the lock an UPDATE that leaves the keys alone takes, and not
+// FOR UPDATE: two writers of the row still wait for each other, but an insert or
+// update elsewhere whose foreign key points at the row (an audit row naming the
+// patient, an appointment moved to the episode) does not wait for this one. With
+// FOR UPDATE it did, and a writer holding the row while waiting for that other
+// transaction deadlocked with it. No caller deletes a locked row or changes its
+// keys.
 export async function lockRow(
   tx: Prisma.TransactionClient,
   table: LockableTable,
@@ -34,7 +42,7 @@ export async function lockRow(
   tenantId: string,
 ): Promise<void> {
   const column = LOCKABLE[table];
-  await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(`"${table}"`)} WHERE ${Prisma.raw(`"${column}"`)} = ${key}::uuid AND "tenant_id" = ${tenantId}::uuid FOR UPDATE`;
+  await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(`"${table}"`)} WHERE ${Prisma.raw(`"${column}"`)} = ${key}::uuid AND "tenant_id" = ${tenantId}::uuid FOR NO KEY UPDATE`;
 }
 
 // A JSON value with its object keys sorted, so two equal grids compare equal

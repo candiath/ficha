@@ -12,6 +12,7 @@ describe('episode revisions', () => {
   let clinic: TestClinic;
   let token: string;
   let patientId: string;
+  let userId: string;
 
   const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
 
@@ -41,7 +42,9 @@ describe('episode revisions', () => {
 
   beforeAll(async () => {
     clinic = await createTestClinic();
-    token = await createTestToken(await clinic.createUser());
+    const user = await clinic.createUser();
+    userId = user.id;
+    token = await createTestToken(user);
     ({ id: patientId } = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Con', lastName: 'Episodios' },
     }));
@@ -52,6 +55,7 @@ describe('episode revisions', () => {
     const where = { tenantId: clinic.tenantId };
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where });
+    await prisma.appointment.deleteMany({ where });
     await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
@@ -191,6 +195,78 @@ describe('episode revisions', () => {
         expect([closing.status, edit.status]).toEqual([201, 200]);
         expect((await revisions(id)).map((r) => r.version)).toEqual([1, 2, 3]);
       }
+    });
+
+    // The discharge locks its episode and later links its appointment; an edit
+    // of that appointment locks it and then points it at the episode, whose
+    // foreign key check takes a share lock on the episode. If the lock on the
+    // episode blocked that share lock (FOR UPDATE does, FOR NO KEY UPDATE does
+    // not), each would wait on the other. A transaction holding the patient
+    // stops both where the cycle would form: the discharge at its session's
+    // insert, holding the episode; the edit at its audit row, after the
+    // episode's share lock, or at that share lock if it is blocked.
+    it('does not deadlock with an edit that points its appointment at the episode', async () => {
+      const id = await newEpisode();
+      const appointment = await prisma.appointment.create({
+        data: {
+          tenantId: clinic.tenantId,
+          patientId,
+          userId,
+          startsAt: new Date('2026-02-01T13:00:00.000Z'),
+          endsAt: new Date('2026-02-01T14:00:00.000Z'),
+        },
+        select: { id: true },
+      });
+
+      const waiting = async () => {
+        const [{ count }] = await prisma.$queryRaw<[{ count: number }]>`
+          SELECT count(*)::int AS count FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+        return count;
+      };
+      const until = async (condition: () => Promise<boolean>) => {
+        for (let i = 0; i < 200 && !(await condition()); i++) await sleep(25);
+      };
+
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      let holding!: () => void;
+      const held = new Promise<void>((resolve) => (holding = resolve));
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT 1 FROM "patients" WHERE "id" = ${patientId}::uuid FOR UPDATE`;
+          holding();
+          await released;
+        },
+        { timeout: 20_000 },
+      );
+      await held;
+
+      const closing = auth(request(app).post(`/api/patients/${patientId}/sessions`))
+        .send({
+          sessionType: 'DISCHARGE',
+          sessionDate: new Date().toISOString(),
+          episodes: [{ episodeId: id }],
+          appointmentId: appointment.id,
+        })
+        .then((r) => r);
+      await until(async () => (await waiting()) >= 1);
+      expect(await waiting()).toBeGreaterThanOrEqual(1);
+      const edit = auth(request(app).patch(`/api/appointments/${appointment.id}`))
+        .send({ episodeId: id })
+        .then((r) => r);
+      await until(async () => (await waiting()) >= 2);
+      expect(await waiting()).toBeGreaterThanOrEqual(2);
+      release();
+      await holder;
+
+      const [closed, edited] = await Promise.all([closing, edit]);
+      expect([closed.status, edited.status]).toEqual([201, 200]);
+      expect(await prisma.appointment.findUniqueOrThrow({ where: { id: appointment.id } })).toMatchObject({
+        episodeId: id,
+        sessionId: closed.body.data.id,
+        status: 'COMPLETED',
+      });
     });
 
     it('takes consecutive versions when two discharge the same episode at once', async () => {
