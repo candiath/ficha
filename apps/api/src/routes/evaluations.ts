@@ -4,6 +4,7 @@ import { revisionReasonFields } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, evaluationRepo } from '../repositories';
+import { revisionRoutes } from './revisions';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -83,5 +84,8 @@ router.put<Params>('/', async (req, res) => {
 
   res.json({ data: result.evaluation });
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/revisions', revisionRoutes((p) => ({ aggregate: 'evaluation', episodeId: p.episodeId }), 'Evaluación no encontrada'));
 
 export default router;

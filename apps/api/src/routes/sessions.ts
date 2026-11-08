@@ -12,6 +12,7 @@ import {
   sessionRepo,
 } from '../repositories';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -336,5 +337,8 @@ router.delete<SessionParams>('/:sessionId', async (req, res) => {
 
   res.status(204).send();
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:sessionId/revisions', revisionRoutes((p) => ({ aggregate: 'session', sessionId: p.sessionId }), 'Sesión no encontrada'));
 
 export default router;

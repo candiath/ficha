@@ -54,6 +54,9 @@ import {
 } from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session, SessionEpisodeBlock, SessionType } from '@/types/session'
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog'
+import { renderSessionSnapshot } from '@/lib/revisionRows'
+import { revisionPaths } from '@/services/revisions'
 
 const schema = z.object({
   sessionDate: z
@@ -194,6 +197,7 @@ export default function SessionFormModalWide({
   const dateTolerances = useSessionDateTolerances()
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const { data: episodes = [] } = useQuery({
     queryKey: episodeKeys.list(patientId),
@@ -506,12 +510,30 @@ export default function SessionFormModalWide({
                 sesión común: ahí no habría nada que distinguir. */}
             {isEditing && <SessionTypeBadge type={session.sessionType} className="shrink-0" />}
           </div>
+          {isEditing && (
+            <RevisionHistoryButton className="-ml-2 self-start" onClick={() => setHistoryOpen(true)} />
+          )}
           {!isEditing && sessionType === 'DISCHARGE' && (
             <DialogDescription>
               Al guardar, el motivo queda cerrado con fecha de alta.
             </DialogDescription>
           )}
         </DialogHeader>
+
+        {/* Nested in this dialog, so a click in it is not outside this one. */}
+        {isEditing && (
+          <RevisionHistoryDialog
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            patientId={patientId}
+            base={revisionPaths.session(patientId, session.id)}
+            title="Historial de la sesión"
+            render={renderSessionSnapshot}
+            renderContext={{
+              episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio',
+            }}
+          />
+        )}
 
         <Form {...form}>
           <form

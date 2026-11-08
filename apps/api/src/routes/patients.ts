@@ -10,6 +10,7 @@ import {
 } from '../lib/validation';
 import { patientRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 // Las queries viven en patientRepo, que aplica la política de borrado lógico
 // (solo pacientes vigentes) en un único lugar; esta ruta queda en HTTP puro:
@@ -115,5 +116,8 @@ router.delete('/:id', async (req, res) => {
 
   res.status(204).send();
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:id/revisions', revisionRoutes(() => ({ aggregate: 'patient' }), 'Paciente no encontrado'));
 
 export default router;
