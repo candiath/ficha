@@ -251,10 +251,12 @@ describe('episode revisions', () => {
         })
         .then((r) => r);
       await until(async () => (await waiting()) >= 1);
+      expect(await waiting()).toBeGreaterThanOrEqual(1);
       const edit = auth(request(app).patch(`/api/appointments/${appointment.id}`))
         .send({ episodeId: id })
         .then((r) => r);
       await until(async () => (await waiting()) >= 2);
+      expect(await waiting()).toBeGreaterThanOrEqual(2);
       release();
       await holder;
 
