@@ -15,7 +15,7 @@ import { chooseReason } from './revisionReason';
 // every open episode, each with its own block, and sends the whole set.
 vi.mock('@/services/sessions', () => ({
   sessionKeys: { list: (patientId: string) => ['patients', patientId, 'sessions'] },
-  sessionApi: { create: vi.fn(), update: vi.fn(), remove: vi.fn(), get: vi.fn() },
+  sessionApi: { create: vi.fn(), update: vi.fn(), annul: vi.fn(), get: vi.fn() },
 }));
 
 vi.mock('@/services/episodes', () => ({
@@ -34,6 +34,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const create = vi.mocked(sessionApi.create);
 const update = vi.mocked(sessionApi.update);
+const annul = vi.mocked(sessionApi.annul);
 
 const episode = (id: string, mainComplaint: string, status: ClinicalEpisode['status'] = 'ACTIVE'): ClinicalEpisode => ({
   id,
@@ -75,6 +76,7 @@ const session: Session = {
   observations: null,
   createdAt: '2026-02-24T13:00:00.000Z',
   updatedAt: '2026-02-24T13:00:00.000Z',
+  annulledAt: null,
   episodes: [
     {
       episodeId: BACK.id,
@@ -174,6 +176,44 @@ describe('SessionFormModalWide: revisions', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
     await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
     expect(update.mock.calls[1][2].expectedVersion).toBe(4);
+  });
+});
+
+describe('SessionFormModalWide: annulling', () => {
+  async function openAnnul() {
+    renderForm({ session });
+    const form = await screen.findByRole('dialog');
+    expect(within(form).queryByRole('button', { name: 'Eliminar' })).toBeNull();
+    await userEvent.click(within(form).getByRole('button', { name: 'Anular' }));
+    return screen.findByRole('dialog', { name: '¿Anular esta sesión?' });
+  }
+
+  it('asks for a reason, with none preselected, and sends it with the note', async () => {
+    annul.mockResolvedValue(undefined);
+    const dialog = await openAnnul();
+    expect(within(dialog).getByRole('combobox', { name: 'Motivo de la anulación' })).toHaveTextContent('Elegí un motivo');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
+    expect(within(dialog).getByText('Elegí el motivo del cambio')).toBeInTheDocument();
+    expect(annul).not.toHaveBeenCalled();
+
+    await chooseReason('Error de confección', dialog, 'Motivo de la anulación');
+    await userEvent.type(within(dialog).getByLabelText('Nota (opcional)'), 'Cargada en la paciente equivocada');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
+
+    await waitFor(() => expect(annul).toHaveBeenCalledTimes(1));
+    expect(annul).toHaveBeenCalledWith('p1', 's1', { reason: 'DATA_ENTRY_ERROR', reasonNote: 'Cargada en la paciente equivocada' });
+  });
+
+  it("shows the API's message when the session is paid", async () => {
+    const { toast } = await import('sonner');
+    const PAID = 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de anularla.';
+    annul.mockRejectedValue(new ApiError(PAID, 409, { error: PAID }));
+    const dialog = await openAnnul();
+    await chooseReason(undefined, dialog, 'Motivo de la anulación');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(PAID));
   });
 });
 

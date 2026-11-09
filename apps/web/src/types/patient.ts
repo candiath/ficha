@@ -36,6 +36,12 @@ export interface PatientFormData {
 
 // An edit of the record: the version it was made over, and why
 // (SPEC-clinical-revisions.md §4, §5).
+// The body of an annulment: a reason, always, and an optional note.
+export interface AnnulData {
+  reason: RevisionReason;
+  reasonNote?: string | null;
+}
+
 export interface RevisionMeta {
   expectedVersion?: number;
   reason?: RevisionReason;

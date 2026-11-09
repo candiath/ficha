@@ -29,6 +29,9 @@ export interface RevisionReasonFieldProps {
   triggerRef: RefObject<HTMLButtonElement | null>
   onReasonChange: (reason: RevisionReason) => void
   onNoteChange: (note: string) => void
+  // An annulment names its own act ("Motivo de la anulación").
+  label?: string
+  noteLabel?: string
 }
 
 export default function RevisionReasonField({
@@ -38,13 +41,15 @@ export default function RevisionReasonField({
   triggerRef,
   onReasonChange,
   onNoteChange,
+  label = 'Motivo del cambio',
+  noteLabel = 'Nota del cambio (opcional)',
 }: RevisionReasonFieldProps) {
   // Several forms of one record can be on the page at once.
   const id = useId()
   return (
     <div className="grid gap-3 sm:grid-cols-[16rem_1fr]">
       <div className="space-y-1.5">
-        <Label id={`${id}-reason`}>Motivo del cambio</Label>
+        <Label id={`${id}-reason`}>{label}</Label>
         <Select
           items={REASONS}
           value={reason}
@@ -74,7 +79,7 @@ export default function RevisionReasonField({
         )}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor={`${id}-note`}>Nota del cambio (opcional)</Label>
+        <Label htmlFor={`${id}-note`}>{noteLabel}</Label>
         <Textarea
           id={`${id}-note`}
           rows={1}

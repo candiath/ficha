@@ -24,7 +24,7 @@ vi.mock('@/services/sessions', () => ({
     list: (patientId: string) => ['patients', patientId, 'sessions'],
     detail: (patientId: string, sessionId: string) => ['patients', patientId, 'sessions', sessionId],
   },
-  sessionApi: { get: vi.fn(), update: vi.fn(), remove: vi.fn(), list: vi.fn(), create: vi.fn() },
+  sessionApi: { get: vi.fn(), update: vi.fn(), annul: vi.fn(), list: vi.fn(), create: vi.fn() },
 }));
 
 vi.mock('@/services/episodes', () => ({
