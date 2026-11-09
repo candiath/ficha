@@ -353,7 +353,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
     Plus `sessionSoftDelete` rewritten, `auditCoverage` and `dashboardStats`.
   - *Files:* `schema.prisma` + migration, `auditActions.ts`, `prismaSessionRepository.ts`, `prismaPatientEventRepository.ts`, `routes/sessions.ts`, `routes/patientEvents.ts`, `tests/auditCoverageManifest.ts`, tests. **M**
-- [ ] **Task 5.2: Annul in the record (web), and PR**
+- [x] **Task 5.2: Annul in the record (web), and PR**
   - *Acceptance:*
     - "Anular" replaces "Eliminar" on sessions and events, with a dialog for the reason (none preselected, as in every correction since 2026-11-08) and the note.
     - Annulled entries show struck through with an "Anulada" badge, and their history shows the annulment.
@@ -529,3 +529,4 @@ None open.
 - **`sessionSoftDelete.test.ts` became `sessionAnnul.test.ts`**, in English: payments, appointments, reading, editing and metrics after an annulment. The new `annulment.test.ts` covers the action, the reason, the version and the readers for both aggregates; the removed `DELETE` routes answer `404`.
 - **Fixed on the way**: the record's session count read "2 sesiónes".
 - **The check by hand** ran against `development` (the migration applied there with `migrate deploy`), on Javier Rodríguez (seed, version 0). Annulling his last session: confirming with no reason marked the field and sent nothing; with "Error de confección" and a note it answered `204`, the list read "7 sesiones · 1 anulada" with the session struck through as "Anulada" and numbered "–", and the pain chart lost its point. Clicking it opened its history, whose only version is "Sesión anulada · Error de confección" with the note (version 1: the seeded session had none; step 6's baseline gives such rows their version 1). An event annulled with "Aclaración" showed struck through as "Anulado", with only its history button. The activity timeline read "Anuló una sesión" and "Anuló un antecedente (cirugía)".
+- **The rehearsal** (2026-11-09). `rehearsal-annulment`, copied from `production` in `ficha-pg18`: the twelve migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed with no maintenance flag; both actions are in the enum; sessions, patient events, audit rows and patients kept their counts (2, 0, 8, 2) and row hashes across this migration.
