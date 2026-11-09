@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { partialDateSchema, revisionReasonFields } from '@ficha/shared';
+import { partialDateSchema, revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { requiredText } from '../lib/validation';
 import { patientEventRepo, patientRepo } from '../repositories';
@@ -99,25 +99,31 @@ router.patch<EventParams>('/:eventId', async (req, res) => {
   res.json({ data: result.event });
 });
 
-// DELETE /api/patients/:patientId/events/:eventId
-router.delete<EventParams>('/:eventId', async (req, res) => {
+// POST /api/patients/:patientId/events/:eventId/annul
+// An event entered by mistake is annulled, never deleted
+// (SPEC-clinical-revisions.md §8): it stays in the history struck through. The
+// reason is required. There is no restore route yet.
+router.post<EventParams>('/:eventId/annul', async (req, res) => {
   if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
+  const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
-  const result = await patientEventRepo.softDelete(
+  const result = await patientEventRepo.annul(
     req.context,
     req.params.patientId,
     req.params.eventId,
+    { reasonNote },
     (e) => ({
-      action: 'PATIENT_EVENT_DELETED',
+      action: 'PATIENT_EVENT_ANNULLED',
       patientId: req.params.patientId,
       entityId: e.id,
-      params: { kind: e.kind },
+      params: { kind: e.kind, reason },
     }),
   );
 
+  // Missing, already annulled or another patient's: the same 404.
   if (result === 'not_found') {
     res.status(404).json({ error: 'Antecedente no encontrado' });
     return;

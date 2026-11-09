@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Ban, History, Pencil, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   elapsedSince,
@@ -16,7 +16,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -29,16 +28,21 @@ import { PATIENT_EVENT_KIND_LABELS } from '@/lib/labels';
 import { patientEventApi, patientEventKeys } from '@/services/patientEvents';
 import { tenantApi, tenantKeys } from '@/services/tenant';
 import { PATIENT_EVENT_KINDS, type PatientEvent, type PatientEventKind } from '@/types/patientEvent';
+import type { AnnulData } from '@/types/patient';
 import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField';
 import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
+import { ApiError } from '@/lib/api';
 import RevisionHistoryDialog from '@/components/patients/RevisionHistoryDialog';
+import AnnulDialog from '@/components/patients/AnnulDialog';
 import { renderPatientEventSnapshot } from '@/lib/revisionRows';
 import { revisionPaths } from '@/services/revisions';
 
 // The patient's history ("Antecedentes", #238): what she lived, as dated facts.
-// It belongs to the patient, so the same list shows from every episode.
+// It belongs to the patient, so the same list shows from every episode. An
+// event entered by mistake is annulled, not deleted: it stays, struck through,
+// with its history (SPEC-clinical-revisions.md §8).
 
 function useClinicToday(): string {
   const { data: tenant } = useQuery({ queryKey: tenantKeys.config, queryFn: tenantApi.get });
@@ -53,7 +57,7 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
   const queryClient = useQueryClient();
   const today = useClinicToday();
   const [editing, setEditing] = useState<PatientEvent | 'new' | null>(null);
-  const [deleting, setDeleting] = useState<PatientEvent | null>(null);
+  const [annulling, setAnnulling] = useState<PatientEvent | null>(null);
   const [historyOf, setHistoryOf] = useState<PatientEvent | null>(null);
 
   const { data: events = [], isLoading, refetch } = useQuery({
@@ -61,14 +65,23 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
     queryFn: () => patientEventApi.list(patientId),
   });
 
-  const removeMutation = useMutation({
-    mutationFn: (id: string) => patientEventApi.remove(patientId, id),
+  const annulMutation = useMutation({
+    mutationFn: ({ id, reason, reasonNote }: { id: string } & AnnulData) =>
+      patientEventApi.annul(patientId, id, { reason, reasonNote }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
-      toast.success('Antecedente eliminado');
-      setDeleting(null);
+      toast.success('Antecedente anulado');
+      setAnnulling(null);
     },
-    onError: () => toast.error('No se pudo eliminar el antecedente'),
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo anular el antecedente');
+      // Annulled or gone meanwhile (404): the list shows what it is now, and
+      // there is nothing left to annul.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
+        setAnnulling(null);
+      }
+    },
   });
 
   return (
@@ -99,12 +112,19 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
           <ul className="divide-y">
             {events.map((event) => (
               <li key={event.id} className="flex items-start justify-between gap-3 py-2.5">
-                <div className="min-w-0 space-y-1">
+                <div className={`min-w-0 space-y-1 ${event.annulledAt ? 'opacity-60' : ''}`}>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="secondary">{PATIENT_EVENT_KIND_LABELS[event.kind]}</Badge>
+                    {event.annulledAt && <Badge variant="destructive">Anulado</Badge>}
                     <span className="text-xs text-muted-foreground">{describeWhen(event.occurred, today)}</span>
                   </div>
-                  <p className="text-sm">{event.description}</p>
+                  {/* An annulled event shows no description here: it may have
+                      been entered on the wrong patient. It is in its history. */}
+                  {event.annulledAt ? (
+                    <p className="text-sm text-muted-foreground">Anulado: el contenido está en su historial.</p>
+                  ) : (
+                    <p className="text-sm">{event.description}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button
@@ -118,26 +138,32 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                   >
                     <History className="h-4 w-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8"
-                    aria-label="Editar antecedente"
-                    onClick={() => setEditing(event)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    aria-label="Eliminar antecedente"
-                    onClick={() => setDeleting(event)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {/* An annulled event is read, never edited: only its history. */}
+                  {!event.annulledAt && (
+                    <>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label="Editar antecedente"
+                        onClick={() => setEditing(event)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        aria-label="Anular antecedente"
+                        title="Anular"
+                        onClick={() => setAnnulling(event)}
+                      >
+                        <Ban className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </li>
             ))}
@@ -174,28 +200,16 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
         />
       )}
 
-      <Dialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>¿Eliminar este antecedente?</DialogTitle>
-            <DialogDescription>
-              Deja de aparecer en la ficha del paciente. Queda registrado en la actividad.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleting(null)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={removeMutation.isPending}
-              onClick={() => deleting && removeMutation.mutate(deleting.id)}
-            >
-              {removeMutation.isPending ? 'Eliminando...' : 'Eliminar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AnnulDialog
+        open={annulling !== null}
+        onOpenChange={(open) => !open && setAnnulling(null)}
+        title="¿Anular este antecedente?"
+        description="Queda en la ficha tachado, con su historial, y ya no se puede editar."
+        pending={annulMutation.isPending}
+        onConfirm={(reason, reasonNote) =>
+          annulling && annulMutation.mutate({ id: annulling.id, reason, reasonNote })
+        }
+      />
     </Card>
   );
 }

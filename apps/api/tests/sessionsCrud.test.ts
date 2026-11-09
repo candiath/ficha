@@ -40,6 +40,8 @@ describe('CRUD de sesiones por HTTP', () => {
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
   const url = (patientId = patient.id) => `/api/patients/${patientId}/sessions`;
+  const anular = (sessionId: string, patientId = patient.id) =>
+    auth(request(app).post(`${url(patientId)}/${sessionId}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -167,6 +169,7 @@ describe('CRUD de sesiones por HTTP', () => {
       observations: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
+      annulledAt: null,
       episodes: [
         {
           episodeId: episodeA.id,
@@ -556,33 +559,34 @@ describe('CRUD de sesiones por HTTP', () => {
     expect(Number(cobro?.baseAmountCents)).toBe(5000);
   });
 
-  // ── DELETE ────────────────────────────────────────────────────────────────
+  // ── Annul ─────────────────────────────────────────────────────────────────
 
-  it('DELETE bajo otro paciente de la misma clínica da 404 y no borra', async () => {
+  it("annulling under another patient of the same clinic answers 404 and annuls nothing", async () => {
     const delOtro = await crearSesion({}, otroPaciente.id);
 
-    const res = await auth(request(app).delete(`${url()}/${delOtro.id}`));
+    const res = await anular(delOtro.id);
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Sesión no encontrada' });
     await expect(filaCruda(delOtro.id)).resolves.toMatchObject({ deletedAt: null });
   });
 
-  it('DELETE de una sesión con episodio la saca del filtro por episodio', async () => {
+  it("an annulled session stays in the episode's list, marked", async () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
 
-    expect((await auth(request(app).delete(`${url()}/${creada.id}`))).status).toBe(204);
+    expect((await anular(creada.id)).status).toBe(204);
 
     const res = await auth(request(app).get(`${url()}?episodeId=${episodeA.id}`));
-    expect(res.body.data.map((s: { id: string }) => s.id)).not.toContain(creada.id);
+    const listed = res.body.data.find((s: { id: string }) => s.id === creada.id);
+    expect(listed.annulledAt).toEqual(expect.any(String));
   });
 
-  // La sesión salió de un turno y se borra porque se cargó por error. Si el
+  // La sesión salió de un turno y se anula porque se cargó por error. Si el
   // turno quedara apuntando a la sesión borrada, la agenda diría para siempre
   // "la sesión de este turno ya está registrada" y el POST con ese
   // appointmentId daría 409: un turno atendido sin ninguna sesión que se pueda
   // ver ni volver a registrar.
-  it('DELETE libera el turno del que salió la sesión, para poder registrarla de nuevo', async () => {
+  it('annulling releases the appointment the session came from, so it can be recorded again', async () => {
     const turno = await prisma.appointment.create({
       data: {
         tenantId: clinic.tenantId,
@@ -598,7 +602,7 @@ describe('CRUD de sesiones por HTTP', () => {
       prisma.appointment.findUnique({ where: { id: turno.id }, select: { sessionId: true } }),
     ).resolves.toEqual({ sessionId: primera.id });
 
-    expect((await auth(request(app).delete(`${url()}/${primera.id}`))).status).toBe(204);
+    expect((await anular(primera.id)).status).toBe(204);
 
     // El turno ya no apunta a nada...
     await expect(
@@ -624,7 +628,7 @@ describe('CRUD de sesiones por HTTP', () => {
 
   // patientRepository.test.ts cubre GET y POST bajo un paciente borrado; acá
   // van las otras dos escrituras, que también pasan por patientRepo.exists.
-  it('PATCH y DELETE de una sesión de un paciente borrado dan 404 y no tocan nada', async () => {
+  it('PATCH and annul of a session of a deleted patient answer 404 and touch nothing', async () => {
     const borrado = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado Con', lastName: 'Sesión' },
       select: { id: true },
@@ -642,7 +646,7 @@ describe('CRUD de sesiones por HTTP', () => {
     expect(editada.status).toBe(404);
     expect(editada.body).toEqual({ error: 'Paciente no encontrado' });
 
-    const borrada = await auth(request(app).delete(`${url(borrado.id)}/${sesion.id}`));
+    const borrada = await anular(sesion.id, borrado.id);
     expect(borrada.status).toBe(404);
     expect(borrada.body).toEqual({ error: 'Paciente no encontrado' });
 
@@ -654,14 +658,14 @@ describe('CRUD de sesiones por HTTP', () => {
 
   // ── Auditoría ─────────────────────────────────────────────────────────────
 
-  it('crear, editar y borrar dejan su entrada de auditoría, sin el dolor', async () => {
+  it('creating, editing and annulling leave their audit rows, without the pain', async () => {
     const creada = await crearSesion({
       episodes: [{ episodeId: episodeA.id, painScaleBefore: 7, painScaleAfter: 3 }],
     });
     await auth(request(app).patch(`${url()}/${creada.id}`)).send({ reason: 'DATA_ENTRY_ERROR', observations: 'x' });
-    await auth(request(app).delete(`${url()}/${creada.id}`));
+    await anular(creada.id);
 
-    const buscar = (action: 'SESSION_RECORDED' | 'SESSION_UPDATED' | 'SESSION_DELETED') =>
+    const buscar = (action: 'SESSION_RECORDED' | 'SESSION_UPDATED' | 'SESSION_ANNULLED') =>
       waitFor(() =>
         prisma.auditLog.findFirst({
           where: { tenantId: clinic.tenantId, entity: 'SESSION', entityId: creada.id, action },
@@ -672,7 +676,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const [alta, edicion, borrado] = await Promise.all([
       buscar('SESSION_RECORDED'),
       buscar('SESSION_UPDATED'),
-      buscar('SESSION_DELETED'),
+      buscar('SESSION_ANNULLED'),
     ]);
 
     for (const entrada of [alta, edicion, borrado]) {
@@ -681,6 +685,7 @@ describe('CRUD de sesiones por HTTP', () => {
     // Codes only: the pain values stay in the session, never in the audit row.
     expect(alta.params).toEqual({});
     expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'], reason: 'DATA_ENTRY_ERROR' });
+    expect(borrado.params).toEqual({ sessionType: 'SESSION', reason: 'DATA_ENTRY_ERROR', payment: 'NONE' });
   });
 
   it('editing the exercises records the field name, never the text', async () => {
@@ -725,7 +730,7 @@ describe('CRUD de sesiones por HTTP', () => {
       request(app).get(`${url()}/${creada.id}`),
       request(app).post(url()).send({ sessionDate: new Date().toISOString() }),
       request(app).patch(`${url()}/${creada.id}`).send({ reason: 'DATA_ENTRY_ERROR', observations: 'intruso' }),
-      request(app).delete(`${url()}/${creada.id}`),
+      request(app).post(`${url()}/${creada.id}/annul`).send({ reason: 'DATA_ENTRY_ERROR' }),
     ];
 
     for (const pedido of pedidos) {

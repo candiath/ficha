@@ -4,7 +4,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "prisma generate && tsc",
+    "build": "prisma generate && tsc && node ../../scripts/build-version.mjs dist/build-version.json",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.check.json",
     "test": "ts-node --transpile-only scripts/test-docker.ts run",

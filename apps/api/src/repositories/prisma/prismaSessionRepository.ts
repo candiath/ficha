@@ -26,9 +26,10 @@ import { latestRevision, recordRevision } from './recordRevision';
 import { sessionSnapshot } from './sessionSnapshot';
 import { episodeSnapshot, episodeSnapshotSelect } from './clinicalSnapshots';
 
-// Política del repositorio: todo método opera sobre sesiones vigentes. Una
-// sesión borrada no se lista, no se lee y no se edita — el mismo criterio que
-// patientRepository aplica a los pacientes.
+// Every method works on current sessions: an annulled one is not read or
+// edited, and leaves every list — except the patient's record (listByPatient),
+// which shows it struck through (SPEC-clinical-revisions.md §8). deletedAt is
+// the annulment's date.
 const VIGENTE = { deletedAt: null } as const;
 
 // Se lanza dentro de la transacción para que Prisma la revierta, y se
@@ -55,6 +56,7 @@ const sessionSelect = {
   observations: true,
   createdAt: true,
   updatedAt: true,
+  deletedAt: true,
   // The therapist: part of the snapshot, not of the DTO.
   userId: true,
   // The latest version; none is version 0.
@@ -97,13 +99,14 @@ type SessionIndexRow = Prisma.SessionGetPayload<{ select: typeof sessionIndexSel
 const AUDIT_FIELDS = Object.keys(AUDIT_SESSION_FIELDS) as SessionAuditField[];
 const BLOCK_FIELDS = Object.keys(EMPTY_BLOCK) as BlockField[];
 
-function toDTO({ userId: _userId, revisions, ...row }: SessionRow): SessionDTO {
+function toDTO({ userId: _userId, revisions, deletedAt, ...row }: SessionRow): SessionDTO {
   return {
     ...row,
     version: revisions[0]?.version ?? 0,
     sessionDate: row.sessionDate.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    annulledAt: deletedAt?.toISOString() ?? null,
   };
 }
 
@@ -193,9 +196,10 @@ export const prismaSessionRepository: SessionRepository = {
     filters?: { episodeId?: string },
   ): Promise<SessionDTO[]> {
     const db = forTenant(ctx);
+    // Annulled ones included: the record shows them, struck through. A reader
+    // of this list that counts or charts filters them out (annulledAt).
     const rows = await db.session.findMany({
       where: {
-        ...VIGENTE,
         patientId,
         ...(filters?.episodeId ? { episodes: { some: { episodeId: filters.episodeId } } } : {}),
       },
@@ -509,12 +513,13 @@ export const prismaSessionRepository: SessionRepository = {
     }
   },
 
-  async softDelete(
+  async annul(
     ctx: TenantContext,
     patientId: string,
     id: string,
-    audit: AuditEntry,
-  ): Promise<'deleted' | 'not_found' | 'paid'> {
+    input: { reasonNote?: string | null },
+    audit: (session: SessionDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
+  ): Promise<'annulled' | 'not_found' | 'paid'> {
     const db = forTenant(ctx);
 
     return db.$transaction(async (tx) => {
@@ -522,25 +527,39 @@ export const prismaSessionRepository: SessionRepository = {
       // edit and then reads the version that edit wrote.
       await lockRow(tx, 'sessions', id, ctx.tenantId);
 
+      // A session that is not current, or not this patient's, is not found
+      // before anything is written: with the row locked this cannot change
+      // below, and its payment is not deleted on the way (review of #292).
+      const current = await tx.session.findFirst({
+        where: { ...VIGENTE, id, patientId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!current) return 'not_found';
+
       // 1. Sacar el cobro, salvo que esté PAGADO. La condición va en el where
       //    del delete: si estaba pagado no borra nada y la fila sigue ahí.
       //
       //    Se elimina de verdad y no se marca: un cobro PENDING o WAIVED por
       //    una sesión que no existió no es historial —no hubo plata— sino
       //    trabajo pendiente sobre algo que no pasó. Borrarlo también evita
-      //    tener que filtrar sesiones borradas en Cobros y en el remanente de
+      //    tener que filtrar sesiones anuladas en Cobros y en el remanente de
       //    los paquetes, que es justo el filtro que después alguien olvida.
       //    The patient goes in the where too: a session of another patient,
       //    sent under this patient's URL, is not found below, and its payment
       //    must not be deleted on the way.
-      await tx.payment.deleteMany({
-        where: { sessionId: id, patientId, tenantId: ctx.tenantId, status: { not: 'PAID' } },
-      });
+      //    RETURNING says which status it had, for the audit row: the one
+      //    trace of a deleted payment (review of #292). Raw SQL, so the
+      //    tenant goes in the where by hand.
+      const removed = await tx.$queryRaw<{ status: 'PENDING' | 'WAIVED' }[]>`
+        DELETE FROM payments
+         WHERE session_id = ${id}::uuid AND patient_id = ${patientId}::uuid
+           AND tenant_id = ${ctx.tenantId}::uuid AND status <> 'PAID'
+        RETURNING status::text AS status`;
 
-      // 2. Borrar la sesión solo si ya no le queda ningún cobro colgando. Si
-      //    el cobro estaba pagado sigue existiendo y este updateMany no toca
-      //    nada: la condición viaja en el where del write, sin ventana entre
-      //    el chequeo y la escritura.
+      // 2. Annul the session only if no payment is left on it. If the payment
+      //    was paid it still exists and this updateMany touches nothing: the
+      //    condition travels in the write's where, with no window between the
+      //    check and the write.
       const { count } = await tx.session.updateMany({
         where: { id, patientId, tenantId: ctx.tenantId, deletedAt: null, payment: { is: null } },
         data: { deletedAt: new Date() },
@@ -548,38 +567,39 @@ export const prismaSessionRepository: SessionRepository = {
 
       if (count === 1) {
         // 3. Soltar el turno del que salió la sesión, si hubo uno. Sin esto
-        //    el turno quedaría apuntando a una sesión que ya no se ve: la
-        //    agenda diría para siempre "la sesión ya está registrada" y el
-        //    POST con ese appointmentId daría 409 por el sessionId ocupado.
-        //    Se limpia solo el vínculo; el estado no se toca, porque que la
-        //    sesión se haya cargado mal no dice nada sobre si el paciente
-        //    vino (COMPLETED sin sessionId es un estado válido: "vino, sin
-        //    sesión registrada"). Si en realidad no vino, la agenda deja
-        //    marcarlo NO_SHOW igual que siempre.
+        //    el turno quedaría apuntando a una sesión anulada: la agenda diría
+        //    para siempre "la sesión ya está registrada" y el POST con ese
+        //    appointmentId daría 409 por el sessionId ocupado. Se limpia solo
+        //    el vínculo; el estado no se toca, porque que la sesión se haya
+        //    cargado mal no dice nada sobre si el paciente vino (COMPLETED sin
+        //    sessionId es un estado válido: "vino, sin sesión registrada").
         await tx.appointment.updateMany({
           where: { sessionId: id, tenantId: ctx.tenantId },
           data: { sessionId: null },
         });
-        // The audit row and a version with the same content go in the same
-        // transaction as the deletion (#188): the action is what the audit row
-        // says. Step 5 of SPEC-clinical-revisions.md turns this into annulling.
-        const auditLogId = await recordAudit(tx, ctx, audit);
+        // The final version, of unchanged content: the annulment is what its
+        // audit row says, and the note goes only into the revision (#188,
+        // SPEC-clinical-revisions.md §8).
         const row = await tx.session.findUniqueOrThrow({
           where: { id, tenantId: ctx.tenantId },
           select: sessionSelect,
         });
+        const session = toDTO(row);
+        const version = session.version + 1;
+        const auditLogId = await recordAudit(tx, ctx, audit({ ...session, version }, removed[0]?.status ?? null));
         await recordRevision(tx, ctx, 'session_revisions', {
           aggregateId: id,
           patientId,
-          version: (row.revisions[0]?.version ?? 0) + 1,
+          version,
           auditLogId,
           snapshot: sessionSnapshot(row),
+          reasonNote: input.reasonNote,
         });
-        return 'deleted';
+        return 'annulled';
       }
 
       // count 0 son dos casos distintos para el cliente: la sesión existe
-      // pero está cobrada (409), o no existe / ya estaba borrada (404).
+      // pero está cobrada (409), o no existe / ya estaba anulada (404).
       const stillThere = await tx.session.findFirst({
         where: { id, patientId, tenantId: ctx.tenantId, deletedAt: null },
         select: { id: true },

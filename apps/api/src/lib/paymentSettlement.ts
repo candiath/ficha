@@ -26,7 +26,7 @@ export interface Settlement {
  * inventar un `paidAt` y un `method`, o sea a registrar un movimiento de caja
  * que nunca ocurrió. Eso rompe la pregunta más básica que se le hace al
  * sistema —cuánta plata entró— y no cierra contra la caja real. Además PAID
- * volvería indeleble la sesión: softDelete solo borra el cobro si NO está
+ * volvería inanulable la sesión: annul solo borra el cobro si NO está
  * pagado, así que una sesión de cortesía cargada por error quedaría trabada
  * detrás de un 409 que pide revertir un cobro que nunca existió.
  *

@@ -117,42 +117,52 @@ export const prismaPaymentRepository: PaymentRepository = {
   ): Promise<PaymentCreateResult> {
     const db = forTenant(ctx);
 
-    // El paciente se deriva de la sesión: la sesión debe ser del tenant.
-    const session = await db.session.findFirst({
-      // deletedAt: null — no se registra un cobro sobre una sesión borrada.
-      where: { id: input.sessionId, deletedAt: null },
-      select: { id: true, patientId: true },
-    });
-    if (!session) return { ok: false, reason: 'session_not_found' };
-
-    // El paquete a debitar debe ser del tenant y del MISMO paciente que la
-    // sesión: sin esto se podía descontar sesiones del paquete de otro.
-    if (input.packageId) {
-      const pkg = await db.sessionPackage.findFirst({
-        where: { id: input.packageId, patientId: session.patientId },
-        select: { id: true },
-      });
-      if (!pkg) return { ok: false, reason: 'package_not_found' };
-    }
-
-    // Dos capas contra el pago duplicado: el pre-chequeo atrapa el caso
-    // secuencial sin ensuciar el log, y el catch de P2002 la carrera real
-    // (dos requests que pasan el pre-chequeo antes de que ninguno confirme).
-    const existing = await db.payment.findUnique({
-      where: { sessionId: input.sessionId },
-      select: { id: true },
-    });
-    if (existing) return { ok: false, reason: 'duplicate' };
-
-    // Mismo criterio que el cobro embebido en el alta de la sesión: si no hay
-    // nada que cobrar, el cobro nace eximido y no como deuda.
-    const { finalAmountCents, status } = settle(input.baseAmountCents, input.discountCents);
-
     // The audit row goes in the same transaction as the write (#188). The
     // duplicate is caught outside it: a unique violation aborts the
     // transaction, so it cannot be handled inside the callback.
     try {
-      const payment = await db.$transaction(async (tx) => {
+      return await db.$transaction(async (tx): Promise<PaymentCreateResult> => {
+        // The session is locked before it is read. Annulling a session locks
+        // it the same way, deletes its unpaid payment and marks it deleted
+        // only if no payment is left. Without this lock the payment insert
+        // only takes the foreign key's KEY SHARE, which FOR NO KEY UPDATE does
+        // not block: a payment created while the session was being annulled
+        // landed on the annulled session. With it, one waits for the other —
+        // either the annulment sees the payment, or this read sees the session
+        // annulled.
+        await lockRow(tx, 'sessions', input.sessionId, ctx.tenantId);
+
+        // El paciente se deriva de la sesión: la sesión debe ser del tenant.
+        const session = await tx.session.findFirst({
+          // deletedAt: null — no se registra un cobro sobre una sesión borrada.
+          where: { id: input.sessionId, tenantId: ctx.tenantId, deletedAt: null },
+          select: { id: true, patientId: true },
+        });
+        if (!session) return { ok: false, reason: 'session_not_found' };
+
+        // El paquete a debitar debe ser del tenant y del MISMO paciente que la
+        // sesión: sin esto se podía descontar sesiones del paquete de otro.
+        if (input.packageId) {
+          const pkg = await tx.sessionPackage.findFirst({
+            where: { id: input.packageId, tenantId: ctx.tenantId, patientId: session.patientId },
+            select: { id: true },
+          });
+          if (!pkg) return { ok: false, reason: 'package_not_found' };
+        }
+
+        // Two layers against a duplicate payment: this check, which under the
+        // session lock catches two creates for the same session, and the catch
+        // of P2002 below, for a payment inserted without that lock.
+        const existing = await tx.payment.findUnique({
+          where: { sessionId: input.sessionId },
+          select: { id: true },
+        });
+        if (existing) return { ok: false, reason: 'duplicate' };
+
+        // Mismo criterio que el cobro embebido en el alta de la sesión: si no hay
+        // nada que cobrar, el cobro nace eximido y no como deuda.
+        const { finalAmountCents, status } = settle(input.baseAmountCents, input.discountCents);
+
         const row = await tx.payment.create({
           data: {
             tenantId: ctx.tenantId,
@@ -167,11 +177,10 @@ export const prismaPaymentRepository: PaymentRepository = {
           },
           select: paymentSelect,
         });
-        const created = toDTO(row);
-        await recordAudit(tx, ctx, audit(created));
-        return created;
+        const payment = toDTO(row);
+        await recordAudit(tx, ctx, audit(payment));
+        return { ok: true, payment };
       });
-      return { ok: true, payment };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         return { ok: false, reason: 'duplicate' };

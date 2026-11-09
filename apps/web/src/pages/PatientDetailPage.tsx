@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
+import { useUnsavedChanges } from '@/lib/unsavedChanges';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,7 +52,7 @@ import {
 import type { BodyMarker } from '@/types/evaluation';
 import { blockFor, type Session } from '@/types/session';
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
-import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot } from '@/lib/revisionRows';
+import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot, renderSessionSnapshot } from '@/lib/revisionRows';
 import { revisionPaths } from '@/services/revisions';
 
 const evalSchema = z.object({
@@ -241,12 +242,9 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
     onUnsavedChangesChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onUnsavedChangesChange]);
 
-  // Advertir al cerrar/recargar el browser
-  useBeforeUnload(
-    useCallback((e) => {
-      if (hasUnsavedChanges) e.preventDefault();
-    }, [hasUnsavedChanges]),
-  );
+  // Advertir al cerrar/recargar el browser, y al aviso de versión nueva
+  // (lib/unsavedChanges.ts).
+  useUnsavedChanges(hasUnsavedChanges);
 
   // Pre-fill when data loads (evaluation may be null on first visit)
   useEffect(() => {
@@ -563,6 +561,8 @@ function SessionsTab({
   const [newOpen, setNewOpen] = useState(false);
   const [closedWarning, setClosedWarning] = useState(false);
   const [selected, setSelected] = useState<Session | null>(null);
+  // An annulled session opens its history: it is read, never edited.
+  const [historyOf, setHistoryOf] = useState<Session | null>(null);
   const [page, setPage] = useState(0);
 
   const { data: sessions = [], isLoading } = useQuery({
@@ -597,7 +597,11 @@ function SessionsTab({
     },
   });
 
-  const dischargeSession = sessions.find((s) => s.sessionType === 'DISCHARGE') ?? null;
+  // The record lists annulled sessions struck through (SPEC-clinical-revisions.md
+  // §8); they count in nothing: not the total, the numbering or the discharge.
+  const current = sessions.filter((s) => !s.annulledAt);
+  const annulledCount = sessions.length - current.length;
+  const dischargeSession = current.find((s) => s.sessionType === 'DISCHARGE') ?? null;
   const dischargeDate = dischargeSession
     ? new Date(dischargeSession.sessionDate).toLocaleDateString('es-AR', {
         day: '2-digit',
@@ -627,9 +631,10 @@ function SessionsTab({
       {/* Header de sección */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">
-          {sessions.length === 0
+          {current.length === 0
             ? 'Sin sesiones registradas'
-            : `${sessions.length} sesión${sessions.length !== 1 ? 'es' : ''}`}
+            : `${current.length} ${current.length === 1 ? 'sesión' : 'sesiones'}`}
+          {annulledCount > 0 && ` · ${annulledCount} anulada${annulledCount !== 1 ? 's' : ''}`}
         </p>
         <Button size="sm" onClick={handleNewSession}>
           <Plus className="h-4 w-4 mr-1" />
@@ -701,7 +706,7 @@ function SessionsTab({
         <>
         <div className="space-y-3">
           {sessions.slice(page * SESSIONS_PAGE_SIZE, (page + 1) * SESSIONS_PAGE_SIZE).map((session) => {
-            const globalIdx = sessions.indexOf(session);
+            const annulled = session.annulledAt !== null;
             const date = new Date(session.sessionDate);
             const formattedDate = date.toLocaleDateString('es-AR', {
               weekday: 'short',
@@ -710,32 +715,37 @@ function SessionsTab({
               year: 'numeric',
               timeZone: 'UTC',
             });
-            const sessionNumber = sessions.length - globalIdx;
+            // Numbered among the current ones; an annulled session has none.
+            const sessionNumber = annulled ? null : current.length - current.indexOf(session);
             // This episode's block: the pain of a visit that treated several
             // problems is the pain of each one.
             const block = blockFor(session, episodeId);
+            // An annulled session shows no clinical content in the list: it may
+            // have been entered on the wrong patient. Its content is one click
+            // away, in its history (review of #292).
             const hasPain =
-              !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
-            const otherEpisodes = session.episodes.filter((b) => b.episodeId !== episodeId);
+              !annulled && !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
+            const otherEpisodes = annulled ? [] : session.episodes.filter((b) => b.episodeId !== episodeId);
             // This episode's treatment; a note shows its own text.
-            const preview = block?.treatment ?? session.observations;
+            const preview = annulled ? null : (block?.treatment ?? session.observations);
 
             return (
               <button
                 key={session.id}
                 type="button"
                 className="w-full text-left"
-                onClick={() => setSelected(session)}
+                onClick={() => (annulled ? setHistoryOf(session) : setSelected(session))}
+                aria-label={annulled ? `Sesión anulada del ${formattedDate}: ver historial` : undefined}
               >
-                <Card className="hover:bg-muted/40 transition-colors cursor-pointer">
+                <Card className={`hover:bg-muted/40 transition-colors cursor-pointer ${annulled ? 'opacity-60' : ''}`}>
                   <CardContent className="py-4 px-5">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3 min-w-0">
                         {/* Número de sesión */}
                         <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                          {sessionNumber}
+                          {sessionNumber ?? '–'}
                         </span>
-                        <div className="min-w-0">
+                        <div className={`min-w-0 ${annulled ? 'line-through' : ''}`}>
                           <p className="text-sm font-medium capitalize">{formattedDate}</p>
                           {/* Preview del tratamiento */}
                           {preview && (
@@ -766,6 +776,7 @@ function SessionsTab({
                           </span>
                         )}
                         <SessionTypeBadge type={session.sessionType} />
+                        {annulled && <Badge variant="destructive">Anulada</Badge>}
                       </div>
                     </div>
                   </CardContent>
@@ -825,6 +836,18 @@ function SessionsTab({
           onOpenChange={(o) => !o && setSelected(null)}
           patientId={patientId}
           session={selected}
+        />
+      )}
+
+      {historyOf && (
+        <RevisionHistoryDialog
+          open
+          onOpenChange={(o) => !o && setHistoryOf(null)}
+          patientId={patientId}
+          base={revisionPaths.session(patientId, historyOf.id)}
+          title="Historial de la sesión anulada"
+          render={renderSessionSnapshot}
+          renderContext={{ episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio' }}
         />
       )}
     </>
