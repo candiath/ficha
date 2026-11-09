@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useBeforeUnload } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
+import { useUnsavedChanges } from '@/lib/unsavedChanges'
 import { Calendar, Check, CreditCard, FileText, ListChecks, Plus, Trash2 } from 'lucide-react'
 import {
   Dialog,
@@ -476,11 +476,8 @@ export default function SessionFormModalWide({
 
   // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
   // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
-  useBeforeUnload(
-    useCallback((e) => {
-      if (open && hasUnsavedChanges) e.preventDefault()
-    }, [open, hasUnsavedChanges]),
-  )
+  // También le avisa al aviso de versión nueva (lib/unsavedChanges.ts).
+  useUnsavedChanges(open && hasUnsavedChanges)
 
   // Interceptamos el cierre del modal (Escape, click fuera, botón X o "Cancelar"):
   // si hay cambios sin guardar, pedimos confirmación antes de descartar.
