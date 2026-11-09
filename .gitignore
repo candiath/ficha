@@ -21,7 +21,6 @@ tsconfig.tsbuildinfo
 .claude/*
 !.claude/settings.json
 !.claude/skills/
-!.claude/review-pr.md
 .notes
 # Local Netlify folder
 .netlify
