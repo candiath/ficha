@@ -169,6 +169,7 @@ describe('CRUD de sesiones por HTTP', () => {
       observations: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
+      annulledAt: null,
       episodes: [
         {
           episodeId: episodeA.id,

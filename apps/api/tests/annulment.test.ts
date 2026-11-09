@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
+import { episodeRepo } from '../src/repositories';
+import { createTestClinic, createTestContext, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
 // Annulment (SPEC-clinical-revisions.md §8): a session or a patient event
@@ -110,12 +111,18 @@ describe('annulment', () => {
     });
 
     it('stays in the record marked, and leaves every other reader', async () => {
-      const kept = await newSession({ sessionDate: new Date(Date.now() - 86_400_000).toISOString() });
-      const id = await newSession();
+      // An episode of its own, so its last activity is one of these two.
+      const { id: ownEpisode } = await fixture.clinicalEpisode.create({
+        data: { tenantId: clinic.tenantId, patientId, mainComplaint: 'Cervicalgia' },
+        select: { id: true },
+      });
+      const block = { episodes: [{ episodeId: ownEpisode }] };
+      const kept = await newSession({ ...block, sessionDate: new Date(Date.now() - 86_400_000).toISOString() });
+      const id = await newSession(block);
       expect((await annulSession(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(204);
 
       // The record's list, with and without the episode's filter.
-      for (const url of [sessionsUrl(), `${sessionsUrl()}?episodeId=${episodeId}`]) {
+      for (const url of [sessionsUrl(), `${sessionsUrl()}?episodeId=${ownEpisode}`]) {
         const list = (await auth(request(app).get(url))).body.data as { id: string; annulledAt: string | null }[];
         expect(list.find((s) => s.id === id)?.annulledAt).toEqual(expect.any(String));
         expect(list.find((s) => s.id === kept)?.annulledAt).toBeNull();
@@ -132,13 +139,12 @@ describe('annulment', () => {
       expect(index.map((s) => s.id)).toContain(kept);
       expect(index.map((s) => s.id)).not.toContain(id);
 
-      // The episode's last activity is the session that was kept.
-      const episodes = (await auth(request(app).get(`/api/patients/${patientId}/episodes`))).body.data as {
-        id: string;
-        lastActivityAt: string | null;
-      }[];
+      // The episode's last activity (the inactivity alert's reader) is the
+      // session that was kept: a cutoff ahead of now lists every open episode.
+      const ctx = await createTestContext(clinic.tenantId, user);
+      const stale = await episodeRepo.listStale(ctx, new Date(Date.now() + 86_400_000));
       const keptDate = (await prisma.session.findUniqueOrThrow({ where: { id: kept } })).sessionDate.toISOString();
-      expect(episodes.find((e) => e.id === episodeId)?.lastActivityAt).toBe(keptDate);
+      expect(stale.find((e) => e.episodeId === ownEpisode)?.lastActivityAt).toBe(keptDate);
     });
 
     it('keeps its history readable, with the annulment as its last version', async () => {

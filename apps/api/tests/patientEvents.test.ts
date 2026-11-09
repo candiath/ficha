@@ -68,6 +68,7 @@ describe('The patient history', () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       version: 1,
+      annulledAt: null,
     });
   });
 
