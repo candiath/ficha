@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { revisionReasonFields } from '@ficha/shared';
+import { revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { CentsSchema, IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
@@ -297,40 +297,47 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
   res.json({ data: result.session });
 });
 
-// DELETE /api/patients/:patientId/sessions/:sessionId
-// Borrado lógico, igual que pacientes: la sesión desaparece de los listados y
-// de las métricas, pero la fila queda —para no romper el pivote con episodios
-// ni la auditoría— y el borrado es reversible.
-router.delete<SessionParams>('/:sessionId', async (req, res) => {
+// POST /api/patients/:patientId/sessions/:sessionId/annul
+// A session entered by mistake is annulled, never deleted
+// (SPEC-clinical-revisions.md §8): it stays in the record struck through, with
+// its content in its history, and leaves the lists and the metrics. The reason
+// is required, like every correction's. There is no restore route yet.
+router.post<SessionParams>('/:sessionId/annul', async (req, res) => {
   if (!(await patientRepo.exists(req.context, req.params.patientId))) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }
+  const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
-  const result = await sessionRepo.softDelete(
+  const result = await sessionRepo.annul(
     req.context,
     req.params.patientId,
     req.params.sessionId,
-    {
-      action: 'SESSION_DELETED',
+    { reasonNote },
+    (s, removedPayment) => ({
+      action: 'SESSION_ANNULLED',
       patientId: req.params.patientId,
-      entityId: req.params.sessionId,
-      params: {},
-    },
+      entityId: s.id,
+      params: {
+        sessionType: s.sessionType,
+        reason,
+        payment: removedPayment === null ? 'NONE' : `${removedPayment}_DELETED`,
+      },
+    }),
   );
 
-  // Inexistente, de otro paciente o ya borrada: mismo 404, sin revelar cuál.
+  // Inexistente, de otro paciente o ya anulada: mismo 404, sin revelar cuál.
   if (result === 'not_found') {
     res.status(404).json({ error: 'Sesión no encontrada' });
     return;
   }
 
   // La sesión existe pero ya se cobró. Plata que entró de verdad no se hace
-  // desaparecer borrando la sesión: primero se revierte el cobro, y entonces
-  // sí se puede eliminar. Mismo criterio que el 409 de los paquetes en uso.
+  // desaparecer anulando la sesión: primero se revierte el cobro, y entonces
+  // sí se puede anular. Mismo criterio que el 409 de los paquetes en uso.
   if (result === 'paid') {
     res.status(409).json({
-      error: 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de eliminarla.',
+      error: 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de anularla.',
     });
     return;
   }

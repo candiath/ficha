@@ -120,11 +120,11 @@ describe('patient event revisions', () => {
     expect((await revisions(id)).map((r) => r.version)).toEqual([1, 2]);
   });
 
-  it('a concurrent edit and delete take consecutive versions, or the edit finds no event', async () => {
+  it('a concurrent edit and annulment take consecutive versions, or the edit finds no event', async () => {
     const id = await newEvent();
     const [edit, removal] = await Promise.all([
       patch(id, { description: 'Editado a la vez' }),
-      auth(request(app).delete(url(id))),
+      auth(request(app).post(`${url(id)}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' }),
     ]);
 
     expect(removal.status).toBe(204);
@@ -133,14 +133,15 @@ describe('patient event revisions', () => {
     expect(versions).toEqual(edit.status === 200 ? [1, 2, 3] : [1, 2]);
   });
 
-  it('writes a version with the same content when the event is deleted, with no reason', async () => {
+  it('writes a version with the same content when the event is annulled, with its reason and note', async () => {
     const id = await newEvent();
-    expect((await auth(request(app).delete(url(id)))).status).toBe(204);
+    const res = await auth(request(app).post(`${url(id)}/annul`)).send({ reason: 'OTHER', reasonNote: 'Era de otra paciente' });
+    expect(res.status).toBe(204);
 
     const [first, second] = await revisions(id);
     const [, audit] = await auditRows(id);
-    expect(audit).toMatchObject({ action: 'PATIENT_EVENT_DELETED', params: { kind: 'SURGERY' } });
-    expect(second).toMatchObject({ version: 2, auditLogId: audit.id, reasonNote: null });
+    expect(audit).toMatchObject({ action: 'PATIENT_EVENT_ANNULLED', params: { kind: 'SURGERY', reason: 'OTHER' } });
+    expect(second).toMatchObject({ version: 2, auditLogId: audit.id, reasonNote: 'Era de otra paciente' });
     expect(second.snapshot).toEqual(first.snapshot);
   });
 });

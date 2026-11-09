@@ -15,6 +15,8 @@ export interface PatientEvent {
   updatedAt: string;
   // The latest version (0: none yet).
   version: number;
+  // When it was annulled (SPEC-clinical-revisions.md §8), or null.
+  annulledAt: string | null;
 }
 
 export interface PatientEventInput {

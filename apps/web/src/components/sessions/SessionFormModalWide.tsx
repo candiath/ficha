@@ -5,7 +5,7 @@ import { useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { useUnsavedChanges } from '@/lib/unsavedChanges'
-import { Calendar, Check, CreditCard, FileText, ListChecks, Plus, Trash2 } from 'lucide-react'
+import { Ban, Calendar, Check, CreditCard, FileText, ListChecks, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -55,6 +55,9 @@ import {
 import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session, SessionEpisodeBlock, SessionType } from '@/types/session'
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog'
+import AnnulDialog from '@/components/patients/AnnulDialog'
+import { ApiError } from '@/lib/api'
+import type { AnnulData } from '@/types/patient'
 import { renderSessionSnapshot } from '@/lib/revisionRows'
 import { revisionPaths } from '@/services/revisions'
 
@@ -196,7 +199,7 @@ export default function SessionFormModalWide({
   const [staleMessage, setStaleMessage] = useState<string | null>(null)
   const dateTolerances = useSessionDateTolerances()
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showAnnul, setShowAnnul] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
 
   const { data: episodes = [] } = useQuery({
@@ -430,16 +433,16 @@ export default function SessionFormModalWide({
     },
   })
 
-  // Borrado de una sesión cargada por error. Invalida lo mismo que el guardado
-  // —listados del paciente, episodios, listado global y cobros— porque el
-  // borrado también se lleva el cobro pendiente de la sesión. Y la agenda: si
-  // la sesión salió de un turno, la API lo soltó y el turno vuelve a ofrecer
-  // "registrar la sesión". Al editar no se sabe si hubo turno, así que se
-  // invalida siempre.
-  const deleteMutation = useMutation({
-    mutationFn: () => {
-      if (!session) throw new Error('No hay sesión que eliminar')
-      return sessionApi.remove(patientId, session.id)
+  // Annulling a session entered by mistake (SPEC-clinical-revisions.md §8). It
+  // invalidates what saving does —the patient's lists, episodes, the global
+  // list and payments— because the annulment also takes the session's pending
+  // payment. And the agenda: if the session came from an appointment, the API
+  // released it and it offers "registrar la sesión" again. Editing does not
+  // know whether there was one, so it is always invalidated.
+  const annulMutation = useMutation({
+    mutationFn: (data: AnnulData) => {
+      if (!session) throw new Error('No hay sesión que anular')
+      return sessionApi.annul(patientId, session.id, data)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -453,8 +456,8 @@ export default function SessionFormModalWide({
       queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
       queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
-      toast.success('Sesión eliminada')
-      setShowDeleteConfirm(false)
+      toast.success('Sesión anulada')
+      setShowAnnul(false)
       onOpenChange(false)
       form.reset()
       onSuccess?.()
@@ -463,8 +466,20 @@ export default function SessionFormModalWide({
       // El 409 de "ya está cobrada" trae un mensaje que le sirve al usuario
       // (dice qué hacer antes), así que se muestra tal cual en vez de un
       // genérico. api.ts ya lo trae en err.message.
-      toast.error(err.message || 'Error al eliminar la sesión')
-      setShowDeleteConfirm(false)
+      toast.error(err.message || 'Error al anular la sesión')
+      setShowAnnul(false)
+      // Annulled or gone meanwhile (404): the lists show what it is now, and
+      // the form has nothing left to edit.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({
+          predicate: (q) =>
+            Array.isArray(q.queryKey) &&
+            q.queryKey[0] === 'patients' &&
+            q.queryKey[1] === patientId &&
+            q.queryKey.includes('sessions'),
+        })
+        onOpenChange(false)
+      }
     },
   })
 
@@ -944,19 +959,19 @@ export default function SessionFormModalWide({
             )}
 
             <DialogFooter className="mt-6 pt-4 border-t gap-2 flex-col-reverse sm:flex-row">
-              {/* Solo al editar: una sesión que todavía no existe no se borra.
+              {/* Solo al editar: una sesión que todavía no existe no se anula.
                   sm:mr-auto lo separa de las acciones de guardado — es una
                   acción destructiva y no debe quedar pegada a "Guardar". */}
               {isEditing && (
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  disabled={deleteMutation.isPending}
+                  onClick={() => setShowAnnul(true)}
+                  disabled={annulMutation.isPending}
                   className="w-full sm:w-auto sm:mr-auto text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  <Trash2 className="h-4 w-4" />
-                  Eliminar
+                  <Ban className="h-4 w-4" />
+                  Anular
                 </Button>
               )}
               <Button
@@ -985,31 +1000,21 @@ export default function SessionFormModalWide({
       </DialogContent>
     </Dialog>
 
-    {/* Confirmación de borrado */}
-    <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>¿Eliminar esta sesión?</DialogTitle>
-          <DialogDescription>
-            Deja de aparecer en el historial del paciente, en el listado de sesiones y
-            en las estadísticas. Si tenía un cobro pendiente, también se elimina.
-            {' '}Si la sesión ya está cobrada, primero hay que revertir el cobro.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
-            Cancelar
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => deleteMutation.mutate()}
-            disabled={deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? 'Eliminando...' : 'Eliminar sesión'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {/* Annulment, with its reason */}
+    <AnnulDialog
+      open={showAnnul}
+      onOpenChange={setShowAnnul}
+      title="¿Anular esta sesión?"
+      description={
+        <>
+          Queda en la ficha del paciente tachada, con su historial, y deja de contar en el
+          listado de sesiones y en las estadísticas. Si tenía un cobro pendiente, se elimina.
+          {' '}Si la sesión ya está cobrada, primero hay que revertir el cobro.
+        </>
+      }
+      pending={annulMutation.isPending}
+      onConfirm={(reason, reasonNote) => annulMutation.mutate({ reason, reasonNote })}
+    />
 
     {/* Confirmación al cerrar con cambios sin guardar */}
     <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>

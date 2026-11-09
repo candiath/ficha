@@ -336,7 +336,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Step 5: Annulment (PR 5)
 
-- [ ] **Task 5.1: Annul as an action (API)**
+- [x] **Task 5.1: Annul as an action (API)**
   - *Acceptance:*
     - `POST /api/patients/:patientId/sessions/:sessionId/annul` and `…/events/:eventId/annul`, with `{ reason, reasonNote? }`.
     - New actions `SESSION_ANNULLED` and `PATIENT_EVENT_ANNULLED`, each with `reason` (migration for the enum). `SESSION_DELETED` and `PATIENT_EVENT_DELETED` are marked `deprecated`.
@@ -353,7 +353,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
     Plus `sessionSoftDelete` rewritten, `auditCoverage` and `dashboardStats`.
   - *Files:* `schema.prisma` + migration, `auditActions.ts`, `prismaSessionRepository.ts`, `prismaPatientEventRepository.ts`, `routes/sessions.ts`, `routes/patientEvents.ts`, `tests/auditCoverageManifest.ts`, tests. **M**
-- [ ] **Task 5.2: Annul in the record (web), and PR**
+- [x] **Task 5.2: Annul in the record (web), and PR**
   - *Acceptance:*
     - "Anular" replaces "Eliminar" on sessions and events, with a dialog for the reason (none preselected, as in every correction since 2026-11-08) and the note.
     - Annulled entries show struck through with an "Anulada" badge, and their history shows the annulment.
@@ -365,7 +365,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Checkpoint 5
 
-- [ ] No clinical entry can be deleted from the app any more, only annulled with a reason; every annulment is a version.
+- [x] No clinical entry can be deleted from the app any more, only annulled with a reason; every annulment is a version.
 
 ### Step 6: Baseline (PR 6)
 
@@ -516,4 +516,28 @@ None open.
 - **The list-minimization probe now marks `reason_note`**: a second version of every aggregate, with the first's content and audit row (a revision may share one) and a marker in its note. Its route extraction also follows nested routers (`router.use('…', factory(…))` with the factory's file), and `/api/patients/:id/…` counts as the record.
 - **`PatientDetailPageEvaluation.test.tsx` mocks the payments and tenant services**: it failed on `dev` too, since #290 made unmocked requests fail a test and the page mounts the discharge form, which asks for the last price, the packages and the clinic's settings.
 - **The check by hand** ran against `development`: two edits of a seeded session (version 0 → 1 with two blocks → 2 with one, with a note) showed version 2 with the treatment marked and the removed block named, and version 1 with both blocks; the patient, an event and a fresh consent showed their versions with author, reason and note. The test edits were sent with `curl` from Git Bash, which did not send `ó` as UTF-8: those rows on `development` hold a replacement character, not the app's doing.
+
+
+### Step 5
+
+- **An annulment takes no `expectedVersion`.** It changes no content, so there is nothing a stale form could save back. It locks the row first: an edit at the same moment either lands first and the annulment takes the next version, or finds the entry annulled and answers `404` (both tested).
+- **`SESSION_ANNULLED` carries `sessionType` and `reason`**, as `SESSION_UPDATED` carries the type, so the timeline says "Anuló el alta" or "Anuló una nota clínica"; `PATIENT_EVENT_ANNULLED` carries `kind` and `reason`. Both are `kind: 'delete'`, the timeline's colour for an entry that leaves the record. `SESSION_DELETED` and `PATIENT_EVENT_DELETED` are `deprecated`: they stay in the enum and keep their wording for the rows that name them.
+- **Only `listByPatient` returns annulled entries.** The record's `getById` of a session still answers `404` for an annulled one, so it cannot open in the edit form: in the web, an annulled session opens its history (`RevisionHistoryDialog`), whose last version is the annulment with its reason. Every other reader already filtered `deletedAt` and was left as it was; the clinic's index, the metrics and the episode's last activity are tested in `annulment.test.ts` and `dashboardStats`.
+- **In the record an annulled entry counts in nothing**: not in "N sesiones" (which adds "· 1 anulada"), not in the session numbering (it shows "–"), not in the pain chart (which also filters on its own) and not as the episode's discharge. The badge is "Anulada" on a session and "Anulado" on an event (*antecedente*).
+- **Annulling a discharge leaves its episode discharged**, as deleting it did. Reopening is the episode's own action.
+- **The annul dialog is one component** (`AnnulDialog`), with `RevisionReasonField` labelled "Motivo de la anulación"; the field's `label` and `noteLabel` are new optional props. A cancelled dialog forgets the reason chosen.
+- **`sessionSoftDelete.test.ts` became `sessionAnnul.test.ts`**, in English: payments, appointments, reading, editing and metrics after an annulment. The new `annulment.test.ts` covers the action, the reason, the version and the readers for both aggregates; the removed `DELETE` routes answer `404`.
+- **Fixed on the way**: the record's session count read "2 sesiónes".
+- **The check by hand** ran against `development` (the migration applied there with `migrate deploy`), on Javier Rodríguez (seed, version 0). Annulling his last session: confirming with no reason marked the field and sent nothing; with "Error de confección" and a note it answered `204`, the list read "7 sesiones · 1 anulada" with the session struck through as "Anulada" and numbered "–", and the pain chart lost its point. Clicking it opened its history, whose only version is "Sesión anulada · Error de confección" with the note (version 1: the seeded session had none; step 6's baseline gives such rows their version 1). An event annulled with "Aclaración" showed struck through as "Anulado", with only its history button. The activity timeline read "Anuló una sesión" and "Anuló un antecedente (cirugía)".
+- **The rehearsal** (2026-11-09). `rehearsal-annulment`, copied from `production` in `ficha-pg18`: the twelve migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed with no maintenance flag; both actions are in the enum; sessions, patient events, audit rows and patients kept their counts (2, 0, 8, 2) and row hashes across this migration.
+- **The review's fixes** (2026-11-09, a code reviewer and a security auditor):
+  - **The annul dialog kept the last reason and note.** Its state was reset only when the dialog itself was closed, and the history card closes it from outside after a success, so the next event's annulment opened with the previous reason and note chosen: one click recorded them on another entry. The reason now lives in the dialog's content, which unmounts when it closes, however it closes. A test annuls one event and opens the next.
+  - **A second annulment no longer deletes a payment.** Annulling deleted the session's pending payment before finding out whether the session was still current. A payment created at the same moment as an annulment can still land on the annulled session (payments do not lock it, and `FOR NO KEY UPDATE` does not block a foreign key's check), and a retry would then delete it with a `404` and no audit row. The annulment now answers `404` before writing anything when the session is not current under its lock.
+  - **An entry annulled elsewhere closes the dialog and reloads the list** (`404`), on the event card and in the session form, instead of leaving a dialog that fails on every retry.
+  - The missing-reason message in the annul dialog reads "Elegí el motivo de la anulación"; the pain chart's and the discharge's filters have tests of their own (each fails with its filter removed, checked once).
+- **Decided by Nath after the review** (2026-11-09):
+  - **`SESSION_ANNULLED` records what happened to the payment** (`payment`: `NONE`, `PENDING_DELETED`, `WAIVED_DELETED`). A pending or waived payment is deleted with the session, and nothing else kept a trace of it, a discount or a waiver included. It went in before any annulment existed outside `development`, so no row lacks it. The repository deletes the payment with `DELETE … RETURNING status`, so the status recorded is the one deleted.
+  - **The record's lists show an annulled entry without its clinical content**: a session keeps its date (struck through), its type and "Anulada", without the treatment, the other episodes or the pain; an event keeps its kind, its date and "Anulado", with "el contenido está en su historial" in place of its description. The likeliest reason to annul is an entry on the wrong patient, whose text should not stay readable in that record; it is one click away in the history. This replaces the struck-through text of the first version of this step.
+  - **A payment created at the same moment as an annulment** (the race above) is fixed in its own PR, in the payment repository.
+  - **Any user of the clinic may annul any entry**, another therapist's included, as with creating and editing: every annulment names its author and reason, and the content stays in the history. Whether only the author or an ADMIN may annul is decided with roles and permissions, not here.
 

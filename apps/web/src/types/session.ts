@@ -28,6 +28,9 @@ export interface Session {
   observations: string | null;
   createdAt: string;
   updatedAt: string;
+  // When it was annulled (SPEC-clinical-revisions.md §8), or null. Only the
+  // patient's list returns an annulled session; it counts in nothing.
+  annulledAt: string | null;
   episodes: SessionEpisodeBlock[];
 }
 

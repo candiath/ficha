@@ -22,6 +22,7 @@ describe('session revisions', () => {
   const url = (id = '') => `/api/patients/${patientId}/sessions${id && `/${id}`}`;
   const post = (body: object) => auth(request(app).post(url())).send(body);
   const patch = (id: string, body: object) => auth(request(app).patch(url(id))).send({ ...REASON, ...body });
+  const annul = (id: string) => auth(request(app).post(`${url(id)}/annul`)).send(REASON);
   const get = async (id: string) => (await auth(request(app).get(url(id)))).body.data;
 
   const newSession = async (body: object = {}): Promise<string> => {
@@ -254,24 +255,24 @@ describe('session revisions', () => {
     });
   });
 
-  describe('deleting', () => {
-    it('writes a version with the same content, under SESSION_DELETED', async () => {
+  describe('annulling', () => {
+    it('writes a version with the same content, under SESSION_ANNULLED', async () => {
       const id = await newSession();
 
-      expect((await auth(request(app).delete(url(id)))).status).toBe(204);
+      expect((await annul(id)).status).toBe(204);
 
       const [first, second] = await revisions(id);
       const rows = await auditRows(id);
       expect(second).toMatchObject({ version: 2, auditLogId: rows[1].id });
       expect(second.snapshot).toEqual(first.snapshot);
-      expect(rows[1].action).toBe('SESSION_DELETED');
+      expect(rows[1].action).toBe('SESSION_ANNULLED');
     });
 
-    it('writes nothing for a session that was not deleted', async () => {
+    it('writes nothing for a session that was not annulled', async () => {
       const id = await newSession({ payment: { baseAmountCents: 100 } });
       await prisma.payment.updateMany({ where: { sessionId: id }, data: { status: 'PAID', paidAt: new Date(), method: 'CASH' } });
 
-      expect((await auth(request(app).delete(url(id)))).status).toBe(409);
+      expect((await annul(id)).status).toBe(409);
       expect(await revisions(id)).toHaveLength(1);
 
       await prisma.payment.deleteMany({ where: { sessionId: id } });
@@ -356,12 +357,12 @@ describe('session revisions', () => {
       expect(texts.sort()).toEqual(['Otra', 'Una']);
     });
 
-    it('a concurrent edit and delete take consecutive versions, or the edit finds no session', async () => {
+    it('a concurrent edit and annulment take consecutive versions, or the edit finds no session', async () => {
       const id = await newSession();
 
       const [edit, removal] = await Promise.all([
         patch(id, { observations: 'Editada' }),
-        auth(request(app).delete(url(id))),
+        annul(id),
       ]);
 
       expect(removal.status).toBe(204);
