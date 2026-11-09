@@ -9,6 +9,8 @@ Monorepo de npm workspaces: `apps/api` (Express 5 + Prisma + Postgres), `apps/we
 - `npm test` — the API's integration tests (vitest + supertest) against a throwaway Postgres in Docker, which must be running ([`docs/infra.md`](docs/infra.md#local-test-database)). Arguments go to vitest: `npm test -- login authSessions`. A bare `npx vitest` skips the container and hits `apps/api/.env`'s database (Neon)
 - `npm run test:neon` — the same suite against `DATABASE_URL` (Neon): what CI runs on release PRs to `main` and manual runs. On PRs to `dev`, CI runs `npm test` (Docker on the runner)
 - `npm test -w apps/web` — tests del frontend (vitest + jsdom + testing-library)
+- In a fresh worktree, or after a schema change, run `npm run build -w packages/shared` and `npm run db:generate -w apps/api` before tests, lint or the dev server. `npm install` does not regenerate the Prisma client, and a stale client fails lint and tests, and makes lists come back empty.
+- The test container is shared by every worktree on the machine. A run that another worktree's run reset ("tenants does not exist", or no answer on :5433) is not a real failure: run it again.
 - `npm run build` — shared → api → web
 - `npm run db:migrate` / `db:seed` / `db:studio` — Prisma (workspace apps/api)
 
