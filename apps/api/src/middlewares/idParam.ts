@@ -23,3 +23,15 @@ export function idParam(notFoundMessage: string): RequestParamHandler {
     next();
   };
 }
+
+// A revision's `:version`: a positive integer, else 404 like an id that cannot
+// exist. Capped at nine digits, so it always fits a Postgres int.
+export function versionParam(notFoundMessage: string): RequestParamHandler {
+  return (_req, res, next, value) => {
+    if (typeof value !== 'string' || !/^[1-9]\d{0,8}$/.test(value)) {
+      res.status(404).json({ error: notFoundMessage });
+      return;
+    }
+    next();
+  };
+}

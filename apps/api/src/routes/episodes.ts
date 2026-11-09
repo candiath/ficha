@@ -9,6 +9,7 @@ import type { AuditEntry } from '../repositories/auditLogRepository';
 import type { EpisodeUpdateAudit } from '../repositories/episodeRepository';
 import type { RevisionReason } from '@ficha/shared';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -183,5 +184,8 @@ router.patch<Params>('/:episodeId', async (req, res) => {
 
   res.json({ data: result.episode });
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:episodeId/revisions', revisionRoutes((p) => ({ aggregate: 'episode', episodeId: p.episodeId }), 'Episodio no encontrado'));
 
 export default router;

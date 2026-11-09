@@ -5,6 +5,7 @@ import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { requiredText } from '../lib/validation';
 import { patientEventRepo, patientRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 type ParentParams = { patientId: string };
 type EventParams = { patientId: string; eventId: string };
@@ -123,5 +124,8 @@ router.delete<EventParams>('/:eventId', async (req, res) => {
   }
   res.status(204).send();
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:eventId/revisions', revisionRoutes((p) => ({ aggregate: 'patientEvent', eventId: p.eventId }), 'Antecedente no encontrado'));
 
 export default router;

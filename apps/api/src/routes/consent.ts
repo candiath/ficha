@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { consentRepo, patientRepo } from '../repositories';
+import { revisionRoutes } from './revisions';
 
 type Params = { patientId: string };
 
@@ -79,5 +80,8 @@ router.delete<Params>('/', async (req, res) => {
 
   res.json({ data });
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/revisions', revisionRoutes(() => ({ aggregate: 'consent' }), 'Consentimiento no encontrado'));
 
 export default router;

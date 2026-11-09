@@ -300,7 +300,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Step 4: Reading (PR 4)
 
-- [ ] **Task 4.1: Revision routes**
+- [x] **Task 4.1: Revision routes**
   - *Acceptance:*
     - Six aggregates, two routes each:
       - `GET /api/patients/:patientId/<entity>/:id/revisions`: version, action, reason and author (the user's name, or none for `SYSTEM`), from the audit row;
@@ -315,14 +315,14 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
     Plus `listMinimization` and `idParamCoverage`.
   - *Files:* a new `revisionRepository.ts` port and Prisma implementation, the barrel, a new `routes/revisions.ts` (or one router per entity file), `app.ts`, `tests/listMinimization.test.ts`, `tests/listScopeManifest.ts`, the new test. **M**
-- [ ] **Task 4.2: The history view, on sessions**
+- [x] **Task 4.2: The history view, on sessions**
   - *Acceptance:*
     - Each session in the record has "Ver historial". It lists the versions ("Versión N · acción · motivo · autor · fecha") and shows the selected one read-only, from its snapshot, with the fields its audit row lists as changed marked.
     - All copy is in Spanish.
   - *Verify:* a web test of the history dialog: it lists, selects, and shows a removed block in the old version.
   - *Files:* `apps/web/src/services/revisions.ts`, `apps/web/src/components/patients/RevisionHistoryDialog.tsx` (new), the session entry in the record, its test. **M**
   - *Depends on:* 4.1.
-- [ ] **Task 4.3: The history view on the other five, and PR**
+- [x] **Task 4.3: The history view on the other five, and PR**
   - *Acceptance:*
     - "Ver historial" on the episode, the evaluation, the patient's data, the consent and each patient event, each with its own snapshot renderer.
     - Full suites, then a PR against `dev`.
@@ -332,7 +332,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Checkpoint 4
 
-- [ ] From the record alone, any past version of any aggregate can be read with its author, time and reason.
+- [x] From the record alone, any past version of any aggregate can be read with its author, time and reason.
 
 ### Step 5: Annulment (PR 5)
 
@@ -501,3 +501,19 @@ None open.
   - **No reason is preselected** (Nath, 2026-11-08). "Error de confección" came chosen, at the foot of the form, where nobody had to look at it: almost every correction would have been recorded as a data-entry error. The field now starts empty ("Elegí un motivo"); saving a correction without one sends nothing, marks the field ("Elegí el motivo del cambio") and moves the focus to it. The state is one hook, `useRevisionReason`, in the five forms (patient, session, episode, evaluation, event); the episode dialog's reason and note no longer survive "Cancelar".
   - **The episode dialog saves the complaint over the version it read the text from**, kept with the text when it opens or reloads, and pins the selected episode. It used the list's latest, so a refetch on window focus while it was open let a stale text through without a `409`. Reopening still goes over the list's latest: it acts on the status on screen, which is live.
 - **`lockRow` takes `FOR NO KEY UPDATE`, not `FOR UPDATE`** (2026-11-08, its own PR after step 3's). A discharge from an appointment holds its episode and later links the appointment; an edit of that appointment that moves it to the episode holds the appointment, and its foreign key check needs a share lock on the episode, which `FOR UPDATE` blocks: a deadlock and a `500`. `FOR NO KEY UPDATE` is the lock an `UPDATE` that leaves the keys alone takes: two writers of the row still wait for each other, so every caller's version and stale checks hold, but a foreign key pointing at the row no longer waits. No caller relied on `FOR UPDATE` blocking those share locks: none deletes a locked row or changes its keys, and the checks before inserting a child (`patientRepo.exists()`) are reads that a lock on the parent never covered. `tests/episodeRevisions.test.ts` reproduces the cycle with a transaction holding the patient, so both requests stop where it forms; it failed with `FOR UPDATE` (checked once). The discharge could now lock the patient again without deadlocking with an episode edit (the existing concurrency test passes with it, three runs), but still does not: it writes nothing on the patient, and holding it would only make discharges wait for patient edits. Spec §5 updated.
+
+### Step 4
+
+- **One router factory, mounted by each aggregate's router** (`routes/revisions.ts`, `revisionRoutes(target, message)`), not six copies and not one router with six paths: each parent mounts it at `…/revisions` with its own `:param` already registered, so `idParamCoverage` reads each file as before and `:version` is registered once, in the factory. The paths follow the record's: the evaluation is `…/episodes/:episodeId/evaluation/revisions` and the consent `…/consent/revisions`, since each has at most one; the patient's is `/api/patients/:id/revisions`.
+- **The aggregate must exist under that patient, or `404`**, checked with the patient's `deletedAt: null` in the same query; then the revisions are read by `(tenant, patient, aggregate)`. Without the first check, patient B's session through patient A's path would answer `200` with an empty list instead of `404`. An aggregate that exists with no revision (version 0, written before step 2 or 3) lists none; its `/revisions/1` is "Versión no encontrada".
+- **A soft-deleted session or event keeps its history readable**: its deletion is one of its versions, and step 5's annulled entries will show their history. Only a deleted patient closes the whole record.
+- **`:version` is `^[1-9]\d{0,8}$`, else `404` "Versión no encontrada"**: a positive integer that fits a Postgres `int`; `0`, `01`, `1.5`, `1e3` and ten digits are all a version that cannot exist.
+- **The list carries no content**: version, action, the audit row's `params` (read with `readAuditParams`, the reason among them), actor type, author (`{ id, name }`, `null` for `SYSTEM`) and time. The snapshot and the note come only from `/revisions/:version`, with `schemaVersion`; the web parses the snapshot with the shared schema of that version, and says so instead of guessing when it does not know one.
+- **What a version changed is marked by comparing its snapshot with the version before**, not from the audit row's `changedFields`, against the plan's wording. The audit names do not match the snapshot's fields (`episodeIds` for a block, `occurred` for three columns), a discharge's episode version is owned by a `DISCHARGE_RECORDED` row with no `changedFields`, and a patient's names `phone`, which no snapshot holds. The dialog reads version N−1 for it; a block removed in N is named under the version ("Se quitó en esta versión: …") and shown in N−1.
+- **The body map is shown as "Con marcas" / "Sin marcar", marked when it changed**: its shape is not defined yet (spec §3), so the history cannot draw an old one.
+- **The session's attending therapist (`userId`) is not shown**: no update changes it, and the author of each version is.
+- **"Ver historial" sits where each record is read**: in the session's dialog (nested in it, so a click in the history is not a click outside the session), next to the episode selector, on the evaluation's card, on *Datos personales*, on the consent's status and on each event of the history card.
+- **The list-minimization probe now marks `reason_note`**: a second version of every aggregate, with the first's content and audit row (a revision may share one) and a marker in its note. Its route extraction also follows nested routers (`router.use('…', factory(…))` with the factory's file), and `/api/patients/:id/…` counts as the record.
+- **`PatientDetailPageEvaluation.test.tsx` mocks the payments and tenant services**: it failed on `dev` too, since #290 made unmocked requests fail a test and the page mounts the discharge form, which asks for the last price, the packages and the clinic's settings.
+- **The check by hand** ran against `development`: two edits of a seeded session (version 0 → 1 with two blocks → 2 with one, with a note) showed version 2 with the treatment marked and the removed block named, and version 1 with both blocks; the patient, an event and a fresh consent showed their versions with author, reason and note. The test edits were sent with `curl` from Git Bash, which did not send `ó` as UTF-8: those rows on `development` hold a replacement character, not the app's doing.
+
