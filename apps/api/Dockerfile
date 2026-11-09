@@ -24,8 +24,13 @@ RUN npm ci --ignore-scripts && npm rebuild prisma @prisma/engines @prisma/client
 
 COPY packages/shared packages/shared
 COPY apps/api apps/api
+COPY scripts/build-version.mjs scripts/
+# The commit time of the commit this image is built from, stamped into
+# dist/build-version.json (scripts/build-version.mjs): there is no git here to
+# read it from. The API sends it as X-Build-Version on every response.
+ARG BUILD_VERSION=
 RUN npm run build -w packages/shared \
- && npm run build -w apps/api \
+ && FICHA_BUILD_VERSION=$BUILD_VERSION npm run build -w apps/api \
  && npm prune --omit=dev --ignore-scripts
 
 FROM node:22-bookworm-slim

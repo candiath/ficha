@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getToken, setToken, UNAUTHORIZED_EVENT } from '@/lib/api';
+import { useVersionSkew, VersionSkewError } from '@/lib/buildVersion';
 import { authApi } from '@/services/auth';
 import type { AuthUser } from '@ficha/shared';
 
@@ -35,25 +36,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // en cada recarga para usuarios logueados).
   const [isLoading, setIsLoading] = useState(() => getToken() !== null);
 
+  // While the web is out of step with the API, /me is refused
+  // (lib/buildVersion.ts) and says nothing about the session: it stays loading
+  // behind the notice, and /me is asked again once the two agree. Otherwise an
+  // API deploy that finishes by itself would leave the user on the login page.
+  const versionSkewed = useVersionSkew() !== null;
+
   useEffect(() => {
-    if (!getToken()) return;
+    if (!isLoading || versionSkewed || !getToken()) return;
     let cancelled = false;
     authApi
       .me()
       .then((u) => {
-        if (!cancelled) setUser(u);
+        if (cancelled) return;
+        setUser(u);
+        setIsLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        if (cancelled || err instanceof VersionSkewError) return;
         // Token vencido o inválido: el cliente HTTP ya lo limpió.
-        if (!cancelled) setUser(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        setUser(null);
+        setIsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isLoading, versionSkewed]);
 
   // Cuando cualquier request devuelve 401, el cliente HTTP limpia el token
   // y dispara este evento; acá solo se refleja en el estado de React para

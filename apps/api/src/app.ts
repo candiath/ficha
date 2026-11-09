@@ -6,6 +6,7 @@ import { authenticateOperator } from './middlewares/platformAuth';
 import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
+import { BUILD_VERSION_HEADER, buildVersion } from './lib/buildVersion';
 import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
@@ -76,14 +77,20 @@ const ALLOWED_ORIGIN: (string | RegExp)[] = IS_PRODUCTION
 
 const SERVER_TIME_HEADER = 'X-Server-Time';
 
-app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: [SERVER_TIME_HEADER] }));
+app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: [SERVER_TIME_HEADER, BUILD_VERSION_HEADER] }));
 
 // The API's clock on every response, so the web can tell when its device's
 // clock is off. Episodes open and audit rows are stamped by this clock, so it
 // is the one a date has to agree with. Not the Date header: that one stops at
 // the second.
+//
+// And the build this process serves (lib/buildVersion.ts), so the web can tell
+// when it is out of step with this API and ask the user to reload. Without a
+// version (`npm run dev`, the tests) there is no header and no check.
 app.use((_req, res, next) => {
   res.setHeader(SERVER_TIME_HEADER, new Date().toISOString());
+  const version = buildVersion();
+  if (version) res.setHeader(BUILD_VERSION_HEADER, version);
   next();
 });
 
@@ -107,9 +114,9 @@ const BUILD_MARKER = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? 'local';
 app.get('/health', async (_req, res) => {
   try {
     await pingDatabase();
-    res.json({ status: 'ok', buildMarker: BUILD_MARKER });
+    res.json({ status: 'ok', buildMarker: BUILD_MARKER, buildVersion: buildVersion() });
   } catch {
-    res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, error: 'Base de datos no disponible' });
+    res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, buildVersion: buildVersion(), error: 'Base de datos no disponible' });
   }
 });
 

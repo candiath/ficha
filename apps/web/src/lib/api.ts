@@ -7,6 +7,7 @@
 // plataforma no desloguea la clínica ni al revés — son dos logins distintos
 // contra dos secretos distintos, y acá también tienen que estar separados.
 
+import { BUILD_VERSION_HEADER, recordApiVersion, VersionSkewError } from '@/lib/buildVersion';
 import { recordServerTime, SERVER_TIME_HEADER } from '@/lib/serverClock';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -76,6 +77,17 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       window.dispatchEvent(new Event(config.unauthorizedEvent));
     }
 
+    // An API from another build may send data this web reads wrong (an old
+    // web would show annulled sessions as current), so a read is refused and
+    // the notice asks for a reload (lib/buildVersion.ts). A write already
+    // happened on the server: its response is let through, or the user would
+    // see an error for something that was saved, and the form would still
+    // count as unsaved.
+    const skewed = recordApiVersion(res.headers.get(BUILD_VERSION_HEADER));
+    if (skewed && (options?.method ?? 'GET') === 'GET') {
+      throw new VersionSkewError();
+    }
+
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new ApiError(body.error ?? `Error ${res.status}`, res.status, body);
@@ -125,3 +137,18 @@ export const platformApi = createApiClient({
   unauthorizedEvent: PLATFORM_UNAUTHORIZED_EVENT,
   loginPath: '/api/platform/auth/login',
 });
+
+// ── Build version ────────────────────────────────────────────────────────────
+
+/**
+ * Asks the API for its build version again, outside any session: the notice
+ * that waits for an API deploy uses it to notice the deploy finished.
+ */
+export async function recheckApiVersion(): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/health`);
+    recordApiVersion(res.headers.get(BUILD_VERSION_HEADER));
+  } catch {
+    // The API is down mid-deploy: the next check will tell.
+  }
+}

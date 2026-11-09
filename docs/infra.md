@@ -63,6 +63,23 @@ El repo borra la rama de un PR al mergearlo (`delete_branch_on_merge`, desde el 
 
 El entorno de testing solo sirve si se usa: el valor está en la ventana entre mergear a `dev` y promover a `main`. Promover en el mismo minuto convierte a testing en una segunda producción rota en silencio.
 
+## Build version: web and API in step
+
+The web (Netlify) and the API (Render) deploy separately from the same commit, so for a while after each push they can disagree: a tab opened before a release keeps running the old web, and the new web can reach the API before the API's deploy finishes, or after it fails (Render keeps serving the previous build). An old web reading a new API can show data wrong (for example annulled sessions as current), so the web checks on every response and asks the user to reload (`apps/web/src/lib/buildVersion.ts`; the rule is in `CLAUDE.md`).
+
+**The version is the commit time** (`git log -1 --format=%ct`, Unix seconds) of the commit a build was made from, so nobody bumps it and the larger one is the newer build. `scripts/build-version.mjs` resolves it, first match wins:
+
+1. `FICHA_BUILD_VERSION`, for a build without a git repository: the API's Docker image (`.git` is not in its build context), whose workflow (`image.yml`) passes the commit time as the `BUILD_VERSION` build arg.
+2. `git log -1 --format=%ct`, which works on a shallow clone: Render's and Netlify's builds clone the repository.
+3. Nothing: the build carries no version (the build log says so) and the web does no check. It fails open on purpose.
+
+- **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health`, so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
+- **Web**: `vite build` inlines it as `import.meta.env.VITE_BUILD_VERSION`. The dev server inlines nothing.
+
+**It relies on both sides deploying every commit.** Neither Render nor Netlify has a build filter or ignore rule today: if one is added (say, Netlify skipping API-only commits), the side that skipped a commit looks older forever and its users get the notice for nothing. The same goes for a **rollback**: rolling back one side alone makes the other look newer until the rollback is undone, so roll back both, or neither.
+
+**Netlify must not cache `index.html`**, or a reload brings the old web back. Its default for HTML is `cache-control: public,max-age=0,must-revalidate` (checked on 2026-11-09), and the CDN is cleared on every deploy; the assets are content-hashed. If a reload ever does bring back the same old web, the notice notices (it remembers in `sessionStorage` which API version it reloaded for) and says "Estamos actualizando Ficha" instead of asking again.
+
 ## Política de migraciones
 
 Cada entorno migra su propia base, y el schema viaja por el mismo canal que el código:

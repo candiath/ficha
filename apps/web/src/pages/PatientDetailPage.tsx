@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
+import { useUnsavedChanges } from '@/lib/unsavedChanges';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -241,12 +242,9 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
     onUnsavedChangesChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onUnsavedChangesChange]);
 
-  // Advertir al cerrar/recargar el browser
-  useBeforeUnload(
-    useCallback((e) => {
-      if (hasUnsavedChanges) e.preventDefault();
-    }, [hasUnsavedChanges]),
-  );
+  // Advertir al cerrar/recargar el browser, y al aviso de versión nueva
+  // (lib/unsavedChanges.ts).
+  useUnsavedChanges(hasUnsavedChanges);
 
   // Pre-fill when data loads (evaluation may be null on first visit)
   useEffect(() => {
