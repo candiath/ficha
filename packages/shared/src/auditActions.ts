@@ -67,6 +67,14 @@ export const AUDIT_APPOINTMENT_STATUSES = {
   NO_SHOW: 'no asistió',
 } as const;
 
+// What annulling a session did to its payment (SESSION_ANNULLED): a pending or
+// waived one is deleted with it, and a paid one refuses the annulment.
+export const AUDIT_ANNULLED_SESSION_PAYMENTS = {
+  NONE: 'sin cobro',
+  PENDING_DELETED: 'se eliminó su cobro pendiente',
+  WAIVED_DELETED: 'se eliminó su cobro eximido',
+} as const;
+
 // Why a clinical record was corrected or annulled (SPEC-clinical-revisions.md
 // §4). Attached to each *_UPDATED and annulment action in the step that
 // versions its aggregate: the catalog validates strictly, so a parameter is
@@ -363,14 +371,23 @@ export const AUDIT_ACTIONS = {
     SESSION_ANNULLED: action({
       entity: 'SESSION',
       kind: 'delete',
-      params: { sessionType: code(AUDIT_SESSION_TYPES), reason: code(AUDIT_REVISION_REASONS) },
+      // `payment`: a pending or waived payment goes with the session, and the
+      // row says so; there is no other trace of it.
+      params: {
+        sessionType: code(AUDIT_SESSION_TYPES),
+        reason: code(AUDIT_REVISION_REASONS),
+        payment: code(AUDIT_ANNULLED_SESSION_PAYMENTS),
+      },
       label: 'Sesión anulada',
-      describe: (p) =>
-        p.sessionType === 'DISCHARGE'
-          ? 'Anuló el alta'
-          : p.sessionType === 'NOTE'
-            ? 'Anuló una nota clínica'
-            : 'Anuló una sesión',
+      describe: (p) => {
+        const what =
+          p.sessionType === 'DISCHARGE'
+            ? 'Anuló el alta'
+            : p.sessionType === 'NOTE'
+              ? 'Anuló una nota clínica'
+              : 'Anuló una sesión';
+        return p.payment && p.payment !== 'NONE' ? `${what} (${AUDIT_ANNULLED_SESSION_PAYMENTS[p.payment]})` : what;
+      },
     }),
     PAYMENT_CREATED: action({
       entity: 'PAYMENT',

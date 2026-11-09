@@ -1,7 +1,7 @@
 import type { SessionType } from '@prisma/client';
 import type { TenantContext } from './types';
 import type { AUDIT_SESSION_FIELDS } from '@ficha/shared';
-import type { AuditBuilder, AuditUpdateBuilder } from './auditLogRepository';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -173,7 +173,9 @@ export interface SessionRepository {
     patientId: string,
     id: string,
     input: { reasonNote?: string | null },
-    audit: AuditBuilder<SessionDTO>,
+    // Built with the annulled session and the status of the payment that was
+    // deleted with it, or null if it had none.
+    audit: (session: SessionDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
   ): Promise<'annulled' | 'not_found' | 'paid'>;
   /** not_found if there is no current session of that patient with that id. */
   update(

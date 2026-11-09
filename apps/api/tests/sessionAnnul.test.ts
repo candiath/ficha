@@ -63,6 +63,12 @@ describe('annulling a session', () => {
     return auth(request(app).post(`${sessionsUrl()}/${sessionId}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
   }
 
+  // What the annulment's audit row says happened to the payment.
+  async function annulledPayment(sessionId: string) {
+    const row = await prisma.auditLog.findFirstOrThrow({ where: { entityId: sessionId, action: 'SESSION_ANNULLED' } });
+    return (row.params as { payment: string }).payment;
+  }
+
   async function paymentOf(sessionId: string) {
     const res = await auth(request(app).get(`/api/payments?patientId=${patient.id}`));
     return res.body.data.find((p: { sessionId: string }) => p.sessionId === sessionId);
@@ -75,6 +81,7 @@ describe('annulling a session', () => {
 
     const row = await prisma.session.findUnique({ where: { id } });
     expect(row?.deletedAt).not.toBeNull();
+    expect(await annulledPayment(id)).toBe('NONE');
   });
 
   it('takes its pending payment: no charge is left for a visit that did not happen', async () => {
@@ -83,9 +90,11 @@ describe('annulling a session', () => {
 
     expect((await annul(id)).status).toBe(204);
 
-    // Deleted for real: no money came in, so it is not history.
+    // Deleted for real: no money came in, so it is not history. The
+    // annulment's audit row is its trace.
     expect(await paymentOf(id)).toBeUndefined();
     expect(await prisma.payment.findFirst({ where: { sessionId: id } })).toBeNull();
+    expect(await annulledPayment(id)).toBe('PENDING_DELETED');
   });
 
   it('answers 409 to a paid session and changes nothing', async () => {
@@ -117,6 +126,7 @@ describe('annulling a session', () => {
 
     expect((await annul(id)).status).toBe(204);
     expect(await paymentOf(id)).toBeUndefined();
+    expect(await annulledPayment(id)).toBe('WAIVED_DELETED');
   });
 
   it('an annulled session cannot be read alone, edited or annulled again', async () => {

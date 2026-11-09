@@ -79,7 +79,7 @@ describe('annulment', () => {
 
       const rows = await auditRows(id);
       expect(rows.map((r) => r.action)).toEqual(['SESSION_RECORDED', 'SESSION_ANNULLED']);
-      expect(rows[1]).toMatchObject({ userId: user.id, params: { sessionType: 'SESSION', reason: 'LATE_INFORMATION' } });
+      expect(rows[1]).toMatchObject({ userId: user.id, params: { sessionType: 'SESSION', reason: 'LATE_INFORMATION', payment: 'NONE' } });
       const [first, last] = await prisma.sessionRevision.findMany({ where: { sessionId: id }, orderBy: { version: 'asc' } });
       expect(last).toMatchObject({ version: 2, auditLogId: rows[1].id, reasonNote: 'La paciente no vino ese día' });
       // The content does not change: the annulment is what the audit row says.

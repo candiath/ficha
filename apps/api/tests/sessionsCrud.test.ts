@@ -685,7 +685,7 @@ describe('CRUD de sesiones por HTTP', () => {
     // Codes only: the pain values stay in the session, never in the audit row.
     expect(alta.params).toEqual({});
     expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'], reason: 'DATA_ENTRY_ERROR' });
-    expect(borrado.params).toEqual({ sessionType: 'SESSION', reason: 'DATA_ENTRY_ERROR' });
+    expect(borrado.params).toEqual({ sessionType: 'SESSION', reason: 'DATA_ENTRY_ERROR', payment: 'NONE' });
   });
 
   it('editing the exercises records the field name, never the text', async () => {

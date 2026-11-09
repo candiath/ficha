@@ -19,7 +19,7 @@ import type {
   SessionUpdateResult,
   SessionIndexItemDTO,
 } from '../sessionRepository';
-import type { AuditBuilder, AuditUpdateBuilder } from '../auditLogRepository';
+import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 import { latestRevision, recordRevision } from './recordRevision';
@@ -518,7 +518,7 @@ export const prismaSessionRepository: SessionRepository = {
     patientId: string,
     id: string,
     input: { reasonNote?: string | null },
-    audit: AuditBuilder<SessionDTO>,
+    audit: (session: SessionDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
   ): Promise<'annulled' | 'not_found' | 'paid'> {
     const db = forTenant(ctx);
 
@@ -547,9 +547,14 @@ export const prismaSessionRepository: SessionRepository = {
       //    The patient goes in the where too: a session of another patient,
       //    sent under this patient's URL, is not found below, and its payment
       //    must not be deleted on the way.
-      await tx.payment.deleteMany({
-        where: { sessionId: id, patientId, tenantId: ctx.tenantId, status: { not: 'PAID' } },
-      });
+      //    RETURNING says which status it had, for the audit row: the one
+      //    trace of a deleted payment (review of #292). Raw SQL, so the
+      //    tenant goes in the where by hand.
+      const removed = await tx.$queryRaw<{ status: 'PENDING' | 'WAIVED' }[]>`
+        DELETE FROM payments
+         WHERE session_id = ${id}::uuid AND patient_id = ${patientId}::uuid
+           AND tenant_id = ${ctx.tenantId}::uuid AND status <> 'PAID'
+        RETURNING status::text AS status`;
 
       // 2. Annul the session only if no payment is left on it. If the payment
       //    was paid it still exists and this updateMany touches nothing: the
@@ -581,7 +586,7 @@ export const prismaSessionRepository: SessionRepository = {
         });
         const session = toDTO(row);
         const version = session.version + 1;
-        const auditLogId = await recordAudit(tx, ctx, audit({ ...session, version }));
+        const auditLogId = await recordAudit(tx, ctx, audit({ ...session, version }, removed[0]?.status ?? null));
         await recordRevision(tx, ctx, 'session_revisions', {
           aggregateId: id,
           patientId,

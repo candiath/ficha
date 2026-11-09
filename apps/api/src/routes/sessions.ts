@@ -314,11 +314,15 @@ router.post<SessionParams>('/:sessionId/annul', async (req, res) => {
     req.params.patientId,
     req.params.sessionId,
     { reasonNote },
-    (s) => ({
+    (s, removedPayment) => ({
       action: 'SESSION_ANNULLED',
       patientId: req.params.patientId,
       entityId: s.id,
-      params: { sessionType: s.sessionType, reason },
+      params: {
+        sessionType: s.sessionType,
+        reason,
+        payment: removedPayment === null ? 'NONE' : `${removedPayment}_DELETED`,
+      },
     }),
   );
 
