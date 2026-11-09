@@ -336,7 +336,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Step 5: Annulment (PR 5)
 
-- [ ] **Task 5.1: Annul as an action (API)**
+- [x] **Task 5.1: Annul as an action (API)**
   - *Acceptance:*
     - `POST /api/patients/:patientId/sessions/:sessionId/annul` and `…/events/:eventId/annul`, with `{ reason, reasonNote? }`.
     - New actions `SESSION_ANNULLED` and `PATIENT_EVENT_ANNULLED`, each with `reason` (migration for the enum). `SESSION_DELETED` and `PATIENT_EVENT_DELETED` are marked `deprecated`.
@@ -365,7 +365,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Checkpoint 5
 
-- [ ] No clinical entry can be deleted from the app any more, only annulled with a reason; every annulment is a version.
+- [x] No clinical entry can be deleted from the app any more, only annulled with a reason; every annulment is a version.
 
 ### Step 6: Baseline (PR 6)
 
