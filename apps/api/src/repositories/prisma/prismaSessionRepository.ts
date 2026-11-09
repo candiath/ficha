@@ -527,6 +527,15 @@ export const prismaSessionRepository: SessionRepository = {
       // edit and then reads the version that edit wrote.
       await lockRow(tx, 'sessions', id, ctx.tenantId);
 
+      // A session that is not current, or not this patient's, is not found
+      // before anything is written: with the row locked this cannot change
+      // below, and its payment is not deleted on the way (review of #292).
+      const current = await tx.session.findFirst({
+        where: { ...VIGENTE, id, patientId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!current) return 'not_found';
+
       // 1. Sacar el cobro, salvo que esté PAGADO. La condición va en el where
       //    del delete: si estaba pagado no borra nada y la fila sigue ahí.
       //

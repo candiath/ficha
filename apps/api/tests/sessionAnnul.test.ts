@@ -134,6 +134,20 @@ describe('annulling a session', () => {
     expect((await annul(id)).status).toBe(404);
   });
 
+  // A payment created at the very moment of an annulment can still land on the
+  // session (payments do not lock it). Annulling it again must not delete it.
+  it('a second annulment answers 404 and leaves a payment on the session alone', async () => {
+    const id = await createSession();
+    expect((await annul(id)).status).toBe(204);
+    await prisma.payment.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id, sessionId: id, baseAmountCents: 1000, finalAmountCents: 1000, status: 'PENDING' },
+    });
+
+    expect((await annul(id)).status).toBe(404);
+    expect(await prisma.payment.findFirst({ where: { sessionId: id } })).not.toBeNull();
+    await prisma.payment.deleteMany({ where: { sessionId: id } });
+  });
+
   it('answers 404 to a session that does not exist', async () => {
     const res = await annul(randomUUID());
     expect(res.status).toBe(404);
