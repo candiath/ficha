@@ -348,12 +348,29 @@ export const AUDIT_ACTIONS = {
         return changed ? `Actualizó ${changed} ${what}` : `Actualizó los datos ${what}`;
       },
     }),
+    // Replaced by SESSION_ANNULLED (SPEC-clinical-revisions.md §8): a session
+    // is no longer deleted, only annulled with a reason.
     SESSION_DELETED: action({
+      deprecated: true,
       entity: 'SESSION',
       kind: 'delete',
       params: {},
       label: 'Sesión eliminada',
       describe: () => 'Eliminó una sesión',
+    }),
+    // The entry stays in the record, struck through, and its content in its
+    // history; lists and metrics leave it out.
+    SESSION_ANNULLED: action({
+      entity: 'SESSION',
+      kind: 'delete',
+      params: { sessionType: code(AUDIT_SESSION_TYPES), reason: code(AUDIT_REVISION_REASONS) },
+      label: 'Sesión anulada',
+      describe: (p) =>
+        p.sessionType === 'DISCHARGE'
+          ? 'Anuló el alta'
+          : p.sessionType === 'NOTE'
+            ? 'Anuló una nota clínica'
+            : 'Anuló una sesión',
     }),
     PAYMENT_CREATED: action({
       entity: 'PAYMENT',
@@ -406,13 +423,23 @@ export const AUDIT_ACTIONS = {
         return changed ? `Actualizó ${changed} de un antecedente` : 'Actualizó un antecedente';
       },
     }),
+    // Replaced by PATIENT_EVENT_ANNULLED (SPEC-clinical-revisions.md §8).
     PATIENT_EVENT_DELETED: action({
+      deprecated: true,
       entity: 'PATIENT_EVENT',
       kind: 'delete',
       params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
       label: 'Antecedente eliminado',
       describe: (p) =>
         p.kind ? `Eliminó un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Eliminó un antecedente',
+    }),
+    PATIENT_EVENT_ANNULLED: action({
+      entity: 'PATIENT_EVENT',
+      kind: 'delete',
+      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), reason: code(AUDIT_REVISION_REASONS) },
+      label: 'Antecedente anulado',
+      describe: (p) =>
+        p.kind ? `Anuló un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Anuló un antecedente',
     }),
     // An episode's status changes are facts with actions of their own, and take
     // no reason; EPISODE_UPDATED is only a correction of its data. One request

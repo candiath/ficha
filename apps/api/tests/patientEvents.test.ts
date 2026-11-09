@@ -22,6 +22,7 @@ describe('The patient history', () => {
   const url = (patientId = patient.id) => `/api/patients/${patientId}/events`;
   const post = (body: Record<string, unknown>, patientId = patient.id) =>
     auth(request(app).post(url(patientId))).send(body);
+  const annul = (id: string) => auth(request(app).post(`${url()}/${id}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
 
   const fracture = {
     kind: 'FRACTURE',
@@ -157,23 +158,24 @@ describe('The patient history', () => {
     ]);
   });
 
-  it('deletes logically: gone from the list, the row and its audit stay', async () => {
+  it('annuls: still listed with its date of annulment, the row stays, and it can no longer be edited', async () => {
     const id = (await post(fracture)).body.data.id;
 
-    expect((await auth(request(app).delete(`${url()}/${id}`))).status).toBe(204);
+    expect((await annul(id)).status).toBe(204);
 
     const list = await auth(request(app).get(url()));
-    expect(list.body.data.map((e: { id: string }) => e.id)).not.toContain(id);
+    const listed = list.body.data.find((e: { id: string }) => e.id === id);
+    expect(listed.annulledAt).toEqual(expect.any(String));
     const row = await prisma.patientEvent.findUniqueOrThrow({ where: { id }, select: { deletedAt: true } });
-    expect(row.deletedAt).not.toBeNull();
+    expect(row.deletedAt?.toISOString()).toBe(listed.annulledAt);
     expect((await auth(request(app).patch(`${url()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Tarde' })).status).toBe(404);
-    expect((await auth(request(app).delete(`${url()}/${id}`))).status).toBe(404);
+    expect((await annul(id)).status).toBe(404);
   });
 
   it('answers 404 for another patient’s event, another clinic’s patient and an unknown id', async () => {
     const othersEvent = (await post(fracture, otherPatient.id)).body.data.id;
     expect((await auth(request(app).patch(`${url()}/${othersEvent}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Ajeno' })).status).toBe(404);
-    expect((await auth(request(app).delete(`${url()}/${othersEvent}`))).status).toBe(404);
+    expect((await annul(othersEvent)).status).toBe(404);
 
     const patientB = await fixture.patient.create({
       data: { tenantId: clinicB.tenantId, firstName: 'De otra', lastName: 'clínica' },
@@ -181,6 +183,6 @@ describe('The patient history', () => {
     });
     expect((await auth(request(app).get(url(patientB.id)))).status).toBe(404);
     expect((await post(fracture, patientB.id)).status).toBe(404);
-    expect((await auth(request(app).delete(`${url()}/${randomUUID()}`))).status).toBe(404);
+    expect((await annul(randomUUID())).status).toBe(404);
   });
 });

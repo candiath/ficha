@@ -179,6 +179,21 @@ describe('GET /api/dashboard/stats', () => {
       ],
     });
 
+    // An annulled session of this month (SPEC-clinical-revisions.md §8): it
+    // stays in the record, struck through, and counts in no metric.
+    const annulled = await createSessionFixture({
+      tenantId: clinicA.tenantId,
+      patientId: patientActive.id,
+      userId: userA.id,
+      sessionType: 'SESSION',
+      sessionDate: midMonthUtc(0),
+    });
+    const annul = await request(app)
+      .post(`/api/patients/${patientActive.id}/sessions/${annulled.id}/annul`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ reason: 'DATA_ENTRY_ERROR' });
+    expect(annul.status).toBe(204);
+
     // Ruido de la clínica B: nada de esto debe aparecer en las stats de A.
     const userB = await clinicB.createUser();
     const patientB = await createPatient(clinicB.tenantId, 'Paciente B');
@@ -242,12 +257,12 @@ describe('GET /api/dashboard/stats', () => {
   });
 
   it('excluye las notas rápidas del total de sesiones', () => {
-    // 5 filas en sessions, pero una es NOTE.
+    // 6 filas en sessions, pero una es NOTE y otra está anulada.
     expect(body.totalSessions).toBe(4);
   });
 
   it('cuenta las sesiones del mes calendario actual', () => {
-    // SESSION + DISCHARGE de este mes; la NOTE del mismo mes no cuenta.
+    // SESSION + DISCHARGE de este mes; la NOTE y la anulada del mismo mes no cuentan.
     expect(body.sessionsThisMonth).toBe(2);
   });
 
@@ -273,7 +288,7 @@ describe('GET /api/dashboard/stats', () => {
       monthKey(0),
     ]);
     // Las sesiones de A caen en el mes actual (2) y hace 3 meses (1); la de
-    // hace 10 meses queda fuera de la ventana.
+    // hace 10 meses queda fuera de la ventana, y la anulada no cuenta.
     expect(body.sessionsByMonth.map((m) => m.count)).toEqual([0, 0, 1, 0, 0, 2]);
   });
 

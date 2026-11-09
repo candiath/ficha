@@ -245,11 +245,11 @@ describe('audit rows are written in the same transaction as their action', () =>
     expect(row.observations).toBeNull();
   });
 
-  it('a clinical session is not deleted when its audit row fails', async () => {
+  it('a clinical session is not annulled when its audit row fails', async () => {
     const patient = await newPatient('Sesión Vigente');
     const session = await newSession(patient.id);
 
-    await expect(sessionRepo.softDelete(ctx, patient.id, session.id, broken())).rejects.toThrow();
+    await expect(sessionRepo.annul(ctx, patient.id, session.id, {}, broken)).rejects.toThrow();
 
     const row = await prisma.session.findUniqueOrThrow({ where: { id: session.id } });
     expect(row.deletedAt).toBeNull();

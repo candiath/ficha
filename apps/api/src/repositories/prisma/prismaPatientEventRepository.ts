@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { AUDIT_PATIENT_EVENT_FIELDS, type PartialDate } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
-import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
+import type { AuditBuilder, AuditUpdateBuilder } from '../auditLogRepository';
 import type {
   PatientEventAuditField,
   PatientEventDTO,
@@ -16,8 +16,9 @@ import { recordAudit } from './recordAudit';
 import { recordRevision, Rollback, unlessRolledBack } from './recordRevision';
 import { patientEventSnapshot } from './clinicalSnapshots';
 
-// Every method works on current events: one deleted is not listed, read or
-// edited, as with sessions.
+// Every method works on current events: an annulled one is not edited, and
+// only the patient's record (listByPatient) lists it, struck through, as with
+// sessions (SPEC-clinical-revisions.md §8). deletedAt is the annulment's date.
 const CURRENT = { deletedAt: null } as const;
 
 const eventSelect = {
@@ -30,6 +31,7 @@ const eventSelect = {
   occurredApproximate: true,
   createdAt: true,
   updatedAt: true,
+  deletedAt: true,
   // The latest version; none is version 0.
   revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
 } as const;
@@ -38,7 +40,7 @@ type EventRow = Prisma.PatientEventGetPayload<{ select: typeof eventSelect }>;
 
 const AUDIT_FIELDS = Object.keys(AUDIT_PATIENT_EVENT_FIELDS) as PatientEventAuditField[];
 
-function toDTO({ occurredOn, occurredPrecision, occurredApproximate, revisions, ...row }: EventRow): PatientEventDTO {
+function toDTO({ occurredOn, occurredPrecision, occurredApproximate, revisions, deletedAt, ...row }: EventRow): PatientEventDTO {
   return {
     ...row,
     version: revisions[0]?.version ?? 0,
@@ -48,6 +50,7 @@ function toDTO({ occurredOn, occurredPrecision, occurredApproximate, revisions, 
         : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    annulledAt: deletedAt?.toISOString() ?? null,
   };
 }
 
@@ -75,7 +78,8 @@ export const prismaPatientEventRepository: PatientEventRepository = {
   async listByPatient(ctx: TenantContext, patientId: string): Promise<PatientEventDTO[]> {
     const db = forTenant(ctx);
     const rows = await db.patientEvent.findMany({
-      where: { ...CURRENT, patientId },
+      // Annulled ones included: the record shows them, struck through.
+      where: { patientId },
       // What she lived, newest first; what she cannot date, at the end.
       orderBy: [{ occurredOn: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       select: eventSelect,
@@ -162,40 +166,42 @@ export const prismaPatientEventRepository: PatientEventRepository = {
     }
   },
 
-  async softDelete(
+  async annul(
     ctx: TenantContext,
     patientId: string,
     id: string,
-    audit: (deleted: PatientEventDTO) => AuditEntry,
-  ): Promise<'deleted' | 'not_found'> {
+    input: { reasonNote?: string | null },
+    audit: AuditBuilder<PatientEventDTO>,
+  ): Promise<'annulled' | 'not_found'> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
       // Locked first: this write takes a version, so it waits for a concurrent
       // edit and then reads the version that edit wrote.
       await lockRow(tx, 'patient_events', id, ctx.tenantId);
-      const row = await tx.patientEvent.findFirst({
-        where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
-        select: eventSelect,
-      });
-      if (!row) return 'not_found';
-      // The condition travels in the write: a concurrent delete matches nothing.
+      // The condition travels in the write: an annulled event, or another
+      // patient's, matches nothing.
       const { count } = await tx.patientEvent.updateMany({
         where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
         data: { deletedAt: new Date() },
       });
       if (count === 0) return 'not_found';
-      // A version with the same content: the deletion is what its audit row
-      // says. Step 5 of SPEC-clinical-revisions.md turns this into annulling.
-      const event = toDTO(row);
+      // The final version, of unchanged content: the annulment is what its
+      // audit row says, and the note goes only into the revision.
+      const row = await tx.patientEvent.findUniqueOrThrow({
+        where: { id, tenantId: ctx.tenantId },
+        select: eventSelect,
+      });
+      const event = { ...toDTO(row), version: (row.revisions[0]?.version ?? 0) + 1 };
       const auditLogId = await recordAudit(tx, ctx, audit(event));
       await recordRevision(tx, ctx, 'patient_event_revisions', {
         aggregateId: id,
         patientId,
-        version: event.version + 1,
+        version: event.version,
         auditLogId,
         snapshot: patientEventSnapshot(row),
+        reasonNote: input.reasonNote,
       });
-      return 'deleted';
+      return 'annulled';
     });
   },
 };

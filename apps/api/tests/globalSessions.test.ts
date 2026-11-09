@@ -64,8 +64,11 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     });
     sessionBorrada = await crear(patient.id, { episodes: [{ episodeId: episode.id }] });
     expect(
-      (await auth(request(app).delete(`/api/patients/${patient.id}/sessions/${sessionBorrada}`)))
-        .status,
+      (
+        await auth(request(app).post(`/api/patients/${patient.id}/sessions/${sessionBorrada}/annul`)).send({
+          reason: 'DATA_ENTRY_ERROR',
+        })
+      ).status,
     ).toBe(204);
 
     // La sesión de la otra clínica se inserta directo: su usuario no hace

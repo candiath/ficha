@@ -1,7 +1,7 @@
 import type { SessionType } from '@prisma/client';
 import type { TenantContext } from './types';
 import type { AUDIT_SESSION_FIELDS } from '@ficha/shared';
-import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRepository';
+import type { AuditBuilder, AuditUpdateBuilder } from './auditLogRepository';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,10 @@ export interface SessionDTO {
   observations: string | null;
   createdAt: string;
   updatedAt: string;
+  // When it was annulled (SPEC-clinical-revisions.md §8), or null. Only the
+  // record's list (listByPatient) returns an annulled session; every other
+  // reader leaves it out.
+  annulledAt: string | null;
   episodes: SessionEpisodeBlockDTO[];
 }
 
@@ -149,25 +153,29 @@ export interface SessionRepository {
     input: SessionCreateInput,
     audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionCreateResult>;
-  /** null si no hay sesión vigente de ese paciente con ese id. */
   /**
-   * Borrado lógico de una sesión cargada por error.
+   * Annuls a session entered by mistake (SPEC-clinical-revisions.md §8). It
+   * stays in the patient's record, marked, with its content in its history,
+   * and leaves every other list and metric. It writes a final version, with
+   * the reason's note.
    *
-   * - 'not_found': no existe, es de otro paciente/tenant, o ya estaba borrada.
-   * - 'paid': tiene un cobro PAGADO. No se borra: plata que entró de verdad
-   *   no se hace desaparecer desde acá. Primero hay que revertir el cobro.
-   * - 'deleted': se marcó deletedAt y, si tenía un cobro PENDING o WAIVED,
-   *   se eliminó — un cobro pendiente por una sesión que no existió no es
-   *   historial, es trabajo pendiente sobre algo que no pasó. Si salió de un
-   *   turno, el turno queda sin sessionId para poder registrarla de nuevo;
-   *   su estado no cambia.
+   * - 'not_found': no such session of that patient, or already annulled.
+   * - 'paid': it has a PAID payment. It is not annulled: money that really
+   *   came in does not disappear from here; the payment is reverted first.
+   * - 'annulled': deletedAt is set and, if it had a PENDING or WAIVED payment,
+   *   that payment is deleted — a pending charge for a visit that did not
+   *   happen is not history but work left on something that did not happen.
+   *   If it came from an appointment, the appointment loses its sessionId so
+   *   the visit can be recorded again; its status does not change.
    */
-  softDelete(
+  annul(
     ctx: TenantContext,
     patientId: string,
     id: string,
-    audit: AuditEntry,
-  ): Promise<'deleted' | 'not_found' | 'paid'>;
+    input: { reasonNote?: string | null },
+    audit: AuditBuilder<SessionDTO>,
+  ): Promise<'annulled' | 'not_found' | 'paid'>;
+  /** not_found if there is no current session of that patient with that id. */
   update(
     ctx: TenantContext,
     patientId: string,
