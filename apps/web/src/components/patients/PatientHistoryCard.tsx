@@ -118,7 +118,13 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                     {event.annulledAt && <Badge variant="destructive">Anulado</Badge>}
                     <span className="text-xs text-muted-foreground">{describeWhen(event.occurred, today)}</span>
                   </div>
-                  <p className={`text-sm ${event.annulledAt ? 'line-through' : ''}`}>{event.description}</p>
+                  {/* An annulled event shows no description here: it may have
+                      been entered on the wrong patient. It is in its history. */}
+                  {event.annulledAt ? (
+                    <p className="text-sm text-muted-foreground">Anulado: el contenido está en su historial.</p>
+                  ) : (
+                    <p className="text-sm">{event.description}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button

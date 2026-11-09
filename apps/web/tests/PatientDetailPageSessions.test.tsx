@@ -140,7 +140,10 @@ describe('PatientDetailPage: annulled sessions', () => {
     expect(screen.getByText('3.0 pts')).toBeInTheDocument();
     const annulled = screen.getByRole('button', { name: /Sesión anulada del .*: ver historial/ });
     expect(within(annulled).getByText('Anulada')).toBeInTheDocument();
-    expect(within(annulled).getByText('Cargada por error').closest('.line-through')).not.toBeNull();
+    // No clinical content in the list: not the treatment, not the pain.
+    expect(screen.queryByText('Cargada por error')).toBeNull();
+    expect(within(annulled).queryByText(/9/)).toBeNull();
+    expect(within(annulled).getByText(/jue/).closest('.line-through')).not.toBeNull();
     expect(within(annulled).getByText('–')).toBeInTheDocument();
     // The current ones keep consecutive numbers.
     expect(screen.getByText('Movilidad lumbar').closest('button')).toHaveTextContent(/^2/);

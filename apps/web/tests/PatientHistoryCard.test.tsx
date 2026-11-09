@@ -160,8 +160,8 @@ describe('PatientHistoryCard', () => {
     list.mockResolvedValue([{ ...FRACTURE, annulledAt: '2026-10-10T12:00:00.000Z' }]);
     renderCard();
 
-    const description = await screen.findByText('Fractura de muñeca izquierda');
-    expect(description).toHaveClass('line-through');
+    expect(await screen.findByText('Anulado: el contenido está en su historial.')).toBeInTheDocument();
+    expect(screen.queryByText('Fractura de muñeca izquierda')).toBeNull();
     expect(screen.getByText('Anulado')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ver historial del antecedente' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar antecedente' })).toBeNull();

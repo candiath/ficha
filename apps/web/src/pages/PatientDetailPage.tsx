@@ -722,11 +722,14 @@ function SessionsTab({
             // This episode's block: the pain of a visit that treated several
             // problems is the pain of each one.
             const block = blockFor(session, episodeId);
+            // An annulled session shows no clinical content in the list: it may
+            // have been entered on the wrong patient. Its content is one click
+            // away, in its history (review of #292).
             const hasPain =
-              !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
-            const otherEpisodes = session.episodes.filter((b) => b.episodeId !== episodeId);
+              !annulled && !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
+            const otherEpisodes = annulled ? [] : session.episodes.filter((b) => b.episodeId !== episodeId);
             // This episode's treatment; a note shows its own text.
-            const preview = block?.treatment ?? session.observations;
+            const preview = annulled ? null : (block?.treatment ?? session.observations);
 
             return (
               <button
