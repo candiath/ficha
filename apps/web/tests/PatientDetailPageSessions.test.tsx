@@ -75,11 +75,18 @@ const EPISODE: ClinicalEpisode = {
   version: 1,
 };
 
-const session = (id: string, day: string, treatment: string, annulledAt: string | null = null): Session => ({
+const session = (
+  id: string,
+  day: string,
+  treatment: string,
+  annulledAt: string | null = null,
+  pain: [number, number] = [6, 3],
+  sessionType: Session['sessionType'] = 'SESSION',
+): Session => ({
   id,
   version: annulledAt ? 2 : 1,
   patientId: 'p1',
-  sessionType: 'SESSION',
+  sessionType,
   sessionDate: `2026-10-${day}T13:00:00.000Z`,
   observations: null,
   createdAt: `2026-10-${day}T13:00:00.000Z`,
@@ -90,8 +97,8 @@ const session = (id: string, day: string, treatment: string, annulledAt: string 
       episodeId: 'e1',
       preSessionState: null,
       treatment,
-      painScaleBefore: 6,
-      painScaleAfter: 3,
+      painScaleBefore: pain[0],
+      painScaleAfter: pain[1],
       patientExercises: null,
       reEvaluationNotes: null,
     },
@@ -117,7 +124,8 @@ beforeEach(() => {
   vi.mocked(episodeApi.list).mockResolvedValue([EPISODE]);
   vi.mocked(sessionApi.list).mockResolvedValue([
     session('s3', '20', 'Movilidad lumbar'),
-    session('s2', '15', 'Cargada por error', '2026-10-16T10:00:00.000Z'),
+    // Its pain would move the average from 3.0 to 5.0.
+    session('s2', '15', 'Cargada por error', '2026-10-16T10:00:00.000Z', [9, 0]),
     session('s1', '10', 'Evaluación'),
   ]);
 });
@@ -128,6 +136,8 @@ describe('PatientDetailPage: annulled sessions', () => {
     await userEvent.click(await screen.findByRole('tab', { name: 'Sesiones' }));
 
     expect(await screen.findByText('2 sesiones · 1 anulada')).toBeInTheDocument();
+    // The pain chart leaves it out.
+    expect(screen.getByText('3.0 pts')).toBeInTheDocument();
     const annulled = screen.getByRole('button', { name: /Sesión anulada del .*: ver historial/ });
     expect(within(annulled).getByText('Anulada')).toBeInTheDocument();
     expect(within(annulled).getByText('Cargada por error').closest('.line-through')).not.toBeNull();
@@ -183,4 +193,21 @@ describe('PatientDetailPage: annulled sessions', () => {
     expect(sessionApi.get).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Guardar sesión' })).toBeNull();
   });
+
+  it("does not take an annulled discharge as the episode's discharge", async () => {
+    vi.mocked(episodeApi.list).mockResolvedValue([{ ...EPISODE, status: 'DISCHARGED', closedAt: '2026-10-21T13:00:00.000Z' }]);
+    vi.mocked(sessionApi.list).mockResolvedValue([
+      session('s4', '21', 'Alta cargada por error', '2026-10-22T10:00:00.000Z', [3, 1], 'DISCHARGE'),
+      session('s1', '10', 'Evaluación'),
+    ]);
+    renderPage();
+    await userEvent.click(await screen.findByRole('tab', { name: 'Sesiones' }));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Nueva sesión' }));
+
+    const warning = await screen.findByRole('dialog', { name: 'Episodio cerrado' });
+    expect(within(warning).getByText('Este episodio está cerrado.')).toBeInTheDocument();
+    expect(within(warning).queryByRole('button', { name: 'Ver nota de alta' })).toBeNull();
+  });
 });
+

@@ -56,6 +56,7 @@ import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session, SessionEpisodeBlock, SessionType } from '@/types/session'
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog'
 import AnnulDialog from '@/components/patients/AnnulDialog'
+import { ApiError } from '@/lib/api'
 import type { AnnulData } from '@/types/patient'
 import { renderSessionSnapshot } from '@/lib/revisionRows'
 import { revisionPaths } from '@/services/revisions'
@@ -467,6 +468,18 @@ export default function SessionFormModalWide({
       // genérico. api.ts ya lo trae en err.message.
       toast.error(err.message || 'Error al anular la sesión')
       setShowAnnul(false)
+      // Annulled or gone meanwhile (404): the lists show what it is now, and
+      // the form has nothing left to edit.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({
+          predicate: (q) =>
+            Array.isArray(q.queryKey) &&
+            q.queryKey[0] === 'patients' &&
+            q.queryKey[1] === patientId &&
+            q.queryKey.includes('sessions'),
+        })
+        onOpenChange(false)
+      }
     },
   })
 

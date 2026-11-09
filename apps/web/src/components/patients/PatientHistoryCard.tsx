@@ -33,6 +33,7 @@ import RevisionReasonField, { MISSING_REASON } from '@/components/patients/Revis
 import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
+import { ApiError } from '@/lib/api';
 import RevisionHistoryDialog from '@/components/patients/RevisionHistoryDialog';
 import AnnulDialog from '@/components/patients/AnnulDialog';
 import { renderPatientEventSnapshot } from '@/lib/revisionRows';
@@ -72,7 +73,15 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
       toast.success('Antecedente anulado');
       setAnnulling(null);
     },
-    onError: (err: Error) => toast.error(err.message || 'No se pudo anular el antecedente'),
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo anular el antecedente');
+      // Annulled or gone meanwhile (404): the list shows what it is now, and
+      // there is nothing left to annul.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
+        setAnnulling(null);
+      }
+    },
   });
 
   return (

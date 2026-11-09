@@ -194,7 +194,7 @@ describe('SessionFormModalWide: annulling', () => {
     expect(within(dialog).getByRole('combobox', { name: 'Motivo de la anulación' })).toHaveTextContent('Elegí un motivo');
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
-    expect(within(dialog).getByText('Elegí el motivo del cambio')).toBeInTheDocument();
+    expect(within(dialog).getByText('Elegí el motivo de la anulación')).toBeInTheDocument();
     expect(annul).not.toHaveBeenCalled();
 
     await chooseReason('Error de confección', dialog, 'Motivo de la anulación');

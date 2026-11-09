@@ -145,7 +145,7 @@ describe('PatientHistoryCard', () => {
 
     // No reason is preselected: confirming marks the field and sends nothing.
     await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
-    expect(within(dialog).getByText('Elegí el motivo del cambio')).toBeInTheDocument();
+    expect(within(dialog).getByText('Elegí el motivo de la anulación')).toBeInTheDocument();
     expect(annul).not.toHaveBeenCalled();
 
     await chooseReason('Otro motivo', dialog, 'Motivo de la anulación');
@@ -167,4 +167,39 @@ describe('PatientHistoryCard', () => {
     expect(screen.queryByRole('button', { name: 'Editar antecedente' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Anular antecedente' })).toBeNull();
   });
+
+  it('opens the next annulment with nothing chosen, after one that succeeded', async () => {
+    annul.mockResolvedValue(undefined);
+    const SURGERY: PatientEvent = { ...FRACTURE, id: 'ev2', kind: 'SURGERY', description: 'Apendicectomía' };
+    list.mockResolvedValue([FRACTURE, SURGERY]);
+    renderCard();
+
+    const [first] = await screen.findAllByRole('button', { name: 'Anular antecedente' });
+    await userEvent.click(first);
+    let dialog = await screen.findByRole('dialog');
+    await chooseReason('Otro motivo', dialog, 'Motivo de la anulación');
+    await userEvent.type(within(dialog).getByLabelText('Nota (opcional)'), 'Era de otra paciente');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Anular antecedente' })[1]);
+    dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('combobox', { name: 'Motivo de la anulación' })).toHaveTextContent('Elegí un motivo');
+    expect(within(dialog).getByLabelText('Nota (opcional)')).toHaveValue('');
+  });
+
+  it('closes the annulment and reloads the list when the event was already annulled elsewhere', async () => {
+    const GONE = 'Antecedente no encontrado';
+    annul.mockRejectedValue(new ApiError(GONE, 404, { error: GONE }));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Anular antecedente' }));
+    const dialog = await screen.findByRole('dialog');
+    await chooseReason(undefined, dialog, 'Motivo de la anulación');
+    list.mockResolvedValue([{ ...FRACTURE, annulledAt: '2026-10-10T12:00:00.000Z' }]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Anular' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await screen.findByText('Anulado')).toBeInTheDocument();
+  });
 });
+

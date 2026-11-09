@@ -16,57 +16,63 @@ import { useRevisionReason } from '@/hooks/useRevisionReason'
 // it is never deleted. The entry stays in the record struck through, its
 // content in its history. Like every correction it says why, with no reason
 // preselected: confirming without one marks the field and moves the focus to it.
-export default function AnnulDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  pending,
-  onConfirm,
-}: {
+interface AnnulDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
   description: ReactNode
   pending: boolean
   onConfirm: (reason: RevisionReason, reasonNote: string) => void
-}) {
-  const revision = useRevisionReason()
+}
 
-  function handleOpenChange(next: boolean) {
-    // A cancelled annulment leaves nothing chosen for the next one.
-    if (!next) revision.reset()
-    onOpenChange(next)
-  }
-
+export default function AnnulDialog({ open, onOpenChange, ...content }: AnnulDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <RevisionReasonField
-          {...revision.fieldProps}
-          label="Motivo de la anulación"
-          noteLabel="Nota (opcional)"
-        />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancelar
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={pending}
-            onClick={() => {
-              const reason = revision.require()
-              if (reason) onConfirm(reason, revision.note)
-            }}
-          >
-            {pending ? 'Anulando...' : 'Anular'}
-          </Button>
-        </DialogFooter>
+        {/* The reason lives in the content, which unmounts when the dialog
+            closes, however it closes (cancelled, or closed by the parent after
+            an annulment): every annulment starts with nothing chosen. */}
+        <AnnulForm {...content} onCancel={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
+  )
+}
+
+function AnnulForm({
+  title,
+  description,
+  pending,
+  onConfirm,
+  onCancel,
+}: Omit<AnnulDialogProps, 'open' | 'onOpenChange'> & { onCancel: () => void }) {
+  const revision = useRevisionReason()
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+      <RevisionReasonField
+        {...revision.fieldProps}
+        label="Motivo de la anulación"
+        noteLabel="Nota (opcional)"
+        missingMessage="Elegí el motivo de la anulación"
+      />
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={pending}
+          onClick={() => {
+            const reason = revision.require()
+            if (reason) onConfirm(reason, revision.note)
+          }}
+        >
+          {pending ? 'Anulando...' : 'Anular'}
+        </Button>
+      </DialogFooter>
+    </>
   )
 }

@@ -32,6 +32,7 @@ export interface RevisionReasonFieldProps {
   // An annulment names its own act ("Motivo de la anulación").
   label?: string
   noteLabel?: string
+  missingMessage?: string
 }
 
 export default function RevisionReasonField({
@@ -43,6 +44,7 @@ export default function RevisionReasonField({
   onNoteChange,
   label = 'Motivo del cambio',
   noteLabel = 'Nota del cambio (opcional)',
+  missingMessage = MISSING_REASON,
 }: RevisionReasonFieldProps) {
   // Several forms of one record can be on the page at once.
   const id = useId()
@@ -74,7 +76,7 @@ export default function RevisionReasonField({
         </Select>
         {missing && (
           <p id={`${id}-missing`} className="text-xs text-destructive">
-            {MISSING_REASON}
+            {missingMessage}
           </p>
         )}
       </div>
