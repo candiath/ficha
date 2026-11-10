@@ -369,17 +369,17 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 ### Step 6: A versioned seed (PR 6)
 
-**No baseline script** (decided 2026-11-10). The data loaded before revisions existed never needs a version 1: `production` is wiped before the relaunch (#238), and `staging` and `development` hold only test data that can be reseeded. What remains is the seed: a freshly seeded database shows history and passes the revision invariant. No new action and no migration: the creation actions (`PATIENT_CREATED`, `EPISODE_OPENED`, …) serve any actor.
+**No baseline script** (decided 2026-11-10). The data loaded before revisions existed never needs a version 1: `production` is wiped before the relaunch (#238), `development` holds only test data that can be reseeded, and `staging` keeps its older rows at version 0 until each is edited (the seed cannot run there: no audit maintenance flag, and non-test accounts). What remains is the seed: a freshly seeded database shows history and passes the revision invariant. No new action and no migration: the creation actions (`PATIENT_CREATED`, `EPISODE_OPENED`, …) serve any actor.
 
 - [x] **Task 6.1: The seed writes version 1**
   - *Acceptance:*
-    - `prisma/versionOne.ts` writes version 1 of each of the six aggregates: a `SYSTEM` audit row of its creation and a revision equal to its rows, in the transaction that is given. `tests/fixtures.ts` uses it, so the seed and the fixtures write version 1 the same way.
-    - `versionUnversioned(prisma, tenantId)` gives version 1 to every aggregate of a clinic that has none, one transaction each; the seed calls it at its end. A second run writes nothing.
+    - `prisma/versionOne.ts` writes version 1 of each of the six aggregates: an audit row of its creation (the demo history's own, or a new `SYSTEM` one) and a revision equal to its rows, in the transaction that is given. `tests/fixtures.ts` uses it, so the seed and the fixtures write version 1 the same way.
+    - `versionUnversioned(prisma, tenantId)` gives version 1 to every aggregate of a clinic that has none, one transaction each, one after another; the seed calls it at its end. A second run writes nothing.
   - *Verify:* `tests/seedVersionOne.test.ts`: unversioned rows of the six aggregates get a `SYSTEM` version 1 that passes the revision invariant; a second run writes nothing. And `npm run db:seed` on `development`.
   - *Files:* `prisma/versionOne.ts`, `prisma/seed.ts`, `tests/fixtures.ts`, the test, `eslint.config.mjs`. **S**
 - [ ] **Task 6.2: Reseed and close**
   - *Acceptance:*
-    - After the merge, `development` (and `staging`, with your permission) is reseeded from empty.
+    - After the merge, `development` is reseeded from empty. `staging` is not reseeded (see above).
     - `audit-map.md` marks `clinical-revisions` as implemented.
   - *Files:* `docs/specs/audit-map.md`. **XS**
   - *Depends on:* 6.1.
@@ -387,7 +387,7 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 ### Checkpoint 6: complete
 
 - [ ] The spec's success criteria are met.
-- [ ] Every environment except `production` (wiped at the relaunch) has a revision for every aggregate.
+- [ ] `development` and `ci` have a revision for every aggregate; `staging` keeps its older rows at version 0, and `production` is wiped at the relaunch.
 - [ ] The relaunch (#238) can go ahead.
 
 ## Risks and Mitigations

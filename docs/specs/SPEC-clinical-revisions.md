@@ -38,7 +38,7 @@ Each one survived the review cycles; the reason is kept so it is not reopened by
 
 ## Tech Stack, Commands
 
-Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for migrations), decided 2026-10-31: native `uuidv7()` for ids written in SQL (data migrations, the baseline). The move from 16 is rollout step 0, to a new Neon project (decided 2026-11-01). No new dependencies. Commands: `npm test`, `npm test -w apps/web`, `npm run check`, `npm run db:migrate`. Triggers and functions are hand-written SQL in the migration, as in `20261010191055_audit_rows_enforced`.
+Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for migrations), decided 2026-10-31: native `uuidv7()` for ids written in SQL (data migrations). The move from 16 is rollout step 0, to a new Neon project (decided 2026-11-01). No new dependencies. Commands: `npm test`, `npm test -w apps/web`, `npm run check`, `npm run db:migrate`. Triggers and functions are hand-written SQL in the migration, as in `20261010191055_audit_rows_enforced`.
 
 ## Design
 
@@ -126,7 +126,7 @@ Sessions and patient events have a soft delete today. It becomes `POST …/annul
 
 ### 10. Existing rows
 
-`staging`, `development` and `ci` hold rows created before this module. A one-off script (`npm run history:baseline -w apps/api`, TypeScript so ids are UUIDv7) writes version 1 for every aggregate without one, under a `SYSTEM` audit row (`HISTORY_BASELINE`). Production is wiped at the relaunch and needs none.
+No baseline script (decided 2026-11-10). Production is wiped at the relaunch (#238), so every row it will hold is created with its version 1. `development` and `ci` hold only test data: the seed gives every aggregate it writes version 1 (`prisma/versionOne.ts`), pointing at the demo history's creation row where there is one and at a new `SYSTEM` row where there is not. `staging` cannot run the seed (it has no audit maintenance flag and has non-test accounts) and keeps its older rows at version 0: such a row reads as "no history yet", and its first edit writes version 1.
 
 ### 11. Logs
 
@@ -148,7 +148,7 @@ Each step is a PR against `dev`, in order:
 3. The other five aggregates.
 4. Reading routes and the history view in the record.
 5. Annulment as an action with reason.
-6. Baseline script, run on `staging`, `development` and `ci`.
+6. The seed writes version 1 (§10). No baseline script.
 
 All of it before the relaunch's wipe (#238).
 
