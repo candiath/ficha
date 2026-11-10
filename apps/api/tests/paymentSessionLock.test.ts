@@ -20,8 +20,11 @@ describe('payment creation and session deletion', () => {
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
   const postPayment = (sessionId: string) =>
     auth(request(app).post('/api/payments')).send({ sessionId, baseAmountCents: 100 });
+  // Sessions are annulled, never deleted (#292); annulling marks deleted_at.
   const deleteSession = (sessionId: string) =>
-    auth(request(app).delete(`/api/patients/${patient.id}/sessions/${sessionId}`));
+    auth(request(app).post(`/api/patients/${patient.id}/sessions/${sessionId}/annul`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+    });
   const newSession = () =>
     createSessionFixture({
       tenantId: clinic.tenantId,
