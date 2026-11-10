@@ -25,6 +25,12 @@ describe('payment creation and session deletion', () => {
     auth(request(app).post(`/api/patients/${patient.id}/sessions/${sessionId}/annul`)).send({
       reason: 'DATA_ENTRY_ERROR',
     });
+  const payPayment = (paymentId: string) =>
+    auth(request(app).patch(`/api/payments/${paymentId}`)).send({
+      status: 'PAID',
+      method: 'CASH',
+      paidAt: new Date().toISOString(),
+    });
   const newSession = () =>
     createSessionFixture({
       tenantId: clinic.tenantId,
@@ -72,7 +78,7 @@ describe('payment creation and session deletion', () => {
   });
 
   // The deletion is held open between marking the session deleted and its
-  // commit, exactly as `softDelete` / `annul` does it: lock the session, remove
+  // commit, exactly as `annul` does it: lock the session, remove
   // its unpaid payment, mark it deleted if no payment is left. A payment
   // created meanwhile must wait for that commit and then find the session
   // deleted. Before the fix it did not wait: the insert's foreign key check
@@ -123,12 +129,39 @@ describe('payment creation and session deletion', () => {
     expect(await prisma.payment.count({ where: { sessionId: session.id } })).toBe(0);
   });
 
+  // A paid payment keeps its session: annulling answers 409 and leaves both.
+  it('refuses to annul a session whose payment is paid', async () => {
+    const session = await newSession();
+    const created = await postPayment(session.id);
+    expect(created.status).toBe(201);
+    expect((await payPayment(created.body.data.id)).status).toBe(200);
+
+    const res = await deleteSession(session.id);
+    expect(res.status).toBe(409);
+    expect(await prisma.payment.count({ where: { sessionId: session.id } })).toBe(1);
+    const row = await prisma.session.findUniqueOrThrow({ where: { id: session.id }, select: { deletedAt: true } });
+    expect(row.deletedAt).toBeNull();
+  });
+
   // Whichever wins, the invariant holds: either the payment exists and the
-  // session is not deleted, or the session is deleted and has no payment.
-  it('never leaves a payment on a deleted session under concurrent requests', async () => {
-    for (let i = 0; i < 10; i++) {
+  // session is not annulled, or the session is annulled and has no payment.
+  // A payment is created pending, and annulling removes a pending one, so a
+  // creation racing the annulment always ends with the session annulled. The
+  // other outcome needs the payment paid first: the odd rounds race paying an
+  // existing pending payment against the annulment.
+  it('never leaves a payment on an annulled session under concurrent requests', async () => {
+    const outcomes = { annulled: 0, kept: 0 };
+    for (let i = 0; i < 20; i++) {
       const session = await newSession();
-      const [created, deleted] = await Promise.all([postPayment(session.id), deleteSession(session.id)]);
+      let write: request.Response;
+      let annul: request.Response;
+      if (i % 2 === 0) {
+        [write, annul] = await Promise.all([postPayment(session.id), deleteSession(session.id)]);
+      } else {
+        const created = await postPayment(session.id);
+        expect(created.status).toBe(201);
+        [write, annul] = await Promise.all([payPayment(created.body.data.id), deleteSession(session.id)]);
+      }
 
       const payment = await prisma.payment.findUnique({ where: { sessionId: session.id } });
       const row = await prisma.session.findUniqueOrThrow({
@@ -136,13 +169,17 @@ describe('payment creation and session deletion', () => {
         select: { deletedAt: true },
       });
       if (row.deletedAt) {
+        outcomes.annulled++;
         expect(payment).toBeNull();
-        expect(deleted.status).toBe(204);
+        expect(annul.status).toBe(204);
       } else {
-        expect(payment).not.toBeNull();
-        expect(created.status).toBe(201);
+        outcomes.kept++;
+        expect(payment?.status).toBe('PAID');
+        expect(write.status).toBe(200);
+        expect(annul.status).toBe(409);
       }
     }
     expect(await paymentsOnDeletedSessions()).toBe(0);
+    expect(outcomes.annulled).toBeGreaterThan(0);
   });
 });
