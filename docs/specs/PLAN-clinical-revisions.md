@@ -10,12 +10,12 @@ Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` w
 
 ## Architecture Decisions
 
-- **Step 0 blocks nothing in steps 1–6.** No later step needs Postgres 18: revision ids come from the app, the baseline is TypeScript (spec §10), and `uuidv7()` is only for future SQL data migrations. Step 0 goes first in the spec's order, but it can run alongside steps 1 and 2. It only has to finish before the relaunch.
+- **Step 0 blocks nothing in steps 1–6.** No later step needs Postgres 18: revision ids come from the app, and `uuidv7()` is only for future SQL data migrations. Step 0 goes first in the spec's order, but it can run alongside steps 1 and 2. It only has to finish before the relaunch.
 - **Postgres 18 is a new Neon project** (decided 2026-11-01). Each branch moves by dump and restore, with the procedure in `docs/infra.md`, which gets proven on 18 along the way; `ci` starts empty. The URLs never enter the chat: you put them in an ignored env file, and commands load it.
 - **The `reason` parameter is attached per aggregate, in the step that versions it** (2, 3, 5), not all in step 1. The catalog validates writes strictly, so a parameter added to `SESSION_UPDATED` is required from that commit on, and every session edit would fail until the form sends it. Step 1 adds only the list of reason codes. This departs from the spec's rollout line for step 1; the step 2 PR updates the spec.
 - **Test cleanup goes through `deleteAuditRows`.** Revisions reference their audit row with `RESTRICT`, so `deleteAuditRows(tenantIds)` has to delete the clinics' revisions first anyway, in the same maintenance transaction. Most of the 35 files that hard-delete clinical rows already call it first and need no change. Only tests that delete clinical rows before the audit rows, or delete one aggregate in the middle of a file, change: the second kind gets `deleteRevisions(table, ids)`. This replaces the spec's "the ~35 files call `deleteRevisions`".
-- **One migration per PR, rebuilt until final.** It is written with `prisma migrate diff` plus hand-written SQL (`migrate dev` hangs without a TTY) and applied from empty by `npm test` on Docker each run. Steps 1, 2, 3, 5 and 6 add one migration each. Before each of those PRs opens, the migration is rehearsed on a Neon branch copied from `production` through the MCP (`run_sql_transaction`, then `audit-guards.sql` through `run_sql`). The branch is deleted afterwards.
-- **An aggregate with no revision is version 0.** Rows created before its step (staging, development, the production trial) have none. Their first edit writes version 1 with the new state, and the baseline (step 6) writes version 1 for the rest. Nothing refuses a write for lack of history.
+- **One migration per PR, rebuilt until final.** It is written with `prisma migrate diff` plus hand-written SQL (`migrate dev` hangs without a TTY) and applied from empty by `npm test` on Docker each run. Steps 1, 2, 3 and 5 add one migration each (step 6 needs none). Before each of those PRs opens, the migration is rehearsed on a Neon branch copied from `production` through the MCP (`run_sql_transaction`, then `audit-guards.sql` through `run_sql`). The branch is deleted afterwards.
+- **An aggregate with no revision is version 0.** Rows created before its step (staging, development, the production trial) have none. Their first edit writes version 1 with the new state; nothing else gives them one (step 6: they are wiped or reseeded). Nothing refuses a write for lack of history.
 - **Fixtures follow the step.** The invariant helper checks an aggregate only from the step that versions it. That step switches the fixtures that insert that aggregate directly to a helper that also writes version 1. Today that is 115 direct writes across 29 test files, spread over steps 2 and 3.
 - **Docs go with each PR**, not at the end: each step can be released on its own, and `CLAUDE.md` and `docs/infra.md` must describe what `main` runs.
 
@@ -367,34 +367,25 @@ The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edi
 
 - [x] No clinical entry can be deleted from the app any more, only annulled with a reason; every annulment is a version.
 
-### Step 6: Baseline (PR 6)
+### Step 6: A versioned seed (PR 6)
 
-- [ ] **Task 6.1: System audit rows and the baseline script**
+**No baseline script** (decided 2026-11-10). The data loaded before revisions existed never needs a version 1: `production` is wiped before the relaunch (#238), `development` holds only test data that can be reseeded, and `staging` keeps its older rows at version 0 until each is edited (the seed cannot run there: no audit maintenance flag, and non-test accounts). What remains is the seed: a freshly seeded database shows history and passes the revision invariant. No new action and no migration: the creation actions (`PATIENT_CREATED`, `EPISODE_OPENED`, …) serve any actor.
+
+- [x] **Task 6.1: The seed writes version 1**
   - *Acceptance:*
-    - `recordSystemAudit(tx, tenantId, entry)`: `actor_type = SYSTEM`, no user, no session.
-    - New action `HISTORY_BASELINE` (entity `PATIENT`, migration for the enum).
-    - `npm run history:baseline -w apps/api`:
-      - one `SYSTEM` audit row per patient, owning version 1 of each of that patient's aggregates that has no revision (the patient included);
-      - a dry run by default, which prints counts only; `--apply` writes;
-      - a second run writes nothing.
-    - The seed calls the same function at its end, so a seeded database is versioned.
-  - *Verify:* `tests/historyBaseline.test.ts`: a clinic with unversioned rows gets exactly one v1 each, under one audit row per patient; a second run writes nothing; an aggregate that already had revisions is untouched.
-  - *Files:* `repositories/prisma/recordAudit.ts` (or a sibling), `auditActions.ts`, `schema.prisma` + migration, `scripts/history-baseline.ts`, `apps/api/package.json`, `prisma/seed.ts`, the test. **M**
-- [ ] **Task 6.2: PR, and the runs**
-  - *Acceptance:*
-    - Full suites, then a PR against `dev`.
-    - After the merge, the script runs on `development` and `ci`, and on `staging` with your permission:
-      - a dry run first, its counts in the PR;
-      - then `--apply`;
-      - a query through the MCP then shows no aggregate without a revision.
-    - `CLAUDE.md` gets the script. `audit-map.md` marks `clinical-revisions` as implemented.
-  - *Files:* `CLAUDE.md`, `docs/specs/audit-map.md`. **XS**
+    - `prisma/versionOne.ts` writes version 1 of each of the six aggregates: an audit row of its creation (the demo history's own, or a new `SYSTEM` one) and a revision equal to its rows, in the transaction that is given. `tests/fixtures.ts` uses it, so the seed and the fixtures write version 1 the same way.
+    - `versionUnversioned(prisma, tenantId)` gives version 1 to every aggregate of a clinic that has none, one transaction each, one after another; the seed calls it at its end. A second run writes nothing.
+  - *Verify:* `tests/seedVersionOne.test.ts`: unversioned rows of the six aggregates get a `SYSTEM` version 1 that passes the revision invariant; a second run writes nothing. And `npm run db:seed` on `development`.
+  - *Files:* `prisma/versionOne.ts`, `prisma/seed.ts`, `tests/fixtures.ts`, the test, `eslint.config.mjs`. **S**
+- [x] **Task 6.2: Close**
+  - *Acceptance:* `audit-map.md` marks `clinical-revisions` as implemented. No environment is reseeded: the seed is not run on `development` by hand, and `staging` keeps version 0 (see above).
+  - *Files:* `docs/specs/audit-map.md`. **XS**
   - *Depends on:* 6.1.
 
 ### Checkpoint 6: complete
 
 - [ ] The spec's success criteria are met.
-- [ ] Every environment except `production` (wiped at the relaunch) has a revision for every aggregate.
+- [x] A freshly seeded database and every test clinic have a revision for every aggregate; `staging` keeps its older rows at version 0, and `production` is wiped at the relaunch.
 - [ ] The relaunch (#238) can go ahead.
 
 ## Risks and Mitigations
@@ -528,7 +519,7 @@ None open.
 - **The annul dialog is one component** (`AnnulDialog`), with `RevisionReasonField` labelled "Motivo de la anulación"; the field's `label` and `noteLabel` are new optional props. A cancelled dialog forgets the reason chosen.
 - **`sessionSoftDelete.test.ts` became `sessionAnnul.test.ts`**, in English: payments, appointments, reading, editing and metrics after an annulment. The new `annulment.test.ts` covers the action, the reason, the version and the readers for both aggregates; the removed `DELETE` routes answer `404`.
 - **Fixed on the way**: the record's session count read "2 sesiónes".
-- **The check by hand** ran against `development` (the migration applied there with `migrate deploy`), on Javier Rodríguez (seed, version 0). Annulling his last session: confirming with no reason marked the field and sent nothing; with "Error de confección" and a note it answered `204`, the list read "7 sesiones · 1 anulada" with the session struck through as "Anulada" and numbered "–", and the pain chart lost its point. Clicking it opened its history, whose only version is "Sesión anulada · Error de confección" with the note (version 1: the seeded session had none; step 6's baseline gives such rows their version 1). An event annulled with "Aclaración" showed struck through as "Anulado", with only its history button. The activity timeline read "Anuló una sesión" and "Anuló un antecedente (cirugía)".
+- **The check by hand** ran against `development` (the migration applied there with `migrate deploy`), on Javier Rodríguez (seed, version 0). Annulling his last session: confirming with no reason marked the field and sent nothing; with "Error de confección" and a note it answered `204`, the list read "7 sesiones · 1 anulada" with the session struck through as "Anulada" and numbered "–", and the pain chart lost its point. Clicking it opened its history, whose only version is "Sesión anulada · Error de confección" with the note (version 1: the seeded session had none; a reseed gives such rows their version 1 (step 6)). An event annulled with "Aclaración" showed struck through as "Anulado", with only its history button. The activity timeline read "Anuló una sesión" and "Anuló un antecedente (cirugía)".
 - **The rehearsal** (2026-11-09). `rehearsal-annulment`, copied from `production` in `ficha-pg18`: the twelve migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed with no maintenance flag; both actions are in the enum; sessions, patient events, audit rows and patients kept their counts (2, 0, 8, 2) and row hashes across this migration.
 - **The review's fixes** (2026-11-09, a code reviewer and a security auditor):
   - **The annul dialog kept the last reason and note.** Its state was reset only when the dialog itself was closed, and the history card closes it from outside after a success, so the next event's annulment opened with the previous reason and note chosen: one click recorded them on another entry. The reason now lives in the dialog's content, which unmounts when it closes, however it closes. A test annuls one event and opens the next.
