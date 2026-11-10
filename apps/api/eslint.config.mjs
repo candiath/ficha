@@ -21,6 +21,7 @@ export default defineConfig([
             'vitest.config.ts',
             'prisma/seed.ts',
             'prisma/seedGuard.ts',
+            'prisma/versionOne.ts',
             'scripts/create-admin.ts',
             'scripts/create-operator.ts',
             'scripts/purge-test-audit.ts',

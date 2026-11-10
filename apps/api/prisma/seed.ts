@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
 import { foreignAccounts } from './seedGuard';
+import { versionUnversioned } from './versionOne';
 
 const prisma = new PrismaClient();
 
@@ -775,7 +776,13 @@ async function main() {
     })),
   );
 
+  // Version 1 of every clinical aggregate the seed wrote (SPEC-clinical-revisions.md
+  // §9): a SYSTEM audit row and a revision equal to its rows, as the app leaves
+  // a new one. Rows of an earlier run already have it.
+  const versioned = await versionUnversioned(prisma, tenant.id);
+
   console.log('✓ Seed completado');
+  console.log(`  Versión 1: ${versioned} agregados clínicos nuevos`);
   console.log(`  Tenant:    ${tenant.name} (slug: ${tenant.slug})`);
   console.log(`  Usuario:   ${user.email} / password123`);
   console.log(`  Paciente 1: ${patient.firstName} ${patient.lastName} — episodio ${episode1.id}`);

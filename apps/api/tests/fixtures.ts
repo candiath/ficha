@@ -1,6 +1,4 @@
 import type {
-  AuditAction,
-  AuditEntity,
   ClinicalEpisode,
   InformedConsent,
   InitialEvaluation,
@@ -8,82 +6,40 @@ import type {
   PatientEvent,
   Prisma,
 } from '@prisma/client';
+import { EPISODE_SNAPSHOT_VERSION } from '@ficha/shared';
 import { prisma } from '../src/lib/prisma';
+import { episodeSnapshot } from '../src/repositories/prisma/clinicalSnapshots';
 import {
-  consentSnapshot,
-  episodeSnapshot,
-  evaluationSnapshot,
-  patientEventSnapshot,
-  patientSnapshot,
-} from '../src/repositories/prisma/clinicalSnapshots';
-import {
-  CONSENT_SNAPSHOT_VERSION,
-  EPISODE_SNAPSHOT_VERSION,
-  EVALUATION_SNAPSHOT_VERSION,
-  PATIENT_EVENT_SNAPSHOT_VERSION,
-  PATIENT_SNAPSHOT_VERSION,
-} from '@ficha/shared';
+  consentVersionOne,
+  episodeVersionOne,
+  evaluationVersionOne,
+  patientEventVersionOne,
+  patientVersionOne,
+  revisionFields,
+} from '../prisma/versionOne';
 
 // Clinical rows written straight to the database, for tests about what reads
 // them. Each comes as the app leaves one: with a SYSTEM audit row of its
 // creation and version 1, which is what the revision invariant checks
 // (tests/revisionInvariant.ts). Same call shape as the Prisma delegate, so a
 // fixture reads like the insert it replaces: `fixture.patient.create({ data })`.
-// A `select` is accepted and ignored: the whole row comes back.
+// A `select` is accepted and ignored: the whole row comes back. The version 1
+// is written by prisma/versionOne.ts, which the seed uses too.
 //
 // A test that expects an insert to fail keeps calling Prisma: no row, no version.
 // Sessions have their own, createSessionFixture in tests/helpers.ts.
 
 type Tx = Prisma.TransactionClient;
 
-interface Created {
-  tenantId: string;
-  patientId: string;
-  id: string;
-}
-
-// The creation's audit row: SYSTEM, since no user wrote the fixture.
-async function auditRow(tx: Tx, row: Created, entity: AuditEntity, action: AuditAction, params: Prisma.InputJsonValue) {
-  const { id } = await tx.auditLog.create({
-    data: {
-      tenantId: row.tenantId,
-      patientId: row.patientId,
-      entity,
-      entityId: row.id,
-      action,
-      params,
-      actorType: 'SYSTEM',
-    },
-    select: { id: true },
-  });
-  return id;
-}
-
-const revision = (row: Created, auditLogId: string, schemaVersion: number, snapshot: unknown) => ({
-  tenantId: row.tenantId,
-  patientId: row.patientId,
-  version: 1,
-  auditLogId,
-  schemaVersion,
-  snapshot: snapshot as Prisma.InputJsonValue,
-});
-
 async function createPatient(tx: Tx, data: Prisma.PatientUncheckedCreateInput): Promise<Patient> {
   const row = await tx.patient.create({ data });
-  const created = { ...row, patientId: row.id };
-  const auditLogId = await auditRow(tx, created, 'PATIENT', 'PATIENT_CREATED', {});
-  await tx.patientRevision.create({
-    data: revision(created, auditLogId, PATIENT_SNAPSHOT_VERSION, patientSnapshot(row)),
-  });
+  await patientVersionOne(tx, row);
   return row;
 }
 
 async function createEpisode(tx: Tx, data: Prisma.ClinicalEpisodeUncheckedCreateInput): Promise<ClinicalEpisode> {
   const row = await tx.clinicalEpisode.create({ data });
-  const auditLogId = await auditRow(tx, row, 'EPISODE', 'EPISODE_OPENED', {});
-  await tx.episodeRevision.create({
-    data: { ...revision(row, auditLogId, EPISODE_SNAPSHOT_VERSION, episodeSnapshot(row)), episodeId: row.id },
-  });
+  await episodeVersionOne(tx, row);
   return row;
 }
 
@@ -99,10 +55,21 @@ async function updateEpisode(
     orderBy: { version: 'desc' },
     select: { version: true },
   });
-  const auditLogId = await auditRow(tx, row, 'EPISODE', 'EPISODE_UPDATED', {});
+  const { id: auditLogId } = await tx.auditLog.create({
+    data: {
+      tenantId: row.tenantId,
+      patientId: row.patientId,
+      entity: 'EPISODE',
+      entityId: row.id,
+      action: 'EPISODE_UPDATED',
+      params: {},
+      actorType: 'SYSTEM',
+    },
+    select: { id: true },
+  });
   await tx.episodeRevision.create({
     data: {
-      ...revision(row, auditLogId, EPISODE_SNAPSHOT_VERSION, episodeSnapshot(row)),
+      ...revisionFields(row, auditLogId, EPISODE_SNAPSHOT_VERSION, episodeSnapshot(row)),
       version: latest.version + 1,
       episodeId: row.id,
     },
@@ -115,31 +82,19 @@ async function createEvaluation(
   data: Prisma.InitialEvaluationUncheckedCreateInput,
 ): Promise<InitialEvaluation> {
   const row = await tx.initialEvaluation.create({ data });
-  const auditLogId = await auditRow(tx, row, 'EVALUATION', 'EVALUATION_CREATED', {});
-  await tx.evaluationRevision.create({
-    data: { ...revision(row, auditLogId, EVALUATION_SNAPSHOT_VERSION, evaluationSnapshot(row)), evaluationId: row.id },
-  });
+  await evaluationVersionOne(tx, row);
   return row;
 }
 
 async function createConsent(tx: Tx, data: Prisma.InformedConsentUncheckedCreateInput): Promise<InformedConsent> {
   const row = await tx.informedConsent.create({ data });
-  const auditLogId = await auditRow(tx, row, 'CONSENT', 'CONSENT_SIGNED', {});
-  await tx.consentRevision.create({
-    data: { ...revision(row, auditLogId, CONSENT_SNAPSHOT_VERSION, consentSnapshot(row)), consentId: row.id },
-  });
+  await consentVersionOne(tx, row);
   return row;
 }
 
 async function createPatientEvent(tx: Tx, data: Prisma.PatientEventUncheckedCreateInput): Promise<PatientEvent> {
   const row = await tx.patientEvent.create({ data });
-  const auditLogId = await auditRow(tx, row, 'PATIENT_EVENT', 'PATIENT_EVENT_RECORDED', { kind: row.kind });
-  await tx.patientEventRevision.create({
-    data: {
-      ...revision(row, auditLogId, PATIENT_EVENT_SNAPSHOT_VERSION, patientEventSnapshot(row)),
-      patientEventId: row.id,
-    },
-  });
+  await patientEventVersionOne(tx, row);
   return row;
 }
 
