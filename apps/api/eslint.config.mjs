@@ -76,10 +76,35 @@ export default defineConfig([
                 'El guard de tenant es un detalle de la capa de persistencia: usalo desde un repositorio en src/repositories, no desde una ruta.',
             },
             {
+              // apps/api/prisma/ holds the seed and versionOne.ts, which write
+              // SYSTEM audit rows and revisions with no tenant guard: never on a
+              // request path. (src/repositories/prisma/ is reached as ./prisma.)
+              regex: '^(\.\./)+prisma/',
+              message: 'apps/api/prisma/ belongs to the seed and the tests: never import it from src.',
+            },
+            {
               group: ['@prisma/client'],
               importNames: ['PrismaClient'],
               message:
                 'No instancies PrismaClient fuera de src/lib/prisma.ts. Los tipos y enums de @prisma/client sí se pueden importar.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The same ban for the files the rule above leaves out (the repositories
+    // and lib/), which may use the client but not the seed's writers.
+    files: ['src/repositories/**/*.ts', 'src/lib/prisma.ts', 'src/lib/tenantScope.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^(\.\./)+prisma/',
+              message: 'apps/api/prisma/ belongs to the seed and the tests: never import it from src.',
             },
           ],
         },
