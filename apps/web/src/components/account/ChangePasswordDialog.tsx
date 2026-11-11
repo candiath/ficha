@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { authApi } from '@/services/auth';
 import { toast } from 'sonner';
+import { PASSWORD_TOO_LONG, passwordTooLong } from '@/lib/passwordLength';
 
 // Which session's password is being changed. The form, validation and
 // messages are the same for the clinic and the platform operator; only the
@@ -40,7 +41,10 @@ const clinicSession: PasswordSession = {
 const schema = z
   .object({
     currentPassword: z.string().min(1, 'Ingresá tu contraseña actual'),
-    newPassword: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
+    newPassword: z
+      .string()
+      .min(8, 'La contraseña debe tener al menos 8 caracteres')
+      .refine((p) => !passwordTooLong(p), PASSWORD_TOO_LONG),
     confirmPassword: z.string().min(1, 'Repetí la contraseña nueva'),
   })
   .refine((d) => d.newPassword === d.confirmPassword, {
