@@ -152,7 +152,7 @@ export const prismaAppointmentRepository: AppointmentRepository = {
     id: string,
     input: AppointmentUpdateInput,
     audit: AppointmentUpdateAudit,
-  ): Promise<AppointmentDTO | null> {
+  ): Promise<AppointmentDTO | null | 'episode_not_found'> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
       // Locked and read first: what the update did is decided against the
@@ -164,6 +164,17 @@ export const prismaAppointmentRepository: AppointmentRepository = {
       });
       if (!found) return null;
       const before = toDTO(found);
+
+      // The episode must be one of this appointment's patient's, decided here
+      // against the stored row: the composite foreign key would refuse it too,
+      // but as a 500.
+      if (input.episodeId) {
+        const episode = await tx.clinicalEpisode.findFirst({
+          where: { id: input.episodeId, tenantId: ctx.tenantId, patientId: before.patientId },
+          select: { id: true },
+        });
+        if (!episode) return 'episode_not_found';
+      }
 
       const row = await tx.appointment.update({
         where: { id, tenantId: ctx.tenantId },

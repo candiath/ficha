@@ -244,6 +244,10 @@ router.patch('/:id', async (req, res) => {
     res.status(404).json({ error: 'Turno no encontrado' });
     return;
   }
+  if (turno === 'episode_not_found') {
+    res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
+    return;
+  }
 
   // Faltar sin avisar es, por fin, algo que se puede saber: hasta que existió
   // la agenda no había turno al que faltar, y por eso la alerta de

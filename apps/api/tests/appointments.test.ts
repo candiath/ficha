@@ -539,6 +539,30 @@ describe('turnos', () => {
     expect(res.body.error).toMatch(/[Ee]pisodio/);
   });
 
+  it('PATCH refuses an episode of another patient with 400 and writes nothing', async () => {
+    const otro = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
+      select: { id: true },
+    });
+    const episodioAjeno = await fixture.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: otro.id },
+      select: { id: true },
+    });
+    const creado = await agendar({ date: fechaClinica(43), time: '09:00' });
+    const id: string = creado.body.data[0].id;
+
+    const res = await auth(request(app).patch(`/api/appointments/${id}`)).send({
+      episodeId: episodioAjeno.id,
+      notes: 'No debería guardarse',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/[Ee]pisodio/);
+    await expect(
+      prisma.appointment.findUniqueOrThrow({ where: { id }, select: { episodeId: true, notes: true } }),
+    ).resolves.toEqual({ episodeId: null, notes: null });
+  });
+
   it('rechaza un rango de fechas demasiado grande', async () => {
     const res = await listar('2026-01-01', '2026-12-31');
     expect(res.status).toBe(400);
