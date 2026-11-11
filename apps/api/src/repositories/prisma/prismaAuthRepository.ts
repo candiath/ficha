@@ -365,7 +365,7 @@ export const prismaAuthRepository: AuthRepository = {
     return prisma.$transaction(async (tx) => {
       // One attempt at a time per realm and email: a burst of concurrent
       // attempts is counted, not let through before any of them is recorded.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.realm}:${input.email}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.realm}:${input.email}`}))`;
       const recent = await tx.loginEvent.findMany({
         where: { realm: input.realm, email: input.email, createdAt: { gt: brake.since } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
