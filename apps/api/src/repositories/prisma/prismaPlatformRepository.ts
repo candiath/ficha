@@ -133,7 +133,7 @@ export const prismaPlatformRepository: PlatformRepository = {
   async getOperatorCredentials(id: string): Promise<OperatorCredentials | null> {
     return prisma.platformOperator.findUnique({
       where: { id },
-      select: { id: true, passwordHash: true },
+      select: { id: true, email: true, passwordHash: true },
     });
   },
 

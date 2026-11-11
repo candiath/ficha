@@ -2,7 +2,7 @@ import type { Request } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { authRepo } from '../repositories';
-import type { LoginEventInput } from '../repositories/authRepository';
+import type { LoginAttemptOutcome, LoginRealm } from '../repositories/authRepository';
 
 // Las defensas del login, compartidas entre el de la clínica (/api/auth) y
 // el del operador de plataforma (/api/platform/auth). Viven juntas para que
@@ -53,12 +53,20 @@ export function createLoginLimiter() {
 // diez fallos seguidos en quince minutos y la cuenta no acepta más intentos
 // —ni con la contraseña correcta— hasta que el más viejo salga de la ventana.
 //
-// Se cuenta sobre login_events y no en memoria por dos razones. Sobrevive a
-// los reinicios, que es justo lo que el limiter no hace. Y ya registra los
-// intentos contra emails que no existen, así que un email desconocido se
-// frena igual que uno real: el 429 no sirve para enumerar cuentas. Por lo
-// mismo cubre al operador de plataforma sin código aparte: su login registra
-// en la misma tabla y cuenta por el mismo email.
+// Se cuenta sobre login_events y no en memoria: sobrevive a los reinicios,
+// que es justo lo que el limiter no hace, y registra los intentos contra
+// emails que no existen, así que un email desconocido se frena igual que
+// uno real y el 429 no sirve para enumerar cuentas.
+//
+// **Per realm** (area 2 review, M1): the clinic's login, the operator's, and
+// the current password asked by each "change password" count apart. A
+// success at one door used to clear the streak at another, so a clinic user
+// created with the operator's email reset the operator's brake at will.
+//
+// **Reserved before bcrypt** (L2): the attempt is recorded as a failure,
+// under a lock per realm and email, before its password is compared, and
+// settled afterwards. Concurrent attempts see each other, so a burst from
+// many addresses is counted instead of passing the brake together.
 //
 // Un login exitoso corta la racha: la persona que se equivocó tres veces y
 // después entró no arrastra esos fallos. Y los intentos que el freno rechaza
@@ -68,39 +76,30 @@ export function createLoginLimiter() {
 // La contracara, inherente a todo bloqueo por cuenta: quien conozca el email
 // de una persona puede dejarla afuera del login a fuerza de fallos. Se
 // acepta porque el daño es visible y temporal, mientras que el que evita
-// —una contraseña adivinada en silencio— no lo es.
-//
-// Con el operador de plataforma esa contracara pesa más, y se acepta igual
-// a conciencia: es la cuenta que nombra ADMIN a una clínica que se quedó
-// sin ninguna y la que apaga una clínica en una emergencia, así que dejarla
-// afuera quince minutos es dejar afuera la vía de recuperación. Lo que lo
-// vuelve tolerable es que el email del operador no es público —no aparece
-// en ninguna pantalla de la clínica— y que la ventana es corta. Si alguna
-// vez hiciera falta, la salida es una lista de IPs de confianza exentas
-// del freno para /api/platform/auth, no aflojar el freno.
-export async function isAccountThrottled(email: string): Promise<boolean> {
-  const since = new Date(Date.now() - LOGIN_WINDOW_MS);
-  const attempts = await authRepo.recentLoginAttempts(email, since, LOGIN_MAX_ATTEMPTS);
-  return attempts.length >= LOGIN_MAX_ATTEMPTS && attempts.every((a) => !a.success);
+// —una contraseña adivinada en silencio— no lo es. Con el operador pesa más
+// (es la vía de recuperación de una clínica sin ADMIN) y se acepta igual: su
+// email no es público y la ventana es corta. Si alguna vez hiciera falta, la
+// salida es una lista de IPs de confianza exentas del freno para
+// /api/platform/auth, no aflojar el freno.
+
+/** The id of the reserved attempt, or null if the brake holds. */
+export function reserveAttempt(req: Request, realm: LoginRealm, email: string): Promise<string | null> {
+  return authRepo.reserveLoginAttempt(
+    { realm, email, ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null },
+    { since: new Date(Date.now() - LOGIN_WINDOW_MS), max: LOGIN_MAX_ATTEMPTS },
+  );
 }
 
-// Telemetría de seguridad: registra un intento de login (exitoso o no) con
-// IP y user-agent. Nunca rechaza: un fallo al registrar se loguea y no
-// frustra el login. req.ip es la IP real gracias a trust proxy.
-//
-// Devuelve la promesa porque el registro de un FALLO se espera: es lo que
-// cuenta el freno por cuenta, y responder antes de que aterrice dejaría una
-// ventana en la que el siguiente intento no lo ve. El del éxito no sostiene
-// nada y puede ser fire-and-forget.
-export function recordLoginEvent(
-  req: Request,
-  input: Omit<LoginEventInput, 'ip' | 'userAgent'>,
+/**
+ * Records what the comparison found. A failure is already recorded as one;
+ * this adds whose account it was, and turns a success into one. Never
+ * rejects: a failure to record is logged and does not undo the login.
+ */
+export function settleAttempt(
+  id: string,
+  outcome: Partial<LoginAttemptOutcome> & { success: boolean },
 ): Promise<void> {
   return authRepo
-    .recordLoginEvent({
-      ...input,
-      ip: req.ip ?? null,
-      userAgent: req.get('user-agent') ?? null,
-    })
-    .catch((err) => console.error('[auth] loginEvent', err));
+    .settleLoginAttempt(id, { tenantId: null, userId: null, operatorId: null, ...outcome })
+    .catch((err: unknown) => console.error('[auth] loginEvent', err instanceof Error ? err.name : 'error'));
 }

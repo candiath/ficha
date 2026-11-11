@@ -6,9 +6,9 @@ import { signOperatorToken } from '../lib/platformJwt';
 import {
   createLoginLimiter,
   HASH_SENUELO,
-  isAccountThrottled,
   LOGIN_THROTTLED,
-  recordLoginEvent,
+  reserveAttempt,
+  settleAttempt,
 } from '../lib/loginGuard';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticateOperator } from '../middlewares/platformAuth';
@@ -42,7 +42,8 @@ const ChangePasswordSchema = z
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = LoginSchema.parse(req.body);
 
-  if (await isAccountThrottled(email)) {
+  const attempt = await reserveAttempt(req, 'PLATFORM', email);
+  if (!attempt) {
     res.status(429).json(LOGIN_THROTTLED);
     return;
   }
@@ -54,24 +55,12 @@ router.post('/login', loginLimiter, async (req, res) => {
   const passwordOk = await bcrypt.compare(password, operator?.passwordHash ?? HASH_SENUELO);
 
   if (!operator || !operator.isActive || !passwordOk) {
-    await recordLoginEvent(req, {
-      email,
-      tenantId: null,
-      userId: null,
-      operatorId: operator?.id ?? null,
-      success: false,
-    });
+    void settleAttempt(attempt, { operatorId: operator?.id ?? null, success: false });
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
   }
 
-  void recordLoginEvent(req, {
-    email,
-    tenantId: null,
-    userId: null,
-    operatorId: operator.id,
-    success: true,
-  });
+  void settleAttempt(attempt, { operatorId: operator.id, success: true });
   platformRepo
     .touchOperatorLastLogin(operator.id)
     .catch((err) => console.error('[platform-auth] lastLoginAt', err));
@@ -96,7 +85,17 @@ router.post('/change-password', changePasswordLimiter, authenticateOperator, asy
     return;
   }
 
+  // Its own brake, per account (area 2 review, L3). An operator token cannot
+  // be revoked on its own, so a held brake only answers 429; changing the
+  // operator's password is what kills every outstanding token.
+  const attempt = await reserveAttempt(req, 'PLATFORM_PASSWORD_CHANGE', operator.email);
+  if (!attempt) {
+    res.status(429).json(LOGIN_THROTTLED);
+    return;
+  }
+
   const valid = await bcrypt.compare(currentPassword, operator.passwordHash);
+  void settleAttempt(attempt, { operatorId: operator.id, success: valid });
   if (!valid) {
     res.status(400).json({ error: 'La contraseña actual es incorrecta' });
     return;

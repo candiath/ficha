@@ -65,24 +65,34 @@ export interface PublicProfile {
 export interface Credentials {
   id: string;
   tenantId: string;
+  email: string;
   passwordHash: string;
 }
 
-export interface LoginEventInput {
+// The door an attempt came through: the account brake counts per realm.
+export type LoginRealm = 'CLINIC' | 'PLATFORM' | 'CLINIC_PASSWORD_CHANGE' | 'PLATFORM_PASSWORD_CHANGE';
+
+// An attempt, reserved before its password is compared: recorded as a
+// failure, then settled.
+export interface LoginAttemptInput {
+  realm: LoginRealm;
   email: string;
-  tenantId: string | null;
-  userId: string | null;
-  // Solo en el login del operador de plataforma; omitido en el de la clínica.
-  operatorId?: string | null;
-  success: boolean;
   ip: string | null;
   userAgent: string | null;
 }
 
-// Lo justo para decidir si una cuenta está frenada: la ruta mira si los
-// últimos intentos fueron todos fallidos.
-export interface LoginAttempt {
+// What the comparison found: whether it succeeded, and whose account it was.
+export interface LoginAttemptOutcome {
   success: boolean;
+  tenantId: string | null;
+  userId: string | null;
+  operatorId: string | null;
+}
+
+// The account brake: at most `max` failures in a row since `since`.
+export interface LoginBrake {
+  since: Date;
+  max: number;
 }
 
 // The public reset page shows whose account it is about to reset: whoever
@@ -164,13 +174,16 @@ export interface AuthRepository {
    */
   resetPassword(token: string, input: PasswordResetUseInput): Promise<boolean>;
 
-  /** Telemetría de seguridad: cada intento de login, exitoso o no. */
-  recordLoginEvent(input: LoginEventInput): Promise<void>;
   /**
-   * Los últimos `limit` intentos contra un email posteriores a `since`, del
-   * más reciente al más viejo. Sirve al freno por cuenta del login: cuenta
-   * por email y no por usuario a propósito, así un email que no existe se
-   * frena igual que uno real.
+   * Reserves an attempt against an email in a realm, before its password is
+   * compared: null if the brake holds (the last `max` attempts since `since`
+   * all failed), and nothing is recorded; otherwise the id of a new attempt,
+   * recorded as a failure until it is settled. The check and the insert run
+   * under one lock per realm and email, so concurrent attempts see each
+   * other. Counts by email, not by user: an email with no account is braked
+   * the same way.
    */
-  recentLoginAttempts(email: string, since: Date, limit: number): Promise<LoginAttempt[]>;
+  reserveLoginAttempt(input: LoginAttemptInput, brake: LoginBrake): Promise<string | null>;
+  /** Records what the comparison found on a reserved attempt. */
+  settleLoginAttempt(id: string, outcome: LoginAttemptOutcome): Promise<void>;
 }

@@ -387,8 +387,20 @@ model SysadminAlertDelivery {
 // Separado de AuditLog a propósito: aquél es la auditoría clínica por
 // paciente (patientId obligatorio); esto sirve para detectar fuerza bruta
 // y rastrear accesos.
+// Which door an attempt came through. The account brake counts per realm and
+// email, so a success at one door never clears a streak of failures at
+// another (area 2 review, M1).
+enum LoginRealm {
+  CLINIC
+  PLATFORM
+  // The current password asked by "change password", with a session in hand.
+  CLINIC_PASSWORD_CHANGE
+  PLATFORM_PASSWORD_CHANGE
+}
+
 model LoginEvent {
   id         String   @id @default(uuid(7)) @db.Uuid
+  realm      LoginRealm @default(CLINIC)
   // Email tal como se intentó (normalizado): en un fallo puede no
   // corresponder a ningún usuario.
   email      String
@@ -418,6 +430,7 @@ model LoginEvent {
   @@index([tenantId])
   @@index([createdAt])
   @@index([email])
+  @@index([realm, email, createdAt])
   @@map("login_events")
 }
 

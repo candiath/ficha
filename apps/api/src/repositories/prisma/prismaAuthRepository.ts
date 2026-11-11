@@ -12,8 +12,9 @@ import type {
   AuthRepository,
   CreateAuthSessionInput,
   Credentials,
-  LoginAttempt,
-  LoginEventInput,
+  LoginAttemptInput,
+  LoginAttemptOutcome,
+  LoginBrake,
   LoginUser,
   PasswordResetTarget,
   PasswordResetUseInput,
@@ -294,7 +295,7 @@ export const prismaAuthRepository: AuthRepository = {
   async getCredentials(userId: string): Promise<Credentials | null> {
     return prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, tenantId: true, passwordHash: true },
+      select: { id: true, tenantId: true, email: true, passwordHash: true },
     });
   },
 
@@ -360,16 +361,27 @@ export const prismaAuthRepository: AuthRepository = {
     });
   },
 
-  async recordLoginEvent(input: LoginEventInput): Promise<void> {
-    await prisma.loginEvent.create({ data: input });
+  async reserveLoginAttempt(input: LoginAttemptInput, brake: LoginBrake): Promise<string | null> {
+    return prisma.$transaction(async (tx) => {
+      // One attempt at a time per realm and email: a burst of concurrent
+      // attempts is counted, not let through before any of them is recorded.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.realm}:${input.email}`}))`;
+      const recent = await tx.loginEvent.findMany({
+        where: { realm: input.realm, email: input.email, createdAt: { gt: brake.since } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: brake.max,
+        select: { success: true },
+      });
+      if (recent.length >= brake.max && recent.every((a) => !a.success)) return null;
+      const { id } = await tx.loginEvent.create({
+        data: { ...input, success: false },
+        select: { id: true },
+      });
+      return id;
+    });
   },
 
-  async recentLoginAttempts(email: string, since: Date, limit: number): Promise<LoginAttempt[]> {
-    return prisma.loginEvent.findMany({
-      where: { email, createdAt: { gt: since } },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: { success: true },
-    });
+  async settleLoginAttempt(id: string, outcome: LoginAttemptOutcome): Promise<void> {
+    await prisma.loginEvent.update({ where: { id }, data: outcome });
   },
 };
