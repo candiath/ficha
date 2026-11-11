@@ -170,7 +170,45 @@ describe('PatientDetailPage: the initial evaluation over its version', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Lumbalgia/ }));
 
     expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(notes.value).toBe('Sin guardar');
+    // Queried again: a remount would leave the old node holding the text.
+    expect((screen.getByPlaceholderText('Cualquier otra observación relevante...') as HTMLTextAreaElement).value).toBe(
+      'Sin guardar',
+    );
+  });
+
+  it('asks before opening a new episode with unsaved evaluation text', async () => {
+    vi.mocked(evaluationApi.get).mockResolvedValue(null);
+    const notes = await openEvaluation();
+    await userEvent.type(notes, 'Sin guardar');
+
+    await userEvent.click(screen.getByRole('button', { name: /Lumbalgia/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Nuevo episodio/ }));
+
+    expect(await screen.findByRole('dialog', { name: '¿Descartar cambios?' })).toBeTruthy();
+  });
+
+  it('does not ask when the episode picked is the one on screen', async () => {
+    vi.mocked(evaluationApi.get).mockResolvedValue(null);
+    const notes = await openEvaluation();
+    await userEvent.type(notes, 'Sin guardar');
+
+    await userEvent.click(screen.getByRole('button', { name: /Lumbalgia/ }));
+    const options = await screen.findAllByRole('button', { name: /Lumbalgia/ });
+    await userEvent.click(options[options.length - 1]);
+
+    expect(screen.queryByRole('dialog', { name: '¿Descartar cambios?' })).toBeNull();
+  });
+
+  it('does not ask again after the text was discarded by a tab switch', async () => {
+    vi.mocked(evaluationApi.get).mockResolvedValue(null);
+    const notes = await openEvaluation();
+    await userEvent.type(notes, 'Sin guardar');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Resumen' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Descartar' }));
+    await userEvent.click(screen.getByRole('button', { name: /Pacientes/ }));
+
+    expect(screen.queryByRole('dialog', { name: '¿Descartar cambios?' })).toBeNull();
   });
 
   it('corrects with the version it loaded and the chosen reason', async () => {

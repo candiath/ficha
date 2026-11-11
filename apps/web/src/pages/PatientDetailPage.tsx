@@ -241,6 +241,9 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
   useEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onUnsavedChangesChange]);
+  // Gone with the form: a tab switch or a discard unmounts it, and nothing is
+  // left to ask about.
+  useEffect(() => () => onUnsavedChangesChange?.(false), [onUnsavedChangesChange]);
 
   // Advertir al cerrar/recargar el browser, y al aviso de versión nueva
   // (lib/unsavedChanges.ts).
@@ -912,6 +915,24 @@ export default function PatientDetailPage() {
     (episodes.find((e) => e.status === 'ACTIVE') ?? episodes[0])?.id ??
     null;
 
+  // Unsaved evaluation text belongs to the episode on screen: whatever would
+  // change the episode, the tab or the page asks first (the evaluation form is
+  // keyed by episode, so a switch discards it).
+  function guardEval(action: () => void) {
+    if (evalHasChanges && activeTab === 'evaluacion') {
+      setPendingAction(() => action);
+    } else {
+      action();
+    }
+  }
+
+  // Once there is unsaved text, the episode it was typed for is pinned: a
+  // refetch that changes the first active episode must not swap the form.
+  function handleEvalDirty(dirty: boolean) {
+    setEvalHasChanges(dirty);
+    if (dirty) setActiveEpisodeId((current) => current ?? effectiveEpisodeId);
+  }
+
   const createEpisodeMutation = useMutation({
     mutationFn: (complaint: string) =>
       episodeApi.create(id!, { mainComplaint: complaint }),
@@ -976,13 +997,7 @@ export default function PatientDetailPage() {
         variant="ghost"
         size="sm"
         className="-ml-3 mb-4 text-muted-foreground"
-        onClick={() => {
-          if (evalHasChanges) {
-            setPendingAction(() => () => navigate('/patients'));
-          } else {
-            navigate('/patients');
-          }
-        }}
+        onClick={() => guardEval(() => navigate('/patients'))}
       >
         <ArrowLeft className="h-4 w-4 mr-1" />
         Pacientes
@@ -1048,15 +1063,9 @@ export default function PatientDetailPage() {
             episodes={episodes}
             selectedId={effectiveEpisodeId}
             onSelect={(episodeId) => {
-              // Unsaved evaluation text belongs to the episode on screen: ask
-              // before leaving it, as the tabs and "Volver" do.
-              if (evalHasChanges && activeTab === 'evaluacion') {
-                setPendingAction(() => () => setActiveEpisodeId(episodeId));
-              } else {
-                setActiveEpisodeId(episodeId);
-              }
+              if (episodeId !== effectiveEpisodeId) guardEval(() => setActiveEpisodeId(episodeId));
             }}
-            onNewEpisode={() => setNewEpisodeOpen(true)}
+            onNewEpisode={() => guardEval(() => setNewEpisodeOpen(true))}
           />
           {effectiveEpisodeId && (
             <button
@@ -1085,7 +1094,7 @@ export default function PatientDetailPage() {
               <button
                 type="button"
                 className="text-primary underline-offset-2 hover:underline"
-                onClick={() => setNewEpisodeOpen(true)}
+                onClick={() => guardEval(() => setNewEpisodeOpen(true))}
               >
                 ¿Nueva consulta?
               </button>
@@ -1095,13 +1104,7 @@ export default function PatientDetailPage() {
       )}
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(tab) => {
-        if (evalHasChanges && activeTab === 'evaluacion') {
-          setPendingAction(() => () => setActiveTab(tab));
-        } else {
-          setActiveTab(tab);
-        }
-      }}>
+      <Tabs value={activeTab} onValueChange={(tab) => guardEval(() => setActiveTab(tab))}>
         <TabsList variant="line">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
@@ -1166,7 +1169,7 @@ export default function PatientDetailPage() {
               episodeId={effectiveEpisodeId}
               occupation={patient.occupation}
               patientVersion={patient.version}
-              onUnsavedChangesChange={setEvalHasChanges}
+              onUnsavedChangesChange={handleEvalDirty}
             />
           ) : (
             <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
