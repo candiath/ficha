@@ -81,6 +81,13 @@ export type PatientUpdateResult =
 // eso las ALERTAS sí filtran pacientes borrados (clinicalAlertRepository):
 // no son un registro de lo que pasó sino un pedido de acción, y sobre un
 // paciente eliminado esa acción es imposible.
+// A deleted patient, as the list to restore one shows her: no clinical text.
+export interface DeletedPatientDTO {
+  id: string;
+  fullName: string;
+  deletedAt: string;
+}
+
 export type PatientAuditField = keyof typeof AUDIT_PATIENT_FIELDS;
 
 export interface PatientRepository {
@@ -104,4 +111,8 @@ export interface PatientRepository {
   ): Promise<PatientUpdateResult>;
   /** Borrado lógico, with a version of unchanged content. false si no había paciente vigente que borrar. */
   softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;
+  /** Undoes softDelete, with a version of unchanged content. false si no había paciente borrado que restaurar. */
+  restore(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;
+  /** The clinic's deleted patients, most recently deleted first: names only, to restore one. */
+  listDeleted(ctx: TenantContext): Promise<DeletedPatientDTO[]>;
 }

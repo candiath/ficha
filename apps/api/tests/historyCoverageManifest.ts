@@ -15,6 +15,7 @@ export const HISTORY_COVERAGE: Record<string, HistoryCoverage> = {
   'prismaPatientRepository.create': versions,
   'prismaPatientRepository.update': versions,
   'prismaPatientRepository.softDelete': versions,
+  'prismaPatientRepository.restore': versions,
   'prismaEpisodeRepository.create': versions,
   'prismaEpisodeRepository.update': versions,
   'prismaEvaluationRepository.upsert': versions,

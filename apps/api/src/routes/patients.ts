@@ -47,6 +47,12 @@ router.get('/', async (req, res) => {
   res.json({ data: patients });
 });
 
+// GET /api/patients/deleted — the clinic's deleted patients, to restore one.
+// Names only, like the list. Declared before /:id, which would take it.
+router.get('/deleted', async (req, res) => {
+  res.json({ data: await patientRepo.listDeleted(req.context) });
+});
+
 // GET /api/patients/:id
 router.get('/:id', async (req, res) => {
   const patient = await patientRepo.getById(req.context, req.params.id);
@@ -110,6 +116,25 @@ router.delete('/:id', async (req, res) => {
   });
 
   if (!deleted) {
+    res.status(404).json({ error: 'Paciente no encontrado' });
+    return;
+  }
+
+  res.status(204).send();
+});
+
+// POST /api/patients/:id/restore — undoes the deletion. Any user of the
+// clinic, as deleting is. The record and its appointments come back as they
+// were: deleting hid them and changed nothing else.
+router.post('/:id/restore', async (req, res) => {
+  const restored = await patientRepo.restore(req.context, req.params.id, {
+    action: 'PATIENT_RESTORED',
+    patientId: req.params.id,
+    entityId: req.params.id,
+    params: {},
+  });
+
+  if (!restored) {
     res.status(404).json({ error: 'Paciente no encontrado' });
     return;
   }

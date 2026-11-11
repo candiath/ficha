@@ -105,6 +105,8 @@ export const LIST_SCOPE: Record<string, ListScope> = {
     // Administrative, kept in the list (Decision 2).
     ['[].referringDoctor'],
   ),
+  // Deleted patients, to restore one: names only.
+  'GET /api/patients/deleted': probed({ id: true, fullName: true, deletedAt: true }),
   'GET /api/dashboard/stats': probed(
     {
       activePatients: true,

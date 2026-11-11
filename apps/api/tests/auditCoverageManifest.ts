@@ -76,6 +76,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'POST /api/patients': audited('audit_logs'),
   'PATCH /api/patients/:id': audited('audit_logs'),
   'DELETE /api/patients/:id': audited('audit_logs'),
+  'POST /api/patients/:id/restore': audited('audit_logs'),
 
   // Operator (routes/platform.ts), every action audited in its transaction
   'POST /api/platform/tenants': audited('platform_audit_logs'),
