@@ -40,8 +40,16 @@ export interface AnnulData {
   reasonNote?: string | null;
 }
 
+// A deleted patient, in the list to restore one (GET /api/patients/deleted).
+export interface DeletedPatient {
+  id: string;
+  fullName: string;
+  deletedAt: string;
+}
+
 // An edit of the record: the version it was made over, and why
 // (SPEC-clinical-revisions.md §4, §5).
+
 export interface RevisionMeta {
   expectedVersion?: number;
   reason?: RevisionReason;

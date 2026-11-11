@@ -8,6 +8,7 @@ import { recordAudit } from './recordAudit';
 import { latestRevision, recordRevision, Rollback, unlessRolledBack } from './recordRevision';
 import { patientSnapshot } from './clinicalSnapshots';
 import type {
+  DeletedPatientDTO,
   PatientCreateInput,
   PatientAuditField,
   PatientDTO,
@@ -218,5 +219,40 @@ export const prismaPatientRepository: PatientRepository = {
       });
       return true;
     });
+  },
+
+  async restore(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean> {
+    const db = forTenant(ctx);
+    return db.$transaction(async (tx) => {
+      // The mirror of softDelete: locked first, decided in the write's where
+      // (restoring twice is 404 the second time), and a version of unchanged
+      // content under its own audit row.
+      await lockRow(tx, 'patients', id, ctx.tenantId);
+      const { count } = await tx.patient.updateMany({
+        where: { id, tenantId: ctx.tenantId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+      if (count === 0) return false;
+      const auditLogId = await recordAudit(tx, ctx, audit);
+      const row = await tx.patient.findUniqueOrThrow({ where: { id, tenantId: ctx.tenantId }, select: withVersion });
+      await recordRevision(tx, ctx, 'patient_revisions', {
+        aggregateId: id,
+        patientId: id,
+        version: (row.revisions[0]?.version ?? 0) + 1,
+        auditLogId,
+        snapshot: patientSnapshot(row),
+      });
+      return true;
+    });
+  },
+
+  async listDeleted(ctx: TenantContext): Promise<DeletedPatientDTO[]> {
+    const db = forTenant(ctx);
+    const rows = await db.patient.findMany({
+      where: { deletedAt: { not: null } },
+      select: { id: true, ...patientNameSelect, deletedAt: true },
+      orderBy: [{ deletedAt: 'desc' }, { id: 'asc' }],
+    });
+    return rows.map((r) => ({ id: r.id, fullName: fullName(r), deletedAt: r.deletedAt!.toISOString() }));
   },
 };

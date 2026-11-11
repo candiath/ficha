@@ -113,7 +113,7 @@ Revisions tables reuse the audit functions: `*_append_only` (`BEFORE UPDATE OR D
 
 ### 8. Annulment
 
-Sessions and patient events have a soft delete today. It becomes `POST …/annul` with a required reason code and optional note in the body (the web client's `DELETE` sends no body), writes a final version, and the record shows the entry struck through; lists and metrics keep filtering it. **No restore route exists today**, for sessions, patient events or patients, and this module adds none: one will be added later (decided 2026-11-01), and a restore will write another version. Episodes and evaluations have no delete today and get none in this module. Consent keeps its sign/revoke actions, each one a version.
+Sessions and patient events have a soft delete today. It becomes `POST …/annul` with a required reason code and optional note in the body (the web client's `DELETE` sends no body), writes a final version, and the record shows the entry struck through; lists and metrics keep filtering it. **Patients can be restored** (`POST /api/patients/:id/restore`, decided 2026-11-11): a `PATIENT_RESTORED` version of unchanged content, like the deletion's. Sessions and patient events have no restore route yet: one will be added later, and it will write another version. Episodes and evaluations have no delete today and get none in this module. Consent keeps its sign/revoke actions, each one a version.
 
 **Deleting a patient stays a `DELETE`**, with an event version and no reason (decided 2026-11-01). **It needs analysis later**: it hides the whole record, so it may deserve to become an annulment with a reason, like sessions and events.
 
@@ -189,4 +189,4 @@ Settled 2026-10-31 and 2026-11-01:
 4. **Postgres 18:** now, as rollout step 0, in a new Neon project. Every branch moves by dump and restore, `production` included, before the relaunch rather than at its wipe (*Tech Stack*, *Rollout*).
 5. **No reason on state transitions:** the episode's closing and reopening get their own actions; consent sign and revoke take no reason either (§4).
 6. **Deleting a patient:** stays a `DELETE` with no reason, **pending a later analysis** of whether it becomes an annulment (§8).
-7. **Restoring:** no route in this module; one will be added later (§8).
+7. **Restoring:** patients, since 2026-11-11 (§8); sessions and patient events later.

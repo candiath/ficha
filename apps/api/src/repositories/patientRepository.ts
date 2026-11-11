@@ -71,8 +71,9 @@ export type PatientUpdateResult =
 //
 // Alcance del borrado lógico (decisión de producto, issue #72 cerrado by
 // design): un paciente borrado desaparece del listado, su ficha da 404 y no
-// puede recibir datos clínicos nuevos —las rutas que crean bajo un paciente
-// pasan por exists()—, PERO el historial ya registrado lo sigue nombrando:
+// puede recibir datos clínicos nuevos —the record's routes go through
+// requireLivePatient, and those taking a patient in the body through
+// exists()—, PERO el historial ya registrado lo sigue nombrando:
 // los joins con el nombre del paciente de cobros, sesiones y
 // paquetes NO filtran deletedAt a propósito. Borrar un paciente oculta al
 // paciente, no reescribe el pasado.
@@ -80,7 +81,17 @@ export type PatientUpdateResult =
 // La línea que separa las dos mitades es historial vs. trabajo pendiente. Por
 // eso las ALERTAS sí filtran pacientes borrados (clinicalAlertRepository):
 // no son un registro de lo que pasó sino un pedido de acción, y sobre un
-// paciente eliminado esa acción es imposible.
+// paciente eliminado esa acción es imposible. Her appointments too
+// (prismaAppointmentRepository): hidden, never cancelled, since a deletion
+// can be undone (restore).
+
+// A deleted patient, as the list to restore one shows her: no clinical text.
+export interface DeletedPatientDTO {
+  id: string;
+  fullName: string;
+  deletedAt: string;
+}
+
 export type PatientAuditField = keyof typeof AUDIT_PATIENT_FIELDS;
 
 export interface PatientRepository {
@@ -104,4 +115,8 @@ export interface PatientRepository {
   ): Promise<PatientUpdateResult>;
   /** Borrado lógico, with a version of unchanged content. false si no había paciente vigente que borrar. */
   softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;
+  /** Undoes softDelete, with a version of unchanged content. false si no había paciente borrado que restaurar. */
+  restore(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean>;
+  /** The clinic's deleted patients, most recently deleted first: names only, to restore one. */
+  listDeleted(ctx: TenantContext): Promise<DeletedPatientDTO[]>;
 }

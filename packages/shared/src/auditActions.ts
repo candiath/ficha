@@ -288,6 +288,15 @@ export const AUDIT_ACTIONS = {
       label: 'Paciente eliminado',
       describe: () => 'Eliminó al paciente',
     }),
+    // Undoes PATIENT_DELETED: the record, its pending work and its
+    // appointments come back as they were.
+    PATIENT_RESTORED: action({
+      entity: 'PATIENT',
+      kind: 'update',
+      params: {},
+      label: 'Paciente restaurado',
+      describe: () => 'Restauró al paciente',
+    }),
     EVALUATION_CREATED: action({
       entity: 'EVALUATION',
       kind: 'create',

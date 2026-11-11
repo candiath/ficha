@@ -202,6 +202,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface Fixture {
   patientId: string;
+  deletedPatientId: string;
   sessionId: string;
   appointmentId: string;
   paymentId: string;
@@ -293,6 +294,12 @@ describe('global lists carry no clinical text', () => {
       select: { id: true },
     });
     const patientId = patient.id;
+    // A deleted patient, for the list to restore one.
+    const deletedPatient = await rows.patient.create({
+      data: { tenantId, firstName: 'Paciente', lastName: 'Borrada' },
+      select: { id: true },
+    });
+    await prisma.patient.update({ where: { id: deletedPatient.id }, data: { deletedAt: new Date() } });
 
     const episodeData = marked('ClinicalEpisode');
     const episode = await rows.clinicalEpisode.create({
@@ -391,6 +398,7 @@ describe('global lists carry no clinical text', () => {
 
     fixture = {
       patientId,
+      deletedPatientId: deletedPatient.id,
       sessionId: session.id,
       appointmentId: appointment.id,
       paymentId: payment.id,
@@ -444,6 +452,10 @@ describe('global lists carry no clinical text', () => {
     'GET /api/payments': {
       url: () => '/api/payments',
       controls: (data) => (data as { id: string }[]).some((p) => p.id === fixture.paymentId),
+    },
+    'GET /api/patients/deleted': {
+      url: () => '/api/patients/deleted',
+      controls: (data) => (data as { id: string }[]).some((p) => p.id === fixture.deletedPatientId),
     },
     'GET /api/patients': {
       url: () => '/api/patients',

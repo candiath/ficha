@@ -82,7 +82,10 @@ export const prismaAppointmentRepository: AppointmentRepository = {
     const rows = await db.appointment.findMany({
       // Medio abierto: el fin de una semana es exactamente el comienzo de la
       // siguiente, así que un turno a medianoche aparece en una sola.
-      where: { startsAt: { gte: desde, lt: hasta } },
+      // A deleted patient's appointments are pending work that can no longer
+      // happen: hidden, not cancelled, so restoring her brings them back
+      // (CLAUDE.md, "Borrado de pacientes").
+      where: { startsAt: { gte: desde, lt: hasta }, patient: { deletedAt: null } },
       orderBy: { startsAt: 'asc' },
       select: appointmentListSelect,
     });
@@ -91,7 +94,10 @@ export const prismaAppointmentRepository: AppointmentRepository = {
 
   async getById(ctx: TenantContext, id: string): Promise<AppointmentDTO | null> {
     const db = forTenant(ctx);
-    const row = await db.appointment.findFirst({ where: { id }, select: appointmentSelect });
+    const row = await db.appointment.findFirst({
+      where: { id, patient: { deletedAt: null } },
+      select: appointmentSelect,
+    });
     return row ? toDTO(row) : null;
   },
 
@@ -159,7 +165,7 @@ export const prismaAppointmentRepository: AppointmentRepository = {
       // stored row, and a concurrent edit waits for this one.
       await lockRow(tx, 'appointments', id, ctx.tenantId);
       const found = await tx.appointment.findFirst({
-        where: { id, tenantId: ctx.tenantId },
+        where: { id, tenantId: ctx.tenantId, patient: { deletedAt: null } },
         select: appointmentSelect,
       });
       if (!found) return null;
@@ -222,6 +228,9 @@ export const prismaAppointmentRepository: AppointmentRepository = {
           tenantId: ctx.tenantId,
           seriesId,
           startsAt: { gte: desde },
+          // A series is one patient's, and the route's getById already hides a
+          // deleted patient's: this covers a deletion landing in between.
+          patient: { deletedAt: null },
           // Solo lo que sigue pendiente: un turno ya cancelado no cambia, y uno
           // COMPLETED o NO_SHOW ya es historial.
           status: { in: ['SCHEDULED', 'CONFIRMED'] },
