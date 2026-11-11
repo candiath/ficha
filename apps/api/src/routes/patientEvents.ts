@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { partialDateSchema, revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { requiredText } from '../lib/validation';
-import { patientEventRepo, patientRepo } from '../repositories';
+import { patientEventRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 import { revisionRoutes } from './revisions';
 
@@ -41,19 +41,11 @@ const EventUpdateSchema = EventSchema.partial().extend({
 
 // GET /api/patients/:patientId/events
 router.get<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   res.json({ data: await patientEventRepo.listByPatient(req.context, req.params.patientId) });
 });
 
 // POST /api/patients/:patientId/events
 router.post<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   const input = EventSchema.parse(req.body);
 
   const event = await patientEventRepo.create(req.context, req.params.patientId, input, (e) => ({
@@ -68,10 +60,6 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/events/:eventId
 router.patch<EventParams>('/:eventId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   const { reason, ...input } = EventUpdateSchema.parse(req.body);
 
   const result = await patientEventRepo.update(
@@ -104,10 +92,6 @@ router.patch<EventParams>('/:eventId', async (req, res) => {
 // (SPEC-clinical-revisions.md §8): it stays in the history struck through. The
 // reason is required. There is no restore route yet.
 router.post<EventParams>('/:eventId/annul', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
   const result = await patientEventRepo.annul(

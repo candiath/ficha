@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
 import { authenticateOperator } from './middlewares/platformAuth';
+import { requireLivePatient } from './middlewares/livePatient';
 import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
@@ -144,12 +145,13 @@ app.param('patientId', idParam('Paciente no encontrado'));
 app.param('episodeId', idParam('Episodio no encontrado'));
 
 app.use('/api/patients', patientsRouter);
-app.use('/api/patients/:patientId/episodes', episodesRouter);
-app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', evaluationRouter);
-app.use('/api/patients/:patientId/sessions', sessionsRouter);
+app.use('/api/patients/:patientId/episodes', requireLivePatient, episodesRouter);
+app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', requireLivePatient, evaluationRouter);
+app.use('/api/patients/:patientId/sessions', requireLivePatient, sessionsRouter);
+// No requireLivePatient: a deleted patient's history stays readable.
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
-app.use('/api/patients/:patientId/consent', consentRouter);
-app.use('/api/patients/:patientId/events', patientEventsRouter);
+app.use('/api/patients/:patientId/consent', requireLivePatient, consentRouter);
+app.use('/api/patients/:patientId/events', requireLivePatient, patientEventsRouter);
 app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);

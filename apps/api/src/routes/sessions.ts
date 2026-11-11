@@ -8,7 +8,6 @@ import {
   appointmentRepo,
   episodeRepo,
   packageRepo,
-  patientRepo,
   sessionRepo,
 } from '../repositories';
 import { idParam } from '../middlewares/idParam';
@@ -127,11 +126,6 @@ const EPISODE_RULE_ERROR = {
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const { episodeId } = SessionFiltersSchema.parse(req.query);
 
   const sessions = await sessionRepo.listByPatient(req.context, req.params.patientId, {
@@ -143,11 +137,6 @@ router.get<ParentParams>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/sessions/:sessionId
 router.get<SessionParams>('/:sessionId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const session = await sessionRepo.getById(
     req.context,
     req.params.patientId,
@@ -164,11 +153,6 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
 
 // POST /api/patients/:patientId/sessions
 router.post<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const { episodes, payment, appointmentId, ...rest } = SessionCreateSchema.parse(req.body);
 
   // Los episodios vienen del body: sin esta verificación, una sesión podría
@@ -242,11 +226,6 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
 router.patch<SessionParams>('/:sessionId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const { episodes, sessionDate, reason, ...rest } = SessionUpdateSchema.parse(req.body);
 
   // !== undefined y no truthy: [] es un valor (una nota sin episodios) y hay
@@ -303,10 +282,6 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
 // its content in its history, and leaves the lists and the metrics. The reason
 // is required, like every correction's. There is no restore route yet.
 router.post<SessionParams>('/:sessionId/annul', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
   const result = await sessionRepo.annul(

@@ -4,7 +4,7 @@ import { revisionReasonFields } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { clinicalDateField } from '../lib/clinicalDate';
 import { OptionalTextSchema } from '../lib/validation';
-import { episodeRepo, patientRepo } from '../repositories';
+import { episodeRepo } from '../repositories';
 import type { AuditEntry } from '../repositories/auditLogRepository';
 import type { EpisodeUpdateAudit } from '../repositories/episodeRepository';
 import type { RevisionReason } from '@ficha/shared';
@@ -72,11 +72,6 @@ const EpisodeUpdateSchema = z
 
 // GET /api/patients/:patientId/episodes
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const episodes = await episodeRepo.listByPatient(req.context, req.params.patientId);
 
   // La alerta de inactividad se calculaba acá, y por eso el paciente que
@@ -87,11 +82,6 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // POST /api/patients/:patientId/episodes
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const body = EpisodeCreateSchema.parse(req.body);
 
   const episode = await episodeRepo.create(
@@ -127,11 +117,6 @@ function episodeAudit(patientId: string, reason: RevisionReason | undefined): Ep
 
 // PATCH /api/patients/:patientId/episodes/:episodeId
 router.patch<Params>('/:episodeId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const body = EpisodeUpdateSchema.parse(req.body);
 
   const result = await episodeRepo.update(
