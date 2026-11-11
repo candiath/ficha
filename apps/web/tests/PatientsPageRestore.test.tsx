@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -8,8 +8,9 @@ import PatientsPage from '@/pages/PatientsPage';
 import { patientApi } from '@/services/patients';
 import type { Patient } from '@/types/patient';
 
-// Deleting a patient can be undone from "Eliminados" (CLAUDE.md, "Borrado de
-// pacientes"). The toast's "Deshacer" calls the same restore.
+// Deleting a patient can be undone: from the toast right after, or later from
+// "Eliminados" (CLAUDE.md, "Borrado de pacientes"). The table rebuilds its
+// cells on every render, so each click queries a fresh node.
 vi.mock('@/services/patients', () => ({
   patientKeys: { all: ['patients'], detail: (id: string) => ['patients', id], deleted: ['patients', 'deleted'] },
   patientApi: {
@@ -62,12 +63,40 @@ beforeEach(() => {
 });
 
 describe('PatientsPage: undoing a deletion', () => {
+  it('offers to undo right after deleting', async () => {
+    renderPage();
+    await screen.findByRole('button', { name: 'Eliminar a María García' });
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar a María García' }));
+    const dialog = await screen.findByRole('dialog', { name: /Eliminar a María García/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Eliminar' }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const [message, options] = vi.mocked(toast.success).mock.calls[0] as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ];
+    expect(message).toBe('Paciente eliminado');
+    expect(options.action.label).toBe('Deshacer');
+
+    options.action.onClick();
+    await waitFor(() => expect(patientApi.restore).toHaveBeenCalledWith('p1'));
+  });
+
+  it('says so when the deleted list fails to load, instead of "none"', async () => {
+    vi.mocked(patientApi.listDeleted).mockRejectedValue(new Error('red'));
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /Eliminados/ }));
+
+    expect(await screen.findByText(/Error al cargar los pacientes eliminados/)).toBeTruthy();
+    expect(screen.queryByText('No hay pacientes eliminados.')).toBeNull();
+  });
+
   it('restores a patient from the deleted list', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: /Eliminados/ }));
     expect(await screen.findByText('Juan Pérez')).toBeTruthy();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Restaurar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Restaurar a Juan Pérez' }));
 
     await waitFor(() => expect(patientApi.restore).toHaveBeenCalledWith('p2'));
     expect(toast.success).toHaveBeenCalledWith('Paciente restaurado');

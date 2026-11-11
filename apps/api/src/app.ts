@@ -146,6 +146,8 @@ app.param('episodeId', idParam('Episodio no encontrado'));
 
 app.use('/api/patients', patientsRouter);
 app.use('/api/patients/:patientId/episodes', requireLivePatient, episodesRouter);
+// The episodes mount above matches this path by prefix and runs the guard
+// too; this one stays, so the evaluation does not depend on mount order.
 app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', requireLivePatient, evaluationRouter);
 app.use('/api/patients/:patientId/sessions', requireLivePatient, sessionsRouter);
 // No requireLivePatient: a deleted patient's history stays readable.

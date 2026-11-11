@@ -217,6 +217,8 @@ export const prismaAppointmentRepository: AppointmentRepository = {
           tenantId: ctx.tenantId,
           seriesId,
           startsAt: { gte: desde },
+          // A series is one patient's, and the route's getById already hides a
+          // deleted patient's: this covers a deletion landing in between.
           patient: { deletedAt: null },
           // Solo lo que sigue pendiente: un turno ya cancelado no cambia, y uno
           // COMPLETED o NO_SHOW ya es historial.

@@ -58,6 +58,7 @@ import {
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import { SEX_CLASS, SEX_LABELS } from '@/lib/labels';
 import { toast } from 'sonner';
+import { alertKeys } from '@/services/alerts';
 import { appointmentKeys } from '@/services/appointments';
 import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
@@ -195,24 +196,29 @@ export default function PatientsPage() {
   });
 
   const [deletedOpen, setDeletedOpen] = useState(false);
-  const { data: deletedPatients = [], isLoading: deletedLoading } = useQuery({
+  const {
+    data: deletedPatients = [],
+    isLoading: deletedLoading,
+    isError: deletedError,
+  } = useQuery({
     queryKey: patientKeys.deleted,
     queryFn: patientApi.listDeleted,
     enabled: deletedOpen,
   });
 
-  // Deleting hides the patient and her appointments; both come back on restore.
+  // Deleting hides the patient, her appointments and her alerts (the unread
+  // badge counts live patients only); all come back on restore.
   const refreshAfterDeletion = () => {
     void queryClient.invalidateQueries({ queryKey: patientKeys.all });
     void queryClient.invalidateQueries({ queryKey: appointmentKeys.all });
+    void queryClient.invalidateQueries({ queryKey: alertKeys.stats });
   };
 
   const restoreMutation = useMutation({
     mutationFn: (id: string) => patientApi.restore(id),
-    onSuccess: () => {
-      refreshAfterDeletion();
-      toast.success('Paciente restaurado');
-    },
+    // Also on an error: another user may have restored her already.
+    onSettled: refreshAfterDeletion,
+    onSuccess: () => toast.success('Paciente restaurado'),
     onError: () => toast.error('Error al restaurar el paciente'),
   });
 
@@ -454,6 +460,10 @@ export default function PatientsPage() {
           </DialogHeader>
           {deletedLoading ? (
             <p className="text-sm text-muted-foreground">Cargando...</p>
+          ) : deletedError ? (
+            <p className="text-sm text-destructive">
+              Error al cargar los pacientes eliminados. Intentá de nuevo.
+            </p>
           ) : deletedPatients.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay pacientes eliminados.</p>
           ) : (
@@ -469,6 +479,7 @@ export default function PatientsPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    aria-label={`Restaurar a ${p.fullName}`}
                     onClick={() => restoreMutation.mutate(p.id)}
                     disabled={restoreMutation.isPending}
                   >
