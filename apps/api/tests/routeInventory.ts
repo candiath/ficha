@@ -17,6 +17,8 @@ const ROUTE = new RegExp(`\\b(?:router|app)\\.${METHOD}\\s*(?:<[^()]*?>)?\\(\\s*
 const MOUNT = /app\.use\(\s*'([^']*)'\s*,(?:[^;]*?,)?\s*(\w+Router)\s*\)/g;
 const IMPORT = /import\s+(\w+)\s+from\s+'\.\/routes\/(\w+)'/g;
 const NESTED = /router\.use\(\s*'([^']*)'\s*,\s*revisionRoutes\(/g;
+// Any router.use with a path: one this file does not expand is reported.
+const ANY_NESTED = /router\.use\(\s*'/g;
 
 export interface Route {
   method: string;
@@ -30,7 +32,18 @@ function routesOf(source: string): { method: string; route: string }[] {
   return [...source.matchAll(ROUTE)].map(([, method, route]) => ({ method: method.toUpperCase(), route }));
 }
 
-export function routeInventory(): { routes: Route[]; calls: number; literals: number } {
+export interface Inventory {
+  routes: Route[];
+  /** Route calls found, and those with a literal path: unequal means the regex went blind. */
+  calls: number;
+  literals: number;
+  /** Route files with routes but no mount in app.ts. */
+  unmounted: string[];
+  /** Nested routers (router.use with a path) other than revisionRoutes. */
+  unexpanded: string[];
+}
+
+export function routeInventory(): Inventory {
   const app = readFileSync(APP, 'utf8');
   const fileOfRouter = new Map([...app.matchAll(IMPORT)].map(([, name, file]) => [name, `${file}.ts`]));
   const prefixesOfFile = new Map<string, string[]>();
@@ -43,11 +56,16 @@ export function routeInventory(): { routes: Route[]; calls: number; literals: nu
   const out: { method: string; path: string }[] = routesOf(app).map(({ method, route }) => ({ method, path: route }));
   let calls = [...app.matchAll(CALL)].length;
   let literals = out.length;
+  const unmounted: string[] = [];
+  const unexpanded: string[] = [];
   for (const file of readdirSync(ROUTES).filter((f) => f.endsWith('.ts') && f !== 'revisions.ts')) {
     const source = readFileSync(path.join(ROUTES, file), 'utf8');
     const own = routesOf(source);
     calls += [...source.matchAll(CALL)].length;
     literals += own.length;
+    if (own.length > 0 && !prefixesOfFile.has(file)) unmounted.push(file);
+    const nestedCount = [...source.matchAll(NESTED)].length;
+    if ([...source.matchAll(ANY_NESTED)].length !== nestedCount) unexpanded.push(file);
     for (const prefix of prefixesOfFile.get(file) ?? []) {
       for (const { method, route } of own) out.push({ method, path: join(prefix, route) });
       for (const [, nested] of source.matchAll(NESTED)) {
@@ -55,7 +73,7 @@ export function routeInventory(): { routes: Route[]; calls: number; literals: nu
       }
     }
   }
-  return { routes: out.map((r) => ({ ...r, key: `${r.method} ${r.path}` })), calls, literals };
+  return { routes: out.map((r) => ({ ...r, key: `${r.method} ${r.path}` })), calls, literals, unmounted, unexpanded };
 }
 
 /** The path with each `:param` replaced by the value `fill` gives it. */

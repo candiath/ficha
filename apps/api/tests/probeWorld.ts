@@ -17,6 +17,8 @@ export interface ProbeWorld {
   alertId: string;
   userId: string;
   authSessionId: string;
+  /** Every id and text of this world: none may appear in another clinic's or patient's response. */
+  secrets: string[];
 }
 
 export async function buildProbeWorld(clinic: TestClinic, lastName: string): Promise<ProbeWorld> {
@@ -27,26 +29,33 @@ export async function buildProbeWorld(clinic: TestClinic, lastName: string): Pro
     select: { id: true },
   });
   const owner = { tenantId, patientId: patient.id };
-  const episode = await fixture.clinicalEpisode.create({ data: { ...owner, mainComplaint: 'Lumbalgia' } });
-  await fixture.initialEvaluation.create({ data: { ...owner, episodeId: episode.id, notes: 'Evaluación' } });
+  // Every text names the world, so a response can be searched for another's.
+  const text = (what: string) => `${what} ${lastName}`;
+  const episode = await fixture.clinicalEpisode.create({ data: { ...owner, mainComplaint: text('Motivo') } });
+  await fixture.initialEvaluation.create({ data: { ...owner, episodeId: episode.id, notes: text('Evaluación') } });
   await fixture.informedConsent.create({ data: { ...owner, signedAt: new Date() } });
-  const event = await fixture.patientEvent.create({ data: { ...owner, kind: 'SURGERY', description: 'Cesárea' } });
-  const session = await createSessionFixture({ ...owner, userId: user.id, sessionDate: new Date() });
+  const event = await fixture.patientEvent.create({ data: { ...owner, kind: 'SURGERY', description: text('Antecedente') } });
+  const session = await createSessionFixture({
+    ...owner,
+    userId: user.id,
+    sessionDate: new Date(),
+    observations: text('Observación'),
+  });
   const start = new Date(Date.now() + 3 * 86_400_000);
   const appointment = await prisma.appointment.create({
     data: { ...owner, userId: user.id, startsAt: start, endsAt: new Date(start.getTime() + 3_600_000) },
   });
   const pkg = await prisma.sessionPackage.create({
-    data: { ...owner, name: 'Paquete', totalSessions: 4, pricePerSessionCents: 100n },
+    data: { ...owner, name: text('Paquete'), totalSessions: 4, pricePerSessionCents: 100n },
   });
   const payment = await prisma.payment.create({
     data: { ...owner, sessionId: session.id, baseAmountCents: 100n, finalAmountCents: 100n },
   });
-  const alert = await prisma.clinicalAlert.create({ data: { ...owner, type: 'FOLLOW_UP', message: 'Seguimiento' } });
+  const alert = await prisma.clinicalAlert.create({ data: { ...owner, type: 'FOLLOW_UP', message: text('Alerta') } });
   const authSession = await prisma.authSession.create({
     data: { userId: user.id, tokenHash: Buffer.from(`${patient.id}-probe`), expiresAt: new Date(Date.now() + 3_600_000) },
   });
-  return {
+  const ids = {
     patientId: patient.id,
     episodeId: episode.id,
     sessionId: session.id,
@@ -58,6 +67,8 @@ export async function buildProbeWorld(clinic: TestClinic, lastName: string): Pro
     userId: user.id,
     authSessionId: authSession.id,
   };
+  const texts = ['Motivo', 'Evaluación', 'Antecedente', 'Observación', 'Paquete', 'Alerta'].map(text);
+  return { ...ids, secrets: [...Object.values(ids), lastName, ...texts] };
 }
 
 // The id a `:param` takes, by its name and the route it is in. undefined: a
@@ -110,10 +121,16 @@ export async function clinicState(tenantId: string): Promise<string> {
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
-// One probe request: the route's method, an empty JSON body.
-export function probeRequest(app: Parameters<typeof request>[0], method: string, url: string, token: string) {
+// One probe request: the route's method and a JSON body, empty by default.
+export function probeRequest(
+  app: Parameters<typeof request>[0],
+  method: string,
+  url: string,
+  token: string,
+  body: object = {},
+) {
   const agent = request(app);
-  return agent[method.toLowerCase() as Method](url).set('Authorization', `Bearer ${token}`).send({});
+  return agent[method.toLowerCase() as Method](url).set('Authorization', `Bearer ${token}`).send(body);
 }
 
 export async function deleteProbeWorld(clinic: TestClinic): Promise<void> {
