@@ -134,6 +134,45 @@ beforeEach(() => {
 });
 
 describe('PatientDetailPage: the initial evaluation over its version', () => {
+  it("does not carry one episode's evaluation into another that has none", async () => {
+    // B (active, the default) has no evaluation; A (closed) has one.
+    const B = { ...EPISODE, id: 'eB', mainComplaint: 'Cervicalgia' };
+    const A = { ...EPISODE, id: 'eA', status: 'DISCHARGED' as const, mainComplaint: 'Lumbalgia', closedAt: EPISODE.openedAt };
+    vi.mocked(episodeApi.list).mockResolvedValue([B, A]);
+    vi.mocked(evaluationApi.get).mockImplementation((_p, episodeId) =>
+      Promise.resolve(episodeId === 'eA' ? EVALUATION : null),
+    );
+    const blank = await openEvaluation();
+    expect(blank.value).toBe('');
+
+    await userEvent.click(screen.getByRole('button', { name: /Cervicalgia/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Lumbalgia/ }));
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText('Cualquier otra observación relevante...') as HTMLTextAreaElement).value).toBe('Primera'),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /Lumbalgia/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Cervicalgia/ }));
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText('Cualquier otra observación relevante...') as HTMLTextAreaElement).value).toBe(''),
+    );
+  });
+
+  it('asks before switching episodes with unsaved evaluation text', async () => {
+    const B = { ...EPISODE, id: 'eB', mainComplaint: 'Cervicalgia' };
+    const A = { ...EPISODE, id: 'eA', status: 'DISCHARGED' as const, mainComplaint: 'Lumbalgia', closedAt: EPISODE.openedAt };
+    vi.mocked(episodeApi.list).mockResolvedValue([B, A]);
+    vi.mocked(evaluationApi.get).mockResolvedValue(null);
+    const notes = await openEvaluation();
+    await userEvent.type(notes, 'Sin guardar');
+
+    await userEvent.click(screen.getByRole('button', { name: /Cervicalgia/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Lumbalgia/ }));
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(notes.value).toBe('Sin guardar');
+  });
+
   it('corrects with the version it loaded and the chosen reason', async () => {
     const notes = await openEvaluation();
     await userEvent.type(notes, ' y segunda');

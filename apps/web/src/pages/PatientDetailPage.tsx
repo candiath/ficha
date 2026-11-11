@@ -1047,7 +1047,15 @@ export default function PatientDetailPage() {
           <EpisodeCombobox
             episodes={episodes}
             selectedId={effectiveEpisodeId}
-            onSelect={setActiveEpisodeId}
+            onSelect={(episodeId) => {
+              // Unsaved evaluation text belongs to the episode on screen: ask
+              // before leaving it, as the tabs and "Volver" do.
+              if (evalHasChanges && activeTab === 'evaluacion') {
+                setPendingAction(() => () => setActiveEpisodeId(episodeId));
+              } else {
+                setActiveEpisodeId(episodeId);
+              }
+            }}
             onNewEpisode={() => setNewEpisodeOpen(true)}
           />
           {effectiveEpisodeId && (
@@ -1151,6 +1159,9 @@ export default function PatientDetailPage() {
         <TabsContent value="evaluacion" className="mt-6">
           {effectiveEpisodeId ? (
             <EvaluationTab
+              // A new form per episode: one with no evaluation yet must not
+              // keep the previous episode's fields (they would be saved on it).
+              key={effectiveEpisodeId}
               patientId={id!}
               episodeId={effectiveEpisodeId}
               occupation={patient.occupation}
@@ -1168,6 +1179,7 @@ export default function PatientDetailPage() {
         <TabsContent value="sesiones" className="mt-6">
           {effectiveEpisodeId ? (
             <SessionsTab
+              key={effectiveEpisodeId}
               patientId={id!}
               episodeId={effectiveEpisodeId}
               episodeStatus={episodes.find((e) => e.id === effectiveEpisodeId)?.status ?? 'ACTIVE'}
