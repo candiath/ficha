@@ -139,3 +139,44 @@ describe('login', () => {
     expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
   });
 });
+
+describe('another tab', () => {
+  const OTHER = { ...USER, id: 'u2', email: 'beto@example.com', name: 'Beto' };
+
+  // localStorage changed elsewhere: a `storage` event, as the browser fires it.
+  function otherTabSets(token: string | null) {
+    if (token) localStorage.setItem('ficha_token', token);
+    else localStorage.removeItem('ficha_token');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'ficha_token', newValue: token }));
+  }
+
+  it('a logout there logs this tab out and forgets its records', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(200, { data: USER }))));
+    const queryClient = new QueryClient();
+    await renderLoggedIn(queryClient);
+    queryClient.setQueryData(['patients', 'p1', 'sessions'], [{ observations: 'Notas clínicas' }]);
+
+    otherTabSets(null);
+
+    expect(await screen.findByText('logged out')).toBeInTheDocument();
+    expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
+  });
+
+  it('a login there as someone else shows this tab the new user, with an empty cache', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+        return Promise.resolve(response(200, { data: auth === 'Bearer other-token' ? OTHER : USER }));
+      }),
+    );
+    const queryClient = new QueryClient();
+    await renderLoggedIn(queryClient);
+    queryClient.setQueryData(['patients', 'p1', 'sessions'], [{ observations: 'Notas clínicas' }]);
+
+    otherTabSets('other-token');
+
+    expect(await screen.findByText(`logged in as ${OTHER.email}`)).toBeInTheDocument();
+    expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
+  });
+});

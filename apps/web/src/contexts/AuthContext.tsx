@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getToken, setToken, UNAUTHORIZED_EVENT } from '@/lib/api';
+import { getToken, setToken, TOKEN_KEY, UNAUTHORIZED_EVENT } from '@/lib/api';
 import { useVersionSkew, VersionSkewError } from '@/lib/buildVersion';
 import { authApi } from '@/services/auth';
 import type { AuthUser } from '@ficha/shared';
@@ -71,6 +71,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
+
+  // A login or logout in another tab changes the token this tab sends. This
+  // tab then forgets what it showed and who it showed it as, and reads the
+  // new user (or none): otherwise it would keep one user's name and records
+  // on screen while writing as another.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== TOKEN_KEY && e.key !== null) return;
+      queryClient.clear();
+      setUser(null);
+      setIsLoading(getToken() !== null);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string, trustDevice = false) => {
     const { token, user: loggedUser } = await authApi.login(email, password, trustDevice);
