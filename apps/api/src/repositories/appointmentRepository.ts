@@ -99,13 +99,17 @@ export interface AppointmentRepository {
     audit: AuditBuilder<AppointmentDTO>,
   ): Promise<AppointmentDTO[]>;
 
-  /** null si el turno no existe o es de otra clínica. */
+  /**
+   * null si el turno no existe o es de otra clínica. 'episode_not_found' if
+   * the episode sent is not one of the appointment's patient's: nothing is
+   * written.
+   */
   update(
     ctx: TenantContext,
     id: string,
     input: AppointmentUpdateInput,
     audit: AppointmentUpdateAudit,
-  ): Promise<AppointmentDTO | null>;
+  ): Promise<AppointmentDTO | null | 'episode_not_found'>;
 
   /**
    * Cancela los turnos de una serie que todavía no ocurrieron.
