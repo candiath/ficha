@@ -264,6 +264,34 @@ describe('CRUD de la evaluación inicial', () => {
     ).resolves.toBe(0);
   });
 
+  it('the evaluation of a deleted patient is neither read nor written', async () => {
+    const borrado = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Borrado' },
+      select: { id: true },
+    });
+    const suEpisodio = await fixture.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: borrado.id },
+      select: { id: true },
+    });
+    await fixture.initialEvaluation.create({
+      data: { tenantId: clinic.tenantId, patientId: borrado.id, episodeId: suEpisodio.id, notes: 'Antes del borrado' },
+    });
+    expect((await auth(request(app).delete(`/api/patients/${borrado.id}`))).status).toBe(204);
+
+    const get = await auth(request(app).get(url(suEpisodio.id, borrado.id)));
+    const put = await auth(request(app).put(url(suEpisodio.id, borrado.id))).send({
+      reason: 'DATA_ENTRY_ERROR',
+      notes: 'Después del borrado',
+      expectedVersion: 1,
+    });
+
+    expect(get.status).toBe(404);
+    expect(put.status).toBe(404);
+    await expect(
+      prisma.initialEvaluation.findFirst({ where: { episodeId: suEpisodio.id }, select: { notes: true } }),
+    ).resolves.toEqual({ notes: 'Antes del borrado' });
+  });
+
   it('la evaluación de otra clínica no se lee ni se pisa', async () => {
     const otra = await createTestClinic();
     try {

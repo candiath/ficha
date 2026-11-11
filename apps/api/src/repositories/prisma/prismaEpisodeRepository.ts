@@ -80,8 +80,10 @@ export const prismaEpisodeRepository: EpisodeRepository = {
 
   async exists(ctx: TenantContext, patientId: string, id: string): Promise<boolean> {
     const db = forTenant(ctx);
+    // A deleted patient's episodes are gone with her record (CLAUDE.md,
+    // "Borrado de pacientes"): her evaluation is neither read nor written.
     const row = await db.clinicalEpisode.findFirst({
-      where: { id, patientId },
+      where: { id, patientId, patient: { deletedAt: null } },
       select: { id: true },
     });
     return row !== null;
