@@ -327,3 +327,36 @@ describe('UsersCard: password reset', () => {
     expect((await fila('Yo Admin')).queryByText(/Restablecimiento pendiente/)).not.toBeInTheDocument();
   });
 });
+
+describe('UsersCard: creating a user', () => {
+  // No initial password (area 2 review, M2): the ADMIN gets the new user's
+  // invitation link, shown once, and she sets her own password with it.
+  it('sends name, email and role, and shows the invitation', async () => {
+    list.mockResolvedValue([YO]);
+    vi.mocked(usersApi.create).mockResolvedValue({
+      user: { ...COLEGA, id: 'u-nueva', email: 'nueva@clinica.test', name: 'Nueva Fisio' },
+      invitation: LINK,
+    });
+    renderCard();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: /Nuevo usuario/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+    expect(within(dialog).queryByLabelText(/Contraseña/)).toBeNull();
+    await user.type(within(dialog).getByLabelText('Nombre'), 'Nueva Fisio');
+    await user.type(within(dialog).getByLabelText('Email'), 'nueva@clinica.test');
+    await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+    await waitFor(() =>
+      expect(usersApi.create).toHaveBeenCalledWith({
+        name: 'Nueva Fisio',
+        email: 'nueva@clinica.test',
+        role: 'THERAPIST',
+      }),
+    );
+    const invitation = await screen.findByRole('dialog', { name: 'Invitación para Nueva Fisio' });
+    expect(
+      (within(invitation).getByLabelText('Enlace para restablecer la contraseña') as HTMLInputElement).value,
+    ).toContain(`#${LINK.token}`);
+  });
+});

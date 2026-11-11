@@ -32,10 +32,13 @@ export function PendingResetBadge({ expiresAt }: { expiresAt: string | null }) {
 export function PasswordResetLinkDialog({
   link,
   name,
+  invitation = false,
   onClose,
 }: {
   link: PasswordResetLink | null;
   name: string;
+  /** A new user's link: she sets her first password with it. */
+  invitation?: boolean;
   onClose: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,8 +61,11 @@ export function PasswordResetLinkDialog({
     <Dialog open={!!link} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Enlace para {name}</DialogTitle>
+          <DialogTitle>{invitation ? `Invitación para ${name}` : `Enlace para ${name}`}</DialogTitle>
           <DialogDescription>
+            {invitation
+              ? 'Con este enlace elige su contraseña y entra; nadie más la conoce. '
+              : ''}
             Compartilo por un canal seguro: quien tenga este enlace puede entrar a la cuenta. No se
             vuelve a mostrar.
           </DialogDescription>

@@ -147,12 +147,19 @@ export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   passwordResetExpiresAt: string | null;
 }
 
-// Payload de POST /api/users.
+// Payload de POST /api/users. No password: the new user gets an invitation,
+// a single-use link to set her own (area 2 review, M2).
 export interface CreateUserInput {
   email: string;
   name: string;
-  password: string;
   role?: UserRole;
+}
+
+// A new user and her invitation: the link she sets her password with. The
+// raw token is in this response only.
+export interface CreatedUser<U> {
+  user: U;
+  invitation: PasswordResetLink;
 }
 
 // Payload de PATCH /api/users/:id. Al menos uno de los dos; la API responde
@@ -297,11 +304,11 @@ export interface PlatformTenantCreateInput {
 // de esa clínica.
 export type PlatformUser = TenantUser;
 
-// El rol no se manda: el operador crea ADMIN, y punto.
+// El rol no se manda: el operador crea ADMIN, y punto. No password either:
+// she gets an invitation, like any new user.
 export interface PlatformAdminCreateInput {
   email: string;
   name: string;
-  password: string;
 }
 
 export interface PlatformAuditEntry {

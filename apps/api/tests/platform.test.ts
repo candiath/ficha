@@ -270,12 +270,17 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({
         email,
         name: 'Primera Admin',
-        password: 'clave-larga-123',
       });
 
       expect(res.status).toBe(201);
-      expect(res.body.data.role).toBe('ADMIN');
-      expect(Object.keys(res.body.data).sort()).toEqual([
+      expect(res.body.data.user.role).toBe('ADMIN');
+      expect(Object.keys(res.body.data).sort()).toEqual(['invitation', 'user']);
+      // She sets her own password with the invitation: nobody else knows it.
+      const reset = await request(app)
+        .post('/api/auth/password-reset')
+        .send({ token: res.body.data.invitation.token, newPassword: 'clave-larga-123' });
+      expect(reset.status).toBe(204);
+      expect(Object.keys(res.body.data.user).sort()).toEqual([
         'email',
         'id',
         'isActive',
@@ -311,7 +316,6 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({
         email: ajeno.email,
         name: 'Repetida',
-        password: 'clave-larga-123',
       });
 
       expect(res.status).toBe(409);

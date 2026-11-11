@@ -69,7 +69,7 @@ export default function UsersCard() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
-  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink } | null>(
+  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink; invitation?: boolean } | null>(
     null,
   );
 
@@ -289,11 +289,16 @@ export default function UsersCard() {
         )}
       </CardContent>
 
-      <UserCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <UserCreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(name, link) => setResetLink({ name, link, invitation: true })}
+      />
 
       <PasswordResetLinkDialog
         link={resetLink?.link ?? null}
         name={resetLink?.name ?? ''}
+        invitation={resetLink?.invitation}
         onClose={() => setResetLink(null)}
       />
 

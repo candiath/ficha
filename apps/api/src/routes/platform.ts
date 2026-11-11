@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { SLUG_PATTERN, slugify } from '@ficha/shared';
-import { EmailSchema, OptionalTextSchema, PasswordSchema, requiredText } from '../lib/validation';
+import { EmailSchema, OptionalTextSchema, requiredText } from '../lib/validation';
 import { disabledPasswordHash } from '../lib/passwordReset';
 import { idParam } from '../middlewares/idParam';
 
@@ -32,10 +31,9 @@ const SetTenantActiveSchema = z.object({
 
 // El rol no se elige: el operador crea ADMIN, y punto. Los THERAPIST los
 // crea la clínica desde su propia pantalla.
-const CreateAdminSchema = z.object({
+const CreateAdminSchema = z.strictObject({
   email: EmailSchema,
   name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
-  password: PasswordSchema,
 });
 
 const UpdateUserSchema = z
@@ -99,14 +97,18 @@ router.get('/tenants/:tenantId/users', async (req, res) => {
 // POST /api/platform/tenants/:tenantId/users — el primer ADMIN de la clínica
 // (o uno más). Es lo que antes hacía el script create-admin, ya borrado.
 router.post('/tenants/:tenantId/users', async (req, res) => {
-  const { email, name, password } = CreateAdminSchema.parse(req.body);
+  const { email, name } = CreateAdminSchema.parse(req.body);
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const result = await platformRepo.createAdmin(req.operator, req.params.tenantId, {
-    email,
-    name,
-    passwordHash,
-  });
+  const result = await platformRepo.createAdmin(
+    req.operator,
+    req.params.tenantId,
+    { email, name },
+    {
+      disabledPasswordHash: await disabledPasswordHash(),
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    },
+  );
 
   if (!result.ok) {
     if (result.reason === 'tenant_not_found') {
@@ -117,7 +119,8 @@ router.post('/tenants/:tenantId/users', async (req, res) => {
     return;
   }
 
-  res.status(201).json({ data: result.user });
+  res.set('Cache-Control', 'no-store');
+  res.status(201).json({ data: { user: result.user, invitation: result.invitation } });
 });
 
 // PATCH /api/platform/tenants/:tenantId/users/:userId — delegar ADMIN a un
