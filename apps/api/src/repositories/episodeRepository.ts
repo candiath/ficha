@@ -77,11 +77,15 @@ export type EpisodeUpdateAudit = (episode: EpisodeDTO, change: EpisodeChange) =>
 
 // Los episodios viven anidados bajo un paciente: todo método pide patientId
 // además del ctx, y un episodio de otro paciente (aunque sea del tenant)
-// cuenta como inexistente. La vigencia del PACIENTE no se chequea acá: eso
-// es patientRepo.exists, y la ruta decide cuándo exigirla.
+// cuenta como inexistente. The patient's liveness is checked by the route
+// (patientRepo.exists), except in `exists`, which also requires it.
 export interface EpisodeRepository {
   listByPatient(ctx: TenantContext, patientId: string): Promise<EpisodeDTO[]>;
-  /** true si el episodio existe y es del paciente (y del tenant). */
+  /**
+   * true if the episode exists, is the patient's (and the clinic's), and the
+   * patient is not deleted: a deleted patient's episodes are gone with her
+   * record.
+   */
   exists(ctx: TenantContext, patientId: string, id: string): Promise<boolean>;
   /** Records its audit row in the same transaction (#188). */
   create(
