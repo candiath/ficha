@@ -117,19 +117,25 @@ router.post('/login', loginLimiter, async (req, res) => {
     return;
   }
 
-  void recordAttempt(req, email, user, true);
-
-  // Fire-and-forget: registrar el acceso no debe demorar ni frustrar el login.
-  authRepo
-    .touchLastLogin(user.id)
-    .catch((err) => console.error('[auth] lastLoginAt', err));
-
-  const { token } = await authRepo.createAuthSession({
+  // The session is created only if the account is still as it was when the
+  // password was compared (it also records lastLoginAt). If a password
+  // change, a reset or a deactivation landed in between, this is a failed
+  // login like any other.
+  const session = await authRepo.createAuthSession({
     userId: user.id,
+    tenantId: user.tenantId,
+    verifiedPasswordHash: user.passwordHash,
     trusted: trustDevice ?? false,
     ip: req.ip ?? null,
     userAgent: req.get('user-agent') ?? null,
   });
+  if (!session) {
+    await recordAttempt(req, email, user, false);
+    res.status(401).json({ error: 'Email o contraseña incorrectos' });
+    return;
+  }
+  void recordAttempt(req, email, user, true);
+  const { token } = session;
 
   res.json({
     data: {

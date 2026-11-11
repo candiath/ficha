@@ -48,6 +48,10 @@ export type AuthSessionSummary = Omit<AuthSessionDTO, 'current'>;
 
 export interface CreateAuthSessionInput {
   userId: string;
+  tenantId: string;
+  // The hash the login just verified the password against: the session is
+  // created only if it is still the user's (area 2 review, L1).
+  verifiedPasswordHash: string;
   // Profile from lib/authSessionPolicy.ts; the expiry is derived from it.
   trusted: boolean;
   ip: string | null;
@@ -109,7 +113,7 @@ export interface AuthRepository {
    * Opens a session and returns its raw token. The token leaves this method
    * once, for the login response; only its hash is stored.
    */
-  createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }>;
+  createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string } | null>;
   /**
    * For authenticate: the session behind a raw token, or null. One query
    * decides everything — session unrevoked and unexpired, user active, clinic
@@ -142,8 +146,6 @@ export interface AuthRepository {
   getPublicProfile(userId: string): Promise<PublicProfile | null>;
   /** Credenciales para change-password (única salida extra del hash). */
   getCredentials(userId: string): Promise<Credentials | null>;
-  /** Registra el último acceso exitoso. */
-  touchLastLogin(userId: string): Promise<void>;
   /**
    * Sets the new hash and revokes every open session of the user except
    * `keepSessionId` (the one making the change), in one transaction.
