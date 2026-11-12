@@ -82,10 +82,15 @@ export function createLoginLimiter() {
 // salida es una lista de IPs de confianza exentas del freno para
 // /api/platform/auth, no aflojar el freno.
 
-/** The id of the reserved attempt, or null if the brake holds. */
-export function reserveAttempt(req: Request, realm: LoginRealm, email: string): Promise<string | null> {
+/**
+ * The id of the reserved attempt, or null if the brake holds. `key` is what
+ * the brake counts by: the email for a login; for the current password of a
+ * "change password", the credential making the guesses (see the routes), so
+ * a stolen credential cannot arm the brake against the account's owner.
+ */
+export function reserveAttempt(req: Request, realm: LoginRealm, key: string): Promise<string | null> {
   return authRepo.reserveLoginAttempt(
-    { realm, email, ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null },
+    { realm, email: key, ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null },
     { since: new Date(Date.now() - LOGIN_WINDOW_MS), max: LOGIN_MAX_ATTEMPTS },
   );
 }

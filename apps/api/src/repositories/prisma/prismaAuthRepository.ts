@@ -362,23 +362,31 @@ export const prismaAuthRepository: AuthRepository = {
   },
 
   async reserveLoginAttempt(input: LoginAttemptInput, brake: LoginBrake): Promise<string | null> {
-    return prisma.$transaction(async (tx) => {
-      // One attempt at a time per realm and email: a burst of concurrent
-      // attempts is counted, not let through before any of them is recorded.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.realm}:${input.email}`}))`;
-      const recent = await tx.loginEvent.findMany({
-        where: { realm: input.realm, email: input.email, createdAt: { gt: brake.since } },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: brake.max,
-        select: { success: true },
-      });
-      if (recent.length >= brake.max && recent.every((a) => !a.success)) return null;
-      const { id } = await tx.loginEvent.create({
-        data: { ...input, success: false },
-        select: { id: true },
-      });
-      return id;
-    });
+    // One batch, two statements: the lock, then an insert that runs only if
+    // the brake does not hold. The insert is a statement after the lock, so
+    // its snapshot sees the previous holder's attempt; and a batch keeps no
+    // pooled connection waiting on JS between statements, so a burst queues
+    // in Postgres instead of exhausting the pool (area 2 review, L2).
+    const key = `login:${input.realm}:${input.email}`;
+    const [, rows] = await prisma.$transaction([
+      prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
+      prisma.$queryRaw<{ id: string }[]>`
+        INSERT INTO "login_events" ("id", "realm", "email", "ip", "user_agent", "success", "created_at")
+        SELECT uuidv7(), ${input.realm}::"LoginRealm", ${input.email}, ${input.ip}::text,
+               ${input.userAgent}::text, false, clock_timestamp()
+        WHERE (
+          SELECT count(*) FROM (
+            SELECT "success" FROM "login_events"
+            WHERE "realm" = ${input.realm}::"LoginRealm" AND "email" = ${input.email}
+              AND "created_at" > ${brake.since}
+            ORDER BY "created_at" DESC, "id" DESC
+            LIMIT ${brake.max}
+          ) AS recent
+          WHERE NOT recent."success"
+        ) < ${brake.max}
+        RETURNING "id"::text`,
+    ]);
+    return rows[0]?.id ?? null;
   },
 
   async settleLoginAttempt(id: string, outcome: LoginAttemptOutcome): Promise<void> {

@@ -145,13 +145,15 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
   }
 
   // The current password is a guess too, made with a session in hand: its own
-  // brake, per account, so rotating addresses does not get around it (area 2
-  // review, L3). When it holds, the session making the guesses is revoked:
-  // it is the one that may have been stolen.
-  const attempt = await reserveAttempt(req, 'CLINIC_PASSWORD_CHANGE', user.email);
+  // brake, so rotating addresses does not get around it (area 2 review, L3).
+  // It counts per session, not per account: a stolen session that fails ten
+  // times locks itself, and the owner's own session can still change the
+  // password. When it holds, the session is revoked, and the answer is the
+  // 401 that ends it, saying why.
+  const attempt = await reserveAttempt(req, 'CLINIC_PASSWORD_CHANGE', `session:${req.context.authSessionId}`);
   if (!attempt) {
     await authRepo.revokeAuthSession(req.context.authSessionId);
-    res.status(429).json(LOGIN_THROTTLED);
+    res.status(401).json({ error: 'Demasiados intentos con la contraseña actual: iniciá sesión de nuevo.' });
     return;
   }
 

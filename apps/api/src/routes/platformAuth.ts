@@ -1,8 +1,9 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { signOperatorToken } from '../lib/platformJwt';
+import { hashOpaqueToken } from '../lib/opaqueToken';
 import {
   createLoginLimiter,
   HASH_SENUELO,
@@ -19,6 +20,9 @@ import { authenticateOperator } from '../middlewares/platformAuth';
 // secreto de plataforma. Los intentos van a login_events con operatorId:
 // el freno por cuenta cuenta por email, así que cubre al operador sin más.
 const router = Router();
+
+// The raw operator token of a request authenticateOperator already accepted.
+const bearer = (req: Request) => (req.headers.authorization ?? '').slice('Bearer '.length);
 
 const loginLimiter = createLoginLimiter();
 const changePasswordLimiter = createLoginLimiter();
@@ -85,10 +89,10 @@ router.post('/change-password', changePasswordLimiter, authenticateOperator, asy
     return;
   }
 
-  // Its own brake, per account (area 2 review, L3). An operator token cannot
-  // be revoked on its own, so a held brake only answers 429; changing the
-  // operator's password is what kills every outstanding token.
-  const attempt = await reserveAttempt(req, 'PLATFORM_PASSWORD_CHANGE', operator.email);
+  // Its own brake (area 2 review, L3), per token: a stolen token that fails
+  // ten times locks itself, and the operator, logging in again, can still
+  // change her password, which is what kills every outstanding token.
+  const attempt = await reserveAttempt(req, 'PLATFORM_PASSWORD_CHANGE', `token:${hashOpaqueToken(bearer(req)).toString('hex')}`);
   if (!attempt) {
     res.status(429).json(LOGIN_THROTTLED);
     return;

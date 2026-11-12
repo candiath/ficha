@@ -8,8 +8,9 @@ CREATE TYPE "LoginRealm" AS ENUM ('CLINIC', 'PLATFORM', 'CLINIC_PASSWORD_CHANGE'
 -- AlterTable
 ALTER TABLE "login_events" ADD COLUMN "realm" "LoginRealm" NOT NULL DEFAULT 'CLINIC';
 
--- A success of the operator's login names her. Its failures do not, and stay
--- CLINIC: the 15-minute window they would count in is long gone.
+-- An attempt at the operator's login against her email names her, success or
+-- not. Failures against unknown emails stay CLINIC: the 15-minute window they
+-- would count in is long gone.
 UPDATE "login_events" SET "realm" = 'PLATFORM' WHERE "operator_id" IS NOT NULL;
 
 -- CreateIndex

@@ -75,22 +75,26 @@ describe('the account brake, per realm', { timeout: 60_000 }, () => {
     expect(await prisma.loginEvent.count({ where: { email: user.email } })).toBe(10);
   });
 
-  it('guessing the current password has its own brake, which revokes the session making the guesses', async () => {
+  it('guessing the current password locks the session making the guesses, not the account', async () => {
     const user = await clinic.createUser();
-    const token = await createTestToken(user);
-    const change = () =>
+    const stolen = await createTestToken(user);
+    const owners = await createTestToken(user);
+    const change = (token: string, currentPassword: string, newPassword = 'otra-contraseña') =>
       request(app)
         .post('/api/auth/change-password')
         .set('Authorization', `Bearer ${token}`)
         .set('X-Forwarded-For', from())
-        .send({ currentPassword: 'incorrecta', newPassword: 'otra-contraseña' });
+        .send({ currentPassword, newPassword });
 
-    for (let i = 0; i < 10; i++) expect((await change()).status).toBe(400);
-    expect((await change()).status).toBe(429);
-
-    // The session that made the guesses is gone; the login is not braked.
-    const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+    for (let i = 0; i < 10; i++) expect((await change(stolen, 'incorrecta')).status).toBe(400);
+    // The eleventh ends the session that made the guesses.
+    const braked = await change(stolen, 'incorrecta');
+    expect(braked.status).toBe(401);
+    const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${stolen}`);
     expect(me.status).toBe(401);
-    expect((await clinicLogin(user.email, TEST_PASSWORD)).status).toBe(200);
+
+    // The owner's own session is not braked: she changes the password.
+    expect((await change(owners, TEST_PASSWORD, 'la-nueva-de-ella')).status).toBe(204);
+    expect((await clinicLogin(user.email, 'la-nueva-de-ella')).status).toBe(200);
   });
 });
