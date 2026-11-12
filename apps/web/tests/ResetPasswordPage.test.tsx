@@ -48,7 +48,7 @@ async function fill(password: string, confirmation: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  check.mockResolvedValue({ email: 'fisio@clinica.test', name: 'Fede Fisio' });
+  check.mockResolvedValue({ email: 'fisio@clinica.test', name: 'Fede Fisio', firstPassword: false });
   reset.mockResolvedValue(undefined);
 });
 
@@ -75,6 +75,18 @@ describe('ResetPasswordPage', () => {
 
     expect(await screen.findByText('El enlace no es válido o ya venció')).toBeInTheDocument();
     expect(check).not.toHaveBeenCalled();
+  });
+
+  it('says "restablecer" for a reset and "elegí" for an invitation', async () => {
+    renderAt('/restablecer-contrasena#tok_abc');
+    expect(await screen.findByText('Restablecer contraseña')).toBeInTheDocument();
+  });
+
+  it('asks someone who never logged in to choose her password', async () => {
+    check.mockResolvedValue({ email: 'nueva@clinica.test', name: 'Nueva', firstPassword: true });
+    renderAt('/restablecer-contrasena#tok_abc');
+    expect(await screen.findByText('Elegí tu contraseña')).toBeInTheDocument();
+    expect(screen.queryByText('Restablecer contraseña')).toBeNull();
   });
 
   it('catches a short password before submitting', async () => {

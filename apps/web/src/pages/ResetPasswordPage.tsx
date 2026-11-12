@@ -111,10 +111,15 @@ export default function ResetPasswordPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Restablecer contraseña</CardTitle>
+            <CardTitle>
+              {link.status === 'valid' && link.target.firstPassword
+                ? 'Elegí tu contraseña'
+                : 'Restablecer contraseña'}
+            </CardTitle>
             {link.status === 'valid' && (
               <CardDescription>
-                Nueva contraseña para <span className="font-medium">{link.target.email}</span>
+                {link.target.firstPassword ? 'Contraseña' : 'Nueva contraseña'} para{' '}
+                <span className="font-medium">{link.target.email}</span>
               </CardDescription>
             )}
           </CardHeader>

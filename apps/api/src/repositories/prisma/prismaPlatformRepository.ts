@@ -231,23 +231,42 @@ export const prismaPlatformRepository: PlatformRepository = {
     op: OperatorContext,
     tenantId: string,
     input: PlatformAdminCreateInput,
+    invitation: PasswordResetIssueInput,
   ): Promise<PlatformAdminCreateResult> {
     try {
       return await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.findUnique({
           where: { id: tenantId },
-          select: { id: true, name: true },
+          select: { id: true, name: true, deactivatedAt: true },
         });
         if (!tenant) return { ok: false, reason: 'tenant_not_found' } as const;
+        // Her invitation would be dead on arrival: the reset link refuses a
+        // deactivated clinic's users, and it expires before a reactivation.
+        if (tenant.deactivatedAt) return { ok: false, reason: 'tenant_inactive' } as const;
 
         // El rol es ADMIN por definición de esta operación: el operador
         // delega la administración, y los THERAPIST los crea la clínica.
-        const user = await tx.user.create({
-          data: { ...input, tenantId, role: 'ADMIN' },
-          select: userSelect,
+        const created = await tx.user.create({
+          data: { ...input, tenantId, role: 'ADMIN', passwordHash: invitation.disabledPasswordHash },
+          select: { id: true },
         });
-        await recordPlatformAudit(tx, op, { action: 'ADMIN_CREATED', tenantId, targetUserId: user.id, params: {} });
-        return { ok: true, user: toUserDTO(user) } as const;
+        await recordPlatformAudit(tx, op, { action: 'ADMIN_CREATED', tenantId, targetUserId: created.id, params: {} });
+        // Her invitation: a reset link, audited as an invitation, so the log
+        // tells it from a reset that cut someone's access.
+        const link = await issuePasswordReset(tx, created.id, { operatorId: op.operatorId }, invitation);
+        await recordPlatformAudit(tx, op, {
+          action: 'INVITATION_LINK_CREATED',
+          tenantId,
+          targetUserId: created.id,
+          entityId: link.id,
+          params: {},
+        });
+        const user = await tx.user.findUniqueOrThrow({ where: { id: created.id }, select: userSelect });
+        return {
+          ok: true,
+          user: toUserDTO(user),
+          invitation: { token: link.token, expiresAt: link.expiresAt },
+        } as const;
       });
     } catch (err) {
       // P2002 = email ya registrado (unique global, en cualquier clínica).

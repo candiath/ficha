@@ -36,16 +36,15 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
       asOperator(request(app).post(users())).send({
         email: clinic.email(local),
         name,
-        password: 'clave-larga-123',
       });
     const first = await create('first-admin', 'First Admin');
     const second = await create('second-admin', 'Second Admin');
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
-    admin = first.body.data;
+    admin = first.body.data.user;
 
     const patchUser = (body: object) =>
-      asOperator(request(app).patch(`${users()}/${second.body.data.id}`)).send(body);
+      asOperator(request(app).patch(`${users()}/${second.body.data.user.id}`)).send(body);
     expect((await patchUser({ role: 'THERAPIST' })).status).toBe(200);
     expect((await patchUser({ isActive: false })).status).toBe(200);
     expect(
@@ -74,6 +73,9 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     expect(rows.map((r) => r.action).sort()).toEqual([
       'ADMIN_CREATED',
       'ADMIN_CREATED',
+      // Each new ADMIN's invitation, then the reset link generated afterwards.
+      'INVITATION_LINK_CREATED',
+      'INVITATION_LINK_CREATED',
       'PASSWORD_RESET_LINK_CREATED',
       'TENANT_DEACTIVATED',
       'TENANT_REACTIVATED',

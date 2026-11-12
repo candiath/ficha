@@ -333,9 +333,11 @@ export const prismaAuthRepository: AuthRepository = {
   async checkPasswordReset(token: string): Promise<PasswordResetTarget | null> {
     const link = await prisma.passwordResetToken.findFirst({
       where: { tokenHash: hashOpaqueToken(token), ...validPasswordResetWhere(new Date()) },
-      select: { user: { select: { email: true, name: true } } },
+      select: { user: { select: { email: true, name: true, lastLoginAt: true } } },
     });
-    return link?.user ?? null;
+    if (!link) return null;
+    const { email, name, lastLoginAt } = link.user;
+    return { email, name, firstPassword: lastLoginAt === null };
   },
 
   async resetPassword(token: string, input: PasswordResetUseInput): Promise<boolean> {
