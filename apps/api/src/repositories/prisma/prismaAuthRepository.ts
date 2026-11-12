@@ -12,8 +12,9 @@ import type {
   AuthRepository,
   CreateAuthSessionInput,
   Credentials,
-  LoginAttempt,
-  LoginEventInput,
+  LoginAttemptInput,
+  LoginAttemptOutcome,
+  LoginBrake,
   LoginUser,
   PasswordResetTarget,
   PasswordResetUseInput,
@@ -294,7 +295,7 @@ export const prismaAuthRepository: AuthRepository = {
   async getCredentials(userId: string): Promise<Credentials | null> {
     return prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, tenantId: true, passwordHash: true },
+      select: { id: true, tenantId: true, email: true, passwordHash: true },
     });
   },
 
@@ -360,16 +361,35 @@ export const prismaAuthRepository: AuthRepository = {
     });
   },
 
-  async recordLoginEvent(input: LoginEventInput): Promise<void> {
-    await prisma.loginEvent.create({ data: input });
+  async reserveLoginAttempt(input: LoginAttemptInput, brake: LoginBrake): Promise<string | null> {
+    // One batch, two statements: the lock, then an insert that runs only if
+    // the brake does not hold. The insert is a statement after the lock, so
+    // its snapshot sees the previous holder's attempt; and a batch keeps no
+    // pooled connection waiting on JS between statements, so a burst queues
+    // in Postgres instead of exhausting the pool (area 2 review, L2).
+    const lock = `login:${input.realm}:${input.key}`;
+    const [, rows] = await prisma.$transaction([
+      prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lock}))`,
+      prisma.$queryRaw<{ id: string }[]>`
+        INSERT INTO "login_events" ("id", "realm", "key", "email", "ip", "user_agent", "success", "created_at")
+        SELECT uuidv7(), ${input.realm}::"LoginRealm", ${input.key}, ${input.email}, ${input.ip}::text,
+               ${input.userAgent}::text, false, clock_timestamp()
+        WHERE (
+          SELECT count(*) FROM (
+            SELECT "success" FROM "login_events"
+            WHERE "realm" = ${input.realm}::"LoginRealm" AND "key" = ${input.key}
+              AND "created_at" > ${brake.since}
+            ORDER BY "created_at" DESC, "id" DESC
+            LIMIT ${brake.max}
+          ) AS recent
+          WHERE NOT recent."success"
+        ) < ${brake.max}
+        RETURNING "id"::text`,
+    ]);
+    return rows[0]?.id ?? null;
   },
 
-  async recentLoginAttempts(email: string, since: Date, limit: number): Promise<LoginAttempt[]> {
-    return prisma.loginEvent.findMany({
-      where: { email, createdAt: { gt: since } },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: { success: true },
-    });
+  async settleLoginAttempt(id: string, outcome: LoginAttemptOutcome): Promise<void> {
+    await prisma.loginEvent.update({ where: { id }, data: outcome });
   },
 };

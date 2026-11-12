@@ -43,6 +43,7 @@ export interface OperatorAuth {
 
 export interface OperatorCredentials {
   id: string;
+  email: string;
   passwordHash: string;
 }
 
