@@ -17,15 +17,17 @@ const auditSelect = {
   action: true,
   params: true,
   createdAt: true,
+  user: { select: { id: true, name: true } },
 } as const;
 
 type AuditRow = Prisma.AuditLogGetPayload<{ select: typeof auditSelect }>;
 
 // params are read leniently: a row may predate a parameter, or carry one this
 // version does not know (SPEC-audit-structured-entries.md §5).
-function toDTO(row: AuditRow): AuditLogDTO {
+function toDTO({ user, ...row }: AuditRow): AuditLogDTO {
   return {
     ...row,
+    author: user,
     params: readAuditParams('audit_logs', row.action, row.params),
     createdAt: row.createdAt.toISOString(),
   };

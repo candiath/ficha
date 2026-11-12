@@ -16,6 +16,7 @@ const row = (id: string, entity: string, action: string): AuditLog => ({
   patientId: 'p1',
   userId: 'u1',
   actorType: 'USER',
+  author: { id: 'u1', name: 'Ana Fisio' },
   entity,
   entityId: id,
   action,
@@ -56,5 +57,16 @@ describe('ActivityTimeline filter', () => {
 
     expect(await screen.findByText('Registró una sesión')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Todo' })).not.toBeInTheDocument();
+  });
+
+  // Who acted (area 3 review, M2): a user by name, or the system.
+  it('says who did each thing', async () => {
+    renderTimeline([
+      row('a', 'PAYMENT', 'PAYMENT_CREATED'),
+      { ...row('b', 'PATIENT', 'PATIENT_CREATED'), userId: null, actorType: 'SYSTEM', author: null },
+    ]);
+
+    expect(await screen.findByText(/Ana Fisio/)).toBeInTheDocument();
+    expect(screen.getByText(/Sistema/)).toBeInTheDocument();
   });
 });

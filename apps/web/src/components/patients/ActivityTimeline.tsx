@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { auditDisplay } from '@/lib/auditDisplay';
+import { authorOf } from '@/lib/revisionDisplay';
 import { auditLogApi, auditLogKeys } from '@/services/auditLog';
 
 const ENTITY_CONFIG: Record<
@@ -214,7 +215,7 @@ export default function ActivityTimeline({ patientId }: Props) {
                           {shown.label}
                         </Badge>
                         <span className="text-[11px] text-muted-foreground">
-                          {ts.date} · {ts.time}
+                          {ts.date} · {ts.time} · {authorOf(entry)}
                         </span>
                       </div>
                       <p className="text-sm">{shown.text}</p>

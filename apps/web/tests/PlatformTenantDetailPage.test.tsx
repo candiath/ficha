@@ -82,6 +82,7 @@ const AUDIT: PlatformAuditEntry[] = [
     tenantId: 't1',
     targetUserId: null,
     targetUser: null,
+    operator: { name: 'Operadora Uno', email: 'op1@ficha.test' },
     action: 'TENANT_CREATED',
     params: {},
     createdAt: '2026-09-01T12:00:00.000Z',
@@ -140,6 +141,18 @@ describe('PlatformTenantDetailPage', () => {
     // La acción se muestra con su etiqueta, no con el enum.
     expect(await screen.findByText('Clínica creada')).toBeInTheDocument();
     expect(screen.queryByText('TENANT_CREATED')).not.toBeInTheDocument();
+  });
+
+  // Who acted (#313): the operator by name, or by email when she has none.
+  it('names the operator who acted, by email when she has no name', async () => {
+    auditLog.mockResolvedValue([
+      AUDIT[0],
+      { ...AUDIT[0], id: 'a2', operator: { name: null, email: 'op2@ficha.test' } },
+    ]);
+    renderAt();
+
+    expect(await screen.findByText(/por Operadora Uno/)).toBeInTheDocument();
+    expect(screen.getByText(/por op2@ficha\.test/)).toBeInTheDocument();
   });
 
   it('un id que no está en la lista dice que no existe y no pide usuarios ni historial', async () => {

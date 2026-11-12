@@ -7,6 +7,8 @@ export interface AuditLog {
   patientId: string;
   userId: string | null;
   actorType: AuditActorType;
+  // Who acted; null for a SYSTEM row.
+  author: { id: string; name: string | null } | null;
   entity: string;
   entityId: string;
   action: string;

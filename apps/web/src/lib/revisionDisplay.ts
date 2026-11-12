@@ -13,7 +13,8 @@ export function reasonOf(r: RevisionSummary): string | null {
     : null
 }
 
-export function authorOf(r: RevisionSummary): string {
+// Who acted, in the version history and the activity timeline alike.
+export function authorOf(r: Pick<RevisionSummary, 'author' | 'actorType'>): string {
   if (r.author) return r.author.name ?? 'Usuario sin nombre'
   return r.actorType === 'SYSTEM' ? 'Sistema' : 'Desconocido'
 }

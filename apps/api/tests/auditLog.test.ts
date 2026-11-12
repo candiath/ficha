@@ -115,7 +115,7 @@ describe('historial de auditoría de un paciente', () => {
 
     // The fixture's creation is in the history too, as the system's.
     expect(res.body.data).toHaveLength(2);
-    expect(res.body.data[1]).toMatchObject({ action: 'PATIENT_CREATED', actorType: 'SYSTEM', userId: null });
+    expect(res.body.data[1]).toMatchObject({ action: 'PATIENT_CREATED', actorType: 'SYSTEM', userId: null, author: null });
     expect(res.body.data[0]).toMatchObject({
       patientId: propio.id,
       userId: user.id,
@@ -124,7 +124,11 @@ describe('historial de auditoría de un paciente', () => {
       actorType: 'USER',
       action: 'PATIENT_UPDATED',
       params: { changedFields: ['phone'], reason: 'DATA_ENTRY_ERROR' },
+      // Who acted, by name (area 3 review, M2): no email, which a therapist
+      // could not read from the users list either.
+      author: { id: user.id, name: user.name },
     });
+    expect(Object.keys(res.body.data[0].author).sort()).toEqual(['id', 'name']);
     // Codes only: the sentence is the screen's, from the catalog.
     expect(res.body.data[0]).not.toHaveProperty('description');
     expect(typeof res.body.data[0].createdAt).toBe('string');
