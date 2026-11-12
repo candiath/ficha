@@ -35,6 +35,7 @@ describe('audit rows record codes, never values', () => {
     const tenantId = clinic.tenantId;
     await deleteAuditRows([tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId } });
+    await prisma.appointment.deleteMany({ where: { tenantId } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
@@ -77,6 +78,87 @@ describe('audit rows record codes, never values', () => {
 
     expect(await rowsOf(session.id)).toEqual([
       { action: 'SESSION_RECORDED', params: {}, actorType: 'USER', userId: user.id },
+    ]);
+  });
+
+  // What a session also writes is a fact of its own (#312): the
+  // payment it creates, and the appointment it completes.
+  it('a session with a waived payment and an appointment records all three', async () => {
+    const appointment = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(),
+        endsAt: new Date(Date.now() + 3_600_000),
+      },
+      select: { id: true },
+    });
+    const session = await createSession({
+      appointmentId: appointment.id,
+      payment: { baseAmountCents: 9000, discountCents: 9000 },
+    });
+    const payment = await prisma.payment.findFirstOrThrow({ where: { sessionId: session.id }, select: { id: true } });
+
+    expect(await actionsOf(session.id)).toEqual([{ action: 'SESSION_RECORDED', params: {} }]);
+    expect(await actionsOf(payment.id)).toEqual([{ action: 'PAYMENT_CREATED', params: { status: 'WAIVED' } }]);
+    expect(await actionsOf(appointment.id)).toEqual([
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'sessionId'] } },
+    ]);
+  });
+
+  // Annulled, the session releases the appointment (still attended), and a
+  // session registered again from it links it without a second status change.
+  it("an annulment releases the appointment, and a session again links it, each recorded as it was", async () => {
+    const appointment = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(),
+        endsAt: new Date(Date.now() + 3_600_000),
+      },
+      select: { id: true },
+    });
+    const first = await createSession({ appointmentId: appointment.id });
+    const annul = await auth(
+      request(app).post(`/api/patients/${patient.id}/sessions/${first.id}/annul`),
+    ).send({ reason: 'DATA_ENTRY_ERROR' });
+    expect(annul.status).toBe(204);
+    await createSession({ appointmentId: appointment.id });
+
+    expect(await actionsOf(appointment.id)).toEqual([
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'sessionId'] } },
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['sessionId'] } },
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['sessionId'] } },
+    ]);
+  });
+
+  // The patient cancelled and came anyway: the appointment becomes attended,
+  // and the trail says so.
+  it('a session on a cancelled appointment makes it attended, recorded', async () => {
+    const appointment = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(),
+        endsAt: new Date(Date.now() + 3_600_000),
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+      },
+      select: { id: true },
+    });
+    const session = await createSession({ appointmentId: appointment.id });
+
+    await expect(
+      prisma.appointment.findUniqueOrThrow({
+        where: { id: appointment.id },
+        select: { status: true, cancelledAt: true, sessionId: true },
+      }),
+    ).resolves.toEqual({ status: 'COMPLETED', cancelledAt: null, sessionId: session.id });
+    expect(await actionsOf(appointment.id)).toEqual([
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'sessionId'] } },
     ]);
   });
 
@@ -136,6 +218,8 @@ describe('audit rows record codes, never values', () => {
     expect(res.status).toBe(200);
 
     expect(await actionsOf(payment.id)).toEqual([
+      // Created with the session (#312).
+      { action: 'PAYMENT_CREATED', params: { status: 'PENDING' } },
       {
         action: 'PAYMENT_UPDATED',
         params: { status: 'PAID', changedFields: ['status', 'method', 'paidAt'] },
@@ -162,7 +246,7 @@ describe('audit rows record codes, never values', () => {
     expect(samePayment.status).toBe(200);
     expect(samePatient.status).toBe(200);
 
-    expect(await actionsOf(payment.id)).toEqual([]);
+    expect(await actionsOf(payment.id)).toEqual([{ action: 'PAYMENT_CREATED', params: { status: 'PENDING' } }]);
     expect((await actionsOf(patient.id)).filter((r) => r.action === 'PATIENT_UPDATED')).toEqual([]);
   });
 

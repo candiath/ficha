@@ -155,6 +155,9 @@ export const AUDIT_APPOINTMENT_FIELDS = {
   status: 'el estado',
   episodeId: 'el motivo de consulta',
   notes: 'las notas',
+  // Linked when a session is registered from it, released when that session
+  // is annulled (#312).
+  sessionId: 'la sesión',
 } as const;
 
 export const AUDIT_PAYMENT_FIELDS = {
