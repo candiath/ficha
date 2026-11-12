@@ -92,6 +92,7 @@ const auditSelect = {
   // Who was affected, read now and never copied into the row: an audit row
   // can never change, so a name in it could never be erased (#186).
   targetUser: { select: { email: true, name: true } },
+  operator: { select: { name: true, email: true } },
 } as const;
 
 type AuditRow = Prisma.PlatformAuditLogGetPayload<{ select: typeof auditSelect }>;

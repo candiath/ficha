@@ -400,6 +400,9 @@ export default function PlatformTenantDetailPage() {
                   <span>
                     <span className="font-medium">{shown.label}</span>
                     <span className="text-muted-foreground"> · {shown.text}</span>
+                    {a.operator && (
+                      <span className="text-muted-foreground"> · por {a.operator.name ?? a.operator.email}</span>
+                    )}
                     {/* An audit row never names the person (#186): who was
                         affected comes from the row's target. */}
                     {a.targetUser && (

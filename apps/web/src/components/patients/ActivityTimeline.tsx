@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { auditDisplay } from '@/lib/auditDisplay';
 import { auditLogApi, auditLogKeys } from '@/services/auditLog';
+import type { AuditLog } from '@/types/auditLog';
 
 const ENTITY_CONFIG: Record<
   string,
@@ -122,6 +123,12 @@ interface Props {
   patientId: string;
 }
 
+// Who acted (area 3 review, M2): a user by name, or the system.
+function actorOf(entry: AuditLog): string {
+  if (entry.author) return entry.author.name ?? 'Usuario sin nombre';
+  return entry.actorType === 'SYSTEM' ? 'Sistema' : 'Desconocido';
+}
+
 export default function ActivityTimeline({ patientId }: Props) {
   const { data: entries = [] } = useQuery({
     queryKey: auditLogKeys.list(patientId),
@@ -214,7 +221,7 @@ export default function ActivityTimeline({ patientId }: Props) {
                           {shown.label}
                         </Badge>
                         <span className="text-[11px] text-muted-foreground">
-                          {ts.date} · {ts.time}
+                          {ts.date} · {ts.time} · {actorOf(entry)}
                         </span>
                       </div>
                       <p className="text-sm">{shown.text}</p>

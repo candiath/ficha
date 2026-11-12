@@ -324,6 +324,8 @@ export interface PlatformAuditEntry {
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
   targetUser: { email: string; name: string | null } | null;
+  // The operator who acted.
+  operator: { name: string | null; email: string } | null;
   action: PlatformAction;
   // Codes only (#186): read with readAuditParams / describeAuditEntry.
   params: Record<string, unknown>;

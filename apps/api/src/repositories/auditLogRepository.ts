@@ -8,6 +8,9 @@ export interface AuditLogDTO {
   patientId: string;
   userId: string | null;
   actorType: AuditActorType;
+  // Who acted, read now and never copied into the row (area 3 review, M2):
+  // null for a SYSTEM row.
+  author: { id: string; name: string | null } | null;
   entity: string;
   entityId: string;
   action: ClinicalAuditAction;

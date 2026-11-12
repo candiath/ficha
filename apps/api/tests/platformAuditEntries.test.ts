@@ -107,6 +107,9 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     const reset = rows.find((r) => r.action === 'PASSWORD_RESET_LINK_CREATED');
     expect(reset?.targetUser).toEqual({ email: admin.email, name: 'First Admin' });
 
+    // And who acted (area 3 review, M2).
+    for (const row of rows) expect(row.operator).toEqual({ name: op.operator.name, email: op.operator.email });
+
     const tenantRows = rows.filter((r) => r.action.startsWith('TENANT_'));
     for (const row of tenantRows) expect(row.targetUser).toBeNull();
   });
