@@ -135,7 +135,9 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/platform/auth/me': exempt('The signed-in operator.'),
   'GET /api/platform/tenants': exempt('Clinics, for the operator.'),
   'GET /api/platform/tenants/:tenantId/users': exempt('A clinic\'s staff, for the operator.'),
-  'GET /api/platform/tenants/:tenantId/audit-log': exempt('Operator actions on a clinic: codes and ids.'),
+  'GET /api/platform/tenants/:tenantId/audit-log': exempt(
+    'Operator actions on a clinic: codes, and the names and emails of the operator and the user affected, read when listed; no clinical data.',
+  ),
   'GET /api/platform/alerts': exempt('Sysadmin alerts: kinds and delivery outcomes.'),
   'GET /api/platform/alerts/bot': exempt('The Telegram bot\'s username.'),
 };
