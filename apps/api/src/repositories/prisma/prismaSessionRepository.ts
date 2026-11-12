@@ -4,7 +4,7 @@ import { forTenant } from '../../lib/tenantScope';
 import { fullName, patientNameSelect } from './patientName';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
-import type { SessionType } from '@prisma/client';
+import type { PaymentStatus, SessionType } from '@prisma/client';
 import type { SessionSnapshotV1 } from '@ficha/shared';
 import type {
   SessionAuditField,
@@ -36,6 +36,7 @@ const VIGENTE = { deletedAt: null } as const;
 // convierte en un resultado justo afuera. Es la forma de abortar una
 // transacción interactiva sin que el error salga como un 500.
 class TurnoYaRegistrado extends Error {}
+class TurnoCancelado extends Error {}
 class DischargeBeforeOpening extends Error {}
 
 const blockSelect = {
@@ -290,11 +291,12 @@ export const prismaSessionRepository: SessionRepository = {
         })),
       });
 
+      let createdPayment: { id: string; status: PaymentStatus } | null = null;
       if (payment) {
         // settle() decide monto y estado juntos: un cobro que da 0 nace
         // WAIVED, porque no hay ninguna deuda que reclamar.
         const { finalAmountCents, status } = settle(payment.baseAmountCents, payment.discountCents);
-        await tx.payment.create({
+        createdPayment = await tx.payment.create({
           data: {
             tenantId: ctx.tenantId,
             patientId,
@@ -306,6 +308,7 @@ export const prismaSessionRepository: SessionRepository = {
             status,
             notes: payment.notes ?? null,
           },
+          select: { id: true, status: true },
         });
       }
 
@@ -337,6 +340,9 @@ export const prismaSessionRepository: SessionRepository = {
       // que ya se registró. La condición viaja en el where —sessionId null—
       // así que dos intentos simultáneos no pueden producir dos sesiones para
       // la misma visita; el segundo no matchea y revierte todo.
+      // A cancelled appointment takes no session: its history ends in the
+      // cancellation, and the row would say attended with nothing recording
+      // why (area 3 review, M1).
       if (appointmentId) {
         const { count } = await tx.appointment.updateMany({
           where: {
@@ -344,10 +350,16 @@ export const prismaSessionRepository: SessionRepository = {
             tenantId: ctx.tenantId,
             patientId,
             sessionId: null,
+            status: { not: 'CANCELLED' },
           },
-          data: { sessionId: created.id, status: 'COMPLETED', cancelledAt: null },
+          data: { sessionId: created.id, status: 'COMPLETED' },
         });
-        if (count === 0) throw new TurnoYaRegistrado();
+        if (count === 0) {
+          const cancelled = await tx.appointment.count({
+            where: { id: appointmentId, tenantId: ctx.tenantId, patientId, sessionId: null, status: 'CANCELLED' },
+          });
+          throw cancelled > 0 ? new TurnoCancelado() : new TurnoYaRegistrado();
+        }
       }
 
       const row = await tx.session.findUniqueOrThrow({
@@ -361,6 +373,24 @@ export const prismaSessionRepository: SessionRepository = {
       // A discharge's audit row owns one revision per aggregate it wrote: the
       // session's first and each closed episode's next (§4).
       const auditLogId = await recordAudit(tx, ctx, audit(dto));
+      // What the session also wrote, each a fact of its own (area 3 review,
+      // M1): the payment it created, and the appointment it completed.
+      if (createdPayment) {
+        await recordAudit(tx, ctx, {
+          action: 'PAYMENT_CREATED',
+          patientId,
+          entityId: createdPayment.id,
+          params: { status: createdPayment.status },
+        });
+      }
+      if (appointmentId) {
+        await recordAudit(tx, ctx, {
+          action: 'APPOINTMENT_UPDATED',
+          patientId,
+          entityId: appointmentId,
+          params: { status: 'COMPLETED', changedFields: ['status'] },
+        });
+      }
       await recordRevision(tx, ctx, 'session_revisions', {
         aggregateId: created.id,
         patientId,
@@ -384,6 +414,7 @@ export const prismaSessionRepository: SessionRepository = {
       // appointment already had its session, or the episode opens later.
       // Anything else is a real error.
       if (e instanceof TurnoYaRegistrado) return 'appointment_taken' as const;
+      if (e instanceof TurnoCancelado) return 'appointment_cancelled' as const;
       if (e instanceof DischargeBeforeOpening) return 'discharge_before_opening' as const;
       throw e;
     });
