@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { passwordResetApi } from '@/services/auth';
+import { PASSWORD_TOO_LONG, passwordTooLong } from '@/lib/passwordLength';
 
 // The message LoginPage shows after a reset (SPEC-password-reset, decision 2).
 export const PASSWORD_RESET_DONE = 'Listo, ya podés ingresar con tu contraseña nueva';
@@ -78,6 +79,10 @@ export default function ResetPasswordPage() {
     // The same minimum as the API, checked here so a typo costs no request.
     if (password.length < 8) {
       setError('La contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (passwordTooLong(password)) {
+      setError(PASSWORD_TOO_LONG);
       return;
     }
     if (password !== confirmation) {

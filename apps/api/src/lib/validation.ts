@@ -13,9 +13,15 @@ export const EmailSchema = z.string().trim().toLowerCase().pipe(z.email());
 // Política mínima para contraseñas nuevas (alta de usuario y cambio).
 // El login NO la usa: ahí se acepta cualquier cosa y decide bcrypt.compare,
 // porque rechazar por formato revelaría pistas sobre la política.
+// bcrypt reads only the first 72 bytes of a password: a longer one is
+// refused, so no two passwords that share them can log in as each other.
+export const PASSWORD_MAX_BYTES = 72;
 export const PasswordSchema = z
   .string()
-  .min(8, 'La contraseña debe tener al menos 8 caracteres');
+  .min(8, 'La contraseña debe tener al menos 8 caracteres')
+  .refine((p) => Buffer.byteLength(p, 'utf8') <= PASSWORD_MAX_BYTES, {
+    error: 'La contraseña es demasiado larga: hasta 72 caracteres, y las letras con tilde, la ñ, ¿, ¡ y los emojis cuentan por más de uno',
+  });
 
 // El id de una fila, tal como llega en un body o en un query string: un UUID.
 //

@@ -66,6 +66,21 @@ describe('POST /api/auth/change-password', () => {
     expect(res.status).toBe(400);
   });
 
+  // bcrypt reads only the first 72 bytes: a longer password is refused, by
+  // bytes, so accents count double.
+  it('rejects a new password longer than 72 bytes, and accepts one of exactly 72', async () => {
+    const send = (newPassword: string) =>
+      request(app)
+        .post(CHANGE)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ currentPassword: TEST_PASSWORD, newPassword });
+
+    expect((await send('a'.repeat(73))).status).toBe(400);
+    expect((await send('á'.repeat(37))).status).toBe(400); // 74 bytes in 37 characters
+    const res = await send('a'.repeat(72));
+    expect(res.status).toBe(204);
+  });
+
   it('keeps the session that made the change and revokes every other one', async () => {
     // A user of its own, so the other tests keep their credentials.
     const victim = await clinic.createUser();

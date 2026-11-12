@@ -86,6 +86,17 @@ describe('ResetPasswordPage', () => {
     expect(reset).not.toHaveBeenCalled();
   });
 
+  // bcrypt reads only 72 bytes: 37 accented letters are 74.
+  it('catches a password longer than 72 bytes before submitting', async () => {
+    renderAt('/restablecer-contrasena#tok_abc');
+
+    const long = 'á'.repeat(37);
+    await fill(long, long);
+
+    expect(await screen.findByText(/La contraseña es demasiado larga/)).toBeInTheDocument();
+    expect(reset).not.toHaveBeenCalled();
+  });
+
   it('catches a mismatched confirmation before submitting', async () => {
     renderAt('/restablecer-contrasena#tok_abc');
 
