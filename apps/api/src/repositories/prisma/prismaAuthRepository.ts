@@ -133,7 +133,7 @@ export const prismaAuthRepository: AuthRepository = {
     };
   },
 
-  async createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }> {
+  async createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string } | null> {
     const token = generateOpaqueToken();
     const data = {
       userId: input.userId,
@@ -144,25 +144,43 @@ export const prismaAuthRepository: AuthRepository = {
       userAgent: input.userAgent,
     };
 
-    if (!input.trusted) {
-      await prisma.authSession.create({ data });
-      return { token };
-    }
+    return prisma.$transaction(async (tx) => {
+      // The login compared the password outside any transaction, and a write
+      // that cuts access (a password change, a reset link, deactivating the
+      // user or the clinic) may have committed since, revoking every session
+      // she had. The session is created only if nothing changed, decided in
+      // the writes that lock what those writes lock (area 2 review, L1):
+      // - the clinic's row, shared: a deactivation waits for this login, or
+      //   wins and this one creates nothing;
+      // - the user's row, conditioned on the hash just verified and on being
+      //   active: a new password, a reset or a deactivation since makes it 0.
+      // A cut that commits after this transaction revokes this session too.
+      const [clinic] = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id"::text FROM "tenants"
+        WHERE "id" = ${input.tenantId}::uuid AND "deactivated_at" IS NULL
+        FOR SHARE`;
+      if (!clinic) return null;
+      const { count } = await tx.user.updateMany({
+        where: { id: input.userId, tenantId: input.tenantId, passwordHash: input.verifiedPasswordHash, isActive: true },
+        data: { lastLoginAt: new Date() },
+      });
+      if (count === 0) return null;
 
-    // A trusted login enforces the cap in the same transaction: this login's
-    // session and the newest TRUSTED_SESSIONS_PER_USER - 1 other live trusted
-    // sessions stay, older ones are demoted to normal (not closed). Two
-    // simultaneous trusted logins can leave one too many until the next one;
-    // acceptable.
-    //
-    // The new session is kept by id, not by its place in the order: createdAt
-    // is stamped by the API's clock with millisecond precision, so it can tie
-    // with an older session or, after the clock steps back, sort below one,
-    // and the session this login asked to trust would be the one demoted.
-    // Ties among the others go to the id, a UUIDv7 that increases within a
-    // millisecond too.
-    await prisma.$transaction(async (tx) => {
       const created = await tx.authSession.create({ data, select: { id: true } });
+      if (!input.trusted) return { token };
+
+      // A trusted login enforces the cap in the same transaction: this login's
+      // session and the newest TRUSTED_SESSIONS_PER_USER - 1 other live trusted
+      // sessions stay, older ones are demoted to normal (not closed). Two
+      // simultaneous logins of one user are serialized by the conditioned
+      // write on her row above, so the second sees the first's session.
+      //
+      // The new session is kept by id, not by its place in the order: createdAt
+      // is stamped by the API's clock with millisecond precision, so it can tie
+      // with an older session or, after the clock steps back, sort below one,
+      // and the session this login asked to trust would be the one demoted.
+      // Ties among the others go to the id, a UUIDv7 that increases within a
+      // millisecond too.
       const beyondCap = await tx.authSession.findMany({
         where: { userId: input.userId, id: { not: created.id }, ...liveTrustedAuthSessionWhere(new Date()) },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -173,8 +191,8 @@ export const prismaAuthRepository: AuthRepository = {
         tx,
         beyondCap.map((s) => s.id),
       );
+      return { token };
     });
-    return { token };
   },
 
   async findValidAuthSession(token: string): Promise<ValidAuthSession | null> {
@@ -296,13 +314,6 @@ export const prismaAuthRepository: AuthRepository = {
     return prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, tenantId: true, email: true, passwordHash: true },
-    });
-  },
-
-  async touchLastLogin(userId: string): Promise<void> {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { lastLoginAt: new Date() },
     });
   },
 
