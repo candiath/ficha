@@ -99,7 +99,7 @@ export type SessionCreateResult =
   // El turno ya produjo su sesión. Pasa si se aprieta dos veces "registrar
   // sesión" o si otra pestaña ganó de mano: la sesión NO se crea, para no
   // duplicar el registro clínico de una misma visita.
-  | { ok: false; reason: 'appointment_taken' | 'appointment_cancelled' | SessionEpisodeRuleViolation }
+  | { ok: false; reason: 'appointment_taken' | SessionEpisodeRuleViolation }
   // A discharge closes its episode now, and this one's opening is dated ahead
   // of now. Nothing is recorded.
   | { ok: false; reason: 'discharge_before_opening' };

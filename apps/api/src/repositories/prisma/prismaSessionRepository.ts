@@ -4,7 +4,7 @@ import { forTenant } from '../../lib/tenantScope';
 import { fullName, patientNameSelect } from './patientName';
 import { settle } from '../../lib/paymentSettlement';
 import type { TenantContext } from '../types';
-import type { PaymentStatus, SessionType } from '@prisma/client';
+import type { AppointmentStatus, PaymentStatus, SessionType } from '@prisma/client';
 import type { SessionSnapshotV1 } from '@ficha/shared';
 import type {
   SessionAuditField,
@@ -36,7 +36,6 @@ const VIGENTE = { deletedAt: null } as const;
 // convierte en un resultado justo afuera. Es la forma de abortar una
 // transacción interactiva sin que el error salga como un 500.
 class TurnoYaRegistrado extends Error {}
-class TurnoCancelado extends Error {}
 class DischargeBeforeOpening extends Error {}
 
 const blockSelect = {
@@ -340,26 +339,23 @@ export const prismaSessionRepository: SessionRepository = {
       // que ya se registró. La condición viaja en el where —sessionId null—
       // así que dos intentos simultáneos no pueden producir dos sesiones para
       // la misma visita; el segundo no matchea y revierte todo.
-      // A cancelled appointment takes no session: its history ends in the
-      // cancellation, and the row would say attended with nothing recording
-      // why (area 3 review, M1).
+      // The appointment's status before is read under its lock, so its audit
+      // row below names exactly what changed (#312): the link always, the
+      // status only if it was not attended already (re-registered after an
+      // annulment, or marked attended by hand). A cancelled appointment the
+      // patient came to anyway becomes attended, as a missed one does.
+      let appointmentBefore: { status: AppointmentStatus } | null = null;
       if (appointmentId) {
-        const { count } = await tx.appointment.updateMany({
-          where: {
-            id: appointmentId,
-            tenantId: ctx.tenantId,
-            patientId,
-            sessionId: null,
-            status: { not: 'CANCELLED' },
-          },
-          data: { sessionId: created.id, status: 'COMPLETED' },
+        await lockRow(tx, 'appointments', appointmentId, ctx.tenantId);
+        appointmentBefore = await tx.appointment.findFirst({
+          where: { id: appointmentId, tenantId: ctx.tenantId, patientId, sessionId: null },
+          select: { status: true },
         });
-        if (count === 0) {
-          const cancelled = await tx.appointment.count({
-            where: { id: appointmentId, tenantId: ctx.tenantId, patientId, sessionId: null, status: 'CANCELLED' },
-          });
-          throw cancelled > 0 ? new TurnoCancelado() : new TurnoYaRegistrado();
-        }
+        const { count } = await tx.appointment.updateMany({
+          where: { id: appointmentId, tenantId: ctx.tenantId, patientId, sessionId: null },
+          data: { sessionId: created.id, status: 'COMPLETED', cancelledAt: null },
+        });
+        if (count === 0 || !appointmentBefore) throw new TurnoYaRegistrado();
       }
 
       const row = await tx.session.findUniqueOrThrow({
@@ -373,8 +369,8 @@ export const prismaSessionRepository: SessionRepository = {
       // A discharge's audit row owns one revision per aggregate it wrote: the
       // session's first and each closed episode's next (§4).
       const auditLogId = await recordAudit(tx, ctx, audit(dto));
-      // What the session also wrote, each a fact of its own (area 3 review,
-      // M1): the payment it created, and the appointment it completed.
+      // What the session also wrote, each a fact of its own (#312): the
+      // payment it created, and the appointment it completed.
       if (createdPayment) {
         await recordAudit(tx, ctx, {
           action: 'PAYMENT_CREATED',
@@ -383,12 +379,15 @@ export const prismaSessionRepository: SessionRepository = {
           params: { status: createdPayment.status },
         });
       }
-      if (appointmentId) {
+      if (appointmentId && appointmentBefore) {
         await recordAudit(tx, ctx, {
           action: 'APPOINTMENT_UPDATED',
           patientId,
           entityId: appointmentId,
-          params: { status: 'COMPLETED', changedFields: ['status'] },
+          params: {
+            status: 'COMPLETED',
+            changedFields: appointmentBefore.status === 'COMPLETED' ? ['sessionId'] : ['status', 'sessionId'],
+          },
         });
       }
       await recordRevision(tx, ctx, 'session_revisions', {
@@ -414,7 +413,6 @@ export const prismaSessionRepository: SessionRepository = {
       // appointment already had its session, or the episode opens later.
       // Anything else is a real error.
       if (e instanceof TurnoYaRegistrado) return 'appointment_taken' as const;
-      if (e instanceof TurnoCancelado) return 'appointment_cancelled' as const;
       if (e instanceof DischargeBeforeOpening) return 'discharge_before_opening' as const;
       throw e;
     });
@@ -604,10 +602,24 @@ export const prismaSessionRepository: SessionRepository = {
         //    el vínculo; el estado no se toca, porque que la sesión se haya
         //    cargado mal no dice nada sobre si el paciente vino (COMPLETED sin
         //    sessionId es un estado válido: "vino, sin sesión registrada").
-        await tx.appointment.updateMany({
+        //    Its audit row names the release (#312): the link is a field of the
+        //    appointment, recorded when it was made.
+        const released = await tx.appointment.findFirst({
           where: { sessionId: id, tenantId: ctx.tenantId },
-          data: { sessionId: null },
+          select: { id: true, status: true },
         });
+        if (released) {
+          await tx.appointment.updateMany({
+            where: { id: released.id, sessionId: id, tenantId: ctx.tenantId },
+            data: { sessionId: null },
+          });
+          await recordAudit(tx, ctx, {
+            action: 'APPOINTMENT_UPDATED',
+            patientId,
+            entityId: released.id,
+            params: { status: released.status, changedFields: ['sessionId'] },
+          });
+        }
         // The final version, of unchanged content: the annulment is what its
         // audit row says, and the note goes only into the revision (#188,
         // SPEC-clinical-revisions.md §8).

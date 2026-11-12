@@ -209,10 +209,6 @@ router.post<ParentParams>('/', async (req, res) => {
   if (!result.ok) {
     // El turno ya había producido su sesión: dos clicks en "registrar sesión",
     // o dos pestañas. La sesión no se creó, así que no hay nada que deshacer.
-    if (result.reason === 'appointment_cancelled') {
-      res.status(409).json({ error: 'Ese turno está cancelado: no se le puede registrar una sesión' });
-      return;
-    }
     if (result.reason === 'appointment_taken') {
       res.status(409).json({ error: 'Ese turno ya tiene una sesión registrada' });
       return;
