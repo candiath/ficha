@@ -20,7 +20,7 @@ export const PasswordSchema = z
   .string()
   .min(8, 'La contraseña debe tener al menos 8 caracteres')
   .refine((p) => Buffer.byteLength(p, 'utf8') <= PASSWORD_MAX_BYTES, {
-    error: 'La contraseña es demasiado larga (hasta 72 caracteres, menos si usa acentos o símbolos)',
+    error: 'La contraseña es demasiado larga: hasta 72 caracteres, y las letras con tilde, la ñ, ¿, ¡ y los emojis cuentan por más de uno',
   });
 
 // El id de una fila, tal como llega en un body o en un query string: un UUID.
