@@ -1,13 +1,13 @@
-import { Request, Router } from 'express';
+import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authRepo } from '../repositories';
 import {
   createLoginLimiter,
   HASH_SENUELO,
-  isAccountThrottled,
   LOGIN_THROTTLED,
-  recordLoginEvent,
+  reserveAttempt,
+  settleAttempt,
 } from '../lib/loginGuard';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticate } from '../middlewares/auth';
@@ -65,29 +65,14 @@ const INVALID_RESET_LINK = { error: 'El enlace no es válido o ya venció' };
 const PasswordResetCheckSchema = z.object({ token: z.string() });
 const PasswordResetSchema = z.object({ token: z.string(), newPassword: PasswordSchema });
 
-// user es null cuando el email no corresponde a ninguna cuenta: el evento
-// queda sin tenant ni usuario, pero con el email (lo que cuenta el freno).
-function recordAttempt(
-  req: Request,
-  email: string,
-  user: { id: string; tenantId: string } | null,
-  success: boolean,
-): Promise<void> {
-  return recordLoginEvent(req, {
-    email,
-    tenantId: user?.tenantId ?? null,
-    userId: user?.id ?? null,
-    success,
-  });
-}
-
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password, trustDevice } = LoginSchema.parse(req.body);
 
   // Antes de buscar el usuario y de bcrypt: un intento frenado no cuesta
-  // trabajo ni deja rastro (ver isAccountThrottled).
-  if (await isAccountThrottled(email)) {
+  // trabajo ni deja rastro (lib/loginGuard.ts).
+  const attempt = await reserveAttempt(req, 'CLINIC', email);
+  if (!attempt) {
     res.status(429).json(LOGIN_THROTTLED);
     return;
   }
@@ -111,8 +96,9 @@ router.post('/login', loginLimiter, async (req, res) => {
   // cortocircuito y con él el canal.
   const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? HASH_SENUELO);
 
+  const owner = { tenantId: user?.tenantId ?? null, userId: user?.id ?? null };
   if (!user || !user.isActive || !user.tenantActive || !passwordOk) {
-    await recordAttempt(req, email, user ?? null, false);
+    void settleAttempt(attempt, { ...owner, success: false });
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
   }
@@ -120,7 +106,8 @@ router.post('/login', loginLimiter, async (req, res) => {
   // The session is created only if the account is still as it was when the
   // password was compared (it also records lastLoginAt). If a password
   // change, a reset or a deactivation landed in between, this is a failed
-  // login like any other.
+  // login like any other. The attempt is settled once, after this: settling
+  // it as a success first would race the failure below on the same row.
   const session = await authRepo.createAuthSession({
     userId: user.id,
     tenantId: user.tenantId,
@@ -130,11 +117,11 @@ router.post('/login', loginLimiter, async (req, res) => {
     userAgent: req.get('user-agent') ?? null,
   });
   if (!session) {
-    await recordAttempt(req, email, user, false);
+    void settleAttempt(attempt, { ...owner, success: false });
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
   }
-  void recordAttempt(req, email, user, true);
+  void settleAttempt(attempt, { ...owner, success: true });
   const { token } = session;
 
   res.json({
@@ -164,9 +151,28 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
     return;
   }
 
+  // The current password is a guess too, made with a session in hand: its own
+  // brake, so rotating addresses does not get around it (area 2 review, L3).
+  // It counts per session, not per account: a stolen session that fails ten
+  // times locks itself, and the owner's own session can still change the
+  // password. When it holds, the session is revoked, and the answer is the
+  // 401 that ends it, saying why.
+  const attempt = await reserveAttempt(
+    req,
+    'CLINIC_PASSWORD_CHANGE',
+    user.email,
+    `session:${req.context.authSessionId}`,
+  );
+  if (!attempt) {
+    await authRepo.revokeAuthSession(req.context.authSessionId);
+    res.status(401).json({ error: 'Demasiados intentos con la contraseña actual: iniciá sesión de nuevo.' });
+    return;
+  }
+
   // 400 y no 401: ante un 401 fuera del login el cliente web borra el token
   // y cierra la sesión, y un typo en la contraseña actual no amerita eso.
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  void settleAttempt(attempt, { tenantId: user.tenantId, userId: user.id, success: valid });
   if (!valid) {
     res.status(400).json({ error: 'La contraseña actual es incorrecta' });
     return;
