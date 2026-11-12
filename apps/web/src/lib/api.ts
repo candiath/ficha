@@ -72,7 +72,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     recordServerTime(res.headers.get(SERVER_TIME_HEADER), sentAt, Date.now());
 
     // Token vencido/inválido o cuenta desactivada: la sesión ya no sirve.
-    if (res.status === 401 && !path.startsWith(config.loginPath)) {
+    // Only if it is still the token this request carried: another tab may have
+    // logged in meanwhile, and its session is not the one that ended.
+    if (res.status === 401 && !path.startsWith(config.loginPath) && getToken() === token) {
       setToken(null);
       window.dispatchEvent(new Event(config.unauthorizedEvent));
     }

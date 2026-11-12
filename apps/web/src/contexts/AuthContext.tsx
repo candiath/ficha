@@ -42,13 +42,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // API deploy that finishes by itself would leave the user on the login page.
   const versionSkewed = useVersionSkew() !== null;
 
+  // Bumped when another tab changes the token, so the effect below runs
+  // again (and cancels a /me still in flight for the previous token) even if
+  // it was already loading.
+  const [tokenChanges, setTokenChanges] = useState(0);
+
   useEffect(() => {
     if (!isLoading || versionSkewed || !getToken()) return;
     let cancelled = false;
+    const sent = getToken();
     authApi
       .me()
       .then((u) => {
-        if (cancelled) return;
+        // An answer for a token that is no longer this tab's is not its user.
+        if (cancelled || getToken() !== sent) return;
         setUser(u);
         setIsLoading(false);
       })
@@ -61,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isLoading, versionSkewed]);
+  }, [isLoading, versionSkewed, tokenChanges]);
 
   // Cuando cualquier request devuelve 401, el cliente HTTP limpia el token
   // y dispara este evento; acá solo se refleja en el estado de React para
@@ -78,10 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // on screen while writing as another.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== TOKEN_KEY && e.key !== null) return;
+      if (e.storageArea !== localStorage || (e.key !== TOKEN_KEY && e.key !== null)) return;
       queryClient.clear();
       setUser(null);
       setIsLoading(getToken() !== null);
+      setTokenChanges((n) => n + 1);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);

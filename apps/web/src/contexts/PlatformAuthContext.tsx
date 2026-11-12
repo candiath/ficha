@@ -33,7 +33,7 @@ export function PlatformAuthProvider({ children }: { children: ReactNode }) {
   const [tokenChanges, setTokenChanges] = useState(0);
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== PLATFORM_TOKEN_KEY && e.key !== null) return;
+      if (e.storageArea !== localStorage || (e.key !== PLATFORM_TOKEN_KEY && e.key !== null)) return;
       setOperator(null);
       setIsLoading(platformApi.getToken() !== null);
       setTokenChanges((n) => n + 1);
