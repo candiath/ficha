@@ -22,30 +22,38 @@ describe("an operator's change of a user waits for a change in flight", () => {
   });
 
   it('records the reactivation that undoes a deactivation committed while it waited', async () => {
-    await clinic.createUser({ role: 'ADMIN' }); // the clinic keeps an active ADMIN
     const user = await clinic.createUser();
 
     // A first change in flight: the user deactivated, not yet committed.
     let commit!: () => void;
     const held = new Promise<void>((r) => (commit = r));
-    let locked!: () => void;
-    const isLocked = new Promise<void>((r) => (locked = r));
+    let locked!: (pid: number) => void;
+    const isLocked = new Promise<number>((r) => (locked = r));
     const first = prisma.$transaction(
       async (tx) => {
         await tx.user.update({ where: { id: user.id }, data: { isActive: false } });
-        locked();
+        const [{ pid }] = await tx.$queryRaw<[{ pid: number }]>`SELECT pg_backend_pid() AS pid`;
+        locked(pid);
         await held;
       },
       { timeout: 20_000 },
     );
-    await isLocked;
+    const holder = await isLocked;
 
     const second = request(app)
       .patch(`/api/platform/tenants/${clinic.tenantId}/users/${user.id}`)
       .set('Authorization', `Bearer ${op.token}`)
       .send({ isActive: true });
     const response = second.then((r) => r);
-    await sleep(200); // the second change is now waiting on the user's row
+    // Wait until the second change is blocked by this transaction: with the
+    // lock it waits there before reading, without it only at its write, after
+    // a stale read. Tied to this test's backend, as the container is shared.
+    const blocked = async () => {
+      const [{ count }] = await prisma.$queryRaw<[{ count: number }]>`
+        SELECT count(*)::int AS count FROM pg_stat_activity WHERE ${holder}::int = ANY(pg_blocking_pids(pid))`;
+      return count;
+    };
+    for (let i = 0; i < 400 && (await blocked()) < 1; i++) await sleep(25);
     commit();
     await first;
 

@@ -141,8 +141,10 @@ CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();
 | --- | --- | --- |
 | What fails it | a trigger or audit function differs from what the migrations deployed, a trigger is disabled, a rule, row-level security, an unlogged table, a missing or non-restricting foreign key | the flag exists |
 | CI (`test.yml`, on `ci`) | after `migrate deploy` | — (`ci` has the flag) |
-| Render build (`migrate:prod`) | after `migrate deploy` | before `migrate deploy` |
+| Render build (`migrate:prod`) | after `migrate deploy` | before and after `migrate deploy` |
 | API startup (`src/index.ts`) | always, only logs | in production, only logs |
+
+**The flag check failing after `migrate deploy` means a migration created the flag** (`tests/noMaintenanceFlagMigration.test.ts` should have refused it). The migration has already run, and the build stops before the new code serves, but the flag stays in that database: drop it by hand now (`DROP SCHEMA ficha_ops CASCADE`), then fix the migration. Failing before `migrate deploy`, someone created it by hand.
 
 When a Render build fails on a check, the previous deploy keeps serving. Find out what changed the database before anything else: a check failing means a guarantee is gone. When the change is intended, it arrives as a new migration and new expected values in `audit-guards.sql`, in the same PR. That migration also needs an entry in the `ALLOWED` list of `tests/auditMigrationScan.test.ts`, which fails on DDL that alters the audit tables, their functions or their enums.
 
@@ -161,7 +163,7 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy` and `audit-guards.sql`, as in the Render build). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in the Render build). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
 
 - it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
 - for `production` it first runs the backup and stops if the backup fails;
