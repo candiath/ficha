@@ -171,8 +171,8 @@ export const prismaAuthRepository: AuthRepository = {
       // A trusted login enforces the cap in the same transaction: this login's
       // session and the newest TRUSTED_SESSIONS_PER_USER - 1 other live trusted
       // sessions stay, older ones are demoted to normal (not closed). Two
-      // simultaneous trusted logins can leave one too many until the next one;
-      // acceptable.
+      // simultaneous logins of one user are serialized by the conditioned
+      // write on her row above, so the second sees the first's session.
       //
       // The new session is kept by id, not by its place in the order: createdAt
       // is stamped by the API's clock with millisecond precision, so it can tie

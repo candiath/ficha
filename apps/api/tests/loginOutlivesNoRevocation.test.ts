@@ -1,9 +1,11 @@
 import bcrypt from 'bcryptjs';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { User } from '@prisma/client';
+import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { authRepo } from '../src/repositories';
-import { createTestClinic, type TestClinic } from './helpers';
+import { createTestClinic, sleep, TEST_PASSWORD, waitFor, type TestClinic } from './helpers';
 
 // A login compares the password, then creates its session. A write that cuts
 // access may land in between: the session is created only if the account is
@@ -70,5 +72,112 @@ describe('a login does not outlive a revocation that landed after its password c
     } finally {
       await other.cleanup();
     }
+  });
+});
+
+// The same, with the cut in flight rather than committed: the login waits for
+// it on the rows it locks, then creates nothing.
+describe('a login waits for a cut in flight, then creates nothing', () => {
+  let clinic: TestClinic;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+  });
+
+  afterAll(async () => {
+    await clinic.cleanup();
+  });
+
+  it('a clinic deactivation committing while the login waits on its row', async () => {
+    const user = await clinic.createUser();
+    let commit!: () => void;
+    const held = new Promise<void>((r) => (commit = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const deactivation = prisma.$transaction(
+      async (tx) => {
+        await tx.tenant.update({ where: { id: clinic.tenantId }, data: { deactivatedAt: new Date() } });
+        locked();
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    await isLocked;
+
+    const login = authRepo.createAuthSession({
+      userId: user.id,
+      tenantId: user.tenantId,
+      verifiedPasswordHash: user.passwordHash,
+      trusted: false,
+      ip: null,
+      userAgent: null,
+    });
+    await sleep(200); // the login is now waiting on the clinic's row
+    commit();
+    await deactivation;
+
+    expect(await login).toBeNull();
+    expect(await prisma.authSession.count({ where: { userId: user.id } })).toBe(0);
+    await prisma.tenant.update({ where: { id: clinic.tenantId }, data: { deactivatedAt: null } });
+  });
+
+  it('a new password committing while the login waits on her row', async () => {
+    const user = await clinic.createUser();
+    let commit!: () => void;
+    const held = new Promise<void>((r) => (commit = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const change = prisma.$transaction(
+      async (tx) => {
+        await tx.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash('otra', 4) } });
+        locked();
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    await isLocked;
+
+    const login = authRepo.createAuthSession({
+      userId: user.id,
+      tenantId: user.tenantId,
+      verifiedPasswordHash: user.passwordHash,
+      trusted: true,
+      ip: null,
+      userAgent: null,
+    });
+    await sleep(200);
+    commit();
+    await change;
+
+    expect(await login).toBeNull();
+    expect(await prisma.authSession.count({ where: { userId: user.id } })).toBe(0);
+  });
+});
+
+describe('the login route, when the account changed after its password check', () => {
+  let clinic: TestClinic;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+  });
+
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await clinic.cleanup();
+  });
+
+  it('answers the same 401 as any failed login, and records a failure', async () => {
+    const user = await clinic.createUser();
+    vi.spyOn(authRepo, 'createAuthSession').mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', '10.8.0.1')
+      .send({ email: user.email, password: TEST_PASSWORD });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Email o contraseña incorrectos' });
+    await waitFor(() => prisma.loginEvent.findFirst({ where: { email: user.email, success: false } }));
+    expect(await prisma.loginEvent.count({ where: { email: user.email, success: true } })).toBe(0);
   });
 });

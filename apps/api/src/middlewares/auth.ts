@@ -34,7 +34,7 @@ export async function authenticate(
 
   // Refresh last use at most once per throttle window: it drives idle expiry
   // and the session list, but must not turn every request into a write.
-  // Fire-and-forget like touchLastLogin: a failure only means the session may
+  // Fire-and-forget: a failure only means the session may
   // idle out a few minutes early, never a failed request.
   if (Date.now() - session.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS) {
     authRepo
