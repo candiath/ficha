@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
@@ -117,14 +118,30 @@ describe('requireRole + /api/users', () => {
     const created = await request(app)
       .post(USERS)
       .set('Authorization', `Bearer ${adminToken}`)
+      .set('User-Agent', 'navegador-de-la-admin')
       .send({ email, name: 'Invitada' });
     expect(created.status).toBe(201);
+    expect(Object.keys(created.body.data).sort()).toEqual(['invitation', 'user']);
+    expect(Object.keys(created.body.data.invitation).sort()).toEqual(['expiresAt', 'token']);
     const { token, expiresAt } = created.body.data.invitation as { token: string; expiresAt: string };
     expect(created.body.data.user.passwordResetExpiresAt).toBe(expiresAt);
 
+    // The link keeps who created it and from where: the trace #186 will read
+    // if the ADMIN uses it herself.
+    const link = await prisma.passwordResetToken.findFirstOrThrow({ where: { user: { email } } });
+    expect(link).toMatchObject({
+      createdByUserId: admin.id,
+      createdByOperatorId: null,
+      createdUserAgent: 'navegador-de-la-admin',
+    });
+    expect(link.createdIp).not.toBeNull();
+    // Her stored hash is a real bcrypt hash of the login's cost, so the login
+    // takes as long for a pending account as for any other (#71).
+    const { passwordHash } = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(bcrypt.getRounds(passwordHash)).toBe(10);
+
     const login = (password: string) =>
       request(app).post('/api/auth/login').set('X-Forwarded-For', '10.9.0.1').send({ email, password });
-    expect((await login(TEST_PASSWORD)).status).toBe(401);
 
     const reset = await request(app)
       .post('/api/auth/password-reset')

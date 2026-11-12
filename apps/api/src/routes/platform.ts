@@ -115,6 +115,10 @@ router.post('/tenants/:tenantId/users', async (req, res) => {
       res.status(404).json({ error: 'Clínica no encontrada' });
       return;
     }
+    if (result.reason === 'tenant_inactive') {
+      res.status(409).json({ error: 'La clínica está desactivada: reactivala antes de crear una ADMIN' });
+      return;
+    }
     res.status(409).json({ error: 'Ya existe un usuario con ese email' });
     return;
   }

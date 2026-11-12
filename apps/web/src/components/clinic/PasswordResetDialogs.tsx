@@ -63,9 +63,7 @@ export function PasswordResetLinkDialog({
         <DialogHeader>
           <DialogTitle>{invitation ? `Invitación para ${name}` : `Enlace para ${name}`}</DialogTitle>
           <DialogDescription>
-            {invitation
-              ? 'Con este enlace elige su contraseña y entra; nadie más la conoce. '
-              : ''}
+            {invitation ? 'Con este enlace elige su propia contraseña. ' : ''}
             Compartilo por un canal seguro: quien tenga este enlace puede entrar a la cuenta. No se
             vuelve a mostrar.
           </DialogDescription>

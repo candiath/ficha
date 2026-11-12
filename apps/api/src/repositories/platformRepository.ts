@@ -76,7 +76,7 @@ export interface PlatformAdminCreateInput {
 
 export type PlatformAdminCreateResult =
   | { ok: true; user: PlatformUserDTO; invitation: { token: string; expiresAt: string } }
-  | { ok: false; reason: 'tenant_not_found' | 'email_taken' };
+  | { ok: false; reason: 'tenant_not_found' | 'tenant_inactive' | 'email_taken' };
 
 // ─── Auditoría ───────────────────────────────────────────────────────────────
 

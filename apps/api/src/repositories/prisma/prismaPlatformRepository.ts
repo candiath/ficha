@@ -237,9 +237,12 @@ export const prismaPlatformRepository: PlatformRepository = {
       return await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.findUnique({
           where: { id: tenantId },
-          select: { id: true, name: true },
+          select: { id: true, name: true, deactivatedAt: true },
         });
         if (!tenant) return { ok: false, reason: 'tenant_not_found' } as const;
+        // Her invitation would be dead on arrival: the reset link refuses a
+        // deactivated clinic's users, and it expires before a reactivation.
+        if (tenant.deactivatedAt) return { ok: false, reason: 'tenant_inactive' } as const;
 
         // El rol es ADMIN por definición de esta operación: el operador
         // delega la administración, y los THERAPIST los crea la clínica.

@@ -79,6 +79,10 @@ The API returns the token, not a URL: the web knows its own origin and builds th
 - **Operator:** new `PlatformAction` `PASSWORD_RESET_LINK_CREATED`, same transaction.
 - **ADMIN** and **using the link**: audit rows belong to #186 (decision 4). Until then `password_reset_tokens` itself is the record — who generated each link (`created_by_*`), when and from where, and when and from where it was used — so #186 can read it without anything having been lost.
 
+### Invitations (2026-11-11)
+
+A new user has no initial password (area 2 review, M2): an ADMIN's `POST /api/users` and the operator's `POST /api/platform/tenants/:tenantId/users` create her with a disabled hash and issue her a link in the same transaction (`issuePasswordReset`), her invitation. The response is `{ user, invitation: { token, expiresAt } }`, with `Cache-Control: no-store`; a `password` in the body is a `400`. The link is the same as a reset's (24 h, single use, the same evidence columns); the operator's invitation writes `ADMIN_CREATED` and `PASSWORD_RESET_LINK_CREATED`, and the ADMIN's is not audited yet (#186). An ADMIN cannot be created in a deactivated clinic (`409`): her invitation would be dead on arrival.
+
 ## Testing Strategy
 
 API (`passwordReset.test.ts`):
