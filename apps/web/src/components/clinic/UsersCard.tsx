@@ -115,7 +115,7 @@ export default function UsersCard() {
       // The pending badge comes with the list.
       queryClient.invalidateQueries({ queryKey: userKeys.list });
       setPending(null);
-      setResetLink({ name: u.name ?? u.email, link });
+      setResetLink({ name: u.name ?? u.email, link, invitation: u.lastLoginAt === null });
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar el enlace');
@@ -133,7 +133,7 @@ export default function UsersCard() {
   }
 
   function onResetPassword(u: TenantUser) {
-    setPending({ kind: 'reset', user: u, ...passwordResetConfirmation(u.name ?? u.email) });
+    setPending({ kind: 'reset', user: u, ...passwordResetConfirmation(u.name ?? u.email, u.lastLoginAt === null) });
   }
 
   function onDisconnect(u: TenantUser) {

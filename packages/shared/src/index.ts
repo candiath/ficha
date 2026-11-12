@@ -134,6 +134,10 @@ export interface PasswordResetLink {
 export interface PasswordResetTarget {
   email: string;
   name: string | null;
+  // She never logged in: the link is her invitation, and the page asks her to
+  // choose a password rather than reset one. Nothing the link holder could not
+  // learn by trying to log in.
+  firstPassword: boolean;
 }
 
 // Usuario del tenant como lo expone GET /api/users: la identidad de AuthUser

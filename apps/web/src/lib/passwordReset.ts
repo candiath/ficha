@@ -3,7 +3,16 @@
 
 // The effects happen when the link is generated, not when it is used: the
 // confirmation says so before the ADMIN or the operator commits to it.
-export function passwordResetConfirmation(name: string) {
+export function passwordResetConfirmation(name: string, neverLoggedIn = false) {
+  // Someone who never logged in has no password or session to cut: the link
+  // is a new invitation, and the earlier one stops working.
+  if (neverLoggedIn) {
+    return {
+      title: `¿Generar una nueva invitación para ${name}?`,
+      description:
+        'Su invitación anterior deja de servir. El nuevo enlace dura 24 horas y sirve una sola vez.',
+    };
+  }
   return {
     title: `¿Restablecer la contraseña de ${name}?`,
     description:

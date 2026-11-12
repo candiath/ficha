@@ -295,6 +295,22 @@ describe('UsersCard: password reset', () => {
     expect(screen.queryByDisplayValue(url)).not.toBeInTheDocument();
   });
 
+  // Someone who never logged in has nothing to cut: the link is a new invitation.
+  it('for someone who never logged in, offers a new invitation instead', async () => {
+    list.mockResolvedValue([YO, { ...COLEGA, lastLoginAt: null }]);
+    createPasswordReset.mockResolvedValue(LINK);
+    renderCard();
+
+    const user = userEvent.setup();
+    await user.click((await fila('Colega Fisio')).getByRole('button', resetButton));
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent('¿Generar una nueva invitación para Colega Fisio?');
+    expect(confirm).not.toHaveTextContent('contraseña actual');
+
+    await user.click(within(confirm).getByRole('button', { name: 'Confirmar' }));
+    expect(await screen.findByRole('dialog', { name: 'Invitación para Colega Fisio' })).toBeInTheDocument();
+  });
+
   it('cancelling does not call the API', async () => {
     renderCard();
 

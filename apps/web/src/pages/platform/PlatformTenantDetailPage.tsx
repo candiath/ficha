@@ -156,7 +156,7 @@ export default function PlatformTenantDetailPage() {
       queryClient.invalidateQueries({ queryKey: platformKeys.users(tenantId) });
       queryClient.invalidateQueries({ queryKey: platformKeys.audit(tenantId) });
       setPending(null);
-      setResetLink({ name: u.name ?? u.email, link });
+      setResetLink({ name: u.name ?? u.email, link, invitation: u.lastLoginAt === null });
     },
     onError: (err: Error) => {
       toast.error(err.message || 'No se pudo generar el enlace');
@@ -172,7 +172,7 @@ export default function PlatformTenantDetailPage() {
 
   function onResetPassword(u: PlatformUser) {
     setPending({
-      ...passwordResetConfirmation(u.name ?? u.email),
+      ...passwordResetConfirmation(u.name ?? u.email, u.lastLoginAt === null),
       run: () => resetPassword.mutate(u),
     });
   }

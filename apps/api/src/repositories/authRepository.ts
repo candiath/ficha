@@ -90,6 +90,7 @@ export interface LoginAttempt {
 export interface PasswordResetTarget {
   email: string;
   name: string | null;
+  firstPassword: boolean;
 }
 
 // passwordHash arrives computed (bcrypt is the route's business); ip and
