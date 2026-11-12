@@ -26,6 +26,7 @@ import {
   pendingPasswordResetExpiry,
   pendingPasswordResetSelect,
 } from './passwordResetLinks';
+import { lockRow } from './changedFields';
 import { recordPlatformAudit } from './recordPlatformAudit';
 import { whereConservaAdmin } from './userRules';
 
@@ -290,6 +291,10 @@ export const prismaPlatformRepository: PlatformRepository = {
       // afirma "cambió el rol a ADMIN" sobre alguien que ya lo era. No es la
       // condición de la escritura (ésa sigue en el where de abajo): es solo
       // la referencia contra la que se decide qué hechos registrar.
+      // Locked first (area 3 review, L1): two changes crossing would both
+      // read the same "before", and the second, undoing the first, would be
+      // recorded as no change at all.
+      await lockRow(tx, 'users', userId, tenantId);
       const antes = await tx.user.findFirst({
         where: { id: userId, tenantId },
         select: { role: true, isActive: true },

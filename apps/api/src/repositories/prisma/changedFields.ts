@@ -9,7 +9,9 @@ import { Prisma } from '@prisma/client';
 // for this transaction instead of slipping in between the read and the write.
 
 // The tables whose updates are audited with changedFields, or whose writes are
-// versioned (SPEC-clinical-revisions.md §5), and the column a row is found by.
+// versioned (SPEC-clinical-revisions.md §5), or whose audit row is decided
+// against the state read first (users, by the operator), and the column a row
+// is found by.
 // A closed list: the name goes into raw SQL.
 const LOCKABLE = {
   patients: 'id',
@@ -21,6 +23,7 @@ const LOCKABLE = {
   informed_consents: 'patient_id',
   patient_events: 'id',
   appointments: 'id',
+  users: 'id',
 } as const;
 
 type LockableTable = keyof typeof LOCKABLE;

@@ -12,7 +12,7 @@
     "test:neon": "vitest run",
     "start": "node dist/index.js",
     "db:migrate": "prisma migrate dev",
-    "db:migrate:prod": "npm run db:check:no-audit-maintenance && prisma migrate deploy && npm run db:check:audit-guards",
+    "db:migrate:prod": "npm run db:check:no-audit-maintenance && prisma migrate deploy && npm run db:check:no-audit-maintenance && npm run db:check:audit-guards",
     "db:check:audit-guards": "prisma db execute --file prisma/audit-guards.sql --schema prisma/schema.prisma",
     "db:check:no-audit-maintenance": "prisma db execute --file prisma/no-audit-maintenance.sql --schema prisma/schema.prisma",
     "db:seed": "prisma db seed",
