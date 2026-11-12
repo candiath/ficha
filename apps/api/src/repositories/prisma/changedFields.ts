@@ -21,6 +21,7 @@ const LOCKABLE = {
   informed_consents: 'patient_id',
   patient_events: 'id',
   appointments: 'id',
+  users: 'id',
 } as const;
 
 type LockableTable = keyof typeof LOCKABLE;
