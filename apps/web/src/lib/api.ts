@@ -72,7 +72,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     recordServerTime(res.headers.get(SERVER_TIME_HEADER), sentAt, Date.now());
 
     // Token vencido/inválido o cuenta desactivada: la sesión ya no sirve.
-    if (res.status === 401 && !path.startsWith(config.loginPath)) {
+    // Only if it is still the token this request carried: another tab may have
+    // logged in meanwhile, and its session is not the one that ended.
+    if (res.status === 401 && !path.startsWith(config.loginPath) && getToken() === token) {
       setToken(null);
       window.dispatchEvent(new Event(config.unauthorizedEvent));
     }
@@ -119,8 +121,13 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 // necesita conocer el router ni ningún contexto de React.
 export const UNAUTHORIZED_EVENT = 'ficha:unauthorized';
 
+// The localStorage keys of the two sessions: the auth contexts listen for
+// changes to them made in another tab.
+export const TOKEN_KEY = 'ficha_token';
+export const PLATFORM_TOKEN_KEY = 'ficha_platform_token';
+
 export const api = createApiClient({
-  tokenKey: 'ficha_token',
+  tokenKey: TOKEN_KEY,
   unauthorizedEvent: UNAUTHORIZED_EVENT,
   loginPath: '/api/auth/login',
 });
@@ -133,7 +140,7 @@ export const setToken = api.setToken;
 export const PLATFORM_UNAUTHORIZED_EVENT = 'ficha:platform-unauthorized';
 
 export const platformApi = createApiClient({
-  tokenKey: 'ficha_platform_token',
+  tokenKey: PLATFORM_TOKEN_KEY,
   unauthorizedEvent: PLATFORM_UNAUTHORIZED_EVENT,
   loginPath: '/api/platform/auth/login',
 });
