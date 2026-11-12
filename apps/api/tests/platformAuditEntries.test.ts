@@ -23,6 +23,7 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     params: Record<string, unknown>;
     targetUserId: string | null;
     targetUser: { email: string; name: string | null } | null;
+    operator: { name: string | null; email: string } | null;
   };
 
   let rows: AuditRow[];
