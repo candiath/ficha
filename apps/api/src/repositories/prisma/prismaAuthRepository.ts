@@ -367,17 +367,17 @@ export const prismaAuthRepository: AuthRepository = {
     // its snapshot sees the previous holder's attempt; and a batch keeps no
     // pooled connection waiting on JS between statements, so a burst queues
     // in Postgres instead of exhausting the pool (area 2 review, L2).
-    const key = `login:${input.realm}:${input.email}`;
+    const lock = `login:${input.realm}:${input.key}`;
     const [, rows] = await prisma.$transaction([
-      prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
+      prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lock}))`,
       prisma.$queryRaw<{ id: string }[]>`
-        INSERT INTO "login_events" ("id", "realm", "email", "ip", "user_agent", "success", "created_at")
-        SELECT uuidv7(), ${input.realm}::"LoginRealm", ${input.email}, ${input.ip}::text,
+        INSERT INTO "login_events" ("id", "realm", "key", "email", "ip", "user_agent", "success", "created_at")
+        SELECT uuidv7(), ${input.realm}::"LoginRealm", ${input.key}, ${input.email}, ${input.ip}::text,
                ${input.userAgent}::text, false, clock_timestamp()
         WHERE (
           SELECT count(*) FROM (
             SELECT "success" FROM "login_events"
-            WHERE "realm" = ${input.realm}::"LoginRealm" AND "email" = ${input.email}
+            WHERE "realm" = ${input.realm}::"LoginRealm" AND "key" = ${input.key}
               AND "created_at" > ${brake.since}
             ORDER BY "created_at" DESC, "id" DESC
             LIMIT ${brake.max}

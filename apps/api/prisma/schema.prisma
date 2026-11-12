@@ -401,6 +401,11 @@ enum LoginRealm {
 model LoginEvent {
   id         String   @id @default(uuid(7)) @db.Uuid
   realm      LoginRealm @default(CLINIC)
+  // What the account brake counts by, within its realm: the email for a
+  // login; for the current password of a "change password", the credential
+  // making the guesses (session:<id> or token:<sha-256>), so a stolen one
+  // locks itself and not the account's owner. `email` stays the account's.
+  key        String
   // Email tal como se intentó (normalizado): en un fallo puede no
   // corresponder a ningún usuario.
   email      String
@@ -430,7 +435,7 @@ model LoginEvent {
   @@index([tenantId])
   @@index([createdAt])
   @@index([email])
-  @@index([realm, email, createdAt])
+  @@index([realm, key, createdAt])
   @@map("login_events")
 }
 

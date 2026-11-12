@@ -76,6 +76,9 @@ export type LoginRealm = 'CLINIC' | 'PLATFORM' | 'CLINIC_PASSWORD_CHANGE' | 'PLA
 // failure, then settled.
 export interface LoginAttemptInput {
   realm: LoginRealm;
+  // What the brake counts by within the realm (see LoginEvent.key).
+  key: string;
+  // The account's email, as attempted.
   email: string;
   ip: string | null;
   userAgent: string | null;

@@ -93,6 +93,14 @@ describe('the account brake, per realm', { timeout: 60_000 }, () => {
     const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${stolen}`);
     expect(me.status).toBe(401);
 
+    // Every row names the account by its email; the brake counted them by session.
+    const rows = await prisma.loginEvent.findMany({
+      where: { realm: 'CLINIC_PASSWORD_CHANGE', userId: user.id },
+      select: { email: true, key: true },
+    });
+    expect(rows.length).toBeGreaterThanOrEqual(10);
+    expect(rows.every((r) => r.email === user.email && r.key.startsWith('session:'))).toBe(true);
+
     // The owner's own session is not braked: she changes the password.
     expect((await change(owners, TEST_PASSWORD, 'la-nueva-de-ella')).status).toBe(204);
     expect((await clinicLogin(user.email, 'la-nueva-de-ella')).status).toBe(200);

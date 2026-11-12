@@ -92,7 +92,12 @@ router.post('/change-password', changePasswordLimiter, authenticateOperator, asy
   // Its own brake (area 2 review, L3), per token: a stolen token that fails
   // ten times locks itself, and the operator, logging in again, can still
   // change her password, which is what kills every outstanding token.
-  const attempt = await reserveAttempt(req, 'PLATFORM_PASSWORD_CHANGE', `token:${hashOpaqueToken(bearer(req)).toString('hex')}`);
+  const attempt = await reserveAttempt(
+    req,
+    'PLATFORM_PASSWORD_CHANGE',
+    operator.email,
+    `token:${hashOpaqueToken(bearer(req)).toString('hex')}`,
+  );
   if (!attempt) {
     res.status(429).json(LOGIN_THROTTLED);
     return;

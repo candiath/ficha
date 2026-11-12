@@ -150,7 +150,12 @@ router.post('/change-password', changePasswordLimiter, authenticate, async (req,
   // times locks itself, and the owner's own session can still change the
   // password. When it holds, the session is revoked, and the answer is the
   // 401 that ends it, saying why.
-  const attempt = await reserveAttempt(req, 'CLINIC_PASSWORD_CHANGE', `session:${req.context.authSessionId}`);
+  const attempt = await reserveAttempt(
+    req,
+    'CLINIC_PASSWORD_CHANGE',
+    user.email,
+    `session:${req.context.authSessionId}`,
+  );
   if (!attempt) {
     await authRepo.revokeAuthSession(req.context.authSessionId);
     res.status(401).json({ error: 'Demasiados intentos con la contraseña actual: iniciá sesión de nuevo.' });
