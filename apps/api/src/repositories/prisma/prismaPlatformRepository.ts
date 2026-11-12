@@ -251,10 +251,11 @@ export const prismaPlatformRepository: PlatformRepository = {
           select: { id: true },
         });
         await recordPlatformAudit(tx, op, { action: 'ADMIN_CREATED', tenantId, targetUserId: created.id, params: {} });
-        // Her invitation: a reset link, audited like any the operator issues.
+        // Her invitation: a reset link, audited as an invitation, so the log
+        // tells it from a reset that cut someone's access.
         const link = await issuePasswordReset(tx, created.id, { operatorId: op.operatorId }, invitation);
         await recordPlatformAudit(tx, op, {
-          action: 'PASSWORD_RESET_LINK_CREATED',
+          action: 'INVITATION_LINK_CREATED',
           tenantId,
           targetUserId: created.id,
           entityId: link.id,

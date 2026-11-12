@@ -73,9 +73,9 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     expect(rows.map((r) => r.action).sort()).toEqual([
       'ADMIN_CREATED',
       'ADMIN_CREATED',
-      // Each new ADMIN's invitation, and the reset link generated afterwards.
-      'PASSWORD_RESET_LINK_CREATED',
-      'PASSWORD_RESET_LINK_CREATED',
+      // Each new ADMIN's invitation, then the reset link generated afterwards.
+      'INVITATION_LINK_CREATED',
+      'INVITATION_LINK_CREATED',
       'PASSWORD_RESET_LINK_CREATED',
       'TENANT_DEACTIVATED',
       'TENANT_REACTIVATED',

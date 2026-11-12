@@ -291,7 +291,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       });
       expect(audit).toEqual([
         { action: 'ADMIN_CREATED', entityId: null },
-        { action: 'PASSWORD_RESET_LINK_CREATED', entityId: link.id },
+        { action: 'INVITATION_LINK_CREATED', entityId: link.id },
       ]);
       // She sets her own password with the invitation: nobody else knows it.
       const reset = await request(app)

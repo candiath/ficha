@@ -271,6 +271,7 @@ enum PlatformAction {
   USER_ACTIVE_CHANGED
   USER_DEVICES_DISCONNECTED
   PASSWORD_RESET_LINK_CREATED
+  INVITATION_LINK_CREATED
   // An action on the platform itself: the only one with no clinic (a CHECK
   // on platform_audit_logs pins it). SPEC-sysadmin-alerts.md §2.
   TEST_ALERT_SENT

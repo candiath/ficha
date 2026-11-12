@@ -629,6 +629,15 @@ export const AUDIT_ACTIONS = {
       label: 'Enlace para restablecer contraseña',
       describe: () => 'Generó un enlace para restablecer la contraseña',
     }),
+    // A new ADMIN's first link, issued with her creation: she sets her own
+    // password with it. Unlike a reset, it cuts no access she had.
+    INVITATION_LINK_CREATED: action({
+      entity: 'PASSWORD_RESET_TOKEN',
+      kind: 'create',
+      params: {},
+      label: 'Invitación',
+      describe: () => 'Generó la invitación para que elija su contraseña',
+    }),
     // An action on the platform itself: the only one with no clinic.
     TEST_ALERT_SENT: action({
       entity: 'SYSADMIN_ALERT',
