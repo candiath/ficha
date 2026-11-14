@@ -1,23 +1,22 @@
 import request from 'supertest';
-import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import {
   createTestClinic,
   createTestOperator,
-  signOperatorTestToken,
   createTestToken,
+  TEST_PASSWORD,
   type TestClinic,
   type TestOperator,
 } from './helpers';
 
 // The border between the platform operator and the clinic app, both ways. An
 // operator token opens no clinic route — not even the most harmless — and a
-// clinic session opens no platform route. It is not enough that nobody tries
-// today: forged tokens with the right shape and the wrong secret are tried
-// too. The two kinds cannot overlap: clinic tokens are opaque session ids,
-// operator tokens are JWTs.
+// clinic session opens no platform route. Both kinds are opaque tokens of 256
+// random bits; isolation rests on the tables: an operator token is looked up
+// only in platform_operator_sessions, a clinic token only in auth_sessions
+// (SPEC-operator-sessions.md).
 describe('aislamiento operador ↔ clínica', () => {
   let clinic: TestClinic;
   let admin: User;
@@ -53,43 +52,37 @@ describe('aislamiento operador ↔ clínica', () => {
     }
   });
 
-  // An operator-shaped token signed with any other secret: the platform
-  // middleware rejects the signature, and the clinic never accepts a JWT at
-  // all (its tokens are opaque sessions).
-  it('an operator token signed with another secret opens nothing', async () => {
-    const forged = signOperatorTestToken(op.operator.id, {
-      secret: 'another-secret-of-at-least-32-characters!',
-    });
+  // What a browser still holding a pre-sessions operator token sends after the
+  // deploy: a JWT's shape, built by hand since the system signs none. It names
+  // no row in either table.
+  it('an old operator JWT opens nothing', async () => {
+    const part = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const oldJwt = [
+      part({ alg: 'HS256', typ: 'JWT' }),
+      part({ kind: 'platform', sub: op.operator.id, exp: Math.floor(Date.now() / 1000) + 3600 }),
+      'c2lnbmF0dXJl',
+    ].join('.');
 
-    expect((await request(app).get('/api/platform/tenants').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
-    expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
+    for (const path of [...PLATFORM_ROUTES, ...CLINIC_ROUTES]) {
+      const res = await request(app).get(path).set('Authorization', `Bearer ${oldJwt}`);
+      expect(res.status, path).toBe(401);
+    }
   });
 
-  // User shape, platform secret: the platform rejects it by shape (tenantId),
-  // and the clinic because a JWT is not a session token, whatever its sub.
-  it('un token de usuario firmado con PLATFORM_JWT_SECRET no entra en ningún lado', async () => {
-    const forged = jwt.sign(
-      { tenantId: clinic.tenantId },
-      process.env.PLATFORM_JWT_SECRET as string,
-      { subject: admin.id, expiresIn: '1h' },
-    );
+  // A token that came out of the real login, not a fixture: its session row
+  // is in platform_operator_sessions only.
+  it('a token from the operator login opens the platform and no clinic route', async () => {
+    const login = await request(app)
+      .post('/api/platform/auth/login')
+      .send({ email: op.operator.email, password: TEST_PASSWORD });
+    expect(login.status).toBe(200);
+    const token = login.body.data.token as string;
 
-    expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
-    expect((await request(app).get('/api/platform/tenants').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
-  });
-
-  // El sub de un token de operador es un id de platform_operators. Si además
-  // trae tenantId y kind, el middleware de plataforma lo rechaza por forma
-  // aunque la firma sea la suya: un token con tenantId es de clínica.
-  it('el middleware de plataforma rechaza un token con tenantId aunque la firma sea la suya', async () => {
-    const mixed = jwt.sign(
-      { kind: 'platform', tenantId: clinic.tenantId },
-      process.env.PLATFORM_JWT_SECRET as string,
-      { subject: op.operator.id, expiresIn: '1h' },
-    );
-
-    const res = await request(app).get('/api/platform/tenants').set('Authorization', `Bearer ${mixed}`);
-    expect(res.status).toBe(401);
+    expect((await request(app).get('/api/platform/tenants').set('Authorization', `Bearer ${token}`)).status).toBe(200);
+    for (const path of CLINIC_ROUTES) {
+      const res = await request(app).get(path).set('Authorization', `Bearer ${token}`);
+      expect(res.status, path).toBe(401);
+    }
   });
 
   it('sin token, las rutas de plataforma responden el mismo 401 que las de la clínica', async () => {

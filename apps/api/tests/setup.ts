@@ -7,12 +7,6 @@ import { assertRevisionInvariant } from './revisionInvariant';
 // (la obligación de CORS_ORIGIN es solo de producción).
 process.env.NODE_ENV = 'test';
 
-// El secreto del operador de plataforma. En los tests no protege nada real
-// —firma tokens que solo viven en este proceso—, así que si el entorno no
-// trae uno se usa un valor fijo, con el mismo criterio que el cost 4 de
-// bcrypt en helpers.ts. Solo acá: la app sigue exigiéndolo por env.
-process.env.PLATFORM_JWT_SECRET ??= 'secreto-de-plataforma-solo-para-tests-0123456789';
-
 // Tests never reach Telegram (#186, SPEC-sysadmin-alerts.md §9). The local
 // .env may hold a real bot's token: the variables are emptied, and any request
 // to the Bot API fails before it leaves this process. Emptied, not deleted:
