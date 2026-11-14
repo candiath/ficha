@@ -229,9 +229,9 @@ model PasswordResetToken {
 // (forTenant inyecta el tenantId en cada query). Un "SYSADMIN" dentro de
 // users que "vea todas las clínicas" sería una excepción a esa regla en cada
 // repositorio, y users.tenantId es obligatorio: el operador no pertenece a
-// ninguna. Tiene su propio login, su propio hash y su propio secreto de JWT
-// (PLATFORM_JWT_SECRET): un token de operador no lo acepta authenticate, ni
-// uno de usuario el middleware de operador.
+// ninguna. Tiene su propio login, su propio hash y sus propias sesiones
+// (platform_operator_sessions): un token de operador no lo acepta
+// authenticate, ni uno de usuario el middleware de operador.
 // ─────────────────────────────────────────────────────────────────────────────
 model PlatformOperator {
   id                String    @id @default(uuid(7)) @db.Uuid
@@ -240,6 +240,8 @@ model PlatformOperator {
   name              String?
   isActive          Boolean   @default(true) @map("is_active")
   lastLoginAt       DateTime? @map("last_login_at")
+  // Neither read nor written since operator-sessions (a password change
+  // revokes sessions instead). Its DROP goes in a later release.
   passwordChangedAt DateTime? @map("password_changed_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -248,8 +250,33 @@ model PlatformOperator {
   loginEvents          LoginEvent[]
   passwordResetsIssued PasswordResetToken[]
   testAlerts           SysadminAlert[]
+  sessions             PlatformOperatorSession[]
 
   @@map("platform_operators")
+}
+
+// The operator's login sessions (docs/specs/SPEC-operator-sessions.md). A table
+// of its own and not a nullable operatorId on auth_sessions: the two
+// populations never share a query, a row, or a code path (isolation of #153).
+// No tenantId, so no guard classification.
+model PlatformOperatorSession {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  operatorId String    @map("operator_id") @db.Uuid
+  tokenHash  Bytes     @unique @map("token_hash") // sha256(token)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime  @map("expires_at") // absolute timeout
+  // Refreshed by authenticateOperator at most once every few minutes; drives
+  // idle expiry.
+  lastUsedAt DateTime  @default(now()) @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  // Captured at login: they cannot be backfilled later.
+  ip         String?
+  userAgent  String?   @map("user_agent")
+
+  operator PlatformOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId])
+  @@map("platform_operator_sessions")
 }
 
 // The object a platform_audit_logs row acted on (SPEC-audit-structured-entries.md).

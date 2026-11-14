@@ -73,7 +73,14 @@ export function PlatformAuthProvider({ children }: { children: ReactNode }) {
     setOperator(op);
   }, []);
 
+  // Revokes the session on the server, then forgets the token whatever the
+  // outcome: a failed request (offline, API down, session already gone) must
+  // not leave the operator logged in on this device; the session then dies on
+  // its own within 30 minutes. The client reads the token before clearing it.
   const logout = useCallback(() => {
+    if (platformApi.getToken()) {
+      platformAuthApi.logout().catch(() => {});
+    }
     platformApi.setToken(null);
     setOperator(null);
   }, []);

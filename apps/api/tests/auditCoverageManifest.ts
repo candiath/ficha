@@ -93,6 +93,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // Operator login and password (routes/platformAuth.ts)
   'POST /api/platform/auth/login': audited('login_events'),
   'POST /api/platform/auth/change-password': debt('account-audit'),
+  'POST /api/platform/auth/logout': exempt(
+    "ends the operator's own session; its revoked_at is the record (a new route cannot be debt; the clinic's logout is, to account-audit)",
+  ),
 
   // Clinical sessions (routes/sessions.ts), mounted under a patient
   'POST /api/patients/:patientId/sessions': audited('audit_logs'),

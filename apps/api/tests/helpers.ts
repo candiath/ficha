@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { expect } from 'vitest';
 import { Prisma, type PlatformOperator, type SessionType, type User, type UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
@@ -142,10 +141,11 @@ export async function createTestContext(
 export interface TestOperator {
   operator: PlatformOperator;
   token: string;
+  operatorSessionId: string;
   cleanup(): Promise<void>;
 }
 
-// Un operador de plataforma con su token. No pertenece a ninguna clínica:
+// Un operador de plataforma con una sesión real y su token. No pertenece a ninguna clínica:
 // se limpia aparte de createTestClinic, y sus filas de auditoría se borran
 // por operador (las de una clínica de test ya las borra cleanup de ésta).
 export async function createTestOperator(
@@ -168,21 +168,28 @@ export async function createTestOperator(
     await prisma.platformOperator.delete({ where: { id: operator.id } });
   }
 
-  return { operator, token: signOperatorTestToken(operator.id), cleanup };
+  const { token, operatorSessionId } = await createOperatorTestSession(operator);
+  return { operator, token, operatorSessionId, cleanup };
 }
 
-// Firma un token de operador con el secreto de plataforma, sin pasar por el
-// login. `secret` permite firmar a propósito con el secreto equivocado para
-// probar que el otro middleware lo rechaza.
-export function signOperatorTestToken(
-  operatorId: string,
-  opts: { secret?: string } = {},
-): string {
-  return jwt.sign(
-    { kind: 'platform' },
-    opts.secret ?? (process.env.PLATFORM_JWT_SECRET as string),
-    { subject: operatorId, expiresIn: '1h' },
-  );
+// A real platform_operator_sessions row and its token, without going through
+// the login: the operator's counterpart of createTestAuthSession. Its rows go
+// with the operator (ON DELETE CASCADE).
+export async function createOperatorTestSession(
+  operator: { id: string },
+  opts: { ttlMs?: number; lastUsedAt?: Date } = {},
+): Promise<{ token: string; operatorSessionId: string }> {
+  const token = generateOpaqueToken();
+  const session = await prisma.platformOperatorSession.create({
+    data: {
+      operatorId: operator.id,
+      tokenHash: hashOpaqueToken(token),
+      expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
+      ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
+    },
+    select: { id: true },
+  });
+  return { token, operatorSessionId: session.id };
 }
 
 export function sleep(ms: number): Promise<void> {

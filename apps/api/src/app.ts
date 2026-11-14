@@ -8,7 +8,6 @@ import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
 import { BUILD_VERSION_HEADER, buildVersion } from './lib/buildVersion';
-import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
 import appointmentsRouter from './routes/appointments';
@@ -35,10 +34,6 @@ import usersRouter from './routes/users';
 // importan para dispararle requests con supertest sin abrir sockets.
 const app = express();
 
-// Validate configuration while building the app: better to blow up here than
-// to find out at the first login that a setting was missing or malformed.
-getPlatformJwtSecret();
-
 // Detrás de un proxy (Render), la IP real del cliente viene en
 // X-Forwarded-For; sin esto el rate limiter vería la IP del proxy
 // y limitaría a todos los usuarios juntos.
@@ -58,8 +53,8 @@ const envOrigins = (process.env.CORS_ORIGIN ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Mismo criterio que getPlatformJwtSecret: mejor explotar al arrancar que descubrir
-// en producción que el frontend quedó bloqueado (o cualquier origen, adentro).
+// Validate configuration while building the app: better to blow up here than
+// to find out in production que el frontend quedó bloqueado (o cualquier origen, adentro).
 if (IS_PRODUCTION && envOrigins.length === 0) {
   throw new Error(
     'CORS_ORIGIN debe estar definido en producción: orígenes exactos ' +

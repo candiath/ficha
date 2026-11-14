@@ -114,13 +114,6 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
-// Response of POST /api/platform/auth/change-password. The operator is still
-// on a JWT: the change invalidates every earlier token, so a new one comes
-// back. The clinic endpoint answers 204 instead (its session survives).
-export interface ChangePasswordResponse {
-  token: string;
-}
-
 // ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
 
 // A freshly generated password reset link (POST /api/users/:id/password-reset

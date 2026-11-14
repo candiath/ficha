@@ -21,7 +21,7 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
 | DB (branch de Neon) | `production` | `staging` | `development` |
 
-Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos secretos de un mismo entorno tienen que ser distintos entre sí: la API no arranca si son iguales (ver *Operador de plataforma* en `CLAUDE.md`). Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
+Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon**, así que un token de testing no vale en producción (every session, the clinic's and the operator's, is a row in that environment's database: there is no signing secret since operator-sessions) y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
 Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci`) y su propia `CI_DATABASE_URL` (secret de GitHub). Since 2026-10-29 only release PRs to `main` and manual runs use it; PRs to `dev` run on a throwaway Postgres in Docker on the runner (see *PRs to `dev` no longer use `ci`* below).
 
