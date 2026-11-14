@@ -10,6 +10,7 @@ import {
   type TestClinic,
   type TestOperator,
 } from './helpers';
+import { fixture } from './fixtures';
 
 // What the database enforces on the coded audit rows (#186,
 // SPEC-audit-structured-entries.md §2), whatever the code sends: params holds
@@ -56,8 +57,8 @@ describe('audit rows hold codes, and say who acted', () => {
     clinic = await createTestClinic();
     operator = await createTestOperator();
     user = await clinic.createUser();
-    ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Checked Patient' },
+    ({ id: patientId } = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Checked', lastName: 'Patient' },
       select: { id: true },
     }));
   });

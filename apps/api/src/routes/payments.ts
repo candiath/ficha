@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
+  CentsSchema,
   IdSchema,
   OptionalDateTimeSchema,
   OptionalIdSchema,
@@ -10,7 +11,7 @@ import { paymentRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 
 // Las queries, la derivación del paciente desde la sesión, el cálculo de
-// finalAmount y la unicidad pago-por-sesión viven en paymentRepo; acá queda
+// finalAmountCents y la unicidad pago-por-sesión viven en paymentRepo; acá queda
 // el HTTP: validar el body, resolver paidAt y mapear reasons a status codes.
 const router = Router();
 router.param('id', idParam('Pago no encontrado'));
@@ -22,20 +23,20 @@ const PaymentCreateSchema = z
   .object({
     sessionId: IdSchema,
     packageId: OptionalIdSchema,
-    baseAmount: z.number().nonnegative(),
-    discount: z.number().nonnegative().default(0),
+    baseAmountCents: CentsSchema,
+    discountCents: CentsSchema.default(0),
     notes: OptionalTextSchema,
   })
   // El alta trae los dos montos juntos, así que acá sí alcanza con Zod. En el
   // PATCH no: es parcial y el chequeo vive en el repositorio (issue #73).
-  .refine((d) => d.discount <= d.baseAmount, {
+  .refine((d) => d.discountCents <= d.baseAmountCents, {
     error: 'El descuento no puede superar el monto base',
-    path: ['discount'],
+    path: ['discountCents'],
   });
 
 const PaymentUpdateSchema = z.object({
-  baseAmount: z.number().nonnegative().optional(),
-  discount: z.number().nonnegative().optional(),
+  baseAmountCents: CentsSchema.optional(),
+  discountCents: CentsSchema.optional(),
   status: z.enum(['PENDING', 'PAID', 'WAIVED']).optional(),
   method: z.enum(['CASH', 'TRANSFER']).optional().nullable(),
   paidAt: OptionalDateTimeSchema,
@@ -61,7 +62,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/payments/last-base-price
-// Último baseAmount de un pago sin descuento ni paquete; amount null si es
+// Último baseAmountCents de un pago sin descuento ni paquete; amountCents null si es
 // más viejo que el umbral de vigencia (la política vive en el repo).
 router.get('/last-base-price', async (req, res) => {
   const data = await paymentRepo.lastBasePrice(req.context);
@@ -100,23 +101,16 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const body = PaymentUpdateSchema.parse(req.body);
 
-  // Si se marca como PAID y no hay paidAt, se registra ahora. Se resuelve acá
-  // porque depende de distinguir "ausente" de null en el body (HTTP puro).
-  const paidAt =
-    body.paidAt !== undefined
-      ? body.paidAt
-        ? new Date(body.paidAt)
-        : null
-      : body.status === 'PAID'
-        ? new Date()
-        : undefined;
+  // Absent stays absent: the repository decides it against the status the
+  // payment ends in (now, for one that becomes PAID).
+  const paidAt = body.paidAt === undefined ? undefined : body.paidAt ? new Date(body.paidAt) : null;
 
   const result = await paymentRepo.update(
     req.context,
     req.params.id,
     {
-      baseAmount: body.baseAmount,
-      discount: body.discount,
+      baseAmountCents: body.baseAmountCents,
+      discountCents: body.discountCents,
       status: body.status,
       method: body.method,
       paidAt,
@@ -141,6 +135,15 @@ router.patch('/:id', async (req, res) => {
         return;
       case 'invalid_amounts':
         res.status(400).json({ error: 'El descuento no puede superar el monto base' });
+        return;
+      case 'paid_without_method':
+        res.status(400).json({ error: 'Un cobro pagado necesita el medio de pago' });
+        return;
+      case 'paid_without_date':
+        res.status(400).json({ error: 'Un cobro pagado necesita la fecha de pago' });
+        return;
+      case 'payment_data_without_paid':
+        res.status(400).json({ error: 'El medio y la fecha de pago van solo con un cobro pagado' });
         return;
     }
   }

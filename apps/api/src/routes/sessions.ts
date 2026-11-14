@@ -1,15 +1,17 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
+import { revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
+import { CentsSchema, IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
 import { sessionDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
   episodeRepo,
   packageRepo,
-  patientRepo,
   sessionRepo,
 } from '../repositories';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 type ParentParams = { patientId: string };
 type SessionParams = { patientId: string; sessionId: string };
@@ -77,25 +79,32 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
   payment: z
     .object({
       packageId: OptionalIdSchema,
-      baseAmount: z.number().nonnegative(),
-      discount: z.number().nonnegative().default(0),
+      baseAmountCents: CentsSchema,
+      discountCents: CentsSchema.default(0),
       notes: OptionalTextSchema,
     })
     // Mismo invariante que POST /api/payments: un descuento mayor al monto
-    // base deja finalAmount negativo, o sea un cobro que devuelve plata. Va
+    // base deja finalAmountCents negativo, o sea un cobro que devuelve plata. Va
     // acá además de allá porque ésta es la vía por la que la app crea los
     // cobros de verdad — el alta de la sesión los trae embebidos (issue #73).
-    .refine((d) => d.discount <= d.baseAmount, {
+    .refine((d) => d.discountCents <= d.baseAmountCents, {
       error: 'El descuento no puede superar el monto base',
-      path: ['discount'],
+      path: ['discountCents'],
     })
     .optional(),
 });
 
 // payment queda afuera a propósito: el pago se edita por /api/payments. Un
 // cliente que lo mande igual no rompe nada: se acepta y se descarta acá.
+//
+// An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
+// §4), and which version it was made over, so a stale form gets a 409.
 const SessionUpdateSchema = SessionFieldsSchema.partial()
-  .extend({ payment: z.unknown().optional() })
+  .extend({
+    payment: z.unknown().optional(),
+    expectedVersion: ExpectedVersionSchema,
+    ...revisionReasonFields,
+  })
   .transform(({ payment: _payment, ...fields }) => fields);
 
 // A session, a clinical note and a discharge are three facts for the clinic,
@@ -117,11 +126,6 @@ const EPISODE_RULE_ERROR = {
 // GET /api/patients/:patientId/sessions
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const { episodeId } = SessionFiltersSchema.parse(req.query);
 
   const sessions = await sessionRepo.listByPatient(req.context, req.params.patientId, {
@@ -133,11 +137,6 @@ router.get<ParentParams>('/', async (req, res) => {
 
 // GET /api/patients/:patientId/sessions/:sessionId
 router.get<SessionParams>('/:sessionId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const session = await sessionRepo.getById(
     req.context,
     req.params.patientId,
@@ -154,11 +153,6 @@ router.get<SessionParams>('/:sessionId', async (req, res) => {
 
 // POST /api/patients/:patientId/sessions
 router.post<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const { episodes, payment, appointmentId, ...rest } = SessionCreateSchema.parse(req.body);
 
   // Los episodios vienen del body: sin esta verificación, una sesión podría
@@ -219,6 +213,10 @@ router.post<ParentParams>('/', async (req, res) => {
       res.status(409).json({ error: 'Ese turno ya tiene una sesión registrada' });
       return;
     }
+    if (result.reason === 'discharge_before_opening') {
+      res.status(400).json({ error: 'El episodio abre más adelante: no se puede dar de alta antes de su apertura' });
+      return;
+    }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
     return;
   }
@@ -228,12 +226,7 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/sessions/:sessionId
 router.patch<SessionParams>('/:sessionId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
-  const { episodes, sessionDate, ...rest } = SessionUpdateSchema.parse(req.body);
+  const { episodes, sessionDate, reason, ...rest } = SessionUpdateSchema.parse(req.body);
 
   // !== undefined y no truthy: [] es un valor (una nota sin episodios) y hay
   // que distinguirlo de "el campo no vino".
@@ -262,7 +255,7 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
       action: 'SESSION_UPDATED',
       patientId: req.params.patientId,
       entityId: s.id,
-      params: { sessionType: s.sessionType, changedFields },
+      params: { sessionType: s.sessionType, changedFields, reason },
     }),
   );
 
@@ -272,6 +265,10 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
       res.status(404).json({ error: 'Sesión no encontrada' });
       return;
     }
+    if (result.reason === 'stale') {
+      res.status(409).json(STALE_EDIT);
+      return;
+    }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
     return;
   }
@@ -279,45 +276,51 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
   res.json({ data: result.session });
 });
 
-// DELETE /api/patients/:patientId/sessions/:sessionId
-// Borrado lógico, igual que pacientes: la sesión desaparece de los listados y
-// de las métricas, pero la fila queda —para no romper el pivote con episodios
-// ni la auditoría— y el borrado es reversible.
-router.delete<SessionParams>('/:sessionId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
+// POST /api/patients/:patientId/sessions/:sessionId/annul
+// A session entered by mistake is annulled, never deleted
+// (SPEC-clinical-revisions.md §8): it stays in the record struck through, with
+// its content in its history, and leaves the lists and the metrics. The reason
+// is required, like every correction's. There is no restore route yet.
+router.post<SessionParams>('/:sessionId/annul', async (req, res) => {
+  const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
-  const result = await sessionRepo.softDelete(
+  const result = await sessionRepo.annul(
     req.context,
     req.params.patientId,
     req.params.sessionId,
-    {
-      action: 'SESSION_DELETED',
+    { reasonNote },
+    (s, removedPayment) => ({
+      action: 'SESSION_ANNULLED',
       patientId: req.params.patientId,
-      entityId: req.params.sessionId,
-      params: {},
-    },
+      entityId: s.id,
+      params: {
+        sessionType: s.sessionType,
+        reason,
+        payment: removedPayment === null ? 'NONE' : `${removedPayment}_DELETED`,
+      },
+    }),
   );
 
-  // Inexistente, de otro paciente o ya borrada: mismo 404, sin revelar cuál.
+  // Inexistente, de otro paciente o ya anulada: mismo 404, sin revelar cuál.
   if (result === 'not_found') {
     res.status(404).json({ error: 'Sesión no encontrada' });
     return;
   }
 
   // La sesión existe pero ya se cobró. Plata que entró de verdad no se hace
-  // desaparecer borrando la sesión: primero se revierte el cobro, y entonces
-  // sí se puede eliminar. Mismo criterio que el 409 de los paquetes en uso.
+  // desaparecer anulando la sesión: primero se revierte el cobro, y entonces
+  // sí se puede anular. Mismo criterio que el 409 de los paquetes en uso.
   if (result === 'paid') {
     res.status(409).json({
-      error: 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de eliminarla.',
+      error: 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de anularla.',
     });
     return;
   }
 
   res.status(204).send();
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:sessionId/revisions', revisionRoutes((p) => ({ aggregate: 'session', sessionId: p.sessionId }), 'Sesión no encontrada'));
 
 export default router;

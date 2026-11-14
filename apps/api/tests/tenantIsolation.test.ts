@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // Aislamiento entre clínicas en las rutas de dominio: los ids que viajan en
 // el body (episodios, packageId, patientId) no deben poder apuntar a datos
@@ -45,11 +46,11 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     tokenA = await createTestToken(userA);
 
     async function createPatientWithEpisode(tenantId: string, fullName: string) {
-      const patient = await prisma.patient.create({
-        data: { tenantId, fullName },
+      const patient = await fixture.patient.create({
+        data: { tenantId, ...splitName(fullName) },
         select: { id: true },
       });
-      const episode = await prisma.clinicalEpisode.create({
+      const episode = await fixture.clinicalEpisode.create({
         data: { tenantId, patientId: patient.id, mainComplaint: `Motivo de ${fullName}` },
         select: { id: true },
       });
@@ -75,7 +76,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
         patientId: patientA2.id,
         name: 'Paquete A2',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -85,7 +86,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
         patientId: patientB.id,
         name: 'Paquete B',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -137,7 +138,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .patch(`${sessionsUrl(patientA.id)}/${created.body.data.id}`)
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ episodes: [{ episodeId: episodeB.id }] });
+      .send({ reason: 'DATA_ENTRY_ERROR', episodes: [{ episodeId: episodeB.id }] });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });
@@ -152,7 +153,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId: session.body.data.id, patientId: patientB.id, baseAmount: 100 });
+      .send({ sessionId: session.body.data.id, patientId: patientB.id, baseAmountCents: 100 });
 
     expect(res.status).toBe(201);
     expect(res.body.data.patientId).toBe(patientA.id);
@@ -165,7 +166,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId: session.body.data.id, packageId: packageB.id, baseAmount: 100 });
+      .send({ sessionId: session.body.data.id, packageId: packageB.id, baseAmountCents: 100 });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Paquete no encontrado' });
@@ -206,7 +207,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const payment = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId: session.body.data.id, baseAmount: 100 });
+      .send({ sessionId: session.body.data.id, baseAmountCents: 100 });
     expect(payment.status).toBe(201);
 
     const res = await request(app)

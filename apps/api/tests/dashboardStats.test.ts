@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // Stats del dashboard: además de los conteos, lo que se prueba es que las
 // agregaciones (count/groupBy/findMany) queden acotadas al tenant del token.
@@ -52,8 +53,8 @@ describe('GET /api/dashboard/stats', () => {
       fullName: string,
       opts: { deleted?: boolean } = {},
     ) {
-      return prisma.patient.create({
-        data: { tenantId, fullName, deletedAt: opts.deleted ? new Date() : null },
+      return fixture.patient.create({
+        data: { tenantId, ...splitName(fullName), deletedAt: opts.deleted ? new Date() : null },
         select: { id: true },
       });
     }
@@ -67,7 +68,7 @@ describe('GET /api/dashboard/stats', () => {
 
     // Dos episodios con el mismo mainComplaint para probar el agrupado, y uno
     // con complaint vacío que debe quedar fuera del top de patologías.
-    await prisma.clinicalEpisode.createMany({
+    await fixture.clinicalEpisode.createMany({
       data: [
         {
           tenantId: clinicA.tenantId,
@@ -79,12 +80,14 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientDischarged.id,
           status: 'DISCHARGED',
+          closedAt: new Date(),
           mainComplaint: 'Lumbalgia',
         },
         {
           tenantId: clinicA.tenantId,
           patientId: patientDischarged.id,
           status: 'DISCHARGED',
+          closedAt: new Date(),
           mainComplaint: 'Cervicalgia',
         },
         {
@@ -99,6 +102,7 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientDeleted.id,
           status: 'DISCHARGED',
+          closedAt: new Date(),
           mainComplaint: 'Hombro de paciente borrado',
         },
       ],
@@ -106,45 +110,45 @@ describe('GET /api/dashboard/stats', () => {
 
     // Sesiones de A: 2 este mes + 1 hace 3 meses. La nota rápida y la sesión
     // vieja (fuera de la ventana de 6 meses) no deben aparecer en el gráfico.
-    await prisma.session.createMany({
-      data: [
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'SESSION',
-          sessionDate: midMonthUtc(0),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'DISCHARGE',
-          sessionDate: midMonthUtc(0),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'SESSION',
-          sessionDate: midMonthUtc(3),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'NOTE',
-          sessionDate: midMonthUtc(0),
-        },
-        {
-          tenantId: clinicA.tenantId,
-          patientId: patientActive.id,
-          userId: userA.id,
-          sessionType: 'SESSION',
-          sessionDate: midMonthUtc(10),
-        },
-      ],
-    });
+    for (const session of [
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'SESSION' as const,
+        sessionDate: midMonthUtc(0),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'DISCHARGE' as const,
+        sessionDate: midMonthUtc(0),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'SESSION' as const,
+        sessionDate: midMonthUtc(3),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'NOTE' as const,
+        sessionDate: midMonthUtc(0),
+      },
+      {
+        tenantId: clinicA.tenantId,
+        patientId: patientActive.id,
+        userId: userA.id,
+        sessionType: 'SESSION' as const,
+        sessionDate: midMonthUtc(10),
+      },
+    ]) {
+      await createSessionFixture(session);
+    }
 
     // Un pago PENDING y uno PAID: solo el primero cuenta.
     const sessionsA = await prisma.session.findMany({
@@ -158,25 +162,42 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientActive.id,
           sessionId: sessionsA[0].id,
-          baseAmount: 100,
-          finalAmount: 100,
+          baseAmountCents: 100,
+          finalAmountCents: 100,
           status: 'PENDING',
         },
         {
           tenantId: clinicA.tenantId,
           patientId: patientActive.id,
           sessionId: sessionsA[1].id,
-          baseAmount: 100,
-          finalAmount: 100,
+          baseAmountCents: 100,
+          finalAmountCents: 100,
           status: 'PAID',
+          paidAt: new Date(),
+          method: 'CASH',
         },
       ],
     });
 
+    // An annulled session of this month (SPEC-clinical-revisions.md §8): it
+    // stays in the record, struck through, and counts in no metric.
+    const annulled = await createSessionFixture({
+      tenantId: clinicA.tenantId,
+      patientId: patientActive.id,
+      userId: userA.id,
+      sessionType: 'SESSION',
+      sessionDate: midMonthUtc(0),
+    });
+    const annul = await request(app)
+      .post(`/api/patients/${patientActive.id}/sessions/${annulled.id}/annul`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ reason: 'DATA_ENTRY_ERROR' });
+    expect(annul.status).toBe(204);
+
     // Ruido de la clínica B: nada de esto debe aparecer en las stats de A.
     const userB = await clinicB.createUser();
     const patientB = await createPatient(clinicB.tenantId, 'Paciente B');
-    await prisma.clinicalEpisode.create({
+    await fixture.clinicalEpisode.create({
       data: {
         tenantId: clinicB.tenantId,
         patientId: patientB.id,
@@ -184,23 +205,20 @@ describe('GET /api/dashboard/stats', () => {
         mainComplaint: 'Escoliosis de otra clínica',
       },
     });
-    const sessionB = await prisma.session.create({
-      data: {
-        tenantId: clinicB.tenantId,
-        patientId: patientB.id,
-        userId: userB.id,
-        sessionType: 'SESSION',
-        sessionDate: midMonthUtc(0),
-      },
-      select: { id: true },
+    const sessionB = await createSessionFixture({
+      tenantId: clinicB.tenantId,
+      patientId: patientB.id,
+      userId: userB.id,
+      sessionType: 'SESSION',
+      sessionDate: midMonthUtc(0),
     });
     await prisma.payment.create({
       data: {
         tenantId: clinicB.tenantId,
         patientId: patientB.id,
         sessionId: sessionB.id,
-        baseAmount: 100,
-        finalAmount: 100,
+        baseAmountCents: 100,
+        finalAmountCents: 100,
         status: 'PENDING',
       },
     });
@@ -214,6 +232,7 @@ describe('GET /api/dashboard/stats', () => {
 
   afterAll(async () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
+    await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -238,12 +257,12 @@ describe('GET /api/dashboard/stats', () => {
   });
 
   it('excluye las notas rápidas del total de sesiones', () => {
-    // 5 filas en sessions, pero una es NOTE.
+    // 6 filas en sessions, pero una es NOTE y otra está anulada.
     expect(body.totalSessions).toBe(4);
   });
 
   it('cuenta las sesiones del mes calendario actual', () => {
-    // SESSION + DISCHARGE de este mes; la NOTE del mismo mes no cuenta.
+    // SESSION + DISCHARGE de este mes; la NOTE y la anulada del mismo mes no cuentan.
     expect(body.sessionsThisMonth).toBe(2);
   });
 
@@ -269,7 +288,7 @@ describe('GET /api/dashboard/stats', () => {
       monthKey(0),
     ]);
     // Las sesiones de A caen en el mes actual (2) y hace 3 meses (1); la de
-    // hace 10 meses queda fuera de la ventana.
+    // hace 10 meses queda fuera de la ventana, y la anulada no cuenta.
     expect(body.sessionsByMonth.map((m) => m.count)).toEqual([0, 0, 1, 0, 0, 2]);
   });
 

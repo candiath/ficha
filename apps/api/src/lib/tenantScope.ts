@@ -41,12 +41,17 @@ export const TENANT_SCOPED_MODELS = [
   'InitialEvaluation',
   'Session',
   'SessionEpisode',
+  'SessionRevision',
+  'PatientRevision',
+  'EpisodeRevision',
+  'EvaluationRevision',
+  'ConsentRevision',
+  'PatientEventRevision',
   'SessionPackage',
   'Payment',
   'InformedConsent',
   'AuditLog',
   'ClinicalAlert',
-  'FunctionalScale',
   'Appointment',
 ] as const;
 

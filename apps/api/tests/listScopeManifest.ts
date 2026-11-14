@@ -71,9 +71,9 @@ export const LIST_SCOPE: Record<string, ListScope> = {
     patientId: true,
     sessionId: true,
     packageId: true,
-    baseAmount: true,
-    discount: true,
-    finalAmount: true,
+    baseAmountCents: true,
+    discountCents: true,
+    finalAmountCents: true,
     status: true,
     method: true,
     paidAt: true,
@@ -88,6 +88,8 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/patients': probed(
     {
       id: true,
+      firstName: true,
+      lastName: true,
       fullName: true,
       birthDate: true,
       sex: true,
@@ -103,6 +105,8 @@ export const LIST_SCOPE: Record<string, ListScope> = {
     // Administrative, kept in the list (Decision 2).
     ['[].referringDoctor'],
   ),
+  // Deleted patients, to restore one: names only.
+  'GET /api/patients/deleted': probed({ id: true, fullName: true, deletedAt: true }),
   'GET /api/dashboard/stats': probed(
     {
       activePatients: true,
@@ -131,7 +135,9 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/platform/auth/me': exempt('The signed-in operator.'),
   'GET /api/platform/tenants': exempt('Clinics, for the operator.'),
   'GET /api/platform/tenants/:tenantId/users': exempt('A clinic\'s staff, for the operator.'),
-  'GET /api/platform/tenants/:tenantId/audit-log': exempt('Operator actions on a clinic: codes and ids.'),
+  'GET /api/platform/tenants/:tenantId/audit-log': exempt(
+    'Operator actions on a clinic: codes, and the names and emails of the operator and the user affected, read when listed; no clinical data.',
+  ),
   'GET /api/platform/alerts': exempt('Sysadmin alerts: kinds and delivery outcomes.'),
   'GET /api/platform/alerts/bot': exempt('The Telegram bot\'s username.'),
 };

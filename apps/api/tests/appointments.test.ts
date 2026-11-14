@@ -13,6 +13,7 @@ import {
   waitFor,
   type TestClinic,
 } from './helpers';
+import { fixture } from './fixtures';
 
 const AR = 'America/Argentina/Buenos_Aires';
 
@@ -35,11 +36,11 @@ describe('turnos', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Turnos' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Turnos' },
       select: { id: true },
     });
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: {
         tenantId: clinic.tenantId,
         patientId: patient.id,
@@ -74,6 +75,115 @@ describe('turnos', () => {
   function listar(from: string, to: string) {
     return auth(request(app).get(`/api/appointments?from=${from}&to=${to}`));
   }
+
+  // The audit rows of one appointment, oldest first.
+  const auditRows = (entityId: string) =>
+    prisma.auditLog.findMany({
+      where: { entityId, tenantId: clinic.tenantId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+  // ── Audit ─────────────────────────────────────────────────────────────────
+
+  it('a series leaves one audit row per appointment, naming its author', async () => {
+    const res = await agendar({
+      date: fechaClinica(40),
+      time: '09:00',
+      repeat: { everyWeeks: 1, occurrences: 3 },
+    });
+    expect(res.status).toBe(201);
+
+    for (const turno of res.body.data as { id: string }[]) {
+      const rows = await auditRows(turno.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        action: 'APPOINTMENT_SCHEDULED',
+        entity: 'APPOINTMENT',
+        patientId: patient.id,
+        userId: user.id,
+        actorType: 'USER',
+        params: {},
+      });
+      expect(rows[0].authSessionId).not.toBeNull();
+    }
+  });
+
+  it('a change of status records the status left and the field changed', async () => {
+    const creado = await agendar({ date: fechaClinica(41), time: '10:00' });
+    const id: string = creado.body.data[0].id;
+
+    await auth(request(app).patch(`/api/appointments/${id}`)).send({ status: 'CONFIRMED' }).expect(200);
+
+    const rows = await auditRows(id);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({
+      action: 'APPOINTMENT_UPDATED',
+      params: { status: 'CONFIRMED', changedFields: ['status'] },
+    });
+  });
+
+  it('moving an appointment names its stored columns, never the date', async () => {
+    const creado = await agendar({ date: fechaClinica(42), time: '10:00' });
+    const id: string = creado.body.data[0].id;
+
+    await auth(request(app).patch(`/api/appointments/${id}`)).send({ time: '11:00' }).expect(200);
+
+    const rows = await auditRows(id);
+    expect(rows[1]).toMatchObject({
+      action: 'APPOINTMENT_UPDATED',
+      params: { status: 'SCHEDULED', changedFields: ['startsAt', 'endsAt'] },
+    });
+  });
+
+  it('a request that changes nothing records nothing and keeps the cancellation date', async () => {
+    const creado = await agendar({ date: fechaClinica(43), time: '10:00', notes: 'Nota' });
+    const id: string = creado.body.data[0].id;
+    const cancelado = await auth(request(app).patch(`/api/appointments/${id}`)).send({ status: 'CANCELLED' });
+
+    const repetido = await auth(request(app).patch(`/api/appointments/${id}`)).send({
+      status: 'CANCELLED',
+      notes: 'Nota',
+    });
+
+    expect(repetido.status).toBe(200);
+    expect(repetido.body.data.cancelledAt).toBe(cancelado.body.data.cancelledAt);
+    expect((await auditRows(id)).map((r) => r.action)).toEqual(['APPOINTMENT_SCHEDULED', 'APPOINTMENT_CANCELLED']);
+  });
+
+  it('cancelling and editing in one request records both facts', async () => {
+    const creado = await agendar({ date: fechaClinica(44), time: '10:00' });
+    const id: string = creado.body.data[0].id;
+
+    await auth(request(app).patch(`/api/appointments/${id}`)).send({ status: 'CANCELLED', notes: 'Avisó' }).expect(200);
+
+    const rows = await auditRows(id);
+    expect(rows.slice(1).map((r) => [r.action, r.params])).toEqual([
+      ['APPOINTMENT_CANCELLED', {}],
+      ['APPOINTMENT_UPDATED', { status: 'CANCELLED', changedFields: ['notes'] }],
+    ]);
+  });
+
+  it('cancelling a series records only the appointments it cancelled', async () => {
+    const creado = await agendar({
+      date: fechaClinica(45),
+      time: '10:00',
+      repeat: { everyWeeks: 1, occurrences: 3 },
+    });
+    const [primero, segundo, tercero] = creado.body.data as { id: string }[];
+    await auth(request(app).patch(`/api/appointments/${segundo.id}`)).send({ status: 'COMPLETED' }).expect(200);
+
+    const res = await auth(request(app).post(`/api/appointments/${primero.id}/cancel-series`)).send({});
+    expect(res.body.data).toEqual({ cancelled: 2 });
+
+    for (const id of [primero.id, tercero.id]) {
+      expect((await auditRows(id)).map((r) => r.action)).toEqual(['APPOINTMENT_SCHEDULED', 'APPOINTMENT_CANCELLED']);
+    }
+    expect((await auditRows(segundo.id)).map((r) => r.action)).not.toContain('APPOINTMENT_CANCELLED');
+
+    const otra = await auth(request(app).post(`/api/appointments/${primero.id}/cancel-series`)).send({});
+    expect(otra.body.data).toEqual({ cancelled: 0 });
+    expect((await auditRows(primero.id)).filter((r) => r.action === 'APPOINTMENT_CANCELLED')).toHaveLength(1);
+  });
 
   // ── Lo básico ─────────────────────────────────────────────────────────────
 
@@ -351,8 +461,8 @@ describe('turnos', () => {
   });
 
   it('rechaza vincular el turno de otro paciente', async () => {
-    const otro = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Sin Turno' },
+    const otro = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Sin', lastName: 'Turno' },
       select: { id: true },
     });
     const creado = await agendar({ date: fechaClinica(-3), time: '12:00' });
@@ -410,11 +520,11 @@ describe('turnos', () => {
   });
 
   it('rechaza un episodio que no es del paciente', async () => {
-    const otro = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro Paciente' },
+    const otro = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
       select: { id: true },
     });
-    const episodioAjeno = await prisma.clinicalEpisode.create({
+    const episodioAjeno = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: otro.id },
       select: { id: true },
     });
@@ -427,6 +537,30 @@ describe('turnos', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/[Ee]pisodio/);
+  });
+
+  it('PATCH refuses an episode of another patient with 400 and writes nothing', async () => {
+    const otro = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
+      select: { id: true },
+    });
+    const episodioAjeno = await fixture.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: otro.id },
+      select: { id: true },
+    });
+    const creado = await agendar({ date: fechaClinica(43), time: '09:00' });
+    const id: string = creado.body.data[0].id;
+
+    const res = await auth(request(app).patch(`/api/appointments/${id}`)).send({
+      episodeId: episodioAjeno.id,
+      notes: 'No debería guardarse',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/[Ee]pisodio/);
+    await expect(
+      prisma.appointment.findUniqueOrThrow({ where: { id }, select: { episodeId: true, notes: true } }),
+    ).resolves.toEqual({ episodeId: null, notes: null });
   });
 
   it('rechaza un rango de fechas demasiado grande', async () => {
@@ -449,8 +583,8 @@ describe('turnos', () => {
     try {
       const otroUser = await otra.createUser();
       const otroToken = await createTestToken(otroUser);
-      const otroPaciente = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+      const otroPaciente = await fixture.patient.create({
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
 
@@ -477,6 +611,7 @@ describe('turnos', () => {
       expect(intento.status).toBe(404);
     } finally {
       await prisma.appointment.deleteMany({ where: { tenantId: otra.tenantId } });
+      await deleteAuditRows([otra.tenantId]);
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });
       await otra.cleanup();
     }

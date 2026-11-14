@@ -13,9 +13,15 @@ export const EmailSchema = z.string().trim().toLowerCase().pipe(z.email());
 // Política mínima para contraseñas nuevas (alta de usuario y cambio).
 // El login NO la usa: ahí se acepta cualquier cosa y decide bcrypt.compare,
 // porque rechazar por formato revelaría pistas sobre la política.
+// bcrypt reads only the first 72 bytes of a password: a longer one is
+// refused, so no two passwords that share them can log in as each other.
+export const PASSWORD_MAX_BYTES = 72;
 export const PasswordSchema = z
   .string()
-  .min(8, 'La contraseña debe tener al menos 8 caracteres');
+  .min(8, 'La contraseña debe tener al menos 8 caracteres')
+  .refine((p) => Buffer.byteLength(p, 'utf8') <= PASSWORD_MAX_BYTES, {
+    error: 'La contraseña es demasiado larga: hasta 72 caracteres, y las letras con tilde, la ñ, ¿, ¡ y los emojis cuentan por más de uno',
+  });
 
 // El id de una fila, tal como llega en un body o en un query string: un UUID.
 //
@@ -26,7 +32,22 @@ export const PasswordSchema = z
 //   - en el body o el query, 400: el cliente mandó un dato inválido;
 //   - en la URL, 404 (middlewares/idParam.ts): un id con forma imposible es
 //     un recurso que no existe, y responder otra cosa cambiaría el contrato.
-export const IdSchema = z.uuid('Id inválido');
+//
+// It comes out in lowercase, the form Postgres returns a `uuid` in. Postgres
+// compares uuids regardless of case, but the API also compares ids in code: a
+// session's blocks are matched to the stored ones by `episodeId`, and an
+// uppercase id would miss, rebuild its block from empty and write a revision
+// for a save that changed nothing.
+export const IdSchema = z.uuid('Id inválido').transform((id) => id.toLowerCase());
+
+// An amount of money, in integer cents: $1.234,56 is 123456. Integers keep the
+// arithmetic exact; a float of pesos rounds differently in two places, and a
+// third decimal used to be accepted and then lost to the column's rounding.
+export const CentsSchema = z
+  .number()
+  .int('El monto va en centavos: un número entero')
+  .nonnegative('El monto no puede ser negativo')
+  .max(Number.MAX_SAFE_INTEGER);
 
 export function isId(value: unknown): value is string {
   return IdSchema.safeParse(value).success;

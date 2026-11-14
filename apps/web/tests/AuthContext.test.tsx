@@ -20,6 +20,7 @@ function response(status: number, body?: unknown) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(),
     json: () => Promise.resolve(body ?? {}),
   };
 }
@@ -136,5 +137,92 @@ describe('login', () => {
 
     await waitFor(() => expect(localStorage.getItem('ficha_token')).toBe('new-token'));
     expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
+  });
+});
+
+describe('another tab', () => {
+  const OTHER = { ...USER, id: 'u2', email: 'beto@example.com', name: 'Beto' };
+
+  // localStorage changed elsewhere: a `storage` event, as the browser fires it.
+  function otherTabSets(token: string | null) {
+    if (token) localStorage.setItem('ficha_token', token);
+    else localStorage.removeItem('ficha_token');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'ficha_token', newValue: token, storageArea: localStorage }),
+    );
+  }
+
+  it('a logout there logs this tab out and forgets its records', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(200, { data: USER }))));
+    const queryClient = new QueryClient();
+    await renderLoggedIn(queryClient);
+    queryClient.setQueryData(['patients', 'p1', 'sessions'], [{ observations: 'Notas clínicas' }]);
+
+    otherTabSets(null);
+
+    expect(await screen.findByText('logged out')).toBeInTheDocument();
+    expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
+  });
+
+  it('a login there as someone else shows this tab the new user, with an empty cache', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+        return Promise.resolve(response(200, { data: auth === 'Bearer other-token' ? OTHER : USER }));
+      }),
+    );
+    const queryClient = new QueryClient();
+    await renderLoggedIn(queryClient);
+    queryClient.setQueryData(['patients', 'p1', 'sessions'], [{ observations: 'Notas clínicas' }]);
+
+    otherTabSets('other-token');
+
+    expect(await screen.findByText(`logged in as ${OTHER.email}`)).toBeInTheDocument();
+    expect(queryClient.getQueryData(['patients', 'p1', 'sessions'])).toBeUndefined();
+  });
+});
+
+describe('another tab, while this one is still reading its user', () => {
+  // The token changes while the first /me is in flight: its answer, for the
+  // old token, must not become this tab's user.
+  it('shows the new user, not the one the stale /me answered for', async () => {
+    const OTHER = { ...USER, id: 'u2', email: 'beto@example.com', name: 'Beto' };
+    let answerFirst!: () => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+        if (auth === 'Bearer other-token') return Promise.resolve(response(200, { data: OTHER }));
+        return new Promise((resolve) => (answerFirst = () => resolve(response(200, { data: USER }))));
+      }),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    localStorage.setItem('ficha_token', 'other-token');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'ficha_token', newValue: 'other-token', storageArea: localStorage }),
+    );
+    expect(await screen.findByText(`logged in as ${OTHER.email}`)).toBeInTheDocument();
+    answerFirst();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText(`logged in as ${OTHER.email}`)).toBeInTheDocument();
+  });
+
+  it('ignores a change to another key or to sessionStorage', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(200, { data: USER }))));
+    await renderLoggedIn();
+
+    window.dispatchEvent(new StorageEvent('storage', { key: 'otra-cosa', newValue: 'x', storageArea: localStorage }));
+    window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: sessionStorage }));
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText(`logged in as ${USER.email}`)).toBeInTheDocument();
   });
 });

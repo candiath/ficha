@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useBeforeUnload } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Calendar, Check, CreditCard, FileText, ListChecks, Plus, Trash2 } from 'lucide-react'
+import { useUnsavedChanges } from '@/lib/unsavedChanges'
+import { Ban, Calendar, Check, CreditCard, FileText, ListChecks, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField'
+import { useRevisionReason } from '@/hooks/useRevisionReason'
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit'
 import { Button } from '@/components/ui/button'
 import { DirtyLabel } from '@/components/ui/dirty-label'
 import { Input } from '@/components/ui/input'
@@ -38,8 +42,9 @@ import {
 } from '@/components/ui/select'
 import type { AppointmentListItem } from '@ficha/shared'
 import { appointmentKeys } from '@/services/appointments'
+import { centsToInput, parsePesos } from '@/lib/money'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
-import { sessionApi } from '@/services/sessions'
+import { sessionApi, sessionKeys } from '@/services/sessions'
 import { episodeApi, episodeKeys } from '@/services/episodes'
 import { globalSessionKeys } from '@/services/globalSessions'
 import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge'
@@ -49,6 +54,12 @@ import {
 } from '@/lib/sessionDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
 import type { Session, SessionEpisodeBlock, SessionType } from '@/types/session'
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog'
+import AnnulDialog from '@/components/patients/AnnulDialog'
+import { ApiError } from '@/lib/api'
+import type { AnnulData } from '@/types/patient'
+import { renderSessionSnapshot } from '@/lib/revisionRows'
+import { revisionPaths } from '@/services/revisions'
 
 const schema = z.object({
   sessionDate: z
@@ -173,16 +184,23 @@ export default function SessionFormModalWide({
   onOpenChange,
   patientId,
   episodeId,
-  session,
+  session: loadedSession,
   sessionType = 'SESSION',
   onSuccess,
   appointment,
 }: SessionFormModalWideProps) {
   const queryClient = useQueryClient()
+  // A 409 offers to reload: the version read then replaces the one that was opened.
+  const [reloadedSession, setReloadedSession] = useState<Session>()
+  const session = reloadedSession ?? loadedSession
   const isEditing = !!session
+  const revision = useRevisionReason()
+  // The API's message when someone else saved first; what was typed stays.
+  const [staleMessage, setStaleMessage] = useState<string | null>(null)
   const dateTolerances = useSessionDateTolerances()
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showAnnul, setShowAnnul] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const { data: episodes = [] } = useQuery({
     queryKey: episodeKeys.list(patientId),
@@ -261,6 +279,14 @@ export default function SessionFormModalWide({
   }
 
   useEffect(() => {
+    if (open) return
+    setReloadedSession(undefined)
+    setStaleMessage(null)
+    revision.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on close only
+  }, [open])
+
+  useEffect(() => {
     if (!open) return
     removedBlocks.current.clear()
     if (isEditing) {
@@ -298,16 +324,16 @@ export default function SessionFormModalWide({
   // arriba, lo que descartaba toda edición previa al cargar el precio.)
   useEffect(() => {
     if (!open || isEditing) return
-    if (lastPriceData?.amount == null) return
+    if (lastPriceData?.amountCents == null) return
     if (form.getFieldState('baseAmount').isDirty) return
-    form.setValue('baseAmount', String(lastPriceData.amount))
+    form.setValue('baseAmount', centsToInput(lastPriceData.amountCents))
   }, [open, isEditing, lastPriceData, form])
 
   const selectedPackageId = form.watch('packageId')
   useEffect(() => {
     if (!selectedPackageId) return
     const pkg = activePackages.find((p) => p.id === selectedPackageId)
-    if (pkg) form.setValue('baseAmount', String(pkg.pricePerSession))
+    if (pkg) form.setValue('baseAmount', centsToInput(pkg.pricePerSessionCents))
   }, [selectedPackageId, activePackages, form])
 
   const mutation = useMutation({
@@ -332,7 +358,14 @@ export default function SessionFormModalWide({
       // omitirlo deja intacto el tipo con el que se registró la sesión (una
       // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
-        return sessionApi.update(patientId, session.id, sessionData)
+        // The submit checked it; this keeps a correction from leaving without one.
+        if (!revision.reason) throw new Error(MISSING_REASON)
+        return sessionApi.update(patientId, session.id, {
+          ...sessionData,
+          expectedVersion: session.version,
+          reason: revision.reason,
+          reasonNote: revision.note,
+        })
       }
 
       // Un solo request: la API crea sesión + pago en una transacción, así un
@@ -347,8 +380,10 @@ export default function SessionFormModalWide({
         ...(appointment ? { appointmentId: appointment.id } : {}),
         payment: {
           packageId: values.packageId,
-          baseAmount: parseFloat(values.baseAmount ?? '0'),
-          discount: values.discount ? parseFloat(values.discount) : 0,
+          // The form holds pesos as typed; the API takes cents. Checked on
+          // submit, so both parse here.
+          baseAmountCents: parsePesos(values.baseAmount ?? '') ?? 0,
+          discountCents: values.discount?.trim() ? (parsePesos(values.discount) ?? 0) : 0,
           notes: values.paymentNotes,
         },
       })
@@ -375,21 +410,39 @@ export default function SessionFormModalWide({
       form.reset()
       onSuccess?.()
     },
-    onError: () => {
-      toast.error('Error al guardar la sesión')
+    // The API's message says what to fix (an episode that opens later, an
+    // appointment already recorded).
+    onError: (err: Error) => {
+      if (isStaleEdit(err) && isEditing) {
+        setStaleMessage(err.message)
+        return
+      }
+      toast.error(err.message || 'Error al guardar la sesión')
     },
   })
 
-  // Borrado de una sesión cargada por error. Invalida lo mismo que el guardado
-  // —listados del paciente, episodios, listado global y cobros— porque el
-  // borrado también se lleva el cobro pendiente de la sesión. Y la agenda: si
-  // la sesión salió de un turno, la API lo soltó y el turno vuelve a ofrecer
-  // "registrar la sesión". Al editar no se sabe si hubo turno, así que se
-  // invalida siempre.
-  const deleteMutation = useMutation({
-    mutationFn: () => {
-      if (!session) throw new Error('No hay sesión que eliminar')
-      return sessionApi.remove(patientId, session.id)
+  const reloadMutation = useMutation({
+    mutationFn: () => sessionApi.get(patientId, session!.id),
+    onSuccess: (fresh) => {
+      setReloadedSession(fresh)
+      setStaleMessage(null)
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId) })
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo recargar la sesión')
+    },
+  })
+
+  // Annulling a session entered by mistake (SPEC-clinical-revisions.md §8). It
+  // invalidates what saving does —the patient's lists, episodes, the global
+  // list and payments— because the annulment also takes the session's pending
+  // payment. And the agenda: if the session came from an appointment, the API
+  // released it and it offers "registrar la sesión" again. Editing does not
+  // know whether there was one, so it is always invalidated.
+  const annulMutation = useMutation({
+    mutationFn: (data: AnnulData) => {
+      if (!session) throw new Error('No hay sesión que anular')
+      return sessionApi.annul(patientId, session.id, data)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -403,8 +456,8 @@ export default function SessionFormModalWide({
       queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
       queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
-      toast.success('Sesión eliminada')
-      setShowDeleteConfirm(false)
+      toast.success('Sesión anulada')
+      setShowAnnul(false)
       onOpenChange(false)
       form.reset()
       onSuccess?.()
@@ -413,8 +466,20 @@ export default function SessionFormModalWide({
       // El 409 de "ya está cobrada" trae un mensaje que le sirve al usuario
       // (dice qué hacer antes), así que se muestra tal cual en vez de un
       // genérico. api.ts ya lo trae en err.message.
-      toast.error(err.message || 'Error al eliminar la sesión')
-      setShowDeleteConfirm(false)
+      toast.error(err.message || 'Error al anular la sesión')
+      setShowAnnul(false)
+      // Annulled or gone meanwhile (404): the lists show what it is now, and
+      // the form has nothing left to edit.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({
+          predicate: (q) =>
+            Array.isArray(q.queryKey) &&
+            q.queryKey[0] === 'patients' &&
+            q.queryKey[1] === patientId &&
+            q.queryKey.includes('sessions'),
+        })
+        onOpenChange(false)
+      }
     },
   })
 
@@ -426,11 +491,8 @@ export default function SessionFormModalWide({
 
   // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
   // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
-  useBeforeUnload(
-    useCallback((e) => {
-      if (open && hasUnsavedChanges) e.preventDefault()
-    }, [open, hasUnsavedChanges]),
-  )
+  // También le avisa al aviso de versión nueva (lib/unsavedChanges.ts).
+  useUnsavedChanges(open && hasUnsavedChanges)
 
   // Interceptamos el cierre del modal (Escape, click fuera, botón X o "Cancelar"):
   // si hay cambios sin guardar, pedimos confirmación antes de descartar.
@@ -460,12 +522,30 @@ export default function SessionFormModalWide({
                 sesión común: ahí no habría nada que distinguir. */}
             {isEditing && <SessionTypeBadge type={session.sessionType} className="shrink-0" />}
           </div>
+          {isEditing && (
+            <RevisionHistoryButton className="-ml-2 self-start" onClick={() => setHistoryOpen(true)} />
+          )}
           {!isEditing && sessionType === 'DISCHARGE' && (
             <DialogDescription>
               Al guardar, el motivo queda cerrado con fecha de alta.
             </DialogDescription>
           )}
         </DialogHeader>
+
+        {/* Nested in this dialog, so a click in it is not outside this one. */}
+        {isEditing && (
+          <RevisionHistoryDialog
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            patientId={patientId}
+            base={revisionPaths.session(patientId, session.id)}
+            title="Historial de la sesión"
+            render={renderSessionSnapshot}
+            renderContext={{
+              episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio',
+            }}
+          />
+        )}
 
         <Form {...form}>
           <form
@@ -474,11 +554,20 @@ export default function SessionFormModalWide({
                 form.setError('baseAmount', { message: 'El monto base es requerido' })
                 return
               }
+              if (!isEditing && parsePesos(v.baseAmount ?? '') === null) {
+                form.setError('baseAmount', { message: 'Un monto en pesos, con hasta dos decimales' })
+                return
+              }
+              if (!isEditing && v.discount?.trim() && parsePesos(v.discount) === null) {
+                form.setError('discount', { message: 'Un monto en pesos, con hasta dos decimales' })
+                return
+              }
               // Solo una nota puede no tratar ningún motivo (la API lo exige igual).
               if (effectiveType !== 'NOTE' && v.blocks.length === 0) {
                 form.setError('blocks', { message: 'Elegí al menos un motivo' })
                 return
               }
+              if (isEditing && !revision.require()) return
               mutation.mutate(v)
             })}
             className="p-4 sm:p-6"
@@ -856,20 +945,33 @@ export default function SessionFormModalWide({
               </div>
             )}
 
+            {isEditing && (
+              <div className="mt-6 space-y-3">
+                <RevisionReasonField {...revision.fieldProps} />
+                {staleMessage && (
+                  <StaleRecordNotice
+                    message={staleMessage}
+                    reloading={reloadMutation.isPending}
+                    onReload={() => reloadMutation.mutate()}
+                  />
+                )}
+              </div>
+            )}
+
             <DialogFooter className="mt-6 pt-4 border-t gap-2 flex-col-reverse sm:flex-row">
-              {/* Solo al editar: una sesión que todavía no existe no se borra.
+              {/* Solo al editar: una sesión que todavía no existe no se anula.
                   sm:mr-auto lo separa de las acciones de guardado — es una
                   acción destructiva y no debe quedar pegada a "Guardar". */}
               {isEditing && (
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  disabled={deleteMutation.isPending}
+                  onClick={() => setShowAnnul(true)}
+                  disabled={annulMutation.isPending}
                   className="w-full sm:w-auto sm:mr-auto text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  <Trash2 className="h-4 w-4" />
-                  Eliminar
+                  <Ban className="h-4 w-4" />
+                  Anular
                 </Button>
               )}
               <Button
@@ -898,31 +1000,21 @@ export default function SessionFormModalWide({
       </DialogContent>
     </Dialog>
 
-    {/* Confirmación de borrado */}
-    <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>¿Eliminar esta sesión?</DialogTitle>
-          <DialogDescription>
-            Deja de aparecer en el historial del paciente, en el listado de sesiones y
-            en las estadísticas. Si tenía un cobro pendiente, también se elimina.
-            {' '}Si la sesión ya está cobrada, primero hay que revertir el cobro.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
-            Cancelar
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => deleteMutation.mutate()}
-            disabled={deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? 'Eliminando...' : 'Eliminar sesión'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {/* Annulment, with its reason */}
+    <AnnulDialog
+      open={showAnnul}
+      onOpenChange={setShowAnnul}
+      title="¿Anular esta sesión?"
+      description={
+        <>
+          Queda en la ficha del paciente tachada, con su historial, y deja de contar en el
+          listado de sesiones y en las estadísticas. Si tenía un cobro pendiente, se elimina.
+          {' '}Si la sesión ya está cobrada, primero hay que revertir el cobro.
+        </>
+      }
+      pending={annulMutation.isPending}
+      onConfirm={(reason, reasonNote) => annulMutation.mutate({ reason, reasonNote })}
+    />
 
     {/* Confirmación al cerrar con cambios sin guardar */}
     <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>

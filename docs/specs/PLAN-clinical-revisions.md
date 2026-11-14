@@ -1,0 +1,534 @@
+# Implementation Plan: clinical-revisions
+
+Spec: [`SPEC-clinical-revisions.md`](SPEC-clinical-revisions.md) (approved 2026-11-01), *Rollout* steps 0 to 6. Map: [`audit-map.md`](audit-map.md).
+
+## Overview
+
+Every write to a clinical aggregate stores a snapshot of its new state in an append-only revisions table, in the same transaction as the write and its audit row. Concurrent edits get a `409`, a no-op save writes nothing, and the record can show every past version.
+
+Seven PRs against `dev`, one per rollout step, in order. Each one leaves `dev` working: the API and the web change together in every step that changes a request. All seven land before the relaunch's wipe (#238).
+
+## Architecture Decisions
+
+- **Step 0 blocks nothing in steps 1–6.** No later step needs Postgres 18: revision ids come from the app, and `uuidv7()` is only for future SQL data migrations. Step 0 goes first in the spec's order, but it can run alongside steps 1 and 2. It only has to finish before the relaunch.
+- **Postgres 18 is a new Neon project** (decided 2026-11-01). Each branch moves by dump and restore, with the procedure in `docs/infra.md`, which gets proven on 18 along the way; `ci` starts empty. The URLs never enter the chat: you put them in an ignored env file, and commands load it.
+- **The `reason` parameter is attached per aggregate, in the step that versions it** (2, 3, 5), not all in step 1. The catalog validates writes strictly, so a parameter added to `SESSION_UPDATED` is required from that commit on, and every session edit would fail until the form sends it. Step 1 adds only the list of reason codes. This departs from the spec's rollout line for step 1; the step 2 PR updates the spec.
+- **Test cleanup goes through `deleteAuditRows`.** Revisions reference their audit row with `RESTRICT`, so `deleteAuditRows(tenantIds)` has to delete the clinics' revisions first anyway, in the same maintenance transaction. Most of the 35 files that hard-delete clinical rows already call it first and need no change. Only tests that delete clinical rows before the audit rows, or delete one aggregate in the middle of a file, change: the second kind gets `deleteRevisions(table, ids)`. This replaces the spec's "the ~35 files call `deleteRevisions`".
+- **One migration per PR, rebuilt until final.** It is written with `prisma migrate diff` plus hand-written SQL (`migrate dev` hangs without a TTY) and applied from empty by `npm test` on Docker each run. Steps 1, 2, 3 and 5 add one migration each (step 6 needs none). Before each of those PRs opens, the migration is rehearsed on a Neon branch copied from `production` through the MCP (`run_sql_transaction`, then `audit-guards.sql` through `run_sql`). The branch is deleted afterwards.
+- **An aggregate with no revision is version 0.** Rows created before its step (staging, development, the production trial) have none. Their first edit writes version 1 with the new state; nothing else gives them one (step 6: they are wiped or reseeded). Nothing refuses a write for lack of history.
+- **Fixtures follow the step.** The invariant helper checks an aggregate only from the step that versions it. That step switches the fixtures that insert that aggregate directly to a helper that also writes version 1. Today that is 115 direct writes across 29 test files, spread over steps 2 and 3.
+- **Docs go with each PR**, not at the end: each step can be released on its own, and `CLAUDE.md` and `docs/infra.md` must describe what `main` runs.
+
+## Task List
+
+### Step 0: Postgres 18 (PR 0)
+
+- [x] **Task 0.1: The new Neon project**
+  - *Acceptance:*
+    - A new project on Postgres 18, in the current project's region, with the same compute and history-retention settings. You create it, or I do it through the MCP with your permission.
+    - Its root branch will be `production`. `staging`, `development` and `ci` are created while the root is still empty, so they inherit nothing from it.
+    - You put the old and new URLs of each branch in `apps/api/.env.pg18` (ignored by `.env.*`). Commands load that file, and nothing prints a URL.
+  - *Files:* none in the repo. **XS**
+- [x] **Task 0.2: The test container and CI on 18**
+  - *Acceptance:*
+    - `docker-compose.yml` uses `postgres:18`. The tmpfs moves to `/var/lib/postgresql`: the 18 image keeps its data in `/var/lib/postgresql/18/docker`, so a mount at the old `.../data` no longer holds it (check what its entrypoint does with one).
+    - The full API suite passes on it.
+    - `audit-guards.sql` passes on it. If `pg_get_functiondef` prints differently on 18, the function hashes differ, and the file accepts both the 16 and the 18 hashes until every branch, `production` included, is on 18. A follow-up then drops the 16 set.
+  - *Verify:* `npm test` (it runs `audit-guards.sql` before vitest).
+  - *Files:* `docker-compose.yml`, maybe `prisma/audit-guards.sql`. **S**
+- [x] **Task 0.3: Rehearsal on the new project**
+  - *Acceptance:*
+    - On its `ci` branch, with the maintenance flag created:
+      - the migration chain applies from empty;
+      - `audit-guards.sql` passes, and `no-audit-maintenance.sql` fails, as it should with the flag;
+      - `npm run test:neon` passes, through the pooler.
+    - A dump of the old `staging` restores into a throwaway branch of the new project with the procedure in `docs/infra.md` (triggers disabled, one transaction, `ON_ERROR_STOP`). Row counts match table by table, and `audit-guards.sql` passes.
+    - `pg_dump` and `psql` run from the `postgres:18` image through Docker, since this machine has no client tools.
+  - The throwaway branch is deleted afterwards, with your permission.
+  - *Files:* none. **S**
+  - *Depends on:* 0.1, 0.2.
+- [x] **Task 0.4: `staging`, `development` and `ci` on 18**
+  - *Acceptance:*
+    - `staging` and `development` are restored from dumps of the old branches with the rehearsed procedure, and their row counts match. `ci` stays empty and is migrated.
+    - `ficha-staging` on Render, the local `apps/api/.env` and the `CI_DATABASE_URL` secret point at the new project. You change Render and the secret; I give you the names, never the URLs.
+    - `development` and `ci` get the maintenance flag; `staging` does not.
+    - The memory note on infrastructure ids is updated.
+    - After the switch, the staging deploy's build log shows `migrate:prod` and both checks passing.
+  - *Files:* none in the repo. **S**
+  - *Depends on:* 0.3.
+- [x] **Task 0.5: `production` on 18, before the relaunch**
+  - *Acceptance:*
+    - The move happens in a window agreed with the clinic:
+      - a manual run of the backup workflow takes the old project's last dump;
+      - the `Ficha` service stays suspended from the dump to the switch, so no write lands in the old project after it.
+    - The new project's root branch becomes `production`, restored from a dump of the old one with the rehearsed procedure.
+      - Row counts match table by table.
+      - `audit-guards.sql` and `no-audit-maintenance.sql` both pass: `production` gets no maintenance flag.
+    - The dump is taken by a one-off workflow in the backups repository and lives only in its container. It holds the trial's data, which is handled as if it were real.
+    - The `Ficha` service on Render and the backups repository's credential point at the new project. Then:
+      - the service is resumed;
+      - the production deploy's build log shows `migrate:prod` and both checks passing;
+      - a manual run of the backup workflow produces the new project's first dump.
+    - If anything fails before the switch, the old project still holds everything: resuming the service is the whole rollback.
+    - Only after all that is the old project deleted, with your permission.
+  - *Files:* none. **S**
+  - *Depends on:* 0.4.
+- [x] **Task 0.6: Docs and PR**
+  - *Acceptance:*
+    - `docs/infra.md` (the new project, the local test database, the restore procedure, the version) and the comment in `docker-compose.yml` say 18.
+    - PR against `dev`. `test.yml` needs no change if the job runs only `docker compose`. PR #271 also touches `test.yml`; whichever lands second rebases.
+  - *Files:* `docs/infra.md`, `docker-compose.yml`. **XS**
+  - *Depends on:* 0.2. Tasks 0.4 and 0.5 can follow the merge.
+
+### Checkpoint 0
+
+- [x] Every Neon branch and the test container run 18; `audit-guards.sql` passes on all of them; CI is green on a PR to `dev` and on a manual run on `ci`.
+  - Checked 2026-11-08:
+    - The four branches of `ficha-pg18` and the test container report 18.6.
+    - `audit-guards.sql` passed in the `production` build and startup of 2026-11-06 and in `staging`'s of 2026-11-08. It also passed on `development`, run by hand with `dev`'s file; `no-audit-maintenance.sql` failed there, on the flag, as it should.
+    - `ci` passed both in the manual run of 2026-11-02. It is two migrations behind `dev`, which is expected: only release PRs and manual runs migrate it.
+    - The old project `ficha` (16) is still there, to be deleted from 2026-11-13 with Nath's OK.
+
+### Step 1: Prerequisites (PR 1)
+
+- [x] **Task 1.1: Composite unique keys**
+  - *Acceptance:*
+    - One migration adds `@@unique([tenantId, patientId, id])` to `AuditLog`, `InitialEvaluation`, `InformedConsent` and `PatientEvent`.
+    - `auditMigrationScan.test.ts`: an `ALLOWED` entry for this migration, with its exact violations (DDL on `audit_logs`).
+    - `audit-guards.sql`: new expected values, if it pins the constraints of `audit_logs`.
+    - Rehearsed on a copy of `production`: it applies in one transaction, and row counts are unchanged.
+  - *Verify:* `npm test -- auditMigrationScan auditHardening modelIntegrity`; `npm run check`.
+  - *Files:* `schema.prisma`, the migration, `tests/auditMigrationScan.test.ts`, maybe `prisma/audit-guards.sql`. **S**
+- [x] **Task 1.2: `recordAudit` returns its id; more lockable tables**
+  - *Acceptance:*
+    - `recordAudit` returns the id of the row it inserted. Existing callers ignore it.
+    - `LOCKABLE` gains `clinical_episodes: 'id'`, `informed_consents: 'patient_id'` (one per patient) and `patient_events: 'id'`.
+  - *Verify:* `npm test -- auditTransactional auditEntries`; `npm run check`.
+  - *Files:* `repositories/prisma/recordAudit.ts`, `repositories/prisma/changedFields.ts`. **XS**
+- [x] **Task 1.3: Episodes audited** (the episode part of `clinical-audit-coverage`)
+  - *Acceptance:*
+    - `AuditEntity` gains `EPISODE` (in the same migration as Task 1.1). The catalog gains (spec §4):
+      - `EPISODE_OPENED`;
+      - `EPISODE_CLOSED`, with its status (a new `AUDIT_EPISODE_STATUSES`: `DISCHARGED`, `ABANDONED`);
+      - `EPISODE_REOPENED`;
+      - `EPISODE_UPDATED`, for corrections of the complaint or the dates only (`changedFields` over a new `AUDIT_EPISODE_FIELDS`).
+    - The `PATCH` picks the action: a status change records `EPISODE_CLOSED` or `EPISODE_REOPENED`, a correction records `EPISODE_UPDATED`, and a request that does both answers `400`.
+    - `episodeRepository.create` and `update` write in a transaction with their audit row (`AuditBuilder`, as `patientRepository` does). `update` locks the row and records `changedFields`; an update that changes nothing records nothing.
+    - The two episode routes move from `debt` to `audited` in `auditCoverageManifest.ts`.
+    - `audit-map.md`: the `clinical-audit-coverage` row says episodes are done here.
+  - *Verify:* `npm test -- episodes auditEntries auditCoverage auditTransactional`. The new tests cover: create records one row; abandon and reopen record their own actions; a correction records its changed fields; a request with both answers `400` and writes nothing; a no-op records nothing; a forced audit failure rolls the episode back. Plus `npm run check`.
+  - *Files:* `schema.prisma` + migration, `packages/shared/src/auditActions.ts`, `repositories/episodeRepository.ts`, `repositories/prisma/prismaEpisodeRepository.ts`, `routes/episodes.ts`, `tests/auditCoverageManifest.ts`, `tests/episodes.test.ts`, `docs/specs/audit-map.md`. **M**
+  - *Depends on:* 1.1.
+- [x] **Task 1.4: Reason codes and PR**
+  - *Acceptance:*
+    - The catalog gains `AUDIT_REVISION_REASONS` (`DATA_ENTRY_ERROR` "Error de confección", `LATE_INFORMATION`, `CLARIFICATION`, `OTHER`), attached to no action yet.
+    - `packages/shared` exports the request schema for a reason and an optional note, reused by every route from step 2 on.
+    - Full local suites, then a PR against `dev`.
+    - After the merge: `migrate deploy` on `development`, and the staging build log shows both checks passing. Both done (checked 2026-11-08).
+  - *Verify:* `npm test -- auditCatalog`; `npm test`; `npm test -w apps/web`; `npm run check`.
+  - *Files:* `packages/shared/src/auditActions.ts`, `packages/shared/src/index.ts`. **XS**
+
+### Checkpoint 1
+
+- [x] Episodes leave audit rows; the four unique keys exist on `staging`; nothing visible changed for users.
+  - Checked 2026-11-08:
+    - The four `(tenant_id, patient_id, id)` keys exist on `staging`, and `development` has `20261101120000_clinical_revisions_prereqs`.
+    - Episode audit rows are proven by `episodes.test.ts` and step 3's check by hand. `staging` has none yet, since nobody has written an episode there since the release.
+
+### Step 2: Session revisions (PR 2, highest risk)
+
+- [x] **Task 2.1: The `session_revisions` table**
+  - *Acceptance:*
+    - Model and migration as spec §2:
+      - composite `RESTRICT` keys to `sessions` and `audit_logs`;
+      - `UNIQUE (session_id, version)` and `CHECK (version >= 1)`;
+      - `*_append_only` and `*_no_truncate` triggers that call the existing audit functions.
+    - Classified in `TENANT_SCOPED_MODELS`.
+    - `audit-guards.sql` pins the table, its triggers, foreign keys, `CHECK` and `NOT NULL`s. The migration scan's `AUDIT_NAMES` gains it.
+    - `deleteAuditRows` deletes the clinics' revisions first; `deleteRevisions(table, ids)` exists for mid-file deletes. Tests that delete sessions before the audit rows are reordered.
+  - *Verify:* a new `tests/sessionRevisionsTable.test.ts`, on its own rows:
+    - `update`, `delete` and `TRUNCATE` are rejected;
+    - the helper can delete;
+    - `RESTRICT` holds on the session and on the audit row;
+    - a revision naming another clinic's or another patient's audit row fails.
+
+    Plus `tenantScopeCoverage`, `auditHardening`, the migration scan, and the full suite (for the cleanup order).
+  - *Files:* `schema.prisma` + migration, `src/lib/tenantScope.ts`, `prisma/audit-guards.sql`, `tests/auditMigrationScan.test.ts`, `tests/helpers.ts`, the new test. **M**
+- [x] **Task 2.2: Session snapshot and projection coverage**
+  - *Acceptance:*
+    - Session projection, as spec §3: the field list and the excluded columns. It holds `userId`, the type, the date, the observations and the blocks ordered by `episodeId`.
+    - `SessionSnapshotV1` is a `strictObject` in `packages/shared`, as a new runtime module, added to the list in `CLAUDE.md`.
+    - `tests/historyProjectionCoverage.test.ts`: every column of `sessions` and `session_episodes` is in the projection or in the exclusion list (from the DMMF).
+    - A fixture test proves a v1 snapshot parses.
+  - *Verify:* `npm test -- historyProjectionCoverage`; a column added to `Session` by hand makes it fail (checked once, reverted).
+  - *Files:* `packages/shared/src/clinicalSnapshots.ts` (new), `packages/shared/src/index.ts`, `tests/historyProjectionCoverage.test.ts`, `CLAUDE.md`. **S**
+- [x] **Task 2.3: `recordRevision` and the session write path**
+  - *Acceptance:*
+    - `recordRevision(tx, ctx, …)` sits next to `recordAudit`.
+    - `create` writes version 1, linked to the `*_RECORDED` audit row.
+    - `update` follows spec §5:
+      - lock the session;
+      - read the latest revision;
+      - build the projection and compare it with the latest snapshot. If they are equal, write nothing at all: the forced `updatedAt` and the rewrite of unchanged blocks go away;
+      - otherwise write the rows, then the audit row, then version N+1.
+    - `softDelete` writes a version under `SESSION_DELETED`, with the snapshot unchanged. Step 5 turns it into the annulment.
+    - The record's DTOs (`getById`, `listByPatient`) carry `version`; a session with no revision is 0.
+    - A failed revision insert rolls the whole action back, and is logged as code, table and id only (spec §11).
+  - *Verify:* `tests/sessionRevisions.test.ts`:
+    - creation writes v1;
+    - an edit writes N+1 with the right snapshot and audit row;
+    - removing a block shows in the next snapshot;
+    - a no-op `PATCH` answers `200` and writes no row, no audit row and no revision;
+    - a forced revision failure rolls the edit back, and the log holds no marker text.
+
+    Plus `sessionsCrud`, `sessionPatchPartial`, `sessionEpisodeBlocks`, `auditEntries`.
+  - *Files:* `repositories/prisma/recordRevision.ts` (new), `repositories/prisma/prismaSessionRepository.ts`, `repositories/sessionRepository.ts`, `packages/shared/src/index.ts` (`Session.version`), the new test. **M**
+  - *Depends on:* 2.1, 2.2.
+- [x] **Task 2.4: Stale edits and the reason (API)**
+  - *Acceptance:*
+    - The `PATCH` body takes `expectedVersion` (optional), `reason` (required, a code) and `reasonNote` (optional, `optionalText`).
+    - A stale `expectedVersion` returns `{ ok: false, reason: 'stale' }`, and the route answers `409` "Otra persona editó este registro. Recargá para ver los cambios.".
+    - `SESSION_UPDATED` gains the `reason` parameter, and `reason_note` is stored on the revision.
+  - *Verify:*
+    - a stale version answers `409` and writes nothing;
+    - two concurrent edits with the same `expectedVersion` give one `200` and one `409`; without it, two consecutive versions; never a lost write;
+    - a missing reason answers `400`.
+  - *Files:* `routes/sessions.ts`, `packages/shared/src/auditActions.ts`, `prismaSessionRepository.ts`, `tests/sessionRevisions.test.ts`. **S**
+  - *Depends on:* 2.3.
+- [x] **Task 2.5: Stale edits and the reason (web)**
+  - *Acceptance:*
+    - Editing a session in `SessionFormModalWide` sends the version it loaded, plus a reason select ("Error de confección" preselected) and an optional note. Creating one sends neither.
+    - A `409` shows the API's message, keeps what was typed, and offers to reload.
+  - *Verify:* `npm test -w apps/web -- SessionFormModalWide`: the body carries `expectedVersion` and `reason`, a `409` shows the message, and an untouched save still sends the loaded values.
+  - *Files:* `apps/web/src/components/sessions/SessionFormModalWide.tsx`, `apps/web/src/services/sessions.ts`, a shared reason field component, its test. **M**
+  - *Depends on:* 2.4.
+- [x] **Task 2.6: The repository manifest and the migration scan**
+  - *Acceptance:*
+    - `tests/historyCoverageManifest.ts` declares every repository method that writes `sessions` or `session_episodes` as `versions` or `exempt` (with a reason).
+    - The test scans `repositories/prisma/*.ts` and fails on a write method missing from the manifest, or on an entry that no longer writes one.
+    - A migration scan fails on `UPDATE`, `DELETE`, `DROP COLUMN`, `ALTER COLUMN … TYPE` or `TRUNCATE` on a versioned table. Every migration that exists before this PR is frozen; the allowlist starts empty.
+  - *Verify:* both pass on today's files. An unlisted write method, and a fixture migration with `UPDATE sessions`, each make them fail (checked once, reverted).
+  - *Files:* `tests/historyCoverageManifest.ts`, `tests/historyCoverage.test.ts`, `tests/historyMigrationScan.test.ts`. **S**
+  - *Depends on:* 2.3.
+- [x] **Task 2.7: The invariant helper and the session fixtures**
+  - *Acceptance:*
+    - After each test, the projection of every session of the test's clinics equals its latest snapshot, and every session has a revision.
+      - Mechanism: `createTestClinic` registers the clinic, and an `afterEach` in `tests/setup.ts` checks it. Check vitest's hook order first: an `afterAll` would run after the files' own cleanup and prove nothing.
+    - `createSessionFixture` writes a session, its blocks and version 1. Every test that inserts sessions directly uses it.
+  - *Verify:* the full suite is green. A repository write that skips `recordRevision` makes the helper fail (checked once, reverted).
+  - *Files:* `tests/setup.ts`, `tests/helpers.ts`, the test files that insert sessions directly. **M** (mechanical)
+  - *Depends on:* 2.3.
+- [x] **Task 2.8: Docs, rehearsal and PR**
+  - *Acceptance:*
+    - `CLAUDE.md`:
+      - under *Acceso a datos*, versioning in the write's transaction and the manifest rule;
+      - `session_revisions` among the append-only tables;
+      - the new helpers.
+    - `docs/infra.md`: the revisions table in the wipe and restore procedures.
+    - The spec: the rollout line for `reason` and the test cleanup, as decided here.
+    - The migration is rehearsed on a copy of `production`.
+    - Full local suites, then a PR against `dev`. After the merge: `migrate deploy` on `development`.
+  - *Files:* `CLAUDE.md`, `docs/infra.md`, `docs/specs/SPEC-clinical-revisions.md`. **S**
+
+### Checkpoint 2
+
+- [x] Full suites and `npm run check` are green.
+- [x] By hand (skill `verify`):
+  - the same session edited in two tabs gives a `409` in the second;
+  - a save with no change leaves no audit row;
+  - removing a block shows in the next revision.
+
+  Ask me to review before step 3: the pattern set here is copied five times.
+
+### Step 3: The other five aggregates (PR 3)
+
+One migration adds the five tables, grown task by task. Each task is one aggregate end to end:
+- its table, triggers, guards and scans;
+- its snapshot schema and projection coverage;
+- its write path, `expectedVersion` and `reason`;
+- its form;
+- its fixtures and manifest entries.
+
+The verification is the spec's per-aggregate list: v1 on creation, N+1 on an edit, nothing on a no-op, `409` when stale, and concurrent edits never lost.
+
+- [x] **Task 3.1: Episodes, and the discharge as a multi-aggregate action**
+  - *Acceptance:*
+    - `episode_revisions`, versioned on create and update.
+    - A discharge locks patient, then session, then episodes by id, and writes one session revision and one revision per closed episode, all under the one `DISCHARGE_RECORDED` row.
+    - `EPISODE_UPDATED` gains `reason`; `EPISODE_CLOSED` and `EPISODE_REOPENED` take none (spec §4).
+    - The episode transitions in `PatientDetailPage` (abandon, reopen) send `expectedVersion` and no reason.
+  - *Verify:* `episodeRevisions.test.ts`, plus a discharge test (one audit row, two revisions, consecutive versions), plus a concurrent discharge and episode edit that does not deadlock.
+  - *Files:* `schema.prisma` + migration, `prismaEpisodeRepository.ts`, `prismaSessionRepository.ts`, `routes/episodes.ts`, `clinicalSnapshots.ts`, `PatientDetailPage.tsx`, tests. **M**
+- [x] **Task 3.2: Initial evaluation**
+  - *Acceptance:*
+    - `evaluation_revisions`, versioned on upsert. The first evaluation locks its episode, a later one its own row. `retractionMap` stays `z.unknown()` inside the snapshot.
+    - The evaluation form sends its version and reason. It also updates the patient's occupation: that request carries the patient's version and the same reason.
+  - *Verify:* `evaluationRevisions.test.ts`; `evaluationCrud`; the web test of the evaluation form.
+  - *Files:* migration, `prismaEvaluationRepository.ts`, `routes/evaluations.ts`, `clinicalSnapshots.ts`, `PatientDetailPage.tsx`, tests. **M**
+  - *Depends on:* 3.3, for the patient's version.
+- [x] **Task 3.3: Patient**
+  - *Acceptance:*
+    - `patient_revisions` versions identification and clinical context only (spec §1). `phone` and the coverage columns are in the exclusion list with their reason.
+    - A change only to those writes the audit row with its `changedFields`, and no version.
+    - The soft delete stays a `DELETE` and writes an event version, with no reason. Whether it becomes an annulment needs analysis later (spec §8).
+    - `PatientFormDialog` sends version and reason.
+  - *Verify:* `patientRevisions.test.ts`, including "a phone change writes no version", plus `patientsCrud`, `unSoloVacio` and the form's web test.
+  - *Files:* migration, `prismaPatientRepository.ts`, `routes/patients.ts`, `clinicalSnapshots.ts`, `PatientFormDialog.tsx`, tests. **M**
+- [x] **Task 3.4: Informed consent**
+  - *Acceptance:*
+    - `consent_revisions`. Sign, sign again and revoke each write a version. The first signature locks the patient.
+    - No reason: signing and revoking are facts, not corrections (spec §4).
+  - *Verify:* `consentRevisions.test.ts`; `consentPolicy`.
+  - *Files:* migration, `prismaConsentRepository.ts`, `routes/consent.ts`, `clinicalSnapshots.ts`, `ConsentTab.tsx`, tests. **S**
+- [x] **Task 3.5: Patient events**
+  - *Acceptance:*
+    - `patient_event_revisions`, versioned on create and update. Delete writes an event version until step 5.
+    - `PatientHistoryCard` sends version and reason on an edit.
+  - *Verify:* `patientEventRevisions.test.ts`; `patientEvents`; the card's web test.
+  - *Files:* migration, `prismaPatientEventRepository.ts`, `routes/patientEvents.ts`, `clinicalSnapshots.ts`, `PatientHistoryCard.tsx`, tests. **M**
+- [x] **Task 3.6: Docs, rehearsal and PR**
+  - *Acceptance:*
+    - `CLAUDE.md` and `docs/infra.md` list the five tables.
+    - The migration is rehearsed on a copy of `production`.
+    - Full local suites, then a PR against `dev`. After the merge: `migrate deploy` on `development`.
+  - *Files:* `CLAUDE.md`, `docs/infra.md`. **XS**
+
+### Checkpoint 3
+
+- [x] The manifest, the projection coverage and the invariant cover all six aggregates. Full suites green.
+- [x] By hand: one edit of each aggregate writes one version, and a discharge writes two under one audit row.
+
+### Step 4: Reading (PR 4)
+
+- [x] **Task 4.1: Revision routes**
+  - *Acceptance:*
+    - Six aggregates, two routes each:
+      - `GET /api/patients/:patientId/<entity>/:id/revisions`: version, action, reason and author (the user's name, or none for `SYSTEM`), from the audit row;
+      - `GET …/revisions/:version`: one snapshot with its note.
+    - The repository filters by `(tenant, patient_id, aggregate_id)` in the `where`, and requires the patient to exist and not be deleted.
+    - `:version` is validated (positive integer, else `404`) and registered in `idParamCoverage`.
+    - The list-minimization probe seeds markers in `snapshot` and `reason_note`. No global route returns either.
+  - *Verify:* `tests/revisionRoutes.test.ts`:
+    - patient B's session through patient A's path answers `404`, and so does another clinic's;
+    - a malformed id answers `404`;
+    - a deleted patient answers `404`.
+
+    Plus `listMinimization` and `idParamCoverage`.
+  - *Files:* a new `revisionRepository.ts` port and Prisma implementation, the barrel, a new `routes/revisions.ts` (or one router per entity file), `app.ts`, `tests/listMinimization.test.ts`, `tests/listScopeManifest.ts`, the new test. **M**
+- [x] **Task 4.2: The history view, on sessions**
+  - *Acceptance:*
+    - Each session in the record has "Ver historial". It lists the versions ("Versión N · acción · motivo · autor · fecha") and shows the selected one read-only, from its snapshot, with the fields its audit row lists as changed marked.
+    - All copy is in Spanish.
+  - *Verify:* a web test of the history dialog: it lists, selects, and shows a removed block in the old version.
+  - *Files:* `apps/web/src/services/revisions.ts`, `apps/web/src/components/patients/RevisionHistoryDialog.tsx` (new), the session entry in the record, its test. **M**
+  - *Depends on:* 4.1.
+- [x] **Task 4.3: The history view on the other five, and PR**
+  - *Acceptance:*
+    - "Ver historial" on the episode, the evaluation, the patient's data, the consent and each patient event, each with its own snapshot renderer.
+    - Full suites, then a PR against `dev`.
+  - *Verify:* each renderer's web test; by hand through the skill `verify`.
+  - *Files:* the five entry points in `PatientDetailPage.tsx`, `PatientHistoryCard.tsx`, `ConsentTab.tsx`, renderers, tests. **M**
+  - *Depends on:* 4.2.
+
+### Checkpoint 4
+
+- [x] From the record alone, any past version of any aggregate can be read with its author, time and reason.
+
+### Step 5: Annulment (PR 5)
+
+- [x] **Task 5.1: Annul as an action (API)**
+  - *Acceptance:*
+    - `POST /api/patients/:patientId/sessions/:sessionId/annul` and `…/events/:eventId/annul`, with `{ reason, reasonNote? }`.
+    - New actions `SESSION_ANNULLED` and `PATIENT_EVENT_ANNULLED`, each with `reason` (migration for the enum). `SESSION_DELETED` and `PATIENT_EVENT_DELETED` are marked `deprecated`.
+    - Each annulment writes a final version. The paid-session rule (`409`) and the release of the appointment are kept.
+    - The two `DELETE` routes are removed, and the manifest updated.
+    - The record's lists (`listByPatient` of sessions and events) return annulled entries with `annulledAt` (from `deletedAt`). Every other reader keeps filtering them out: global lists, metrics, alerts, the episode's last activity, the pain chart.
+    - No restore route: one is added later (spec §8).
+  - *Verify:* `tests/annulment.test.ts`:
+    - annul writes the action, the reason and the version;
+    - no reason answers `400`;
+    - a paid session answers `409` and writes nothing;
+    - an annulled entry cannot be edited (`404`);
+    - global lists and metrics exclude it.
+
+    Plus `sessionSoftDelete` rewritten, `auditCoverage` and `dashboardStats`.
+  - *Files:* `schema.prisma` + migration, `auditActions.ts`, `prismaSessionRepository.ts`, `prismaPatientEventRepository.ts`, `routes/sessions.ts`, `routes/patientEvents.ts`, `tests/auditCoverageManifest.ts`, tests. **M**
+- [x] **Task 5.2: Annul in the record (web), and PR**
+  - *Acceptance:*
+    - "Anular" replaces "Eliminar" on sessions and events, with a dialog for the reason (none preselected, as in every correction since 2026-11-08) and the note.
+    - Annulled entries show struck through with an "Anulada" badge, and their history shows the annulment.
+    - The migration is rehearsed on a copy of `production`.
+    - Full suites, then a PR against `dev`.
+  - *Verify:* web tests of the dialog and of the struck-through entry.
+  - *Files:* `SessionFormModalWide.tsx`, `PatientHistoryCard.tsx`, `services/sessions.ts`, `services/patientEvents.ts`, the record's session list, tests. **M**
+  - *Depends on:* 5.1.
+
+### Checkpoint 5
+
+- [x] No clinical entry can be deleted from the app any more, only annulled with a reason; every annulment is a version.
+
+### Step 6: A versioned seed (PR 6)
+
+**No baseline script** (decided 2026-11-10). The data loaded before revisions existed never needs a version 1: `production` is wiped before the relaunch (#238), `development` holds only test data that can be reseeded, and `staging` keeps its older rows at version 0 until each is edited (the seed cannot run there: no audit maintenance flag, and non-test accounts). What remains is the seed: a freshly seeded database shows history and passes the revision invariant. No new action and no migration: the creation actions (`PATIENT_CREATED`, `EPISODE_OPENED`, …) serve any actor.
+
+- [x] **Task 6.1: The seed writes version 1**
+  - *Acceptance:*
+    - `prisma/versionOne.ts` writes version 1 of each of the six aggregates: an audit row of its creation (the demo history's own, or a new `SYSTEM` one) and a revision equal to its rows, in the transaction that is given. `tests/fixtures.ts` uses it, so the seed and the fixtures write version 1 the same way.
+    - `versionUnversioned(prisma, tenantId)` gives version 1 to every aggregate of a clinic that has none, one transaction each, one after another; the seed calls it at its end. A second run writes nothing.
+  - *Verify:* `tests/seedVersionOne.test.ts`: unversioned rows of the six aggregates get a `SYSTEM` version 1 that passes the revision invariant; a second run writes nothing. And `npm run db:seed` on `development`.
+  - *Files:* `prisma/versionOne.ts`, `prisma/seed.ts`, `tests/fixtures.ts`, the test, `eslint.config.mjs`. **S**
+- [x] **Task 6.2: Close**
+  - *Acceptance:* `audit-map.md` marks `clinical-revisions` as implemented. No environment is reseeded: the seed is not run on `development` by hand, and `staging` keeps version 0 (see above).
+  - *Files:* `docs/specs/audit-map.md`. **XS**
+  - *Depends on:* 6.1.
+
+### Checkpoint 6: complete
+
+- [ ] The spec's success criteria are met.
+- [x] A freshly seeded database and every test clinic have a revision for every aggregate; `staging` keeps its older rows at version 0, and `production` is wiped at the relaunch.
+- [ ] The relaunch (#238) can go ahead.
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| The move to a new Neon project | High: new URLs on Render, CI, the backups repository and local; PITR history starts over; a restore that silently drops rows | The restore is rehearsed and counted table by table (0.3, 0.4); `production` goes last; the old project is kept until the backup workflow runs against the new one |
+| Writes made during the production move | High: rows of the trial lost | The `Ficha` service stays suspended from the dump to the switch; counts are compared table by table before resuming it (0.5) |
+| `pg_get_functiondef` prints differently on 18 | High: `audit-guards.sql` fails in the Render build and at startup | Task 0.2 measures it on the container before any branch moves; both hash sets accepted during the transition |
+| The `postgres:18` image changed its data directory | Medium: the test container does not start, or leaves its data off tmpfs | The tmpfs moves to `/var/lib/postgresql` (Task 0.2) |
+| The comparison sees a change where there is none (date serialization, block order, JSON key order) | High: empty versions on every save, and the no-op promise broken | One mapping builds both the projection and the snapshot; `canonical()` from `changedFields.ts` compares; a no-op test per aggregate, and one after a schema bump |
+| A discharge deadlocks with a concurrent episode edit | Medium: a `500` on a save | The discharge locks its episodes by id first, and not the patient (Step 3 decisions); a concurrency test in Task 3.1 |
+| Fixtures that insert clinical rows directly (115 writes in 29 files) fail the invariant | Medium: mechanical work spread over steps 2 and 3 | Fixture helpers per aggregate; the invariant checks an aggregate only from its step |
+| Test cleanup hits `RESTRICT` on revisions | Medium: flaky cleanup failures | `deleteAuditRows` deletes revisions first; Task 2.1 runs the full suite to find the tests that delete in the wrong order |
+| A snapshot or a reason note leaks into a global list, a log or an alert | High: clinical text outside the record | The list-minimization probe seeds markers in both (Task 4.1); the log test (Task 2.3); `reason_note` is never in an audit row |
+| Annulled entries come back into the readers of `listByPatient` | Medium: metrics or the pain chart count an annulled session | Task 5.1 lists every reader and tests the ones that must filter |
+| Seven sequential PRs before the relaunch | Medium: the relaunch waits on all of them | Step 0 runs in parallel with steps 1 and 2; step 4 depends only on step 3 |
+
+## Open Questions
+
+Settled on 2026-11-01, now in the spec:
+- no reason on state transitions, with the episode's own transition actions (*Decided Questions* 5);
+- deleting a patient stays a `DELETE` with no reason, pending a later analysis (*Decided Questions* 6);
+- no restore route in this module; one is added later (*Decided Questions* 7);
+- Postgres 18 is a new Neon project, and `production` moves to it by dump in step 0, before the relaunch (*Decided Questions* 4).
+
+None open.
+
+## Out of Scope
+
+- Stage 2, `clinical-revisions-enforcement` (it depends on #206).
+- Moving a record to another patient; retention and data-subject rights (spec *Out of scope*).
+- Whether deleting a patient becomes an annulment with a reason: it needs analysis later (spec §8).
+- A restore route for sessions, patient events and patients: added later (spec §8).
+- `HISTORY_MIGRATED`: declared by the first data migration after the relaunch that touches clinical content, not here.
+
+## Decisions during implementation
+
+### Step 0
+
+- **The function hashes are the same on 18** (2026-11-01, Task 0.2). `pg_get_functiondef` prints the five audit functions on 18.6 exactly as on 16, so `audit-guards.sql` is unchanged and there is no second hash set to drop later.
+- **A delete refused by an `ON DELETE RESTRICT` key is SQLSTATE `23001` on 18, not `23503`** (Task 0.2). Prisma 5.22 maps only `23503` to `P2003`, so on 18 the error arrives as `PrismaClientUnknownRequestError`. The guarantee holds and the app answers `500` as before: nothing in `src` catches `P2003`. A `NO ACTION` key and an insert still give `23503`. Three tests asserted `P2003` on such a delete; they now call `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until every Neon branch is on 18. The follow-up then drops the `P2003` case, in place of the hash set.
+- **The 18 container was tested beside the shared one** (Task 0.2). Every worktree uses the compose project `ficha` on port 5433, and step 1 ran on it in parallel, still on 16. The 18 runs used another project on port 5434 (`docs/infra.md#local-test-database`); `npm test` on `ficha` itself switches to 18 when a worktree merges this PR.
+- **The backups repository needs `pg_dump` 18 before `production` moves** (Task 0.5). Its `backup.yml` installs `postgresql-client-16` and checks the dump on `postgres:16`; `pg_dump` 16 refuses a server on 18. `pg_dump` 18 dumps the old 16 server too, so that change can land before the window, but its check moves to `postgres:18` in the same change: an 18 dump sets `transaction_timeout`, which 16 rejects. That change is candiath/ficha-backups#3; its README's restore also moved to 18 and to the four audit tables. It also ended a gap nobody had seen: `ubuntu-latest` moved to 26.04 on 2026-10-29, whose default `pg_dump` is 18 whatever client the workflow installs, so every scheduled run from then to 2026-11-03 failed its check on `postgres:16` and saved no dump. The manual run of 2026-11-04 (`pg_dump` 18.6, check on `postgres:18`) saved the first one since 2026-10-28.
+- **`production` moves from the backups repository, not from a laptop** (Task 0.5, 2026-11-04). The production credential lives only there, and the old plan would have brought it and the trial's dump to this machine. candiath/ficha-backups#5 adds `move-to-18.yml`, in the shape of `wipe.yml`: a `rehearsal` target restores into a container on the runner and only reads production; `production` restores into the new project with the secret `PROD18_DATABASE_URL`, and refuses to run while the `Ficha` service answers. The workflow is deleted once `production` is on 18.
+- **The new project is `ficha-pg18`** (Task 0.1), in the old project's region with its compute (0.25–2 CU) and history (6 h). The free plan does not let the maintenance window be chosen: Neon set Sunday 05:00–06:00 UTC. It is renamed `ficha` once the old project is deleted, so `CLAUDE.md` keeps naming it.
+- **Every branch of a new project starts with the root's password** (Task 0.1). Branches inherit the role and its password, so the laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. In the old project they differ.
+- **The rehearsal** (Task 0.3, 2026-11-01). On `ci`: the 57 migrations applied from empty, `audit-guards.sql` passed, `no-audit-maintenance.sql` failed on the flag, and `npm run test:neon` passed through the pooler (803 tests, 11 min). The old `staging` (16.15), dumped by `pg_dump` 18.6 from the `postgres:18` image with the backups repository's flags, restored into `rehearsal-restore` with the procedure in `docs/infra.md`. The comparison was stronger than counts: per table, the row count and an md5 of its rows as text, ordered. All 22 tables matched, 189 rows, and the restored branch then passed what the Render build runs (`no-audit-maintenance.sql`, `migrate deploy`, `audit-guards.sql`).
+- **The switch of `staging`** (Task 0.4, 2026-11-02). `staging` (22 tables, 189 rows) and `development` (23, 210, its flag included) restored identical, and the old `staging` did not change between the dump and the switch. Saving env vars on Render redeploys without building, so `migrate:prod` does not run: a **Manual Deploy → Deploy latest commit** is what produces the build log. The first save pointed `ficha-staging` at `development`; the startup check failed on the flag and the staging bot sent `AUDIT_MAINTENANCE_FLAG_PRESENT` within seconds, which is the check doing its job. The deploy after the fix: build log with both checks and no pending migrations on the new `staging`, and both startup checks passing.
+- **The switch of `ci`** (Task 0.4, 2026-11-02). The `CI_DATABASE_URL` secret was checked by a manual run of `test.yml` on this branch: migrations and `test:neon` passed on the new `ci`. Since then a release PR or manual run from a branch without `expectRestrictedDelete` fails three tests there, so none runs from one.
+
+### Step 1
+
+- **No `ALLOWED` entry in `auditMigrationScan.test.ts`.** The migration touches the audit tables only with `ADD VALUE` on their enums and a `CREATE UNIQUE INDEX` on `audit_logs`, and the scan flags neither: it looks for statements that could rewrite or unprotect audit content, and an added index can do neither. An entry with no violations would allow nothing.
+- **`audit-guards.sql` pins the new key on `audit_logs`** by its exact definition, in the index check that already pinned `platform_audit_logs_action_entity_key`; the TEMP-copies test expects its absence to be reported. The keys on the other three tables are not pinned: the guards cover only the audit tables.
+- **The episode's action is decided against the locked row, not the request's shape.** A status different from the stored one is a transition (`EPISODE_CLOSED` or `EPISODE_REOPENED`, its closing date part of it); anything else is a correction. So `{ status: 'DISCHARGED', closedAt }` on a discharged episode corrects the date (`EPISODE_UPDATED`, `["closedAt"]`), and a transition that sends the complaint unchanged is not refused. The repository returns what happened (`EpisodeChange`); the route turns it into the audit entry.
+- **`AUDIT_EPISODE_FIELDS` is `mainComplaint` and `closedAt`.** The `PATCH` does not accept `openedAt`, so an opening date cannot be corrected yet; adding it to the list later is an append.
+- **An empty `PATCH` of an episode answered `400`** "La fecha de cierre no puede ser anterior a la apertura del episodio": Prisma's `updateMany` with no fields counts 0, which the old code read as the date condition failing. It now answers `200` and writes nothing.
+- **Reason labels are lowercase in the catalog**, like every list there, because sentences embed them; the form capitalizes ("Error de confección"). `LATE_INFORMATION` is "información recibida después", `CLARIFICATION` "aclaración", `OTHER` "otro motivo": labels, not codes, so they can still change.
+- **The reason's request schema lives in `auditActions.ts`**: `revisionReasonFields`, which a correction's body schema spreads, and `revisionReasonSchema` for an annulment's body. No new runtime module. `reasonNote` repeats the single-empty rule of `optionalText` (the package cannot import the API's), with a 500-character limit like the appointment notes.
+- **The record's activity timeline gets an `EPISODE` badge** ("Episodio"); without it, episode rows showed the neutral "Registro".
+- **A discharge still closes its episodes under `DISCHARGE_RECORDED` alone**, with no `EPISODE_CLOSED` row: one action, one audit row (spec §4). Its episode revisions arrive in Task 3.1.
+
+### Step 2
+
+- **`scripts/purge-test-audit.ts` deletes revisions too.** The plan named only `deleteAuditRows`, but the script deletes audit rows of test clinics, and each revision restricts that.
+- **The migration has an `ALLOWED` entry in `auditMigrationScan.test.ts`**, with its two `CREATE TRIGGER`: with `session_revisions` in `AUDIT_NAMES`, the scan flags them.
+- **The session's forced `updatedAt` stays on a real edit.** An edit of a block alone writes no column of `sessions`, and the session did change. It leaves the no-op, and unchanged blocks are no longer rewritten. The spec's §5 now says so.
+- **`softDelete` locks the session first.** It takes a version, so without the lock a concurrent edit would collide on `UNIQUE (session_id, version)` and answer `500`.
+- **"Changed" is decided with the audit view of the latest snapshot and of the new state**, the same list `changedFields` reports. It covers every field an update can change; the snapshot's other field, `userId`, no update touches.
+- **A stale `expectedVersion` answers `409` before anything else**, a save that changes nothing included: that form is stale too.
+- **`createSessionFixture` also writes a `*_RECORDED` audit row**, because `audit_log_id` is required. Sessions were 14 direct inserts in 9 files, not the plan's share of 115 in 29; the rest of that count is step 3's.
+- **`Session.version` lives in `sessionRepository.ts` and `apps/web/src/types/session.ts`**, where the type is; `packages/shared` has no `Session`.
+- **Prisma's `error` log is off outside development.** The test of Task 2.3 found it: Prisma prints Postgres's detail, which for a `CHECK` violation is the failing row, `reason_note` included. Every error is still thrown. The error handler's own `console.error(err)` still prints what a non-revision write throws; that path was not changed.
+- **The restore procedure needs no new step, and `ficha-backups` no change.** The revisions triggers do not fire on `INSERT`, and the table has no `created_at` to stamp.
+- **The form's reload replaces what was typed**, after saying so: the `409` keeps it until the user chooses to reload, and then the form holds the version just read. The session comes from the patient's list item or the record, so the reload reads it itself instead of waiting for the parent.
+- **The rehearsal** (2026-11-06). `rehearsal-session-revisions`, copied from `production` in `ficha-pg18`: the ten migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed; `sessions` and `audit_logs` kept their counts (2 and 8) and row hashes; `session_revisions` is empty; no maintenance flag.
+- **The check by hand** ran against the Docker database, seeded, so it also went through version 0: the same session in two tabs gave a `409` in the second, keeping the text, and "Recargar" brought the first tab's edit; a `PATCH` with the loaded values answered `200` with the same `updatedAt` and wrote nothing; a block added and then removed gave versions 2 (two blocks) and 3 (one).
+
+### Step 3
+
+- **What did not match `dev`, and was settled before writing code** (2026-11-07):
+  - The evaluation form saves the occupation with a second request, a `PATCH` of the patient, not in one transaction with the evaluation (as before). That request carries the patient's version and the same reason, and a `409` on either one shows the notice. The reason field shows when the evaluation exists **or** the occupation changed: changing it corrects the patient even on a first evaluation.
+  - The evaluation's `PUT` is an upsert, so the route cannot tell a correction from a creation: `reason` is optional in the schema, and the repository, holding the lock, answers `400` "Elegí el motivo del cambio" to a correction that changes something without one. The episode's `PATCH` works the same way, since closing and reopening take no reason. A first evaluation is `expectedVersion: 0`, so two first evaluations at once give one `200` and one `409`.
+  - The patient form was also opened from the patients list, against "an edit form renders only from the full record". It now reads the record (`GET /patients/:id`, which carries `version`) under a key of its own, so a refetch of the record page does not replace what is being typed. The list carries no `version`.
+  - `PATIENT_UPDATED` requires `reason` on every edit, a phone or coverage change included (one rule; the catalog validates strictly).
+  - The episode is written from four places in the web, not two: abandoning (`AbandonEpisodeConfirm`), reopening (twice) and correcting the complaint, which is `EPISODE_UPDATED` and gained the reason field.
+  - Revoking a consent is a `DELETE`, which the web client sends with no body: signing carries `expectedVersion`, revoking does not. Revoking an already revoked consent still rewrites `revokedAt`, now as one more version; left as it was.
+- **The discharge does not lock the patient**, against spec §5's order (patient, session, episodes). An episode edit holds the episode and then inserts its audit row, which takes a share lock on the patient through its foreign key; a discharge holding the patient and waiting for that episode would deadlock. The discharge locks only what it writes, its episodes by id, before anything else, which also keeps two discharges of one episode from both taking a share lock through `session_episodes` and then deadlocking on the row. The concurrency test fails with the patient locked (checked once, reverted). Spec §5 updated.
+- **The other five compare after writing, and roll back a write that changed nothing** (`Rollback`, `unlessRolledBack` in `recordRevision.ts`). Building the new state before writing would repeat Prisma's conversions (a `@db.Date` from a coerced date, the JSON null of the body map) in a second mapping, which is the risk the plan names for a comparison that sees a change where there is none. Read back with the same select, the comparison uses exactly the snapshot's mapping, and the rollback leaves no update, no audit row and no version, as spec §5 asks. Sessions keep step 2's comparison before writing.
+- **The evaluation locks its episode, always**, not "the episode for the first one, its own row after": locking and then reading leaves no window for two first evaluations.
+- **Signing and revoking a consent both lock the patient.** The first signature has no row to lock, and sign and revoke must wait for each other; a sign holding the patient and a revoke holding the consent row would deadlock on the audit row's share lock.
+- **A patient's revision names the patient once**: `patient_revisions` has `patient_id` as the aggregate's key, with `UNIQUE (patient_id, version)` and the key `(tenant_id, patient_id) → patients`.
+- **The evaluation's `episodeId` is excluded from its projection as identity**: it never changes. `evaluatedAt` is in it (spec §3).
+- **The patient's deletion and the event's write a version of unchanged content** under their `*_DELETED` audit row, as the session's did in step 2; both lock first.
+- **Fixtures** (`tests/fixtures.ts`): `fixture.<model>.create({ data })` in the shape of the Prisma call it replaces, so the switch was mechanical: 92 calls in 30 files, leaving Prisma only where a test expects the insert to fail. Each writes a `SYSTEM` audit row of its creation (no user wrote it) and version 1; tests that list a patient's history see that row. `fixture.clinicalEpisode.update` writes the next version, for the one test that closed an episode by hand.
+- **Six tests deleted another clinic's clinical rows before `deleteAuditRows`**, which revisions now restrict: they call it first.
+- **The seed's `EVALUATION_UPDATED` row needed a `reason`**: the by-hand check found it, since nothing runs the seed in CI. `purge-test-audit.ts` deletes the five new tables' rows too.
+- **The 409 notice is one component** (`StaleRecordNotice`, with `isStaleEdit` in `lib/staleEdit.ts`), shared with the session form; `RevisionReasonField` takes its ids from `useId`, since the evaluation and the history card are on one page.
+- **The rehearsal** (2026-11-07). `rehearsal-revisions-aggregates`, copied from `production` in `ficha-pg18`: the eleven migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed with no maintenance flag; the five tables are empty; patients, episodes, evaluations, consents, events, sessions, audit rows and session revisions kept their counts (2, 2, 1, 0, 0, 2, 8, 0) and row hashes across this migration.
+- **The check by hand** ran against the Docker database, seeded (its rows are version 0): an occupation edit wrote one patient version and one audit row; a phone edit the audit row only; the same save again nothing; a stale version a `409` and nothing; a complaint correction, an evaluation correction, a revocation, a signature and an event correction one version and one audit row each; a discharge one `DISCHARGE_RECORDED` row owning session version 1 and the episode's version 2 (`DISCHARGED`). In the browser, the episode dialog kept what was typed on a `409` after an edit from elsewhere, and "Recargar" brought that edit in.
+- **The review's fixes** (2026-11-08):
+  - **A change only to the patient's contact or coverage takes a version**, of unchanged content, under its `PATIENT_UPDATED` row (as the deletion does), and keeps its `reasonNote`. Without it the version did not move, so a form loaded before a phone change passed its `expectedVersion` and saved the old phone back, with an audit row naming its author as the one who changed it; contact is not versioned, so the new phone was lost. The by-hand check above ("a phone edit the audit row only") predates this.
+  - **No reason is preselected** (Nath, 2026-11-08). "Error de confección" came chosen, at the foot of the form, where nobody had to look at it: almost every correction would have been recorded as a data-entry error. The field now starts empty ("Elegí un motivo"); saving a correction without one sends nothing, marks the field ("Elegí el motivo del cambio") and moves the focus to it. The state is one hook, `useRevisionReason`, in the five forms (patient, session, episode, evaluation, event); the episode dialog's reason and note no longer survive "Cancelar".
+  - **The episode dialog saves the complaint over the version it read the text from**, kept with the text when it opens or reloads, and pins the selected episode. It used the list's latest, so a refetch on window focus while it was open let a stale text through without a `409`. Reopening still goes over the list's latest: it acts on the status on screen, which is live.
+- **`lockRow` takes `FOR NO KEY UPDATE`, not `FOR UPDATE`** (2026-11-08, its own PR after step 3's). A discharge from an appointment holds its episode and later links the appointment; an edit of that appointment that moves it to the episode holds the appointment, and its foreign key check needs a share lock on the episode, which `FOR UPDATE` blocks: a deadlock and a `500`. `FOR NO KEY UPDATE` is the lock an `UPDATE` that leaves the keys alone takes: two writers of the row still wait for each other, so every caller's version and stale checks hold, but a foreign key pointing at the row no longer waits. No caller relied on `FOR UPDATE` blocking those share locks: none deletes a locked row or changes its keys, and the checks before inserting a child (`patientRepo.exists()`) are reads that a lock on the parent never covered. `tests/episodeRevisions.test.ts` reproduces the cycle with a transaction holding the patient, so both requests stop where it forms; it failed with `FOR UPDATE` (checked once). The discharge could now lock the patient again without deadlocking with an episode edit (the existing concurrency test passes with it, three runs), but still does not: it writes nothing on the patient, and holding it would only make discharges wait for patient edits. Spec §5 updated.
+
+### Step 4
+
+- **One router factory, mounted by each aggregate's router** (`routes/revisions.ts`, `revisionRoutes(target, message)`), not six copies and not one router with six paths: each parent mounts it at `…/revisions` with its own `:param` already registered, so `idParamCoverage` reads each file as before and `:version` is registered once, in the factory. The paths follow the record's: the evaluation is `…/episodes/:episodeId/evaluation/revisions` and the consent `…/consent/revisions`, since each has at most one; the patient's is `/api/patients/:id/revisions`.
+- **The aggregate must exist under that patient, or `404`**, checked with the patient's `deletedAt: null` in the same query; then the revisions are read by `(tenant, patient, aggregate)`. Without the first check, patient B's session through patient A's path would answer `200` with an empty list instead of `404`. An aggregate that exists with no revision (version 0, written before step 2 or 3) lists none; its `/revisions/1` is "Versión no encontrada".
+- **A soft-deleted session or event keeps its history readable**: its deletion is one of its versions, and step 5's annulled entries will show their history. Only a deleted patient closes the whole record.
+- **`:version` is `^[1-9]\d{0,8}$`, else `404` "Versión no encontrada"**: a positive integer that fits a Postgres `int`; `0`, `01`, `1.5`, `1e3` and ten digits are all a version that cannot exist.
+- **The list carries no content**: version, action, the audit row's `params` (read with `readAuditParams`, the reason among them), actor type, author (`{ id, name }`, `null` for `SYSTEM`) and time. The snapshot and the note come only from `/revisions/:version`, with `schemaVersion`; the web parses the snapshot with the shared schema of that version, and says so instead of guessing when it does not know one.
+- **What a version changed is marked by comparing its snapshot with the version before**, not from the audit row's `changedFields`, against the plan's wording. The audit names do not match the snapshot's fields (`episodeIds` for a block, `occurred` for three columns), a discharge's episode version is owned by a `DISCHARGE_RECORDED` row with no `changedFields`, and a patient's names `phone`, which no snapshot holds. The dialog reads version N−1 for it; a block removed in N is named under the version ("Se quitó en esta versión: …") and shown in N−1.
+- **The body map is shown as "Con marcas" / "Sin marcar", marked when it changed**: its shape is not defined yet (spec §3), so the history cannot draw an old one.
+- **The session's attending therapist (`userId`) is not shown**: no update changes it, and the author of each version is.
+- **"Ver historial" sits where each record is read**: in the session's dialog (nested in it, so a click in the history is not a click outside the session), next to the episode selector, on the evaluation's card, on *Datos personales*, on the consent's status and on each event of the history card.
+- **The list-minimization probe now marks `reason_note`**: a second version of every aggregate, with the first's content and audit row (a revision may share one) and a marker in its note. Its route extraction also follows nested routers (`router.use('…', factory(…))` with the factory's file), and `/api/patients/:id/…` counts as the record.
+- **`PatientDetailPageEvaluation.test.tsx` mocks the payments and tenant services**: it failed on `dev` too, since #290 made unmocked requests fail a test and the page mounts the discharge form, which asks for the last price, the packages and the clinic's settings.
+- **The check by hand** ran against `development`: two edits of a seeded session (version 0 → 1 with two blocks → 2 with one, with a note) showed version 2 with the treatment marked and the removed block named, and version 1 with both blocks; the patient, an event and a fresh consent showed their versions with author, reason and note. The test edits were sent with `curl` from Git Bash, which did not send `ó` as UTF-8: those rows on `development` hold a replacement character, not the app's doing.
+
+
+### Step 5
+
+- **An annulment takes no `expectedVersion`.** It changes no content, so there is nothing a stale form could save back. It locks the row first: an edit at the same moment either lands first and the annulment takes the next version, or finds the entry annulled and answers `404` (both tested).
+- **`SESSION_ANNULLED` carries `sessionType` and `reason`**, as `SESSION_UPDATED` carries the type, so the timeline says "Anuló el alta" or "Anuló una nota clínica"; `PATIENT_EVENT_ANNULLED` carries `kind` and `reason`. Both are `kind: 'delete'`, the timeline's colour for an entry that leaves the record. `SESSION_DELETED` and `PATIENT_EVENT_DELETED` are `deprecated`: they stay in the enum and keep their wording for the rows that name them.
+- **Only `listByPatient` returns annulled entries.** The record's `getById` of a session still answers `404` for an annulled one, so it cannot open in the edit form: in the web, an annulled session opens its history (`RevisionHistoryDialog`), whose last version is the annulment with its reason. Every other reader already filtered `deletedAt` and was left as it was; the clinic's index, the metrics and the episode's last activity are tested in `annulment.test.ts` and `dashboardStats`.
+- **In the record an annulled entry counts in nothing**: not in "N sesiones" (which adds "· 1 anulada"), not in the session numbering (it shows "–"), not in the pain chart (which also filters on its own) and not as the episode's discharge. The badge is "Anulada" on a session and "Anulado" on an event (*antecedente*).
+- **Annulling a discharge leaves its episode discharged**, as deleting it did. Reopening is the episode's own action.
+- **The annul dialog is one component** (`AnnulDialog`), with `RevisionReasonField` labelled "Motivo de la anulación"; the field's `label` and `noteLabel` are new optional props. A cancelled dialog forgets the reason chosen.
+- **`sessionSoftDelete.test.ts` became `sessionAnnul.test.ts`**, in English: payments, appointments, reading, editing and metrics after an annulment. The new `annulment.test.ts` covers the action, the reason, the version and the readers for both aggregates; the removed `DELETE` routes answer `404`.
+- **Fixed on the way**: the record's session count read "2 sesiónes".
+- **The check by hand** ran against `development` (the migration applied there with `migrate deploy`), on Javier Rodríguez (seed, version 0). Annulling his last session: confirming with no reason marked the field and sent nothing; with "Error de confección" and a note it answered `204`, the list read "7 sesiones · 1 anulada" with the session struck through as "Anulada" and numbered "–", and the pain chart lost its point. Clicking it opened its history, whose only version is "Sesión anulada · Error de confección" with the note (version 1: the seeded session had none; a reseed gives such rows their version 1 (step 6)). An event annulled with "Aclaración" showed struck through as "Anulado", with only its history button. The activity timeline read "Anuló una sesión" and "Anuló un antecedente (cirugía)".
+- **The rehearsal** (2026-11-09). `rehearsal-annulment`, copied from `production` in `ficha-pg18`: the twelve migrations `production` is behind on applied in one transaction, then this one in its own. `audit-guards.sql` passed with no maintenance flag; both actions are in the enum; sessions, patient events, audit rows and patients kept their counts (2, 0, 8, 2) and row hashes across this migration.
+- **The review's fixes** (2026-11-09, a code reviewer and a security auditor):
+  - **The annul dialog kept the last reason and note.** Its state was reset only when the dialog itself was closed, and the history card closes it from outside after a success, so the next event's annulment opened with the previous reason and note chosen: one click recorded them on another entry. The reason now lives in the dialog's content, which unmounts when it closes, however it closes. A test annuls one event and opens the next.
+  - **A second annulment no longer deletes a payment.** Annulling deleted the session's pending payment before finding out whether the session was still current. A payment created at the same moment as an annulment can still land on the annulled session (payments do not lock it, and `FOR NO KEY UPDATE` does not block a foreign key's check), and a retry would then delete it with a `404` and no audit row. The annulment now answers `404` before writing anything when the session is not current under its lock.
+  - **An entry annulled elsewhere closes the dialog and reloads the list** (`404`), on the event card and in the session form, instead of leaving a dialog that fails on every retry.
+  - The missing-reason message in the annul dialog reads "Elegí el motivo de la anulación"; the pain chart's and the discharge's filters have tests of their own (each fails with its filter removed, checked once).
+- **Decided by Nath after the review** (2026-11-09):
+  - **`SESSION_ANNULLED` records what happened to the payment** (`payment`: `NONE`, `PENDING_DELETED`, `WAIVED_DELETED`). A pending or waived payment is deleted with the session, and nothing else kept a trace of it, a discount or a waiver included. It went in before any annulment existed outside `development`, so no row lacks it. The repository deletes the payment with `DELETE … RETURNING status`, so the status recorded is the one deleted.
+  - **The record's lists show an annulled entry without its clinical content**: a session keeps its date (struck through), its type and "Anulada", without the treatment, the other episodes or the pain; an event keeps its kind, its date and "Anulado", with "el contenido está en su historial" in place of its description. The likeliest reason to annul is an entry on the wrong patient, whose text should not stay readable in that record; it is one click away in the history. This replaces the struck-through text of the first version of this step.
+  - **A payment created at the same moment as an annulment** (the race above) is fixed in its own PR, in the payment repository.
+  - **Any user of the clinic may annul any entry**, another therapist's included, as with creating and editing: every annulment names its author and reason, and the content stays in the history. Whether only the author or an ADMIN may annul is decided with roles and permissions, not here.
+

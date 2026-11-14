@@ -8,19 +8,36 @@ import { Prisma } from '@prisma/client';
 // select and compares. The lock makes the list exact: a concurrent edit waits
 // for this transaction instead of slipping in between the read and the write.
 
-// The tables whose updates are audited with changedFields, and the column a
-// row is found by. A closed list: the name goes into raw SQL.
+// The tables whose updates are audited with changedFields, or whose writes are
+// versioned (SPEC-clinical-revisions.md §5), or whose audit row is decided
+// against the state read first (users, by the operator), and the column a row
+// is found by.
+// A closed list: the name goes into raw SQL.
 const LOCKABLE = {
   patients: 'id',
   sessions: 'id',
   payments: 'id',
   initial_evaluations: 'episode_id',
+  clinical_episodes: 'id',
+  // One per patient.
+  informed_consents: 'patient_id',
+  patient_events: 'id',
+  appointments: 'id',
+  users: 'id',
 } as const;
 
 type LockableTable = keyof typeof LOCKABLE;
 
-// SELECT … FOR UPDATE on one row of a clinic. Raw SQL escapes the tenant-scope
-// extension, so the tenant goes in the WHERE by hand.
+// SELECT … FOR NO KEY UPDATE on one row of a clinic. Raw SQL escapes the
+// tenant-scope extension, so the tenant goes in the WHERE by hand.
+//
+// NO KEY UPDATE, the lock an UPDATE that leaves the keys alone takes, and not
+// FOR UPDATE: two writers of the row still wait for each other, but an insert or
+// update elsewhere whose foreign key points at the row (an audit row naming the
+// patient, an appointment moved to the episode) does not wait for this one. With
+// FOR UPDATE it did, and a writer holding the row while waiting for that other
+// transaction deadlocked with it. No caller deletes a locked row or changes its
+// keys.
 export async function lockRow(
   tx: Prisma.TransactionClient,
   table: LockableTable,
@@ -28,7 +45,7 @@ export async function lockRow(
   tenantId: string,
 ): Promise<void> {
   const column = LOCKABLE[table];
-  await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(`"${table}"`)} WHERE ${Prisma.raw(`"${column}"`)} = ${key}::uuid AND "tenant_id" = ${tenantId}::uuid FOR UPDATE`;
+  await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(`"${table}"`)} WHERE ${Prisma.raw(`"${column}"`)} = ${key}::uuid AND "tenant_id" = ${tenantId}::uuid FOR NO KEY UPDATE`;
 }
 
 // A JSON value with its object keys sorted, so two equal grids compare equal
@@ -39,6 +56,12 @@ function canonical(value: unknown): string {
       ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
       : v,
   );
+}
+
+// Whether two values are equal as JSON, whatever the order of their keys: how a
+// new snapshot is compared with the latest one.
+export function sameValue(a: unknown, b: unknown): boolean {
+  return canonical(a) === canonical(b);
 }
 
 // The fields, among `fields`, whose value differs between the two reads. Both

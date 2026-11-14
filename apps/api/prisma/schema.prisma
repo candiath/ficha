@@ -34,9 +34,9 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Tenant {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  name      String
-  slug      String   @unique
+  id   String @id @default(uuid(7)) @db.Uuid
+  name String
+  slug String @unique
 
   // Datos de contacto y fiscales. Opcionales: una clínica recién creada solo
   // tiene nombre y slug, y estos se completan desde la pantalla de Clínica.
@@ -51,7 +51,7 @@ model Tenant {
   // hora de pared, pero se guarda como instante UTC. Sin esto, agrupar por
   // día o por semana se hace en UTC y una sesión de las 22:00 de fin de mes
   // cae en el mes siguiente (el dashboard ya documenta ese corrimiento).
-  timezone  String   @default("America/Argentina/Buenos_Aires")
+  timezone String @default("America/Argentina/Buenos_Aires")
 
   // Horario de atención, en hora local de la clínica. Estructurado y no texto
   // libre porque la grilla de la agenda tiene que poder leerlo: hoy dibuja
@@ -82,22 +82,27 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users               User[]
-  patients            Patient[]
-  sessions            Session[]
-  initialEvaluations  InitialEvaluation[]
-  sessionPackages     SessionPackage[]
-  payments            Payment[]
-  informedConsents    InformedConsent[]
-  auditLogs           AuditLog[]
-  clinicalAlerts      ClinicalAlert[]
-  functionalScales    FunctionalScale[]
-  clinicalEpisodes    ClinicalEpisode[]
-  sessionEpisodes     SessionEpisode[]
-  patientEvents       PatientEvent[]
-  loginEvents         LoginEvent[]
-  appointments        Appointment[]
-  platformAuditLogs   PlatformAuditLog[]
+  users                 User[]
+  patients              Patient[]
+  sessions              Session[]
+  initialEvaluations    InitialEvaluation[]
+  sessionPackages       SessionPackage[]
+  payments              Payment[]
+  informedConsents      InformedConsent[]
+  auditLogs             AuditLog[]
+  clinicalAlerts        ClinicalAlert[]
+  clinicalEpisodes      ClinicalEpisode[]
+  sessionEpisodes       SessionEpisode[]
+  sessionRevisions      SessionRevision[]
+  patientRevisions      PatientRevision[]
+  episodeRevisions      EpisodeRevision[]
+  evaluationRevisions   EvaluationRevision[]
+  consentRevisions      ConsentRevision[]
+  patientEventRevisions PatientEventRevision[]
+  patientEvents         PatientEvent[]
+  loginEvents           LoginEvent[]
+  appointments          Appointment[]
+  platformAuditLogs     PlatformAuditLog[]
 
   @@map("tenants")
 }
@@ -121,13 +126,13 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  sessions     Session[]
-  auditLogs    AuditLog[]
-  loginEvents  LoginEvent[]
-  appointments Appointment[]
-  platformAuditLogs PlatformAuditLog[]
-  authSessions AuthSession[]
+  tenant               Tenant               @relation(fields: [tenantId], references: [id])
+  sessions             Session[]
+  auditLogs            AuditLog[]
+  loginEvents          LoginEvent[]
+  appointments         Appointment[]
+  platformAuditLogs    PlatformAuditLog[]
+  authSessions         AuthSession[]
   passwordResetTokens  PasswordResetToken[] @relation("PasswordResetTokenUser")
   passwordResetsIssued PasswordResetToken[] @relation("PasswordResetTokenIssuer")
 
@@ -156,21 +161,21 @@ model User {
 // keep the id, with no foreign key.
 // ─────────────────────────────────────────────────────────────────────────────
 model AuthSession {
-  id        String    @id @default(uuid(7)) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  tokenHash Bytes     @unique @map("token_hash")
-  createdAt DateTime  @default(now()) @map("created_at")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  Bytes     @unique @map("token_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
   // Refreshed by authenticate at most once every few minutes; drives idle
   // expiry and the "last activity" of the session list.
-  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  lastUsedAt DateTime  @default(now()) @map("last_used_at")
   // "Mantener la sesión iniciada en este dispositivo": longer timeouts,
   // capped per user (lib/sessionPolicy.ts).
-  trusted   Boolean   @default(false)
+  trusted    Boolean   @default(false)
   // Captured at login for the session list: they cannot be backfilled later.
-  ip        String?
-  userAgent String?   @map("user_agent")
+  ip         String?
+  userAgent  String?   @map("user_agent")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -239,10 +244,10 @@ model PlatformOperator {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  auditLogs   PlatformAuditLog[]
-  loginEvents LoginEvent[]
+  auditLogs            PlatformAuditLog[]
+  loginEvents          LoginEvent[]
   passwordResetsIssued PasswordResetToken[]
-  testAlerts  SysadminAlert[]
+  testAlerts           SysadminAlert[]
 
   @@map("platform_operators")
 }
@@ -266,6 +271,7 @@ enum PlatformAction {
   USER_ACTIVE_CHANGED
   USER_DEVICES_DISCONNECTED
   PASSWORD_RESET_LINK_CREATED
+  INVITATION_LINK_CREATED
   // An action on the platform itself: the only one with no clinic (a CHECK
   // on platform_audit_logs pins it). SPEC-sysadmin-alerts.md §2.
   TEST_ALERT_SENT
@@ -287,24 +293,24 @@ enum PlatformAction {
 // (TEST_ALERT_SENT), and a row with a target always names its clinic: two
 // CHECKs in the migration, pinned by prisma/audit-guards.sql.
 model PlatformAuditLog {
-  id           String         @id @default(uuid(7)) @db.Uuid
-  operatorId   String         @map("operator_id") @db.Uuid
-  tenantId     String?        @map("tenant_id") @db.Uuid
-  targetUserId String?        @map("target_user_id") @db.Uuid
+  id           String               @id @default(uuid(7)) @db.Uuid
+  operatorId   String               @map("operator_id") @db.Uuid
+  tenantId     String?              @map("tenant_id") @db.Uuid
+  targetUserId String?              @map("target_user_id") @db.Uuid
   action       PlatformAction
   // Codes only, as in audit_logs (SPEC-audit-structured-entries.md).
-  params       Json           @default("{}")
+  params       Json                 @default("{}")
   // Always OPERATOR for now (a CHECK in the migration).
-  actorType    AuditActorType @default(OPERATOR) @map("actor_type")
+  actorType    AuditActorType       @default(OPERATOR) @map("actor_type")
   // The object the action was on, when it is neither the clinic nor a user
   // (they have columns of their own): the reset link generated, the test
   // alert sent. Set from the catalog by recordPlatformAudit; no foreign key,
   // since it points at a different table by type. Both or neither (a CHECK).
   entity       PlatformAuditEntity?
-  entityId     String?        @map("entity_id") @db.Uuid
+  entityId     String?              @map("entity_id") @db.Uuid
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
-  createdAt    DateTime       @default(now()) @map("created_at")
+  createdAt    DateTime             @default(now()) @map("created_at")
 
   // Restrict everywhere (#186): an audit row can never change, so it cannot
   // lose its operator or target, and nobody it names can be deleted. The
@@ -331,15 +337,15 @@ model PlatformAuditLog {
 // adds one classifies the models in TENANT_MODELS_FUERA_DEL_GUARD.
 
 enum SysadminAlertKind {
-  AUDIT_GUARDS_FAILED            // audit-guards.sql failed at startup
+  AUDIT_GUARDS_FAILED // audit-guards.sql failed at startup
   AUDIT_MAINTENANCE_FLAG_PRESENT // no-audit-maintenance.sql failed at startup
-  TEST                           // sent by the operator from /platform
+  TEST // sent by the operator from /platform
 }
 
 enum SysadminAlertOutcome {
-  SENT           // Telegram accepted it
-  REJECTED       // Telegram answered ok: false; error_code says why
-  UNREACHABLE    // no usable answer: network error, timeout, a body that is not Telegram's
+  SENT // Telegram accepted it
+  REJECTED // Telegram answered ok: false; error_code says why
+  UNREACHABLE // no usable answer: network error, timeout, a body that is not Telegram's
   NOT_CONFIGURED // token or chat missing or malformed: nothing was sent
 }
 
@@ -351,7 +357,7 @@ model SysadminAlert {
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC.
   createdAt  DateTime          @default(now()) @map("created_at")
 
-  operator   PlatformOperator? @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operator   PlatformOperator?       @relation(fields: [operatorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   deliveries SysadminAlertDelivery[]
 
   @@index([createdAt])
@@ -382,26 +388,43 @@ model SysadminAlertDelivery {
 // Separado de AuditLog a propósito: aquél es la auditoría clínica por
 // paciente (patientId obligatorio); esto sirve para detectar fuerza bruta
 // y rastrear accesos.
+// Which door an attempt came through. The account brake counts per realm and
+// email, so a success at one door never clears a streak of failures at
+// another (area 2 review, M1).
+enum LoginRealm {
+  CLINIC
+  PLATFORM
+  // The current password asked by "change password", with a session in hand.
+  CLINIC_PASSWORD_CHANGE
+  PLATFORM_PASSWORD_CHANGE
+}
+
 model LoginEvent {
-  id        String   @id @default(uuid(7)) @db.Uuid
+  id         String   @id @default(uuid(7)) @db.Uuid
+  realm      LoginRealm @default(CLINIC)
+  // What the account brake counts by, within its realm: the email for a
+  // login; for the current password of a "change password", the credential
+  // making the guesses (session:<id> or token:<sha-256>), so a stolen one
+  // locks itself and not the account's owner. `email` stays the account's.
+  key        String
   // Email tal como se intentó (normalizado): en un fallo puede no
   // corresponder a ningún usuario.
-  email     String
+  email      String
   // tenantId y userId son nullable a diferencia del resto de las tablas de
   // dominio: un intento fallido contra un email desconocido no pertenece a
   // ninguna clínica ni usuario. Cuando el email sí existe se guardan ambos,
   // y eso permite filtrar los accesos por clínica y seguir el historial de
   // un usuario aunque después cambie su email.
-  tenantId  String?  @map("tenant_id") @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
   // El login del operador de plataforma registra sus intentos acá mismo —
   // así el freno por cuenta, que cuenta por email, lo cubre sin código
   // aparte— y esta columna dice de quién fue un éxito sin tenant ni usuario.
-  operatorId String? @map("operator_id") @db.Uuid
-  success   Boolean
-  ip        String?
-  userAgent String?  @map("user_agent")
-  createdAt DateTime @default(now()) @map("created_at")
+  operatorId String?  @map("operator_id") @db.Uuid
+  success    Boolean
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   // SetNull: si se borra el usuario, el evento se conserva sin actor.
   // No se pierde a quién apuntaba el intento: la columna email de arriba es
@@ -413,6 +436,7 @@ model LoginEvent {
   @@index([tenantId])
   @@index([createdAt])
   @@index([email])
+  @@index([realm, key, createdAt])
   @@map("login_events")
 }
 
@@ -423,22 +447,26 @@ enum Sex {
 }
 
 model Patient {
-  id               String    @id @default(uuid(7)) @db.Uuid
-  tenantId         String    @map("tenant_id") @db.Uuid
-  fullName         String    @map("full_name")
-  birthDate        DateTime? @map("birth_date") @db.Date
-  sex              Sex?
-  phone            String?
-  occupation       String?
-  referringDoctor  String?   @map("referring_doctor")
-  insuranceName    String?   @map("insurance_name")
-  insuranceNumber  String?   @map("insurance_number")
-  insurancePlan    String?   @map("insurance_plan")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  // Given names and surnames, apart (#238): the clinic finds and sorts
+  // patients by surname. A display fullName is built in the DTO
+  // (repositories/prisma/patientName.ts).
+  firstName       String    @map("first_name")
+  lastName        String    @map("last_name")
+  birthDate       DateTime? @map("birth_date") @db.Date
+  sex             Sex?
+  phone           String?
+  occupation      String?
+  referringDoctor String?   @map("referring_doctor")
+  insuranceName   String?   @map("insurance_name")
+  insuranceNumber String?   @map("insurance_number")
+  insurancePlan   String?   @map("insurance_plan")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
   // Borrado lógico: null = activo. Nunca se hace hard delete de pacientes
   // para preservar historia clínica, pagos y registro de auditoría.
-  deletedAt        DateTime? @map("deleted_at")
+  deletedAt       DateTime? @map("deleted_at")
 
   tenant             Tenant              @relation(fields: [tenantId], references: [id])
   sessions           Session[]
@@ -448,15 +476,16 @@ model Patient {
   informedConsent    InformedConsent?
   auditLogs          AuditLog[]
   clinicalAlerts     ClinicalAlert[]
-  functionalScales   FunctionalScale[]
   clinicalEpisodes   ClinicalEpisode[]
   appointments       Appointment[]
   events             PatientEvent[]
+  revisions          PatientRevision[]
 
   // Audit rows reference (tenant_id, id), so they cannot name another
   // clinic's patient (#186); Postgres needs a unique constraint to reference.
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([tenantId, lastName, firstName])
   @@map("patients")
 }
 
@@ -477,12 +506,12 @@ model ClinicalEpisode {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id])
-  patient           Patient             @relation(fields: [patientId], references: [id])
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  patient           Patient            @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   initialEvaluation InitialEvaluation?
   sessions          SessionEpisode[]
-  functionalScales  FunctionalScale[]
   appointments      Appointment[]
+  revisions         EpisodeRevision[]
 
   // Referenced by SessionEpisode, so a block cannot name another clinic's or
   // another patient's episode.
@@ -531,54 +560,51 @@ model PatientEvent {
   // the record, and the row stays for the audit trail.
   deletedAt           DateTime?        @map("deleted_at")
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id])
+  patient   Patient                @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  revisions PatientEventRevision[]
 
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
+  // §2): a version cannot name another clinic's or another patient's event.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("patient_events")
 }
 
 model InitialEvaluation {
-  id                      String   @id @default(uuid(7)) @db.Uuid
-  tenantId                String   @map("tenant_id") @db.Uuid
-  patientId               String   @map("patient_id") @db.Uuid
-  episodeId               String?  @unique @map("episode_id") @db.Uuid
+  id               String   @id @default(uuid(7)) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  patientId        String   @map("patient_id") @db.Uuid
+  // Every evaluation is an episode's: it is only written from
+  // /episodes/:episodeId/evaluation.
+  episodeId        String   @unique @map("episode_id") @db.Uuid
   // The patient's account: what happened, how it started ("Relato del paciente").
-  patientNarrative        String?  @map("patient_narrative")
+  patientNarrative String?  @map("patient_narrative")
   // What the patient's history list (PatientEvent) does not hold: something
   // exceptional ("Otros antecedentes").
-  otherHistory            String?  @map("other_history")
-  notes                   String?
-  retractionMap           Json?    @map("retraction_map")
-  flexibilityNotes        String?  @map("flexibility_notes")
-  physicalActivity        String?  @map("physical_activity")
-  painFrequency           String?  @map("pain_frequency")
-  evaScale                Int?     @map("eva_scale")
-  evaluatedAt             DateTime @default(now()) @map("evaluated_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+  otherHistory     String?  @map("other_history")
+  notes            String?
+  retractionMap    Json?    @map("retraction_map")
+  physicalActivity String?  @map("physical_activity")
+  painFrequency    String?  @map("pain_frequency")
+  evaScale         Int?     @map("eva_scale")
+  evaluatedAt      DateTime @default(now()) @map("evaluated_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
-  tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [patientId], references: [id])
-  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
-  photos  EvaluationPhoto[]
+  tenant    Tenant               @relation(fields: [tenantId], references: [id])
+  patient   Patient              @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  episode   ClinicalEpisode      @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  revisions EvaluationRevision[]
 
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId, episodeId])
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md §2).
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("initial_evaluations")
-}
-
-model EvaluationPhoto {
-  id                  String   @id @default(uuid(7)) @db.Uuid
-  initialEvaluationId String   @map("initial_evaluation_id") @db.Uuid
-  storageKey          String   @map("storage_key")
-  caption             String?
-  takenAt             DateTime? @map("taken_at")
-  createdAt           DateTime @default(now()) @map("created_at")
-
-  initialEvaluation InitialEvaluation @relation(fields: [initialEvaluationId], references: [id])
-
-  @@map("evaluation_photos")
 }
 
 enum SessionType {
@@ -588,18 +614,18 @@ enum SessionType {
 }
 
 model Session {
-  id               String      @id @default(uuid(7)) @db.Uuid
-  tenantId         String      @map("tenant_id") @db.Uuid
-  patientId        String      @map("patient_id") @db.Uuid
-  userId           String      @map("user_id") @db.Uuid
-  sessionType      SessionType @default(SESSION) @map("session_type")
-  sessionDate      DateTime    @map("session_date")
+  id           String      @id @default(uuid(7)) @db.Uuid
+  tenantId     String      @map("tenant_id") @db.Uuid
+  patientId    String      @map("patient_id") @db.Uuid
+  userId       String      @map("user_id") @db.Uuid
+  sessionType  SessionType @default(SESSION) @map("session_type")
+  sessionDate  DateTime    @map("session_date")
   // Everything clinical about a problem the visit treated is in its block
   // (SessionEpisode). The session keeps the text of a note, which may belong
   // to no episode.
-  observations     String?
-  createdAt        DateTime    @default(now()) @map("created_at")
-  updatedAt        DateTime    @updatedAt @map("updated_at")
+  observations String?
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
   // Borrado lógico, igual que Patient: una sesión cargada por error
   // desaparece de los listados pero la fila queda, para no romper el pivote
   // con episodios ni la auditoría, y para que el borrado sea reversible.
@@ -607,15 +633,16 @@ model Session {
   // PENDING o WAIVED: una sesión ya cobrada no se deja borrar (409). El turno
   // del que salió, si hubo uno, queda sin sessionId para poder registrarla
   // de nuevo.
-  deletedAt        DateTime?   @map("deleted_at")
+  deletedAt    DateTime?   @map("deleted_at")
 
-  tenant     Tenant            @relation(fields: [tenantId], references: [id])
-  patient    Patient           @relation(fields: [patientId], references: [id])
-  user       User              @relation(fields: [userId], references: [id])
+  tenant      Tenant            @relation(fields: [tenantId], references: [id])
+  patient     Patient           @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // The therapist is a user of the session's own clinic.
+  user        User              @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   episodes    SessionEpisode[]
-  photos      SessionPhoto[]
   payment     Payment?
   appointment Appointment?
+  revisions   SessionRevision[]
 
   // Referenced by SessionEpisode, so a block cannot name another clinic's or
   // another patient's session.
@@ -660,17 +687,160 @@ model SessionEpisode {
   @@map("session_episodes")
 }
 
-model SessionPhoto {
-  id         String    @id @default(uuid(7)) @db.Uuid
-  sessionId  String    @map("session_id") @db.Uuid
-  storageKey String    @map("storage_key")
-  caption    String?
-  takenAt    DateTime? @map("taken_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+// ─────────────────────────────────────────────────────────────────────────────
+// One version of a session: a snapshot of its whole state, blocks included, as
+// of the write that made it (docs/specs/SPEC-clinical-revisions.md). Append-only,
+// like the audit tables: triggers reject every UPDATE and TRUNCATE, and every
+// DELETE outside maintenance. Who, when and why live in the audit row it points
+// at; the composite keys keep both inside the row's clinic and patient. Pinned
+// by audit-guards.sql.
+// ─────────────────────────────────────────────────────────────────────────────
+model SessionRevision {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  tenantId      String  @map("tenant_id") @db.Uuid
+  patientId     String  @map("patient_id") @db.Uuid
+  sessionId     String  @map("session_id") @db.Uuid
+  version       Int
+  // Not unique: one action can own several revisions (a discharge, from step 3).
+  auditLogId    String  @map("audit_log_id") @db.Uuid
+  snapshot      Json
+  schemaVersion Int     @map("schema_version")
+  // Why the record was corrected, in the editor's words. Clinical content: it
+  // never goes into an audit row, a log or a global list.
+  reasonNote    String? @map("reason_note")
 
-  session Session @relation(fields: [sessionId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  session  Session  @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog AuditLog @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
-  @@map("session_photos")
+  @@unique([sessionId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("session_revisions")
+}
+
+// One version of a patient, as of the write that made it: the same shape and
+// guarantees as SessionRevision (append-only, pinned by audit-guards.sql).
+model PatientRevision {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  tenantId      String  @map("tenant_id") @db.Uuid
+  patientId     String  @map("patient_id") @db.Uuid
+  version       Int
+  // Not unique: one action can own several revisions (a discharge).
+  auditLogId    String  @map("audit_log_id") @db.Uuid
+  snapshot      Json
+  schemaVersion Int     @map("schema_version")
+  // Clinical content: never in an audit row, a log or a global list.
+  reasonNote    String? @map("reason_note")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  patient  Patient  @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog AuditLog @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([patientId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("patient_revisions")
+}
+
+// One version of an episode, as of the write that made it: the same shape and
+// guarantees as SessionRevision (append-only, pinned by audit-guards.sql).
+model EpisodeRevision {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  tenantId      String  @map("tenant_id") @db.Uuid
+  patientId     String  @map("patient_id") @db.Uuid
+  episodeId     String  @map("episode_id") @db.Uuid
+  version       Int
+  // Not unique: one action can own several revisions (a discharge).
+  auditLogId    String  @map("audit_log_id") @db.Uuid
+  snapshot      Json
+  schemaVersion Int     @map("schema_version")
+  // Clinical content: never in an audit row, a log or a global list.
+  reasonNote    String? @map("reason_note")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  episode  ClinicalEpisode @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog AuditLog        @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([episodeId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("episode_revisions")
+}
+
+// One version of an initial evaluation, as of the write that made it: the same shape and
+// guarantees as SessionRevision (append-only, pinned by audit-guards.sql).
+model EvaluationRevision {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  tenantId      String  @map("tenant_id") @db.Uuid
+  patientId     String  @map("patient_id") @db.Uuid
+  evaluationId  String  @map("evaluation_id") @db.Uuid
+  version       Int
+  // Not unique: one action can own several revisions (a discharge).
+  auditLogId    String  @map("audit_log_id") @db.Uuid
+  snapshot      Json
+  schemaVersion Int     @map("schema_version")
+  // Clinical content: never in an audit row, a log or a global list.
+  reasonNote    String? @map("reason_note")
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  evaluation InitialEvaluation @relation(fields: [tenantId, patientId, evaluationId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog   AuditLog          @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([evaluationId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("evaluation_revisions")
+}
+
+// One version of an informed consent, as of the write that made it: the same shape and
+// guarantees as SessionRevision (append-only, pinned by audit-guards.sql).
+model ConsentRevision {
+  id            String  @id @default(uuid(7)) @db.Uuid
+  tenantId      String  @map("tenant_id") @db.Uuid
+  patientId     String  @map("patient_id") @db.Uuid
+  consentId     String  @map("consent_id") @db.Uuid
+  version       Int
+  // Not unique: one action can own several revisions (a discharge).
+  auditLogId    String  @map("audit_log_id") @db.Uuid
+  snapshot      Json
+  schemaVersion Int     @map("schema_version")
+  // Clinical content: never in an audit row, a log or a global list.
+  reasonNote    String? @map("reason_note")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consent  InformedConsent @relation(fields: [tenantId, patientId, consentId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog AuditLog        @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([consentId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("consent_revisions")
+}
+
+// One version of a patient event, as of the write that made it: the same shape and
+// guarantees as SessionRevision (append-only, pinned by audit-guards.sql).
+model PatientEventRevision {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  tenantId       String  @map("tenant_id") @db.Uuid
+  patientId      String  @map("patient_id") @db.Uuid
+  patientEventId String  @map("patient_event_id") @db.Uuid
+  version        Int
+  // Not unique: one action can own several revisions (a discharge).
+  auditLogId     String  @map("audit_log_id") @db.Uuid
+  snapshot       Json
+  schemaVersion  Int     @map("schema_version")
+  // Clinical content: never in an audit row, a log or a global list.
+  reasonNote     String? @map("reason_note")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  patientEvent PatientEvent @relation(fields: [tenantId, patientId, patientEventId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog     AuditLog     @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([patientEventId, version])
+  @@index([tenantId])
+  @@index([auditLogId])
+  @@map("patient_event_revisions")
 }
 
 enum PaymentStatus {
@@ -684,55 +854,65 @@ enum PaymentMethod {
   TRANSFER
 }
 
+// Money is stored in integer cents (BIGINT), in every column and in the API:
+// arithmetic on cents is exact, and a price is never a float that rounds
+// differently in two places. $1.234,56 is 123456; only the screen divides.
+
 // Un paquete de sesiones prepagadas para un paciente.
 // El precio individual se fija al crear el paquete.
 // Las sesiones debitan del paquete usando packageId en Payment.
 model SessionPackage {
-  id              String   @id @default(uuid(7)) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  patientId       String   @map("patient_id") @db.Uuid
-  name            String
-  totalSessions   Int      @map("total_sessions")
-  pricePerSession Decimal  @map("price_per_session") @db.Decimal(10, 2)
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(uuid(7)) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  patientId            String   @map("patient_id") @db.Uuid
+  name                 String
+  totalSessions        Int      @map("total_sessions")
+  pricePerSessionCents BigInt   @map("price_per_session_cents")
+  notes                String?
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id])
-  patient  Patient   @relation(fields: [patientId], references: [id])
+  patient  Patient   @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   payments Payment[]
 
+  // Referenced by Payment, so a package pays only its own patient's sessions.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@map("session_packages")
 }
 
 // Un cobro por sesión. Se crea junto con la sesión (status PENDING).
-// discount y finalAmount permiten descuentos granulares.
 model Payment {
-  id          String         @id @default(uuid(7)) @db.Uuid
-  tenantId    String         @map("tenant_id") @db.Uuid
-  patientId   String         @map("patient_id") @db.Uuid
-  sessionId   String         @unique @map("session_id") @db.Uuid
-  packageId   String?        @map("package_id") @db.Uuid
+  id        String  @id @default(uuid(7)) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  patientId String  @map("patient_id") @db.Uuid
+  sessionId String  @unique @map("session_id") @db.Uuid
+  packageId String? @map("package_id") @db.Uuid
 
-  baseAmount  Decimal        @map("base_amount") @db.Decimal(10, 2)
-  discount    Decimal        @default(0) @db.Decimal(10, 2)
-  finalAmount Decimal        @map("final_amount") @db.Decimal(10, 2)
+  // Cents; finalAmountCents = baseAmountCents - discountCents (a CHECK).
+  baseAmountCents  BigInt @map("base_amount_cents")
+  discountCents    BigInt @default(0) @map("discount_cents")
+  finalAmountCents BigInt @map("final_amount_cents")
 
-  status      PaymentStatus  @default(PENDING)
-  method      PaymentMethod?
-  paidAt      DateTime?      @map("paid_at")
-  notes       String?
+  status PaymentStatus  @default(PENDING)
+  method PaymentMethod?
+  paidAt DateTime?      @map("paid_at")
+  notes  String?
 
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  tenant   Tenant          @relation(fields: [tenantId], references: [id])
-  patient  Patient         @relation(fields: [patientId], references: [id])
-  session  Session         @relation(fields: [sessionId], references: [id])
-  package  SessionPackage? @relation(fields: [packageId], references: [id])
+  // Session and package are the payment's own patient's.
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  patient Patient         @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  session Session         @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  package SessionPackage? @relation(fields: [tenantId, patientId, packageId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId, sessionId])
   @@index([tenantId])
   @@index([patientId])
   @@index([sessionId])
@@ -746,15 +926,24 @@ model InformedConsent {
   id        String    @id @default(uuid(7)) @db.Uuid
   tenantId  String    @map("tenant_id") @db.Uuid
   patientId String    @unique @map("patient_id") @db.Uuid
-  signed    Boolean   @default(false)
-  signedAt  DateTime? @map("signed_at")
+  // A row exists once the patient signed, so signedAt always has a date.
+  // Signed means signed and not revoked: derived in the DTO, never a column
+  // that could disagree with the dates. Signing again sets a new signedAt and
+  // clears revokedAt.
+  signedAt  DateTime  @map("signed_at")
   revokedAt DateTime? @map("revoked_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  patient Patient @relation(fields: [patientId], references: [id])
+  tenant    Tenant            @relation(fields: [tenantId], references: [id])
+  patient   Patient           @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  revisions ConsentRevision[]
 
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId])
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md §2).
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@map("informed_consents")
 }
@@ -774,6 +963,7 @@ enum AuditAction {
   PATIENT_CREATED
   PATIENT_UPDATED
   PATIENT_DELETED
+  PATIENT_RESTORED
   EVALUATION_CREATED
   EVALUATION_UPDATED
   SCALE_APPLIED
@@ -789,6 +979,17 @@ enum AuditAction {
   PATIENT_EVENT_RECORDED
   PATIENT_EVENT_UPDATED
   PATIENT_EVENT_DELETED
+  EPISODE_OPENED
+  EPISODE_CLOSED
+  EPISODE_REOPENED
+  EPISODE_UPDATED
+  APPOINTMENT_SCHEDULED
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_UPDATED
+  PACKAGE_CREATED
+  PACKAGE_DELETED
+  SESSION_ANNULLED
+  PATIENT_EVENT_ANNULLED
 }
 
 enum AuditEntity {
@@ -799,6 +1000,9 @@ enum AuditEntity {
   CONSENT
   SCALE
   PATIENT_EVENT
+  EPISODE
+  APPOINTMENT
+  PACKAGE
 }
 
 // Who acted, on every audit table: a person of a clinic, the platform
@@ -811,28 +1015,28 @@ enum AuditActorType {
 }
 
 model AuditLog {
-  id          String      @id @default(uuid(7)) @db.Uuid
-  tenantId    String      @map("tenant_id") @db.Uuid
-  patientId   String      @map("patient_id") @db.Uuid
-  userId      String?     @map("user_id") @db.Uuid
-  entity      AuditEntity
-  entityId    String      @map("entity_id") @db.Uuid
-  action      AuditAction
+  id            String         @id @default(uuid(7)) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  patientId     String         @map("patient_id") @db.Uuid
+  userId        String?        @map("user_id") @db.Uuid
+  entity        AuditEntity
+  entityId      String         @map("entity_id") @db.Uuid
+  action        AuditAction
   // The action's parameters: codes only, never a value. Validated against the
   // catalog by recordAudit, and by audit_params_are_codes in the database.
-  params      Json        @default("{}")
+  params        Json           @default("{}")
   // USER exactly when user_id is set (a CHECK in the migration).
-  actorType   AuditActorType @default(USER) @map("actor_type")
+  actorType     AuditActorType @default(USER) @map("actor_type")
   // The login this action came from: groups the actions of one session, and
   // resolves to its device and IP while the auth_sessions row exists. The
   // session's id, not its token: not a credential. No foreign key, because
   // auth_sessions rows are deleted with their user and pruned (#178), and the
   // audit row outlives them. Never in a clinic-facing DTO: only the user
   // herself may list her sessions. (#186, SPEC-audit-hardening.md §3)
-  authSessionId String?   @map("auth_session_id") @db.Uuid
+  authSessionId String?        @map("auth_session_id") @db.Uuid
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
-  createdAt   DateTime    @default(now()) @map("created_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
 
   // Restrict everywhere (#186): an audit row can never change, so it cannot
   // lose its patient or author, and neither can be deleted while it exists.
@@ -841,6 +1045,17 @@ model AuditLog {
   patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   user    User?   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
+  sessionRevisions      SessionRevision[]
+  patientRevisions      PatientRevision[]
+  episodeRevisions      EpisodeRevision[]
+  evaluationRevisions   EvaluationRevision[]
+  consentRevisions      ConsentRevision[]
+  patientEventRevisions PatientEventRevision[]
+
+  // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
+  // §2): a version can only name an audit row of its own clinic and patient.
+  // Pinned by audit-guards.sql.
+  @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
   @@index([createdAt])
@@ -868,46 +1083,12 @@ model ClinicalAlert {
   createdAt DateTime  @default(now()) @map("created_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  patient Patient @relation(fields: [patientId], references: [id])
+  patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([patientId])
   @@index([isRead])
   @@map("clinical_alerts")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Escalas funcionales estandarizadas (Oswestry, NDI).
-// responses almacena el mapa {pregunta: valor} como JSON.
-// score e interpretation se calculan en el servidor al momento de guardar.
-// ─────────────────────────────────────────────────────────────────────────────
-
-enum ScaleType {
-  OSWESTRY
-  NDI
-}
-
-model FunctionalScale {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  tenantId       String    @map("tenant_id") @db.Uuid
-  patientId      String    @map("patient_id") @db.Uuid
-  episodeId      String?   @map("episode_id") @db.Uuid
-  scaleType      ScaleType @map("scale_type")
-  responses      Json
-  score          Int
-  interpretation String
-  appliedAt      DateTime  @default(now()) @map("applied_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-
-  tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [patientId], references: [id])
-  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
-
-  @@index([tenantId])
-  @@index([patientId])
-  @@index([episodeId])
-  @@index([appliedAt])
-  @@map("functional_scales")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -931,15 +1112,15 @@ enum AppointmentStatus {
   CONFIRMED // el paciente confirmó
   COMPLETED // vino; normalmente con sessionId
   CANCELLED // avisó que no venía
-  NO_SHOW   // no vino ni avisó
+  NO_SHOW // no vino ni avisó
 }
 
 model Appointment {
-  id        String @id @default(uuid(7)) @db.Uuid
-  tenantId  String @map("tenant_id") @db.Uuid
-  patientId String @map("patient_id") @db.Uuid
+  id        String  @id @default(uuid(7)) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  patientId String  @map("patient_id") @db.Uuid
   // Qué profesional atiende. Hoy todos ven todo, pero el turno es de alguien.
-  userId    String @map("user_id") @db.Uuid
+  userId    String  @map("user_id") @db.Uuid
   // Por qué motivo. Opcional: se puede agendar antes de abrir el episodio.
   episodeId String? @map("episode_id") @db.Uuid
 
@@ -964,14 +1145,19 @@ model Appointment {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Therapist, episode and session belong to the appointment's own clinic and
+  // patient.
   tenant  Tenant           @relation(fields: [tenantId], references: [id])
-  patient Patient          @relation(fields: [patientId], references: [id])
-  user    User             @relation(fields: [userId], references: [id])
-  episode ClinicalEpisode? @relation(fields: [episodeId], references: [id])
-  session Session?         @relation(fields: [sessionId], references: [id])
+  patient Patient          @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  user    User             @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  episode ClinicalEpisode? @relation(fields: [tenantId, patientId, episodeId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  session Session?         @relation(fields: [tenantId, patientId, sessionId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
   // La consulta de la agenda es siempre "los turnos de esta clínica entre dos
   // instantes": este índice compuesto es el que la sostiene.
+  // Prisma needs the foreign key's own columns unique for a one-to-one; the
+  // single-column unique above already implies it.
+  @@unique([tenantId, patientId, sessionId])
   @@index([tenantId, startsAt])
   @@index([patientId])
   @@index([seriesId])

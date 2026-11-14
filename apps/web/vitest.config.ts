@@ -20,5 +20,12 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.tsx', 'tests/**/*.test.ts'],
+    // One worker per physical core, not per logical CPU (Vitest's default is
+    // all logical CPUs minus one). Each worker renders a jsdom DOM and is
+    // CPU-bound, so two on the same core run about 3x slower than one alone:
+    // with 11 workers on 6 cores, the form tests took up to 5.6s, past the 5s
+    // timeout, and findBy* missed its 1s window. With half, the slowest test
+    // stays under 3s, for a run about 5s longer.
+    maxWorkers: '50%',
   },
 });

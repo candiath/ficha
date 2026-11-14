@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createTestClinic, createTestToken, type TestClinic } from './helpers';
+import { createTestClinic, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Los filtros de la query venían casteados (`req.query.status as PaymentStatus`)
 // en vez de validados. Un valor inválido llegaba crudo al where de Prisma, que
@@ -75,8 +76,8 @@ describe('filtros de query validados', () => {
   });
 
   it('el filtro por episodio de las sesiones también se valida', async () => {
-    const patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Filtros' },
+    const patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Filtros' },
       select: { id: true },
     });
 
@@ -90,6 +91,7 @@ describe('filtros de query validados', () => {
     );
     expect(vacio.status).toBe(400);
 
+    await deleteAuditRows([clinic.tenantId]);
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
   });
 });

@@ -9,7 +9,7 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 - **GitHub** (`candiath/ficha`, repo **público**) — código, CI y rulesets de protección de ramas.
 - **Render** — la API de Express. Un servicio por entorno, plan free (cold start ~50s).
 - **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
-- **Neon** — Postgres. Un solo proyecto (`ficha`) con una branch por entorno.
+- **Neon** — Postgres 18, one project with a branch per environment. During the move from 16 (*Postgres 18* below) there are two: `ficha-pg18` holds `staging`, `development` and `ci`, and `production` stays in the old `ficha` until it moves.
 
 ## Los tres entornos
 
@@ -23,15 +23,17 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 
 Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET`**, así que un token de testing no vale en producción y una migración local no toca datos reales. Los dos secretos de un mismo entorno tienen que ser distintos entre sí: la API no arranca si son iguales (ver *Operador de plataforma* en `CLAUDE.md`). Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
-Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci`) y su propia `CI_DATABASE_URL` (secret de GitHub).
+Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci`) y su propia `CI_DATABASE_URL` (secret de GitHub). Since 2026-10-29 only release PRs to `main` and manual runs use it; PRs to `dev` run on a throwaway Postgres in Docker on the runner (see *PRs to `dev` no longer use `ci`* below).
 
-Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila.
+Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila. Since the move to Postgres 18 (2026-11-01) it is a branch of the new project, created while its root was still empty and migrated from zero.
 
 *Correction (2026-10-05):* this paragraph used to say that `migrate deploy` rebuilds the branch from the first migration on every run. It does not: the branch persists, and `migrate deploy` only applies the migrations it has not seen yet (checked in Neon: the 32 migrations were applied one by one since 2026-09-03). So CI verifies that each new migration applies on top of the previous state, not that the whole chain applies on an empty database. And it is no longer empty of rows either: interrupted runs leave orphaned test clinics behind (8 on 2026-10-05). They are fictitious test data, so the public logs expose nothing real.
 
-**Release PRs to `main` rebuild it from scratch** (`prisma migrate reset --force --skip-seed` before the tests): the whole migration chain is proven to apply on an empty database — what a brand new environment does — right before production, and the leftover test rows are cleared. Feature PRs skip it to keep CI short; a manual run can force it (Actions → Tests → Run workflow → "reset_ci_db"). Because `migrate reset` destroys everything, the step first refuses to run if the database holds any account that is not `@test.ficha.local`: every other environment has one (checked 2026-10-05: production 2, staging 3, development 2; ci 0), so a `CI_DATABASE_URL` pointed elsewhere by mistake fails the run instead of wiping that database. The guard needs no configuration; its one blind spot is a database with no accounts at all, which has nothing to lose.
+**Release PRs to `main` rebuild it from scratch** (`prisma migrate reset --force --skip-seed` before the tests): the whole migration chain is proven to apply on an empty database — what a brand new environment does — right before production, and the leftover test rows are cleared. A manual run can force it (Actions → Tests → Run workflow → "reset_ci_db"). Because `migrate reset` destroys everything, the step first refuses to run if the database holds any account that is not `@test.ficha.local`: every other environment has one (checked 2026-10-05: production 2, staging 3, development 2; ci 0), so a `CI_DATABASE_URL` pointed elsewhere by mistake fails the run instead of wiping that database. The guard needs no configuration; its one blind spot is a database with no accounts at all, which has nothing to lose.
 
-**A PR behind `dev` fails fast when `ci` is ahead of it** (since 2026-10-15). Every PR shares the `ci` branch, and the ruleset does not require branches to be up to date (see *El ciclo de vida de un cambio*), so a PR can find migrations that another PR applied and its own branch does not have. Its code then runs against a newer schema: on 2026-10-14 a PR still reading `sessions.pre_session_state`, which another PR had dropped, failed ~70 tests with `P2022` after the whole 25-minute suite. Right after `migrate deploy`, the step *Check the database has no migrations this branch lacks* compares the finished, not rolled back rows of `_prisma_migrations` with the folders in `prisma/migrations` and fails in seconds, naming the extra migrations. **The fix is to merge `dev` into the branch and push.** It fails even when the extra migrations are additive and the tests would have passed: the check cannot tell, and the merge is cheap. `prisma migrate status` is not used because Prisma 5.22 reports such a database as "up to date" with exit code 0 (it lists migrations missing locally only when the two histories diverge; checked on 2026-10-15 against a scratch Postgres). Release PRs and manual runs with "reset_ci_db" rebuild the database first, so it holds exactly their migrations and the check passes.
+**A PR behind `dev` fails fast when `ci` is ahead of it** (since 2026-10-15). Until 2026-10-29 every PR shared the `ci` branch (now only release PRs and manual runs do), and the ruleset does not require branches to be up to date (see *El ciclo de vida de un cambio*), so a PR can find migrations that another PR applied and its own branch does not have. Its code then runs against a newer schema: on 2026-10-14 a PR still reading `sessions.pre_session_state`, which another PR had dropped, failed ~70 tests with `P2022` after the whole 25-minute suite. Right after `migrate deploy`, the step *Check the database has no migrations this branch lacks* compares the finished, not rolled back rows of `_prisma_migrations` with the folders in `prisma/migrations` and fails in seconds, naming the extra migrations. **The fix is to merge `dev` into the branch and push.** It fails even when the extra migrations are additive and the tests would have passed: the check cannot tell, and the merge is cheap. `prisma migrate status` is not used because Prisma 5.22 reports such a database as "up to date" with exit code 0 (it lists migrations missing locally only when the two histories diverge; checked on 2026-10-15 against a scratch Postgres). Release PRs and manual runs with "reset_ci_db" rebuild the database first, so it holds exactly their migrations and the check passes.
+
+**PRs to `dev` no longer use `ci`** (since 2026-10-29). They run `npm test` on the runner, against the same throwaway Postgres in Docker as locally (*Local test database*). The check above could only tell a PR it was blocked, not unblock it: on 2026-10-24 an open PR applied `20261024180000_scale_band_from_score` to `ci`, and two other PRs failed the check until 2026-10-28, because merging `dev` cannot bring a migration that is not in `dev` yet. With a database per run, nothing another PR did can reach a run, every PR proves its whole migration chain applies from empty, and the suite runs next to its database instead of across the network (~2.5 min locally on 2026-10-14, against 25–35 min per run on `ci`). What is given up: the pooler's and latency's failures (*Local test database*) now first show on the release PR to `main`, still before production. Manual runs stay on Neon: they exist to recheck the suite after rotating `CI_DATABASE_URL`.
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen.
 
@@ -51,13 +53,32 @@ Los PRs de feature van contra `dev`, nunca contra `main`. La promoción a produc
 
 Como el árbol que testea el PR de release es idéntico al merge commit que aterriza en `main` (nadie más mueve `main`), el CI **no corre de nuevo al mergear a `main`**. Si en el futuro `main` empezara a recibir cambios por otro canal, esa suposición deja de valer y habría que volver a sumarla.
 
-**Since 2026-10-05 it does not run on push to `dev` either**, for the same reason: the PR already tested the merge of its branch into `dev`, and running again on the merge took half of the CI time (each run is ~15–20 min: the GitHub runners are far from Neon's São Paulo region and the API tests run serially). The one case it covered — two PRs that pass separately but break together — is caught by the release PR to `main` before production. The full suite also runs locally before every push.
+**It runs on push to `dev`** (again since 2026-10-29, on Docker). A PR tests its merge into `dev` as `dev` was when the PR ran, and the ruleset does not require branches to be up to date, so two PRs can pass separately and break together. The push run tests the tree that actually landed, right after the merge. From 2026-10-05 to 2026-10-29 it did not run there: each run took ~15–20 min on Neon (the GitHub runners are far from its São Paulo region and the API tests run serially), half of the CI time, and that case was left to the release PR. On Docker a run takes ~2 min. A push run is always a full run, and nothing waits for it: a red one means fixing `dev` before the next release.
 
 **And it only runs what a PR can affect.** A `changes` job classifies the changed files: a docs-only PR (`docs/`, `tasks/`, `.claude/`, `.notes/`, `*.md`) runs no tests; a web-only PR (`apps/web/`) skips the API integration tests. Release PRs to `main` and manual runs always run everything. The `test` and `test-web` jobs still run and report success when they have nothing to do — they are required checks, and a job skipped as a whole never reports, which would block the merge.
+
+**Dependabot's PRs are closed, and the bump goes through `dev`** (decided 2026-10-29). The repo has no `dependabot.yml`: what Dependabot opens are security updates, which always target the default branch, `main` (`target-branch` only applies to version updates). Their CI takes the release path and fails within a minute: workflows triggered by Dependabot get no Actions secrets, so `CI_DATABASE_URL` is empty. That red check is kept on purpose. `main`'s ruleset does not look at who opened a PR, and a green bump merged there would skip `dev` and staging and leave `main` with a commit `dev` lacks. The bump is redone in a PR to `dev` (as in `chore/dependabot-security-bumps`) and the Dependabot PR is closed.
 
 El repo borra la rama de un PR al mergearlo (`delete_branch_on_merge`, desde el 30/09/2026), lo que hace que GitHub reapunte solo los PRs apilados encima. `dev` y `main` se salvan porque el ruleset *Wait for tests to pass* incluye la regla `deletion`: si se la saca, mergear el PR de release borraría `dev`.
 
 El entorno de testing solo sirve si se usa: el valor está en la ventana entre mergear a `dev` y promover a `main`. Promover en el mismo minuto convierte a testing en una segunda producción rota en silencio.
+
+## Build version: web and API in step
+
+The web (Netlify) and the API (Render) deploy separately from the same commit, so for a while after each push they can disagree: a tab opened before a release keeps running the old web, and the new web can reach the API before the API's deploy finishes, or after it fails (Render keeps serving the previous build). An old web reading a new API can show data wrong (for example annulled sessions as current), so the web checks on every response and asks the user to reload (`apps/web/src/lib/buildVersion.ts`; the rule is in `CLAUDE.md`).
+
+**The version is the commit time** (`git log -1 --format=%ct`, Unix seconds) of the commit a build was made from, so nobody bumps it and the larger one is the newer build. `scripts/build-version.mjs` resolves it, first match wins:
+
+1. `FICHA_BUILD_VERSION`, for a build without a git repository: the API's Docker image (`.git` is not in its build context), whose workflow (`image.yml`) passes the commit time as the `BUILD_VERSION` build arg.
+2. `git log -1 --format=%ct`, which works on a shallow clone: Render's and Netlify's builds clone the repository.
+3. Nothing: the build carries no version (the build log says so) and the web does no check. It fails open on purpose.
+
+- **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health`, so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
+- **Web**: `vite build` inlines it as `import.meta.env.VITE_BUILD_VERSION`. The dev server inlines nothing.
+
+**It relies on both sides deploying every commit.** Neither Render nor Netlify has a build filter or ignore rule today: if one is added (say, Netlify skipping API-only commits), the side that skipped a commit looks older forever and its users get the notice for nothing. The same goes for a **rollback**: rolling back one side alone makes the other look newer until the rollback is undone, so roll back both, or neither.
+
+**Netlify must not cache `index.html`**, or a reload brings the old web back. Its default for HTML is `cache-control: public,max-age=0,must-revalidate` (checked on 2026-11-09), and the CDN is cleared on every deploy; the assets are content-hashed. If a reload ever does bring back the same old web, the notice notices (it remembers in `sessionStorage` which API version it reloaded for) and says "Estamos actualizando Ficha" instead of asking again.
 
 ## Política de migraciones
 
@@ -120,8 +141,10 @@ CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();
 | --- | --- | --- |
 | What fails it | a trigger or audit function differs from what the migrations deployed, a trigger is disabled, a rule, row-level security, an unlogged table, a missing or non-restricting foreign key | the flag exists |
 | CI (`test.yml`, on `ci`) | after `migrate deploy` | — (`ci` has the flag) |
-| Render build (`migrate:prod`) | after `migrate deploy` | before `migrate deploy` |
+| Render build (`migrate:prod`) | after `migrate deploy` | before and after `migrate deploy` |
 | API startup (`src/index.ts`) | always, only logs | in production, only logs |
+
+**The flag check failing after `migrate deploy` means a migration created the flag** (`tests/noMaintenanceFlagMigration.test.ts` should have refused it). The migration has already run, and the build stops before the new code serves, but the flag stays in that database: drop it by hand now (`DROP SCHEMA ficha_ops CASCADE`), then fix the migration. Failing before `migrate deploy`, someone created it by hand.
 
 When a Render build fails on a check, the previous deploy keeps serving. Find out what changed the database before anything else: a check failing means a guarantee is gone. When the change is intended, it arrives as a new migration and new expected values in `audit-guards.sql`, in the same PR. That migration also needs an entry in the `ALLOWED` list of `tests/auditMigrationScan.test.ts`, which fails on DDL that alters the audit tables, their functions or their enums.
 
@@ -129,7 +152,7 @@ When a Render build fails on a check, the previous deploy keeps serving. Find ou
 
 ### Orphans
 
-Interrupted test runs leave test clinics behind, and their audit rows now block deleting them. `npm run purge:test-audit -w apps/api` deletes the audit rows of test clinics older than an hour (and of test operators); it refuses to run without the flag.
+Interrupted test runs leave test clinics behind, and their audit rows now block deleting them. `npm run purge:test-audit -w apps/api` deletes the audit rows of test clinics older than an hour, with their clinical revisions (and those of test operators); it refuses to run without the flag.
 
 ### The pre-launch wipe
 
@@ -140,7 +163,7 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy` and `audit-guards.sql`, as in the Render build). It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in the Render build). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
 
 - it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
 - for `production` it first runs the backup and stops if the backup fails;
@@ -172,7 +195,11 @@ psql "$URL" -1 -v ON_ERROR_STOP=1 \
 psql "$URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/audit-guards.sql
 ```
 
-Then compare the row counts per table with the dump. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable.
+The six clinical revisions tables (`session_revisions`, `patient_revisions`, `episode_revisions`, `evaluation_revisions`, `consent_revisions`, `patient_event_revisions`) stay out of that list on purpose: their triggers fire on `UPDATE`, `DELETE` and `TRUNCATE`, not on the `INSERT`s of a load, and they have no `created_at` to stamp. Their rows load after the aggregates and audit rows they name, as `session_episodes` does after `sessions`.
+
+Then compare the row counts per table with the dump: better, per table, the count and an md5 of its rows as text, ordered, on the source and on the restored database. If anything fails, nothing is loaded and the triggers stay on. A forgotten re-enable is caught by `audit-guards.sql`. Rehearsed on 2026-10-10 ([run](https://github.com/candiath/ficha/actions/runs/38083672334), Postgres 16 in a runner, seed data): dumped with the backups repository's flags and restored this way, the database reproduced all 102 rows, every audit time and session, and passed the guards. The same load without the procedure stopped at the first demo audit row (`audit row names a session that is not its author's`), and the guards caught a forgotten re-enable. Rehearsed again on 2026-11-01 for the move to 18, on real branches: `staging` and `development` were dumped from the 16 project by `pg_dump` 18 and restored into the 18 one with exactly these commands, and every table matched by count and row hash.
+
+**`pg_dump` must be at least the server's major version**, and its output loads only into a server at least as new: `pg_dump` 16 refuses an 18 server, and an 18 dump sets `transaction_timeout`, which 16 rejects. On a machine without the client tools, run them from the server's image: `docker run --rm -i -e PGURL postgres:18 sh -c 'pg_dump "$PGURL" …'`, so the URL is expanded inside the container and never appears on a command line.
 
 ## Sysadmin alerts (Telegram)
 
@@ -212,11 +239,21 @@ The card lists the last 20 real alerts with the outcome of their last attempt; t
 
 `npm test` runs the API suite against a throwaway Postgres in Docker, not a Neon branch: every round-trip to Neon crosses the network, and the suite makes thousands. On 2026-10-14 the full suite (789 tests) took about 2.5 minutes. Arguments go to vitest: `npm test -- tests/login.test.ts`; `npm run test:watch` is the same in watch mode. `npm run test:neon` is plain vitest against `DATABASE_URL`: what CI runs, and locally a run against `development` when one is needed. A bare `npx vitest` does the same, so it skips the container.
 
-- **What it is**: the `test-db` service of `docker-compose.yml`: Postgres 16 with C.UTF-8 collation and GMT (like the Neon branches), on `127.0.0.1:5433`, with durability off. Its data lives on tmpfs: `docker compose down` (or restarting Docker) leaves it empty, which is also how orphans from interrupted runs are cleared.
+- **What it is**: the `test-db` service of `docker-compose.yml`: Postgres 18 with C.UTF-8 collation and GMT (like the Neon branches), on `127.0.0.1:5433`, with durability off. Its data lives on tmpfs: `docker compose down` (or restarting Docker) leaves it empty, which is also how orphans from interrupted runs are cleared.
+- **The tmpfs is mounted at `/var/lib/postgresql`**, not at `.../data`: from 18 the image keeps its data in `/var/lib/postgresql/18/docker`, and its entrypoint exits with an error when `/var/lib/postgresql/data` is a mount holding no data (checked on 2026-11-01). Each worktree shares the compose project `ficha` and its port, so two worktrees on different images replace each other's container on every run; to try another image without touching it, use another project and port (`docker compose -p <name> -f docker-compose.yml -f <override with ports: !override>`) and point `DATABASE_URL` and `DIRECT_DATABASE_URL` at it.
 - **The maintenance flag** is created by `docker/test-db/init.sql` when the container starts empty, as on `development` and `ci`.
 - **What the script does** (`apps/api/scripts/test-docker.ts`): starts the container if it is not running, runs `prisma migrate deploy` and `audit-guards.sql`, then vitest. The URL is a constant in the script, not a variable: it is set in the environment, where it wins over `apps/api/.env`, so `.env` is never edited and nothing else can point the script at another database.
-- **What it does not catch**: it has no pooler, and its latency is near zero. Failures that come from Neon's PgBouncer (`P1002` on a migration, `cache lookup failed for type` after a reset) or from latency (an interactive transaction past its timeout, `P2028`) only show on Neon. That is why CI stays on the `ci` branch (`npm run test:neon`), and a PR green locally can still fail there.
+- **What it does not catch**: it has no pooler, and its latency is near zero. Failures that come from Neon's PgBouncer (`P1002` on a migration, `cache lookup failed for type` after a reset) or from latency (an interactive transaction past its timeout, `P2028`) only show on Neon. That is why release PRs to `main` and manual runs stay on the `ci` branch (`npm run test:neon`). PRs to `dev` run on this container in CI too (since 2026-10-29), so such a failure first shows on the release PR, still before production.
 - The dev server, the seed and `db:migrate` keep using `development`: the container is only for tests. Without Docker running, `npm test` stops and says so.
+
+## Postgres 18
+
+The move from 16 started on 2026-11-01 (rollout step 0 of `docs/specs/PLAN-clinical-revisions.md`). A Neon project has one major version, so the move is a new project, `ficha-pg18`, and each branch moves by dump and restore (*Restoring a backup*). It is renamed `ficha` once the old project is deleted.
+
+- `staging` and `development` were restored from dumps of the old branches; `ci` was created empty and migrated. `production` moves last, in a window agreed with the clinic, with the `Ficha` service suspended from the dump to the switch. Before that, the backups repository's `backup.yml` moves to `postgresql-client-18` and checks its dump on `postgres:18`.
+- **A new branch starts with its parent's role password.** Every branch of a new project starts with the root's, so a laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. Reset `neondb_owner`'s password on each branch, in the console, right after creating it; the MCP's reset returns the password, so it is not used.
+- **What changed for the app**: a delete refused by an `ON DELETE RESTRICT` key raises `23001` (`restrict_violation`) instead of `23503`, and Prisma 5.22 does not map it to `P2003`. Nothing in `src` depends on that code; the tests use `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until `production` is on 18. The audit functions print the same on 18, so `audit-guards.sql` did not change.
+- Neon's free plan picks the maintenance window itself: Sunday 05:00–06:00 UTC on the new project.
 
 ## Cómo se llegó acá (2026-08-29)
 

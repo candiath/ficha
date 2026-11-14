@@ -20,6 +20,11 @@ on:
 # la base de producción.
 jobs:
   disparar:
+    # Dependabot's security updates always open against main, the default
+    # branch, so they land here too. They are not releases, and their runs only
+    # get Dependabot secrets: BACKUP_DISPATCH_TOKEN would be empty and the job
+    # would fail on every one of them.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       # Vía workflow_dispatch y no repository_dispatch: son dos endpoints con

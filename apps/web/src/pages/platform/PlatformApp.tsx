@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { PlatformAuthProvider, usePlatformAuth } from '@/contexts/PlatformAuthContext';
 import PlatformLayout from '@/pages/platform/PlatformLayout';
@@ -24,7 +26,18 @@ function RequirePlatformAuth() {
 }
 
 export default function PlatformApp() {
+  // Its own query cache: the clinic's session clears the clinic's cache when
+  // it changes (in this tab or another), and that must not leave the
+  // platform's mounted queries detached; nor should the two sessions ever
+  // share cached data.
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: 1, retryDelay: 1000 }, mutations: { retry: 0 } },
+      }),
+  );
   return (
+    <QueryClientProvider client={queryClient}>
     <PlatformAuthProvider>
       <Routes>
         <Route path="login" element={<PlatformLoginPage />} />
@@ -38,5 +51,6 @@ export default function PlatformApp() {
         <Route path="*" element={<Navigate to="/platform/tenants" replace />} />
       </Routes>
     </PlatformAuthProvider>
+    </QueryClientProvider>
   );
 }

@@ -5,6 +5,7 @@ import { describeAuditEntry } from '@ficha/shared';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Audit rows record what happened as codes (#186,
 // docs/specs/SPEC-audit-structured-entries.md): one action per fact, and
@@ -24,8 +25,8 @@ describe('audit rows record codes, never values', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Coded Patient' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Coded', lastName: 'Patient' },
       select: { id: true },
     });
   });
@@ -34,10 +35,10 @@ describe('audit rows record codes, never values', () => {
     const tenantId = clinic.tenantId;
     await deleteAuditRows([tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId } });
+    await prisma.appointment.deleteMany({ where: { tenantId } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
     await prisma.session.deleteMany({ where: { tenantId } });
-    await prisma.functionalScale.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId } });
     await prisma.informedConsent.deleteMany({ where: { tenantId } });
@@ -59,7 +60,7 @@ describe('audit rows record codes, never values', () => {
   // Each session treats an episode of its own (#238), with `block` as its
   // block: a discharge closes that episode and no other.
   async function createSession(body: Record<string, unknown> = {}, block: Record<string, unknown> = {}) {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -80,6 +81,87 @@ describe('audit rows record codes, never values', () => {
     ]);
   });
 
+  // What a session also writes is a fact of its own (#312): the
+  // payment it creates, and the appointment it completes.
+  it('a session with a waived payment and an appointment records all three', async () => {
+    const appointment = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(),
+        endsAt: new Date(Date.now() + 3_600_000),
+      },
+      select: { id: true },
+    });
+    const session = await createSession({
+      appointmentId: appointment.id,
+      payment: { baseAmountCents: 9000, discountCents: 9000 },
+    });
+    const payment = await prisma.payment.findFirstOrThrow({ where: { sessionId: session.id }, select: { id: true } });
+
+    expect(await actionsOf(session.id)).toEqual([{ action: 'SESSION_RECORDED', params: {} }]);
+    expect(await actionsOf(payment.id)).toEqual([{ action: 'PAYMENT_CREATED', params: { status: 'WAIVED' } }]);
+    expect(await actionsOf(appointment.id)).toEqual([
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'sessionId'] } },
+    ]);
+  });
+
+  // Annulled, the session releases the appointment (still attended), and a
+  // session registered again from it links it without a second status change.
+  it("an annulment releases the appointment, and a session again links it, each recorded as it was", async () => {
+    const appointment = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(),
+        endsAt: new Date(Date.now() + 3_600_000),
+      },
+      select: { id: true },
+    });
+    const first = await createSession({ appointmentId: appointment.id });
+    const annul = await auth(
+      request(app).post(`/api/patients/${patient.id}/sessions/${first.id}/annul`),
+    ).send({ reason: 'DATA_ENTRY_ERROR' });
+    expect(annul.status).toBe(204);
+    await createSession({ appointmentId: appointment.id });
+
+    expect(await actionsOf(appointment.id)).toEqual([
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'sessionId'] } },
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['sessionId'] } },
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['sessionId'] } },
+    ]);
+  });
+
+  // The patient cancelled and came anyway: the appointment becomes attended,
+  // and the trail says so.
+  it('a session on a cancelled appointment makes it attended, recorded', async () => {
+    const appointment = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(),
+        endsAt: new Date(Date.now() + 3_600_000),
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+      },
+      select: { id: true },
+    });
+    const session = await createSession({ appointmentId: appointment.id });
+
+    await expect(
+      prisma.appointment.findUniqueOrThrow({
+        where: { id: appointment.id },
+        select: { status: true, cancelledAt: true, sessionId: true },
+      }),
+    ).resolves.toEqual({ status: 'COMPLETED', cancelledAt: null, sessionId: session.id });
+    expect(await actionsOf(appointment.id)).toEqual([
+      { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'sessionId'] } },
+    ]);
+  });
+
   it('a clinical note and a discharge are actions of their own', async () => {
     const note = await createSession({ sessionType: 'NOTE' });
     const discharge = await createSession({ sessionType: 'DISCHARGE' });
@@ -92,6 +174,7 @@ describe('audit rows record codes, never values', () => {
     const session = await createSession({}, { painScaleAfter: 3 });
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}/sessions/${session.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       sessionType: 'DISCHARGE',
       episodes: [{ episodeId: session.episodeId, painScaleAfter: 1 }],
       observations: null,
@@ -103,20 +186,8 @@ describe('audit rows record codes, never values', () => {
       // observations was already empty: not a change.
       {
         action: 'SESSION_UPDATED',
-        params: { sessionType: 'DISCHARGE', changedFields: ['sessionType', 'painScaleAfter'] },
+        params: { sessionType: 'DISCHARGE', changedFields: ['sessionType', 'painScaleAfter'], reason: 'DATA_ENTRY_ERROR' },
       },
-    ]);
-  });
-
-  it('a scale records its type, not its score', async () => {
-    const res = await auth(request(app).post(`/api/patients/${patient.id}/scales`)).send({
-      scaleType: 'OSWESTRY',
-      responses: { q1: 3, q2: 2, q3: 4, q4: 1, q5: 0 },
-    });
-    expect(res.status).toBe(201);
-
-    expect(await rowsOf(res.body.data.id)).toEqual([
-      { action: 'SCALE_APPLIED', params: { scaleType: 'OSWESTRY' }, actorType: 'USER', userId: user.id },
     ]);
   });
 
@@ -124,7 +195,7 @@ describe('audit rows record codes, never values', () => {
     const session = await createSession();
     const res = await auth(request(app).post('/api/payments')).send({
       sessionId: session.id,
-      baseAmount: 15000,
+      baseAmountCents: 15000,
     });
     expect(res.status).toBe(201);
 
@@ -134,7 +205,7 @@ describe('audit rows record codes, never values', () => {
   });
 
   it('a payment update names what changed and the status it was left in', async () => {
-    const session = await createSession({ payment: { baseAmount: 9000 } });
+    const session = await createSession({ payment: { baseAmountCents: 9000 } });
     const payment = await prisma.payment.findFirstOrThrow({
       where: { sessionId: session.id },
       select: { id: true },
@@ -147,6 +218,8 @@ describe('audit rows record codes, never values', () => {
     expect(res.status).toBe(200);
 
     expect(await actionsOf(payment.id)).toEqual([
+      // Created with the session (#312).
+      { action: 'PAYMENT_CREATED', params: { status: 'PENDING' } },
       {
         action: 'PAYMENT_UPDATED',
         params: { status: 'PAID', changedFields: ['status', 'method', 'paidAt'] },
@@ -157,7 +230,7 @@ describe('audit rows record codes, never values', () => {
   // It used to record "Cobro actualizado" whenever the body carried a status,
   // even the one the payment already had.
   it('an update that changes nothing records nothing', async () => {
-    const session = await createSession({ payment: { baseAmount: 9000 } });
+    const session = await createSession({ payment: { baseAmountCents: 9000 } });
     const payment = await prisma.payment.findFirstOrThrow({
       where: { sessionId: session.id },
       select: { id: true, status: true },
@@ -167,17 +240,19 @@ describe('audit rows record codes, never values', () => {
       status: payment.status,
     });
     const samePatient = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
-      fullName: 'Coded Patient',
+      reason: 'DATA_ENTRY_ERROR',
+      firstName: 'Coded', lastName: 'Patient',
     });
     expect(samePayment.status).toBe(200);
     expect(samePatient.status).toBe(200);
 
-    expect(await actionsOf(payment.id)).toEqual([]);
+    expect(await actionsOf(payment.id)).toEqual([{ action: 'PAYMENT_CREATED', params: { status: 'PENDING' } }]);
     expect((await actionsOf(patient.id)).filter((r) => r.action === 'PATIENT_UPDATED')).toEqual([]);
   });
 
   it('a patient update names the fields it changed, never their values', async () => {
     const res = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       phone: '11 5555-0000',
       insuranceName: 'OSDE',
       occupation: null,
@@ -186,25 +261,25 @@ describe('audit rows record codes, never values', () => {
 
     const updates = (await actionsOf(patient.id)).filter((r) => r.action === 'PATIENT_UPDATED');
     expect(updates).toEqual([
-      { action: 'PATIENT_UPDATED', params: { changedFields: ['phone', 'insuranceName'] } },
+      { action: 'PATIENT_UPDATED', params: { changedFields: ['phone', 'insuranceName'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
     expect(JSON.stringify(updates)).not.toContain('5555');
   });
 
   it('an evaluation is recorded when created, and by field when corrected', async () => {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Coded complaint' },
       select: { id: true },
     });
     const url = `/api/patients/${patient.id}/episodes/${episode.id}/evaluation`;
 
-    const created = await auth(request(app).put(url)).send({ evaScale: 6, notes: 'Primera' });
-    await auth(request(app).put(url)).send({ evaScale: 4, notes: 'Primera' });
-    await auth(request(app).put(url)).send({ evaScale: 4, notes: 'Primera' });
+    const created = await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 6, notes: 'Primera' });
+    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4, notes: 'Primera' });
+    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4, notes: 'Primera' });
 
     expect(await actionsOf(created.body.data.id)).toEqual([
       { action: 'EVALUATION_CREATED', params: {} },
-      { action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale'] } },
+      { action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
   });
 

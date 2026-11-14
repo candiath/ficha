@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { partialDateSchema } from '@ficha/shared';
+import { partialDateSchema, revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { requiredText } from '../lib/validation';
-import { patientEventRepo, patientRepo } from '../repositories';
+import { patientEventRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 type ParentParams = { patientId: string };
 type EventParams = { patientId: string; eventId: string };
@@ -30,23 +32,20 @@ const EventSchema = z.strictObject({
   occurred: notInTheFuture.nullable(),
 });
 
-const EventUpdateSchema = EventSchema.partial();
+// An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
+// §4), and which version it was made over, so a stale form gets a 409.
+const EventUpdateSchema = EventSchema.partial().extend({
+  expectedVersion: ExpectedVersionSchema,
+  ...revisionReasonFields,
+});
 
 // GET /api/patients/:patientId/events
 router.get<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   res.json({ data: await patientEventRepo.listByPatient(req.context, req.params.patientId) });
 });
 
 // POST /api/patients/:patientId/events
 router.post<ParentParams>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
   const input = EventSchema.parse(req.body);
 
   const event = await patientEventRepo.create(req.context, req.params.patientId, input, (e) => ({
@@ -61,13 +60,9 @@ router.post<ParentParams>('/', async (req, res) => {
 
 // PATCH /api/patients/:patientId/events/:eventId
 router.patch<EventParams>('/:eventId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-  const input = EventUpdateSchema.parse(req.body);
+  const { reason, ...input } = EventUpdateSchema.parse(req.body);
 
-  const event = await patientEventRepo.update(
+  const result = await patientEventRepo.update(
     req.context,
     req.params.patientId,
     req.params.eventId,
@@ -76,42 +71,51 @@ router.patch<EventParams>('/:eventId', async (req, res) => {
       action: 'PATIENT_EVENT_UPDATED',
       patientId: req.params.patientId,
       entityId: e.id,
-      params: { kind: e.kind, changedFields },
+      params: { kind: e.kind, changedFields, reason },
     }),
   );
 
-  // Missing, deleted or another patient's: the same 404, without saying which.
-  if (!event) {
-    res.status(404).json({ error: 'Antecedente no encontrado' });
+  if (!result.ok) {
+    // Missing, deleted or another patient's: the same 404, without saying which.
+    if (result.reason === 'not_found') {
+      res.status(404).json({ error: 'Antecedente no encontrado' });
+      return;
+    }
+    res.status(409).json(STALE_EDIT);
     return;
   }
-  res.json({ data: event });
+  res.json({ data: result.event });
 });
 
-// DELETE /api/patients/:patientId/events/:eventId
-router.delete<EventParams>('/:eventId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
+// POST /api/patients/:patientId/events/:eventId/annul
+// An event entered by mistake is annulled, never deleted
+// (SPEC-clinical-revisions.md §8): it stays in the history struck through. The
+// reason is required. There is no restore route yet.
+router.post<EventParams>('/:eventId/annul', async (req, res) => {
+  const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
-  const result = await patientEventRepo.softDelete(
+  const result = await patientEventRepo.annul(
     req.context,
     req.params.patientId,
     req.params.eventId,
+    { reasonNote },
     (e) => ({
-      action: 'PATIENT_EVENT_DELETED',
+      action: 'PATIENT_EVENT_ANNULLED',
       patientId: req.params.patientId,
       entityId: e.id,
-      params: { kind: e.kind },
+      params: { kind: e.kind, reason },
     }),
   );
 
+  // Missing, already annulled or another patient's: the same 404.
   if (result === 'not_found') {
     res.status(404).json({ error: 'Antecedente no encontrado' });
     return;
   }
   res.status(204).send();
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:eventId/revisions', revisionRoutes((p) => ({ aggregate: 'patientEvent', eventId: p.eventId }), 'Antecedente no encontrado'));
 
 export default router;

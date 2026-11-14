@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { platformApi, PLATFORM_UNAUTHORIZED_EVENT } from '@/lib/api';
+import { PLATFORM_TOKEN_KEY, platformApi, PLATFORM_UNAUTHORIZED_EVENT } from '@/lib/api';
 import { platformAuthApi } from '@/services/platform';
 import type { PlatformOperator } from '@ficha/shared';
 
@@ -28,6 +28,20 @@ export function PlatformAuthProvider({ children }: { children: ReactNode }) {
   const [operator, setOperator] = useState<PlatformOperator | null>(null);
   const [isLoading, setIsLoading] = useState(() => platformApi.getToken() !== null);
 
+  // A login or logout in another tab changes the operator's token: read who
+  // it belongs to again (or nobody).
+  const [tokenChanges, setTokenChanges] = useState(0);
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== localStorage || (e.key !== PLATFORM_TOKEN_KEY && e.key !== null)) return;
+      setOperator(null);
+      setIsLoading(platformApi.getToken() !== null);
+      setTokenChanges((n) => n + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   useEffect(() => {
     if (!platformApi.getToken()) return;
     let cancelled = false;
@@ -45,7 +59,7 @@ export function PlatformAuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tokenChanges]);
 
   useEffect(() => {
     const onUnauthorized = () => setOperator(null);

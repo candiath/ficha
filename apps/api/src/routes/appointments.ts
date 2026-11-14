@@ -17,7 +17,8 @@ import {
   patientRepo,
   tenantRepo,
 } from '../repositories';
-import type { AppointmentDTO } from '../repositories/appointmentRepository';
+import type { AppointmentDTO, AppointmentUpdateAudit } from '../repositories/appointmentRepository';
+import type { AuditEntry } from '../repositories/auditLogRepository';
 import { idParam } from '../middlewares/idParam';
 
 const router = Router();
@@ -96,6 +97,28 @@ function serialize<T extends Pick<AppointmentDTO, 'startsAt' | 'endsAt'>>(a: T, 
   return { ...a, date: inicio.date, startTime: inicio.time, endTime: fin.time };
 }
 
+// A cancellation of one appointment, or of each one in a series.
+const cancelledAudit = (a: { id: string; patientId: string }): AuditEntry => ({
+  action: 'APPOINTMENT_CANCELLED',
+  patientId: a.patientId,
+  entityId: a.id,
+  params: {},
+});
+
+// One entry per fact: cancelling, and any other field the same request changed.
+const updateAudit: AppointmentUpdateAudit = (a, { cancelled, changedFields }) => {
+  const entries: AuditEntry[] = cancelled ? [cancelledAudit(a)] : [];
+  if (changedFields) {
+    entries.push({
+      action: 'APPOINTMENT_UPDATED',
+      patientId: a.patientId,
+      entityId: a.id,
+      params: { status: a.status, changedFields },
+    });
+  }
+  return entries;
+};
+
 // GET /api/appointments?from=YYYY-MM-DD&to=YYYY-MM-DD
 // Ambos inclusive, en días de la clínica.
 router.get('/', async (req, res) => {
@@ -155,12 +178,21 @@ router.post('/', async (req, res) => {
     return { startsAt, endsAt: addMinutes(startsAt, body.durationMinutes) };
   });
 
-  const creados = await appointmentRepo.create(req.context, {
-    patientId: body.patientId,
-    episodeId: body.episodeId,
-    notes: body.notes,
-    slots,
-  });
+  const creados = await appointmentRepo.create(
+    req.context,
+    {
+      patientId: body.patientId,
+      episodeId: body.episodeId,
+      notes: body.notes,
+      slots,
+    },
+    (a): AuditEntry => ({
+      action: 'APPOINTMENT_SCHEDULED',
+      patientId: a.patientId,
+      entityId: a.id,
+      params: {},
+    }),
+  );
 
   res.status(201).json({ data: creados.map((t) => serialize(t, timezone)) });
 });
@@ -196,15 +228,24 @@ router.patch('/:id', async (req, res) => {
   }
 
   // null = inexistente o de otra clínica: mismo 404, sin revelar cuál.
-  const turno = await appointmentRepo.update(req.context, req.params.id, {
-    ...horario,
-    status: body.status,
-    episodeId: body.episodeId,
-    notes: body.notes,
-  });
+  const turno = await appointmentRepo.update(
+    req.context,
+    req.params.id,
+    {
+      ...horario,
+      status: body.status,
+      episodeId: body.episodeId,
+      notes: body.notes,
+    },
+    updateAudit,
+  );
 
   if (!turno) {
     res.status(404).json({ error: 'Turno no encontrado' });
+    return;
+  }
+  if (turno === 'episode_not_found') {
+    res.status(400).json({ error: 'Episodio inexistente o de otro paciente' });
     return;
   }
 
@@ -212,9 +253,8 @@ router.patch('/:id', async (req, res) => {
   // la agenda no había turno al que faltar, y por eso la alerta de
   // inactividad se retipó a FOLLOW_UP en #111 dejando NO_SHOW libre.
   //
-  // Fire-and-forget como el resto de las alertas y la auditoría: que falle
-  // registrarla no debe hacer fallar el cambio de estado, que es lo que el
-  // usuario pidió.
+  // Fire-and-forget: que falle registrarla no debe hacer fallar el cambio de
+  // estado, que es lo que el usuario pidió.
   if (body.status === 'NO_SHOW') {
     const desde = new Date();
     desde.setDate(desde.getDate() - ALERTA_COOLDOWN_DIAS);
@@ -258,6 +298,7 @@ router.post('/:id/cancel-series', async (req, res) => {
     req.context,
     turno.seriesId,
     new Date(),
+    cancelledAudit,
   );
 
   res.json({ data: { cancelled: cancelados } });

@@ -12,6 +12,12 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import type { Patient } from '@/types/patient';
 import { consentApi, consentKeys } from '@/services/consent';
+import { isStaleEdit } from '@/lib/staleEdit';
+import { toast } from 'sonner';
+import { useState } from 'react';
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
+import { renderConsentSnapshot } from '@/lib/revisionRows';
+import { revisionPaths } from '@/services/revisions';
 
 interface Props {
   patient: Patient;
@@ -33,11 +39,18 @@ export default function ConsentTab({ patient }: Props) {
     queryFn: () => consentApi.get(patient.id),
   });
 
+  // Signed over the version on screen: if someone signed or revoked meanwhile,
+  // the API answers 409 and the screen shows what is there now.
   const signMutation = useMutation({
-    mutationFn: () => consentApi.sign(patient.id),
+    mutationFn: () => consentApi.sign(patient.id, consent?.version ?? 0),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: consentKeys.detail(patient.id) }),
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo registrar la firma');
+      if (isStaleEdit(err)) queryClient.invalidateQueries({ queryKey: consentKeys.detail(patient.id) });
+    },
   });
 
+  const [historyOpen, setHistoryOpen] = useState(false);
   const signed = consent?.signed ?? false;
   const signedAt = consent?.signedAt ?? null;
 
@@ -60,6 +73,19 @@ export default function ConsentTab({ patient }: Props) {
           {signed ? 'Firmado' : 'Pendiente'}
         </Badge>
       </div>
+      {consent && (
+        <>
+          <RevisionHistoryButton className="-ml-2" onClick={() => setHistoryOpen(true)} />
+          <RevisionHistoryDialog
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            patientId={patient.id}
+            base={revisionPaths.consent(patient.id)}
+            title="Historial del consentimiento"
+            render={renderConsentSnapshot}
+          />
+        </>
+      )}
 
       {/* Documento */}
       <Card>

@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import type { UserRole } from '@ficha/shared';
+import type { PasswordResetLink, UserRole } from '@ficha/shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -37,7 +37,6 @@ import { userKeys, usersApi } from '@/services/users';
 const schema = z.object({
   name: z.string().refine((v) => v.trim().length >= 2, 'El nombre debe tener al menos 2 caracteres'),
   email: z.email('Ingresá un email válido'),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   role: z.enum(['ADMIN', 'THERAPIST']),
 });
 
@@ -48,31 +47,31 @@ const ROLES: UserRole[] = ['THERAPIST', 'ADMIN'];
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Her invitation, to show once: she sets her own password with it. */
+  onCreated: (name: string, invitation: PasswordResetLink) => void;
 }
 
-export default function UserCreateDialog({ open, onClose }: Props) {
+export default function UserCreateDialog({ open, onClose, onCreated }: Props) {
   const queryClient = useQueryClient();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: '', email: '', password: '', role: 'THERAPIST' },
+    defaultValues: { name: '', email: '', role: 'THERAPIST' },
   });
 
-  // Limpio en cada apertura: una contraseña inicial no debe quedar escrita
-  // de un intento anterior.
+  // Limpio en cada apertura.
   useEffect(() => {
     if (open) form.reset();
   }, [open, form]);
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) => usersApi.create(values),
-    onSuccess: (user) => {
+    onSuccess: ({ user, invitation }) => {
       queryClient.invalidateQueries({ queryKey: userKeys.list });
-      toast.success(`Usuario creado: ${user.email}`);
       form.reset();
       onClose();
+      onCreated(user.name ?? user.email, invitation);
     },
-    // 409 "ya existe un usuario con ese email" y la política de contraseñas
-    // llegan con el mensaje del servidor.
+    // 409 "ya existe un usuario con ese email" llega con el mensaje del servidor.
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'Error al crear el usuario');
     },
@@ -84,8 +83,8 @@ export default function UserCreateDialog({ open, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Nuevo usuario</DialogTitle>
           <DialogDescription>
-            Pasale la contraseña inicial por un canal seguro; puede cambiarla desde
-            Mi cuenta.
+            Al crearlo recibís un enlace de invitación: con él elige su propia
+            contraseña. Nadie más la conoce.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -114,19 +113,6 @@ export default function UserCreateDialog({ open, onClose }: Props) {
                   <FormLabel>Email</FormLabel>
                   <FormControl>
                     <Input type="email" autoComplete="off" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Contraseña inicial</FormLabel>
-                  <FormControl>
-                    <Input type="password" autoComplete="new-password" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

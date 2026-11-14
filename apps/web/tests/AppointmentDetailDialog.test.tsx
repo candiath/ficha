@@ -28,6 +28,14 @@ vi.mock('@/services/episodes', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+// Opening the session form asks for the last price and the packages: answered,
+// so no request leaves the test.
+vi.mock('@/services/payments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/payments')>()),
+  paymentApi: { lastBasePrice: vi.fn().mockResolvedValue(null) },
+  packageApi: { list: vi.fn().mockResolvedValue([]) },
+}));
+
 const get = vi.mocked(appointmentApi.get);
 const listEpisodes = vi.mocked(episodeApi.list);
 
@@ -105,5 +113,42 @@ describe('AppointmentDetailDialog', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(await within(dialog).findByText(/No se pudo leer el motivo/)).toBeInTheDocument();
+  });
+
+  // A cancelled or missed appointment becomes attended when its session is
+  // registered: asked first, naming the patient (#312).
+  describe('registering the session', () => {
+    const register = () => screen.getByRole('button', { name: /Vino: registrar la sesión/ });
+
+    it('asks first on a cancelled appointment, naming the patient, and can be stopped', async () => {
+      const user = userEvent.setup();
+      renderDialog({ ...ITEM, status: 'CANCELLED' });
+
+      await user.click(register());
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('figura como cancelado');
+      expect(alert).toHaveTextContent('María García');
+      expect(alert).toHaveTextContent('se marcará como atendido');
+
+      await user.click(within(alert).getByRole('button', { name: 'Cancelar' }));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(register()).toBeInTheDocument();
+    });
+
+    it('asks first on a missed one too', async () => {
+      const user = userEvent.setup();
+      renderDialog({ ...ITEM, status: 'NO_SHOW' });
+
+      await user.click(register());
+      expect(await screen.findByRole('alert')).toHaveTextContent('figura como no asistió');
+    });
+
+    it('does not ask on a scheduled one', async () => {
+      const user = userEvent.setup();
+      renderDialog(ITEM);
+
+      await user.click(register());
+      expect(screen.queryByText(/se marcará como atendido/)).not.toBeInTheDocument();
+    });
   });
 });

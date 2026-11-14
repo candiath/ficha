@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // POST /api/payments impone un pago por sesión (unique sobre sessionId).
 // Las dos capas de defensa viven en paymentRepo.create: un pre-chequeo
@@ -22,18 +23,15 @@ describe('pago duplicado por sesión', () => {
     return request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionId, baseAmount: 100, ...body });
+      .send({ sessionId, baseAmountCents: 100, ...body });
   }
 
   async function createSession() {
-    return prisma.session.create({
-      data: {
-        tenantId: clinicA.tenantId,
-        patientId: patientA.id,
-        userId: userA.id,
-        sessionDate: new Date(),
-      },
-      select: { id: true },
+    return createSessionFixture({
+      tenantId: clinicA.tenantId,
+      patientId: patientA.id,
+      userId: userA.id,
+      sessionDate: new Date(),
     });
   }
 
@@ -42,8 +40,8 @@ describe('pago duplicado por sesión', () => {
     userA = await clinicA.createUser();
     tokenA = await createTestToken(userA);
 
-    patientA = await prisma.patient.create({
-      data: { tenantId: clinicA.tenantId, fullName: 'Paciente Pago Dup' },
+    patientA = await fixture.patient.create({
+      data: { tenantId: clinicA.tenantId, firstName: 'Paciente Pago', lastName: 'Dup' },
       select: { id: true },
     });
     sessionA = await createSession();

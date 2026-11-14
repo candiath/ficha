@@ -9,9 +9,11 @@ import {
   createTestClinic,
   createTestOperator,
   deleteAuditRows,
+  expectRestrictedDelete,
   type TestClinic,
   type TestOperator,
 } from './helpers';
+import { fixture } from './fixtures';
 
 // What the database itself enforces on audit rows (#186,
 // docs/specs/SPEC-audit-hardening.md): they cannot be changed, only deleted
@@ -30,8 +32,8 @@ describe('audit rows are append-only', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     ({ authSessionId } = await createTestAuthSession(user));
-    ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Hardened Patient' },
+    ({ id: patientId } = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Hardened', lastName: 'Patient' },
       select: { id: true },
     }));
   });
@@ -78,8 +80,8 @@ describe('audit rows are append-only', () => {
     try {
       const author = await other.createUser();
       const session = await createTestAuthSession(author);
-      const patient = await prisma.patient.create({
-        data: { tenantId: other.tenantId, fullName: 'Purged Patient' },
+      const patient = await fixture.patient.create({
+        data: { tenantId: other.tenantId, firstName: 'Purged', lastName: 'Patient' },
         select: { id: true },
       });
       await prisma.auditLog.create({
@@ -257,8 +259,8 @@ describe("the session on an audit row is its author's", () => {
     colleague = await clinic.createUser();
     ({ authSessionId: authorSession } = await createTestAuthSession(author));
     ({ authSessionId: colleagueSession } = await createTestAuthSession(colleague));
-    ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Session Checked Patient' },
+    ({ id: patientId } = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Session Checked', lastName: 'Patient' },
       select: { id: true },
     }));
   });
@@ -334,12 +336,12 @@ describe('audit rows keep who they name, within their clinic', () => {
     operator = await createTestOperator();
     author = await clinic.createUser();
     stranger = await otherClinic.createUser();
-    ({ id: patientId } = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Kept Patient' },
+    ({ id: patientId } = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Kept', lastName: 'Patient' },
       select: { id: true },
     }));
-    ({ id: strangerPatientId } = await prisma.patient.create({
-      data: { tenantId: otherClinic.tenantId, fullName: 'Stranger Patient' },
+    ({ id: strangerPatientId } = await fixture.patient.create({
+      data: { tenantId: otherClinic.tenantId, firstName: 'Stranger', lastName: 'Patient' },
       select: { id: true },
     }));
   });
@@ -380,21 +382,21 @@ describe('audit rows keep who they name, within their clinic', () => {
     const authored = await clinic.createUser();
     await prisma.auditLog.create({ data: clinicalRow({ userId: authored.id }) });
 
-    await expect(prisma.user.delete({ where: { id: authored.id } })).rejects.toMatchObject(
-      violates('audit_logs_tenant_id_user_id_fkey'),
-    );
+    await expectRestrictedDelete(prisma.user.delete({ where: { id: authored.id } }), 'audit_logs_tenant_id_user_id_fkey');
   });
 
   it('cannot delete the target of a platform audit row, or the operator who acted', async () => {
     const target = await clinic.createUser();
     await prisma.platformAuditLog.create({ data: platformRow(target.id) });
 
-    await expect(prisma.user.delete({ where: { id: target.id } })).rejects.toMatchObject(
-      violates('platform_audit_logs_tenant_id_target_user_id_fkey'),
+    await expectRestrictedDelete(
+      prisma.user.delete({ where: { id: target.id } }),
+      'platform_audit_logs_tenant_id_target_user_id_fkey',
     );
-    await expect(
+    await expectRestrictedDelete(
       prisma.platformOperator.delete({ where: { id: operator.operator.id } }),
-    ).rejects.toMatchObject(violates('platform_audit_logs_operator_id_fkey'));
+      'platform_audit_logs_operator_id_fkey',
+    );
   });
 
   it("cannot name another clinic's patient or author", async () => {
@@ -448,7 +450,16 @@ describe('audit-guards.sql', () => {
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
     const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
-    const onCopies = TABLES.reduce(
+    // No created_at, so no stamp trigger.
+    const REVISION_TABLES = [
+      'session_revisions',
+      'patient_revisions',
+      'episode_revisions',
+      'evaluation_revisions',
+      'consent_revisions',
+      'patient_event_revisions',
+    ];
+    const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
     );
@@ -479,6 +490,13 @@ describe('audit-guards.sql', () => {
       }
       await db.$executeRawUnsafe(`CREATE TRIGGER audit_logs_check_session BEFORE INSERT ON pg_temp.audit_logs
         FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session()`);
+      for (const table of REVISION_TABLES) {
+        await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE ON pg_temp.${table}
+          FOR EACH ROW EXECUTE FUNCTION public.audit_rows_are_append_only()`);
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_no_truncate BEFORE TRUNCATE ON pg_temp.${table}
+          FOR EACH STATEMENT EXECUTE FUNCTION public.audit_rows_are_append_only()`);
+      }
     });
 
     afterAll(() => db.$disconnect());
@@ -513,6 +531,22 @@ describe('audit-guards.sql', () => {
       }
     });
 
+    it('notices a disabled trigger on a revisions table', async () => {
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions DISABLE TRIGGER session_revisions_append_only');
+      try {
+        expect(await failure()).toMatch(/trigger session_revisions_append_only on session_revisions is not enabled/);
+      } finally {
+        await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions ENABLE TRIGGER session_revisions_append_only');
+      }
+    });
+
+    it('notices a revisions table that lost its keys', async () => {
+      // LIKE copies no foreign keys.
+      expect(await failure()).toMatch(
+        /foreign key session_revisions_tenant_id_patient_id_audit_log_id_fkey on session_revisions is missing or changed/,
+      );
+    });
+
     it('notices a missing trigger on an alert table', async () => {
       await db.$executeRawUnsafe('DROP TRIGGER sysadmin_alerts_no_truncate ON pg_temp.sysadmin_alerts');
       expect(await failure()).toMatch(/trigger set on sysadmin_alerts differs/);
@@ -525,13 +559,15 @@ describe('audit-guards.sql', () => {
       );
     });
 
-    // Nor indexes: the copies lack the params checks and the one-row-per-object
-    // index (SPEC-audit-structured-entries.md §2).
+    // Nor indexes: the copies lack the params checks, the one-row-per-object
+    // index (SPEC-audit-structured-entries.md §2) and the key the clinical
+    // revisions point at (SPEC-clinical-revisions.md §2).
     it('notices a missing params check and a missing index', async () => {
       const message = await failure();
       expect(message).toMatch(/check constraint audit_logs_params_are_codes on audit_logs is missing or changed/);
       expect(message).toMatch(/check constraint platform_audit_logs_actor_is_operator on platform_audit_logs is missing/);
       expect(message).toMatch(/index platform_audit_logs_action_entity_key on platform_audit_logs is missing or changed/);
+      expect(message).toMatch(/index audit_logs_tenant_id_patient_id_id_key on audit_logs is missing or changed/);
     });
 
     it('notices a column that became nullable', async () => {

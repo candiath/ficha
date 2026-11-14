@@ -2,18 +2,23 @@ import { Prisma } from '@prisma/client';
 import { AUDIT_PATIENT_EVENT_FIELDS, type PartialDate } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
-import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../auditLogRepository';
+import type { AuditBuilder, AuditUpdateBuilder } from '../auditLogRepository';
 import type {
   PatientEventAuditField,
   PatientEventDTO,
+  PatientEventEditMeta,
   PatientEventInput,
+  PatientEventUpdateResult,
   PatientEventRepository,
 } from '../patientEventRepository';
-import { changedFields, nonEmpty } from './changedFields';
+import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
+import { recordRevision, Rollback, unlessRolledBack } from './recordRevision';
+import { patientEventSnapshot } from './clinicalSnapshots';
 
-// Every method works on current events: one deleted is not listed, read or
-// edited, as with sessions.
+// Every method works on current events: an annulled one is not edited, and
+// only the patient's record (listByPatient) lists it, struck through, as with
+// sessions (SPEC-clinical-revisions.md §8). deletedAt is the annulment's date.
 const CURRENT = { deletedAt: null } as const;
 
 const eventSelect = {
@@ -26,21 +31,26 @@ const eventSelect = {
   occurredApproximate: true,
   createdAt: true,
   updatedAt: true,
+  deletedAt: true,
+  // The latest version; none is version 0.
+  revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
 } as const;
 
 type EventRow = Prisma.PatientEventGetPayload<{ select: typeof eventSelect }>;
 
 const AUDIT_FIELDS = Object.keys(AUDIT_PATIENT_EVENT_FIELDS) as PatientEventAuditField[];
 
-function toDTO({ occurredOn, occurredPrecision, occurredApproximate, ...row }: EventRow): PatientEventDTO {
+function toDTO({ occurredOn, occurredPrecision, occurredApproximate, revisions, deletedAt, ...row }: EventRow): PatientEventDTO {
   return {
     ...row,
+    version: revisions[0]?.version ?? 0,
     occurred:
       occurredOn && occurredPrecision
         ? { date: occurredOn.toISOString().slice(0, 10), precision: occurredPrecision, approximate: occurredApproximate }
         : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    annulledAt: deletedAt?.toISOString() ?? null,
   };
 }
 
@@ -68,7 +78,8 @@ export const prismaPatientEventRepository: PatientEventRepository = {
   async listByPatient(ctx: TenantContext, patientId: string): Promise<PatientEventDTO[]> {
     const db = forTenant(ctx);
     const rows = await db.patientEvent.findMany({
-      where: { ...CURRENT, patientId },
+      // Annulled ones included: the record shows them, struck through.
+      where: { patientId },
       // What she lived, newest first; what she cannot date, at the end.
       orderBy: [{ occurredOn: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       select: eventSelect,
@@ -89,8 +100,15 @@ export const prismaPatientEventRepository: PatientEventRepository = {
         data: { ...eventData(input), kind: input.kind, description: input.description, tenantId: ctx.tenantId, patientId },
         select: eventSelect,
       });
-      const event = toDTO(row);
-      await recordAudit(tx, ctx, audit(event));
+      const event = { ...toDTO(row), version: 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(event));
+      await recordRevision(tx, ctx, 'patient_event_revisions', {
+        aggregateId: row.id,
+        patientId,
+        version: 1,
+        auditLogId,
+        snapshot: patientEventSnapshot(row),
+      });
       return event;
     });
   },
@@ -99,57 +117,91 @@ export const prismaPatientEventRepository: PatientEventRepository = {
     ctx: TenantContext,
     patientId: string,
     id: string,
-    input: Partial<PatientEventInput>,
+    { expectedVersion, reasonNote, ...input }: Partial<PatientEventInput> & PatientEventEditMeta,
     audit: AuditUpdateBuilder<PatientEventDTO, PatientEventAuditField>,
-  ): Promise<PatientEventDTO | null> {
+  ): Promise<PatientEventUpdateResult> {
     const db = forTenant(ctx);
+    const notFound = { ok: false, reason: 'not_found' } as const;
     try {
-      return await db.$transaction(async (tx) => {
-        const before = await tx.patientEvent.findFirst({
-          where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
-          select: eventSelect,
-        });
-        if (!before) return null;
+      return await unlessRolledBack(
+        db.$transaction(async (tx): Promise<PatientEventUpdateResult> => {
+          // Locked and read first: a concurrent edit waits for this one, and
+          // then reads the version this one wrote.
+          await lockRow(tx, 'patient_events', id, ctx.tenantId);
+          const beforeRow = await tx.patientEvent.findFirst({
+            where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
+            select: eventSelect,
+          });
+          if (!beforeRow) return notFound;
+          const before = toDTO(beforeRow);
+          if (expectedVersion !== undefined && expectedVersion !== before.version) return { ok: false, reason: 'stale' };
 
-        // Patient, tenant and validity in the where of the write itself: P2025
-        // when it no longer matches, which becomes null below.
-        const row = await tx.patientEvent.update({
-          where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
-          data: eventData(input),
-          select: eventSelect,
-        });
-        const event = toDTO(row);
-        const changed = nonEmpty(changedFields(toDTO(before), event, AUDIT_FIELDS));
-        if (changed) await recordAudit(tx, ctx, audit(event, changed));
-        return event;
-      });
+          // Patient, tenant and validity in the where of the write itself: P2025
+          // when it no longer matches, which becomes not_found below.
+          const row = await tx.patientEvent.update({
+            where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
+            data: eventData(input),
+            select: eventSelect,
+          });
+          const event = { ...toDTO(row), version: before.version + 1 };
+          // Compared after the write, with the same select: a save that changed
+          // nothing is rolled back whole.
+          const changed = nonEmpty(changedFields(before, event, AUDIT_FIELDS));
+          if (!changed) throw new Rollback<PatientEventUpdateResult>({ ok: true, event: before });
+          const auditLogId = await recordAudit(tx, ctx, audit(event, changed));
+          await recordRevision(tx, ctx, 'patient_event_revisions', {
+            aggregateId: id,
+            patientId,
+            version: event.version,
+            auditLogId,
+            snapshot: patientEventSnapshot(row),
+            reasonNote,
+          });
+          return { ok: true, event };
+        }),
+      );
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') return null;
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') return notFound;
       throw e;
     }
   },
 
-  async softDelete(
+  async annul(
     ctx: TenantContext,
     patientId: string,
     id: string,
-    audit: (deleted: PatientEventDTO) => AuditEntry,
-  ): Promise<'deleted' | 'not_found'> {
+    input: { reasonNote?: string | null },
+    audit: AuditBuilder<PatientEventDTO>,
+  ): Promise<'annulled' | 'not_found'> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
-      const row = await tx.patientEvent.findFirst({
-        where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
-        select: eventSelect,
-      });
-      if (!row) return 'not_found';
-      // The condition travels in the write: a concurrent delete matches nothing.
+      // Locked first: this write takes a version, so it waits for a concurrent
+      // edit and then reads the version that edit wrote.
+      await lockRow(tx, 'patient_events', id, ctx.tenantId);
+      // The condition travels in the write: an annulled event, or another
+      // patient's, matches nothing.
       const { count } = await tx.patientEvent.updateMany({
         where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
         data: { deletedAt: new Date() },
       });
       if (count === 0) return 'not_found';
-      await recordAudit(tx, ctx, audit(toDTO(row)));
-      return 'deleted';
+      // The final version, of unchanged content: the annulment is what its
+      // audit row says, and the note goes only into the revision.
+      const row = await tx.patientEvent.findUniqueOrThrow({
+        where: { id, tenantId: ctx.tenantId },
+        select: eventSelect,
+      });
+      const event = { ...toDTO(row), version: (row.revisions[0]?.version ?? 0) + 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(event));
+      await recordRevision(tx, ctx, 'patient_event_revisions', {
+        aggregateId: id,
+        patientId,
+        version: event.version,
+        auditLogId,
+        snapshot: patientEventSnapshot(row),
+        reasonNote: input.reasonNote,
+      });
+      return 'annulled';
     });
   },
 };

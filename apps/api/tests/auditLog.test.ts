@@ -14,6 +14,7 @@ import {
   waitFor,
   type TestClinic,
 } from './helpers';
+import { fixture } from './fixtures';
 
 // El historial de una ficha: quién tocó qué y cuándo. Es la única parte de la
 // app que nadie puede editar ni borrar desde la UI, así que lo que importa es
@@ -36,8 +37,8 @@ describe('historial de auditoría de un paciente', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
     ({ token, authSessionId } = await createTestAuthSession(user));
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Auditado' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Auditado' },
       select: { id: true },
     });
   });
@@ -48,6 +49,11 @@ describe('historial de auditoría de un paciente', () => {
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
   });
+
+  // The PATIENT_UPDATED rows of a history: a patient written by a fixture also
+  // has its creation's, which names no field.
+  const updatesIn = (data: { action: string; params: { changedFields: string[] } }[]) =>
+    data.filter((e) => e.action === 'PATIENT_UPDATED');
 
   // Filas escritas a mano: la fecha es el eje de este endpoint y así se
   // controla sin depender de cuándo corrió cada request.
@@ -72,7 +78,7 @@ describe('historial de auditoría de un paciente', () => {
         entity: 'PATIENT',
         entityId: patientId,
         action: 'PATIENT_UPDATED',
-        params: { changedFields: [field] },
+        params: { changedFields: [field], reason: 'DATA_ENTRY_ERROR' },
         createdAt,
       },
     ]);
@@ -80,34 +86,36 @@ describe('historial de auditoría de un paciente', () => {
   }
 
   it('lista el historial del paciente, de lo más nuevo a lo más viejo', async () => {
-    const propio = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Orden' },
+    const propio = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Orden' },
       select: { id: true },
     });
-    await entrada(propio.id, clinic.tenantId, 'fullName', new Date('2025-01-01T10:00:00Z'));
+    await entrada(propio.id, clinic.tenantId, 'firstName', new Date('2025-01-01T10:00:00Z'));
     await entrada(propio.id, clinic.tenantId, 'phone', new Date('2025-02-01T10:00:00Z'));
     await entrada(propio.id, clinic.tenantId, 'occupation', new Date('2025-03-01T10:00:00Z'));
 
     const res = await auth(request(app).get(url(propio.id)));
 
     expect(res.status).toBe(200);
-    expect((res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0])).toEqual([
+    expect(updatesIn(res.body.data).map((e) => e.params.changedFields[0])).toEqual([
       'occupation',
       'phone',
-      'fullName',
+      'firstName',
     ]);
   });
 
   it('cada entrada dice qué se tocó y quién, con códigos, y no expone el tenant ni la sesión', async () => {
-    const propio = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Forma' },
+    const propio = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Forma' },
       select: { id: true },
     });
     await entrada(propio.id, clinic.tenantId, 'phone', new Date());
 
     const res = await auth(request(app).get(url(propio.id)));
 
-    expect(res.body.data).toHaveLength(1);
+    // The fixture's creation is in the history too, as the system's.
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.data[1]).toMatchObject({ action: 'PATIENT_CREATED', actorType: 'SYSTEM', userId: null, author: null });
     expect(res.body.data[0]).toMatchObject({
       patientId: propio.id,
       userId: user.id,
@@ -115,8 +123,12 @@ describe('historial de auditoría de un paciente', () => {
       entityId: propio.id,
       actorType: 'USER',
       action: 'PATIENT_UPDATED',
-      params: { changedFields: ['phone'] },
+      params: { changedFields: ['phone'], reason: 'DATA_ENTRY_ERROR' },
+      // Who acted, by name (area 3 review, M2): no email, which a therapist
+      // could not read from the users list either.
+      author: { id: user.id, name: user.name },
     });
+    expect(Object.keys(res.body.data[0].author).sort()).toEqual(['id', 'name']);
     // Codes only: the sentence is the screen's, from the catalog.
     expect(res.body.data[0]).not.toHaveProperty('description');
     expect(typeof res.body.data[0].createdAt).toBe('string');
@@ -125,8 +137,8 @@ describe('historial de auditoría de un paciente', () => {
   });
 
   it('no mezcla el historial de otro paciente de la misma clínica', async () => {
-    const otro = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Vecino' },
+    const otro = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Vecino' },
       select: { id: true },
     });
     await entrada(patient.id, clinic.tenantId, 'insurancePlan', new Date());
@@ -134,7 +146,7 @@ describe('historial de auditoría de un paciente', () => {
 
     const res = await auth(request(app).get(url(patient.id)));
 
-    const campos = (res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0]);
+    const campos = updatesIn(res.body.data).map((e) => e.params.changedFields[0]);
     expect(campos).toContain('insurancePlan');
     expect(campos).not.toContain('insuranceNumber');
   });
@@ -142,11 +154,11 @@ describe('historial de auditoría de un paciente', () => {
   it('el historial de un paciente de otra clínica se lee vacío', async () => {
     const otra = await createTestClinic();
     try {
-      const ajeno = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+      const ajeno = await fixture.patient.create({
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
-      await entrada(ajeno.id, otra.tenantId, 'fullName', new Date(), null);
+      await entrada(ajeno.id, otra.tenantId, 'firstName', new Date(), null);
 
       // Con el id exacto del paciente de la otra clínica: lo que filtra es el
       // guard de tenant, no que el id sea difícil de adivinar.
@@ -174,8 +186,8 @@ describe('historial de auditoría de un paciente', () => {
   it('borrar un paciente no borra su historial: sigue siendo legible', async () => {
     // Misma línea que #72: el borrado es lógico y el historial es pasado, no
     // trabajo pendiente. Lo que ya pasó se sigue pudiendo auditar.
-    const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado' },
+    const borrado = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Borrado' },
       select: { id: true },
     });
     await entrada(borrado.id, clinic.tenantId, 'referringDoctor', new Date());
@@ -187,19 +199,19 @@ describe('historial de auditoría de un paciente', () => {
     const res = await auth(request(app).get(url(borrado.id)));
 
     expect(res.status).toBe(200);
-    expect((res.body.data as { params: { changedFields: string[] } }[]).map((e) => e.params.changedFields[0])).toContain('referringDoctor');
+    expect(updatesIn(res.body.data).map((e) => e.params.changedFields[0])).toContain('referringDoctor');
   });
 
   it('una escritura real aparece en el historial, con el usuario que la hizo', async () => {
     // El resto del archivo escribe las filas a mano; este test cierra el
     // circuito: crear y editar por HTTP tiene que verse acá.
     const creado = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente Recién Creado',
+      firstName: 'Paciente Recién', lastName: 'Creado',
     });
     expect(creado.status).toBe(201);
     const id = creado.body.data.id as string;
 
-    await auth(request(app).patch(`/api/patients/${id}`)).send({ occupation: 'Docente' });
+    await auth(request(app).patch(`/api/patients/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', occupation: 'Docente' });
 
     await waitFor(async () => {
       const res = await auth(request(app).get(url(id)));

@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
+import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit, splitName } from './helpers';
 
 // patientRepo es el único lugar donde vive la política de borrado lógico:
 // TODO método opera sobre pacientes vigentes (deletedAt: null). Antes de estos
@@ -57,7 +57,7 @@ afterAll(async () => {
 // Cada test crea su propio paciente: así el orden de ejecución no importa y un
 // test que borra no le saca el piso al siguiente.
 function crearPaciente(fullName: string, ctx: TenantContext = ctxA) {
-  return patientRepo.create(ctx, { fullName }, patientAudit('CREATED'));
+  return patientRepo.create(ctx, splitName(fullName), patientAudit('CREATED'));
 }
 
 // Lee la fila cruda con el cliente base (sin scope de tenant ni filtro de
@@ -65,7 +65,7 @@ function crearPaciente(fullName: string, ctx: TenantContext = ctxA) {
 function filaCruda(id: string) {
   return prisma.patient.findUnique({
     where: { id },
-    select: { fullName: true, deletedAt: true, tenantId: true },
+    select: { firstName: true, lastName: true, deletedAt: true, tenantId: true },
   });
 }
 
@@ -73,7 +73,7 @@ describe('patientRepo: política de vigencia (repo directo)', () => {
   it('create devuelve el DTO con fechas ISO y sin campos internos', async () => {
     const patient = await patientRepo.create(
       ctxA,
-      { fullName: 'Paciente Nuevo', birthDate: new Date('1990-05-10') },
+      { firstName: 'Paciente', lastName: 'Nuevo', birthDate: new Date('1990-05-10') },
       patientAudit('CREATED'),
     );
 
@@ -133,35 +133,35 @@ describe('patientRepo: política de vigencia (repo directo)', () => {
 
     const updated = await patientRepo.update(ctxA, patient.id, { phone: '11-2222' }, patientAudit('UPDATED'));
 
-    expect(updated).toMatchObject({ id: patient.id, phone: '11-2222' });
+    expect(updated).toMatchObject({ ok: true, patient: { id: patient.id, phone: '11-2222' } });
     // updatedAt lo mueve Prisma con @updatedAt: el DTO debe traer el valor de
     // después de escribir, no el que se leyó antes.
-    expect(updated!.updatedAt >= patient.updatedAt).toBe(true);
+    expect(updated.ok && updated.patient.updatedAt >= patient.updatedAt).toBe(true);
   });
 
   // El where con deletedAt viaja en la MISMA query que escribe (updateMany, no
   // update): sin eso habría una ventana entre chequear y actualizar, y un
   // paciente borrado en el medio se podría editar igual.
-  it('update de un paciente borrado devuelve null y no lo resucita', async () => {
+  it('update de un paciente borrado devuelve not_found y no lo resucita', async () => {
     const patient = await crearPaciente('Borrado Intacto');
     await patientRepo.softDelete(ctxA, patient.id, patientDeleteAudit(patient.id));
 
     await expect(
-      patientRepo.update(ctxA, patient.id, { fullName: 'Editado post mortem' }, patientAudit('UPDATED')),
-    ).resolves.toBeNull();
+      patientRepo.update(ctxA, patient.id, { firstName: 'Editado post', lastName: 'mortem' }, patientAudit('UPDATED')),
+    ).resolves.toEqual({ ok: false, reason: 'not_found' });
 
     const fila = await filaCruda(patient.id);
-    expect(fila?.fullName).toBe('Borrado Intacto');
+    expect(fila).toMatchObject({ firstName: 'Borrado', lastName: 'Intacto' });
     expect(fila?.deletedAt).not.toBeNull();
   });
 
-  it('update de un paciente de otro tenant devuelve null', async () => {
+  it('update de un paciente de otro tenant devuelve not_found', async () => {
     const deB = await crearPaciente('Intocable de B', ctxB);
 
     await expect(
-      patientRepo.update(ctxA, deB.id, { fullName: 'hackeado' }, patientAudit('UPDATED')),
-    ).resolves.toBeNull();
-    await expect(filaCruda(deB.id)).resolves.toMatchObject({ fullName: 'Intocable de B' });
+      patientRepo.update(ctxA, deB.id, { firstName: 'hackeado', lastName: 'Test' }, patientAudit('UPDATED')),
+    ).resolves.toEqual({ ok: false, reason: 'not_found' });
+    await expect(filaCruda(deB.id)).resolves.toMatchObject({ firstName: 'Intocable de', lastName: 'B' });
   });
 
   it('softDelete marca deletedAt sin borrar la fila', async () => {
@@ -234,11 +234,12 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
     const ajeno = await crearPaciente('Ajeno PATCH', ctxB);
 
     const res = await auth(request(app).patch(`/api/patients/${ajeno.id}`)).send({
-      fullName: 'hackeado',
+      reason: 'DATA_ENTRY_ERROR',
+      firstName: 'hackeado', lastName: 'Test',
     });
 
     expect(res.status).toBe(404);
-    await expect(filaCruda(ajeno.id)).resolves.toMatchObject({ fullName: 'Ajeno PATCH' });
+    await expect(filaCruda(ajeno.id)).resolves.toMatchObject({ firstName: 'Ajeno', lastName: 'PATCH' });
   });
 
   it('DELETE /api/patients/:id borra lógico y el segundo intento da 404', async () => {
@@ -284,7 +285,7 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
           patientId: patient.id,
           name: 'Paquete huérfano',
           totalSessions: 10,
-          pricePerSession: 100,
+          pricePerSessionCents: 100,
         }),
       ],
     ];

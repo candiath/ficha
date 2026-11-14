@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // El episodio es la unidad de tratamiento: todo lo clínico cuelga de él y su
 // estado decide qué mira el motor de alertas (listStale solo recorre los
@@ -32,8 +33,8 @@ describe('episodios: alta, listado y transiciones de estado', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser({ role: 'ADMIN' });
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Episodios' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Episodios' },
       select: { id: true },
     });
   });
@@ -114,11 +115,11 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   it('GET de un paciente de otra clínica responde 404, no una lista vacía', async () => {
     const otra = await createTestClinic();
     try {
-      const ajeno = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Paciente Ajeno' },
+      const ajeno = await fixture.patient.create({
+        data: { tenantId: otra.tenantId, firstName: 'Paciente', lastName: 'Ajeno' },
         select: { id: true },
       });
-      await prisma.clinicalEpisode.create({
+      await fixture.clinicalEpisode.create({
         data: { tenantId: otra.tenantId, patientId: ajeno.id, mainComplaint: 'Secreto' },
       });
 
@@ -126,6 +127,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Paciente no encontrado');
 
+      await deleteAuditRows([otra.tenantId]);
       await prisma.clinicalEpisode.deleteMany({ where: { tenantId: otra.tenantId } });
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });
     } finally {
@@ -134,8 +136,8 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   });
 
   it('un paciente borrado no lista ni abre episodios nuevos', async () => {
-    const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado', deletedAt: new Date() },
+    const borrado = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Borrado', deletedAt: new Date() },
       select: { id: true },
     });
 
@@ -258,6 +260,60 @@ describe('episodios: alta, listado y transiciones de estado', () => {
     ).toMatchObject({ status: 'ACTIVE', closedAt: null });
   });
 
+  it('a closing from a clock running behind is refused as sent, with what the client needs to fix it', async () => {
+    // Opened just now, closed by a device ten minutes behind: its "now" is
+    // before the opening. The API neither stores it nor moves it.
+    const episode = await crearEpisodio();
+    const before = Date.now();
+
+    const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({
+      status: 'ABANDONED',
+      closedAt: new Date(before - 10 * 60 * 1000).toISOString(),
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'closed_before_opened', openedAt: episode.openedAt });
+    const serverTime = new Date(res.body.serverTime as string).getTime();
+    expect(serverTime).toBeGreaterThanOrEqual(before);
+    expect(serverTime).toBeLessThanOrEqual(Date.now());
+
+    const despues = await auth(request(app).get(url()));
+    expect(
+      (despues.body.data as { id: string; status: string }[]).find((e) => e.id === episode.id),
+    ).toMatchObject({ status: 'ACTIVE', closedAt: null });
+  });
+
+  it('an episode opens by the API clock, the one a close right after it reads', async () => {
+    // Not the column's default: Prisma's engine evaluates it, and it can be a
+    // millisecond ahead of the API. Moving the API's clock tells them apart.
+    const apiNow = new Date(Date.now() - 60 * 60 * 1000);
+    vi.useFakeTimers({ toFake: ['Date'], now: apiNow });
+    try {
+      const episode = await crearEpisodio();
+
+      expect(episode.openedAt).toBe(apiNow.toISOString());
+
+      const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({
+        status: 'ABANDONED',
+        closedAt: apiNow.toISOString(),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('every response carries the API clock, readable by the web across origins', async () => {
+    const before = Date.now();
+
+    const res = await auth(request(app).get(url())).set('Origin', 'http://localhost:5173');
+
+    const serverTime = new Date(res.headers['x-server-time']).getTime();
+    expect(serverTime).toBeGreaterThanOrEqual(before);
+    expect(serverTime).toBeLessThanOrEqual(Date.now());
+    expect(res.headers['access-control-expose-headers']).toContain('X-Server-Time');
+  });
+
   it('cerrar en el mismo instante en que se abrió sí se permite', async () => {
     // El caso real: una consulta única que se abre y se cierra el mismo día.
     const openedAt = '2025-06-01T10:00:00.000Z';
@@ -298,6 +354,7 @@ describe('episodios: alta, listado y transiciones de estado', () => {
 
     const res = await auth(request(app).patch(`${url()}/${episode.id}`)).send({
       mainComplaint: 'Lumbociatalgia derecha',
+      reason: 'DATA_ENTRY_ERROR',
     });
 
     expect(res.body.data).toMatchObject({
@@ -320,11 +377,11 @@ describe('episodios: alta, listado y transiciones de estado', () => {
   });
 
   it('un episodio de otro paciente de la misma clínica es un 404, no un update', async () => {
-    const otroPaciente = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro Paciente' },
+    const otroPaciente = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'Paciente' },
       select: { id: true },
     });
-    const ajeno = await prisma.clinicalEpisode.create({
+    const ajeno = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: otroPaciente.id, status: 'ACTIVE' },
       select: { id: true },
     });
@@ -348,6 +405,133 @@ describe('episodios: alta, listado y transiciones de estado', () => {
       closedAt: new Date().toISOString(),
     });
     expect(res.status).toBe(404);
+  });
+
+  // ── Audit (SPEC-clinical-revisions.md §4) ─────────────────────────────────
+  //
+  // A change of status is a fact with its own action and no reason; anything
+  // else is a correction, which names the fields it changed. Which one a
+  // request is, is decided against the stored row.
+
+  const rowsOf = (entityId: string) =>
+    prisma.auditLog.findMany({
+      where: { tenantId: clinic.tenantId, entityId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { action: true, entity: true, params: true },
+    });
+  const patchEpisode = (id: string, body: Record<string, unknown>) =>
+    auth(request(app).patch(`${url()}/${id}`)).send(body);
+
+  it('opening an episode records one row', async () => {
+    const episode = await crearEpisodio();
+
+    const rows = await prisma.auditLog.findMany({ where: { tenantId: clinic.tenantId, entityId: episode.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      action: 'EPISODE_OPENED',
+      entity: 'EPISODE',
+      patientId: patient.id,
+      params: {},
+      actorType: 'USER',
+      userId: user.id,
+    });
+  });
+
+  it('closing and reopening are actions of their own, with the status they closed with', async () => {
+    const discharged = await crearEpisodio({ openedAt: '2025-06-01T10:00:00.000Z' });
+    const abandoned = await crearEpisodio({ openedAt: '2025-06-01T10:00:00.000Z' });
+
+    await patchEpisode(discharged.id, { status: 'DISCHARGED', closedAt: '2025-08-01T12:00:00.000Z' });
+    await patchEpisode(abandoned.id, { status: 'ABANDONED', closedAt: '2025-09-01T12:00:00.000Z' });
+    expect((await patchEpisode(abandoned.id, { status: 'ACTIVE', closedAt: null })).status).toBe(200);
+
+    expect(await rowsOf(discharged.id)).toEqual([
+      { action: 'EPISODE_OPENED', entity: 'EPISODE', params: {} },
+      { action: 'EPISODE_CLOSED', entity: 'EPISODE', params: { status: 'DISCHARGED' } },
+    ]);
+    expect(await rowsOf(abandoned.id)).toEqual([
+      { action: 'EPISODE_OPENED', entity: 'EPISODE', params: {} },
+      { action: 'EPISODE_CLOSED', entity: 'EPISODE', params: { status: 'ABANDONED' } },
+      { action: 'EPISODE_REOPENED', entity: 'EPISODE', params: {} },
+    ]);
+  });
+
+  it('a correction names the fields it changed, never their values', async () => {
+    const episode = await crearEpisodio({ mainComplaint: 'Lumbalgia', openedAt: '2025-06-01T10:00:00.000Z' });
+    await patchEpisode(episode.id, { status: 'DISCHARGED', closedAt: '2025-08-01T12:00:00.000Z' });
+
+    // Same status: correcting the closing date of a closed episode is a
+    // correction, not a second closing.
+    const date = await patchEpisode(episode.id, {
+      status: 'DISCHARGED',
+      closedAt: '2025-08-02T12:00:00.000Z',
+      reason: 'DATA_ENTRY_ERROR',
+    });
+    const complaint = await patchEpisode(episode.id, { mainComplaint: 'Lumbociatalgia derecha', reason: 'LATE_INFORMATION' });
+    expect(date.status).toBe(200);
+    expect(complaint.status).toBe(200);
+
+    const rows = await rowsOf(episode.id);
+    expect(rows.slice(2)).toEqual([
+      { action: 'EPISODE_UPDATED', entity: 'EPISODE', params: { changedFields: ['closedAt'], reason: 'DATA_ENTRY_ERROR' } },
+      { action: 'EPISODE_UPDATED', entity: 'EPISODE', params: { changedFields: ['mainComplaint'], reason: 'LATE_INFORMATION' } },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('Lumbociatalgia');
+  });
+
+  it('a request that changes the status and corrects the complaint answers 400 and writes nothing', async () => {
+    const episode = await crearEpisodio({ mainComplaint: 'Lumbalgia', openedAt: '2025-06-01T10:00:00.000Z' });
+
+    const res = await patchEpisode(episode.id, {
+      status: 'DISCHARGED',
+      closedAt: '2025-08-01T12:00:00.000Z',
+      mainComplaint: 'Otra cosa',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe(
+      'Cerrar o reabrir el episodio y corregir su motivo de consulta se guardan por separado',
+    );
+    await expect(
+      prisma.clinicalEpisode.findUnique({
+        where: { id: episode.id },
+        select: { status: true, mainComplaint: true, closedAt: true },
+      }),
+    ).resolves.toEqual({ status: 'ACTIVE', mainComplaint: 'Lumbalgia', closedAt: null });
+    expect((await rowsOf(episode.id)).map((r) => r.action)).toEqual(['EPISODE_OPENED']);
+  });
+
+  it('a status change that sends the complaint unchanged is only the status change', async () => {
+    const episode = await crearEpisodio({ mainComplaint: 'Lumbalgia', openedAt: '2025-06-01T10:00:00.000Z' });
+
+    const res = await patchEpisode(episode.id, {
+      status: 'ABANDONED',
+      closedAt: '2025-08-01T12:00:00.000Z',
+      mainComplaint: 'Lumbalgia',
+    });
+
+    expect(res.status).toBe(200);
+    expect((await rowsOf(episode.id)).map((r) => r.action)).toEqual(['EPISODE_OPENED', 'EPISODE_CLOSED']);
+  });
+
+  it('an update that changes nothing records nothing', async () => {
+    const episode = await crearEpisodio({ mainComplaint: 'Lumbalgia' });
+
+    const same = await patchEpisode(episode.id, { mainComplaint: 'Lumbalgia' });
+    const stillActive = await patchEpisode(episode.id, { status: 'ACTIVE' });
+    const empty = await patchEpisode(episode.id, {});
+    expect([same.status, stillActive.status, empty.status]).toEqual([200, 200, 200]);
+
+    expect((await rowsOf(episode.id)).map((r) => r.action)).toEqual(['EPISODE_OPENED']);
+  });
+
+  it('a refused update records nothing', async () => {
+    const episode = await crearEpisodio({ openedAt: '2025-06-01T10:00:00.000Z' });
+
+    const res = await patchEpisode(episode.id, { status: 'DISCHARGED', closedAt: '2025-05-31T23:59:59.000Z' });
+
+    expect(res.status).toBe(400);
+    expect((await rowsOf(episode.id)).map((r) => r.action)).toEqual(['EPISODE_OPENED']);
   });
 
   // ── Autenticación ─────────────────────────────────────────────────────────

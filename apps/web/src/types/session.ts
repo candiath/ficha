@@ -1,3 +1,5 @@
+import type { RevisionReason } from '@ficha/shared';
+
 export type SessionType = 'SESSION' | 'NOTE' | 'DISCHARGE';
 
 // One problem the session treated: its episode, and everything clinical about
@@ -17,12 +19,18 @@ export interface SessionEpisodeBlock {
 // one); a note may treat none. `observations` is the text of a note.
 export interface Session {
   id: string;
+  // Its latest revision: an edit sends the one it loaded, so a stale form gets a
+  // 409. 0 for a session from before revisions existed.
+  version: number;
   patientId: string;
   sessionType: SessionType;
   sessionDate: string;
   observations: string | null;
   createdAt: string;
   updatedAt: string;
+  // When it was annulled (SPEC-clinical-revisions.md §8), or null. Only the
+  // patient's list returns an annulled session; it counts in nothing.
+  annulledAt: string | null;
   episodes: SessionEpisodeBlock[];
 }
 
@@ -35,8 +43,8 @@ export function blockFor(session: Session, episodeId: string): SessionEpisodeBlo
 // transacción (un fallo no deja la sesión a medias).
 export interface SessionPaymentInput {
   packageId?: string | null;
-  baseAmount: number;
-  discount?: number;
+  baseAmountCents: number;
+  discountCents?: number;
   notes?: string | null;
 }
 
@@ -59,4 +67,8 @@ export interface SessionCreateData {
 
 // El PATCH no acepta payment: el pago se edita por /api/payments. `episodes`,
 // when sent, is the whole set of blocks.
-export type SessionUpdateData = Partial<Omit<SessionCreateData, 'payment' | 'appointmentId'>>;
+export type SessionUpdateData = Partial<Omit<SessionCreateData, 'payment' | 'appointmentId'>> & {
+  expectedVersion: number;
+  reason: RevisionReason;
+  reasonNote?: string;
+};

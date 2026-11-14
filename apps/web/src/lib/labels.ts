@@ -109,3 +109,4 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: 'Administrador',
   THERAPIST: 'Fisioterapeuta',
 };
+
