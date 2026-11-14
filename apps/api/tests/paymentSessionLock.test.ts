@@ -149,6 +149,10 @@ describe('payment creation and session deletion', () => {
   // creation racing the annulment always ends with the session annulled. The
   // other outcome needs the payment paid first: the odd rounds race paying an
   // existing pending payment against the annulment.
+  //
+  // Twenty rounds of a dozen queries each outgrow the default 15 s on Neon,
+  // where every query crosses the network; a timeout also leaves requests in
+  // flight that write audit rows while afterAll deletes them.
   it('never leaves a payment on an annulled session under concurrent requests', async () => {
     const outcomes = { annulled: 0, kept: 0 };
     for (let i = 0; i < 20; i++) {
@@ -181,5 +185,5 @@ describe('payment creation and session deletion', () => {
     }
     expect(await paymentsOnDeletedSessions()).toBe(0);
     expect(outcomes.annulled).toBeGreaterThan(0);
-  });
+  }, 90_000);
 });
