@@ -2,7 +2,6 @@ import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
-import { signOperatorToken } from '../lib/platformJwt';
 import { hashOpaqueToken } from '../lib/opaqueToken';
 import {
   createLoginLimiter,
@@ -16,8 +15,8 @@ import { authenticateOperator } from '../middlewares/platformAuth';
 
 // Login del operador de plataforma. Es el espejo de routes/auth.ts con los
 // mismos frenos y las mismas propiedades (mensaje único, bcrypt siempre,
-// intentos registrados), leyendo de platform_operators y firmando con el
-// secreto de plataforma. Los intentos van a login_events con operatorId:
+// intentos registrados), leyendo de platform_operators y abriendo una sesión
+// en platform_operator_sessions (SPEC-operator-sessions.md). Los intentos van a login_events con operatorId:
 // el freno por cuenta cuenta por email, así que cubre al operador sin más.
 const router = Router();
 
@@ -69,7 +68,11 @@ router.post('/login', loginLimiter, async (req, res) => {
     .touchOperatorLastLogin(operator.id)
     .catch((err) => console.error('[platform-auth] lastLoginAt', err));
 
-  const token = signOperatorToken(operator.id);
+  const { token } = await platformRepo.createOperatorSession({
+    operatorId: operator.id,
+    ip: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  });
 
   res.json({
     data: {
@@ -91,7 +94,7 @@ router.post('/change-password', changePasswordLimiter, authenticateOperator, asy
 
   // Its own brake (area 2 review, L3), per token: a stolen token that fails
   // ten times locks itself, and the operator, logging in again, can still
-  // change her password, which is what kills every outstanding token.
+  // change her password, which revokes every other session.
   const attempt = await reserveAttempt(
     req,
     'PLATFORM_PASSWORD_CHANGE',
@@ -111,9 +114,18 @@ router.post('/change-password', changePasswordLimiter, authenticateOperator, asy
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await platformRepo.updateOperatorPassword(operator.id, passwordHash);
+  // The current session survives; every other one is revoked.
+  await platformRepo.changeOperatorPassword(operator.id, passwordHash, req.operator.operatorSessionId);
 
-  res.json({ data: { token: signOperatorToken(operator.id) } });
+  res.status(204).end();
+});
+
+// POST /api/platform/auth/logout
+// Revokes the current session on the server. 204 even if a concurrent logout
+// got there first: either way the session is dead.
+router.post('/logout', authenticateOperator, async (req, res) => {
+  await platformRepo.revokeOperatorSession(req.operator.operatorSessionId);
+  res.status(204).end();
 });
 
 // GET /api/platform/auth/me

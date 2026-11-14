@@ -10,9 +10,9 @@ import { EmailSchema, PasswordSchema } from '../src/lib/validation';
 // way back in short of editing the database by hand. Like create:operator, it
 // runs from a terminal against the DATABASE_URL it is given.
 //
-// It replaces the hash and stamps passwordChangedAt, which is what makes the
-// platform middleware reject every token issued before (platformAuth.ts), the
-// same as changing the password from the UI.
+// It replaces the hash and revokes every session of hers, in one transaction
+// (SPEC-operator-sessions.md): unlike a change from the UI, which keeps the
+// session that made it, nobody here is logged in.
 //
 // It then raises OPERATOR_PASSWORD_RESET, a sysadmin alert by Telegram.
 //
@@ -42,10 +42,13 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(password, 10);
   // Existence is decided by the write itself: no window between a lookup and the update.
-  const { count } = await prisma.platformOperator.updateMany({
-    where: { email },
-    data: { passwordHash, passwordChangedAt: new Date() },
-  });
+  const [{ count }] = await prisma.$transaction([
+    prisma.platformOperator.updateMany({ where: { email }, data: { passwordHash } }),
+    prisma.platformOperatorSession.updateMany({
+      where: { operator: { email }, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 
   if (count === 0) {
     console.error(`No existe un operador con el email ${email}. No se hizo ningún cambio.`);

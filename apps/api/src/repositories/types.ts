@@ -23,3 +23,10 @@ export interface TenantContext {
 export interface OperatorContext {
   operatorId: string;
 }
+
+// What authenticateOperator attaches to req.operator: the context plus the
+// platform_operator_sessions row of the request, which logout revokes and a
+// password change keeps. The repositories' writes take only the context.
+export interface OperatorRequestContext extends OperatorContext {
+  operatorSessionId: string;
+}
