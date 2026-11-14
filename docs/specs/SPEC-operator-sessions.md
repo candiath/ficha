@@ -1,6 +1,6 @@
 # Spec: operator-sessions
 
-Module of the [authentication redesign](auth-redesign-map.md) (issue #177). **Status: draft, awaiting approval.**
+Module of the [authentication redesign](auth-redesign-map.md) (issue #177). **Status: approved (2026-11-14).**
 
 ## Objective
 
