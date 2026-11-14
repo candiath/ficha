@@ -19,7 +19,6 @@ const EvaluationSchema = z.strictObject({
   patientNarrative: OptionalTextSchema,
   otherHistory: OptionalTextSchema,
   notes: OptionalTextSchema,
-  retractionMap: z.unknown().optional().nullable(),
   physicalActivity: OptionalTextSchema,
   painFrequency: OptionalTextSchema,
   evaScale: z.number().min(0).max(10).optional().nullable(),

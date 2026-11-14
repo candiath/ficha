@@ -613,7 +613,10 @@ model InitialEvaluation {
   // exceptional ("Otros antecedentes").
   otherHistory     String?  @map("other_history")
   notes            String?
-  retractionMap    Json?    @map("retraction_map")
+  // The body map left the evaluation before the relaunch (#238): its shape was
+  // never defined, and a snapshot would have kept it for good. Ignored so the
+  // client never names the column; its DROP goes in the next release.
+  retractionMap    Json?    @map("retraction_map") @ignore
   physicalActivity String?  @map("physical_activity")
   painFrequency    String?  @map("pain_frequency")
   evaScale         Int?     @map("eva_scale")

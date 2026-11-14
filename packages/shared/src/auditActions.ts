@@ -114,7 +114,6 @@ export const AUDIT_EVALUATION_FIELDS = {
   patientNarrative: 'el relato del paciente',
   otherHistory: 'los otros antecedentes',
   notes: 'las notas',
-  retractionMap: 'el mapa de retracciones',
   physicalActivity: 'la actividad física',
   painFrequency: 'la frecuencia del dolor',
   evaScale: 'la escala EVA',

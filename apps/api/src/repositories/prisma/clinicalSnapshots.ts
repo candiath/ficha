@@ -1,4 +1,4 @@
-import type { DatePrecision, EpisodeStatus, PatientEventKind, Prisma, Sex } from '@prisma/client';
+import type { DatePrecision, EpisodeStatus, PatientEventKind, Sex } from '@prisma/client';
 import type {
   ConsentSnapshotV1,
   EpisodeSnapshotV1,
@@ -64,7 +64,6 @@ export function evaluationSnapshot(e: {
   patientNarrative: string | null;
   otherHistory: string | null;
   notes: string | null;
-  retractionMap: Prisma.JsonValue;
   physicalActivity: string | null;
   painFrequency: string | null;
   evaScale: number | null;
@@ -74,7 +73,6 @@ export function evaluationSnapshot(e: {
     patientNarrative: e.patientNarrative,
     otherHistory: e.otherHistory,
     notes: e.notes,
-    retractionMap: e.retractionMap,
     physicalActivity: e.physicalActivity,
     painFrequency: e.painFrequency,
     evaScale: e.evaScale,
