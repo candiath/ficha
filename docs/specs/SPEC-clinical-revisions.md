@@ -79,7 +79,7 @@ Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScop
 
 - **Canonical projection.** Each aggregate has an explicit list of the fields its snapshot holds, and an explicit list of excluded columns (`id`, `tenantId`, `patientId`, `createdAt`, `updatedAt`, `deletedAt`). The session snapshot holds the attending therapist (`userId`), the type, the date, the observations and the blocks ordered by `episodeId`; the evaluation, `evaluatedAt`; the episode, its complaint, status and dates; the consent, `signedAt` and `revokedAt`. The current `AUDIT_*_FIELDS` lists are not the base: they miss several of these.
 - **Coverage test** (`tests/historyProjectionCoverage.test.ts`): every column of a versioned table is either in its projection or in its exclusion list. A new column fails CI until someone decides.
-- **Zod schema** per aggregate and per `schema_version` in `packages/shared`, strict (`strictObject`). The evaluation's `retractionMap` stays `z.unknown()` inside the snapshot, as in its column, until its shape is defined. Every past schema version is kept, with a fixture test proving it still parses.
+- **Zod schema** per aggregate and per `schema_version` in `packages/shared`, strict (`strictObject`). The evaluation's `retractionMap` was `z.unknown()` inside the snapshot, as in its column; it was removed from both before the relaunch (2026-11-14), so no snapshot holds a value without a shape. Every past schema version is kept, with a fixture test proving it still parses.
 - **Adding a field later** (e.g. coverage): bump `schema_version`; the comparison in §5 compares only the fields both versions know, so the first save after the bump does not create an empty version.
 
 ### 4. Link to the audit log
