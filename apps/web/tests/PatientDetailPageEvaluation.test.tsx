@@ -91,7 +91,6 @@ const EVALUATION: InitialEvaluation = {
   patientNarrative: null,
   otherHistory: null,
   notes: 'Primera',
-  retractionMap: null,
   physicalActivity: null,
   painFrequency: null,
   evaScale: null,

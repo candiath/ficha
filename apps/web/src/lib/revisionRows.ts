@@ -119,14 +119,6 @@ export const renderEvaluationSnapshot: SnapshotRenderer = (snapshot, version) =>
     { key: 'painFrequency', label: 'Frecuencia del dolor', value: text(s.painFrequency) },
     { key: 'evaScale', label: 'Escala EVA', value: num(s.evaScale) },
     { key: 'notes', label: 'Notas', value: text(s.notes) },
-    // Its shape is not defined yet (spec §3): whether it changed is shown, not
-    // the drawing.
-    {
-      key: 'retractionMap',
-      label: 'Mapa de retracciones',
-      value: s.retractionMap === null || s.retractionMap === undefined ? 'Sin marcar' : 'Con marcas',
-      compare: JSON.stringify(s.retractionMap ?? null),
-    },
   ]);
 
 export const renderConsentSnapshot: SnapshotRenderer = (snapshot, version) =>
