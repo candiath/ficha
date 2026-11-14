@@ -31,7 +31,6 @@ import RevisionReasonField from '@/components/patients/RevisionReasonField';
 import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
-import ConsentTab from '@/components/patients/ConsentTab';
 import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
 import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
@@ -861,7 +860,6 @@ const TAB_COMPONENT: Record<string, string> = {
   resumen: 'PatientDetailPage',
   evaluacion: 'EvaluationTab',
   sesiones: 'SessionsTab',
-  consentimiento: 'ConsentTab',
   actividad: 'ActivityTimeline',
 };
 
@@ -1109,7 +1107,10 @@ export default function PatientDetailPage() {
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
           <TabsTrigger value="sesiones">Sesiones</TabsTrigger>
-          <TabsTrigger value="consentimiento">Consentimiento</TabsTrigger>
+          {/* The informed consent is hidden until a consent records the text
+              the patient signed (#248): today the row holds only dates, and the
+              text lives in ConsentTab. The component, the API and the model
+              stay; a consent already signed still shows in Actividad. */}
           <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
         <Separator />
@@ -1193,11 +1194,6 @@ export default function PatientDetailPage() {
               Seleccioná un episodio para ver las sesiones.
             </div>
           )}
-        </TabsContent>
-
-        {/* ── Consentimiento ── */}
-        <TabsContent value="consentimiento" className="mt-6">
-          <ConsentTab patient={patient} />
         </TabsContent>
 
         {/* ── Actividad ── */}
