@@ -25,6 +25,7 @@ export default defineConfig([
             'scripts/create-admin.ts',
             'scripts/create-operator.ts',
             'scripts/purge-test-audit.ts',
+            'scripts/reset-operator-password.ts',
             'scripts/test-docker.ts',
           ],
         },

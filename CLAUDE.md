@@ -110,6 +110,8 @@ Lo que puede: listar y crear clínicas, desactivarlas (`tenants.deactivated_at`:
 
 El bootstrap es `npm run create:operator -w apps/api` con `OPERATOR_EMAIL` y `OPERATOR_PASSWORD`: se corre **una vez por entorno**, y a partir de ahí todo pasa por la UI de `/platform`. Reemplazó a `create-admin.ts`, que se borró en #79. En local el seed crea `operador@ficha.dev` / `password123`.
 
+An operator who lost her password is recovered the same way: `npm run reset:operator-password -w apps/api`, with the same two variables and the environment's `DATABASE_URL`. It replaces the hash and stamps `passwordChangedAt`, which invalidates her earlier tokens. It is not audited (no `platform_audit_logs` row): like the bootstrap, it runs outside the app. It raises the sysadmin alert `OPERATOR_PASSWORD_RESET`, which reaches Telegram only if the terminal has the environment's `TELEGRAM_*` variables (and `RENDER_SERVICE_NAME` for its label); otherwise it is recorded as not delivered and `/platform` shows the banner.
+
 ### Sysadmin alerts
 
 The operator is told by Telegram when something needs her (#186, [`docs/specs/SPEC-sysadmin-alerts.md`](docs/specs/SPEC-sysadmin-alerts.md); setup in [`docs/infra.md`](docs/infra.md#sysadmin-alerts-telegram)). One bot per environment: each Render service has its own `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (numeric). Without them the app works the same and the card says "No configurado".

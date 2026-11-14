@@ -46,6 +46,9 @@ const MESSAGES: Record<SysadminAlertKind, string> = {
   AUDIT_MAINTENANCE_FLAG_PRESENT:
     'La base tiene la marca de mantenimiento de auditoría (no-audit-maintenance.sql). ' +
     'En este entorno las filas de auditoría se pueden borrar. El detalle está en los logs del servicio.',
+  OPERATOR_PASSWORD_RESET:
+    'Se reemplazó la contraseña de un operador desde la terminal (reset:operator-password). ' +
+    'Si no fuiste vos, alguien con acceso a la base de este entorno puede entrar como operador.',
   TEST: 'Alerta de prueba enviada desde /platform. Si la ves, las alertas de este entorno llegan.',
 };
 

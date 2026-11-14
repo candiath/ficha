@@ -6,6 +6,7 @@ import type { SysadminAlertDelivery, SysadminAlertKind } from '@ficha/shared';
 export const ALERT_KIND_LABELS: Record<SysadminAlertKind, string> = {
   AUDIT_GUARDS_FAILED: 'Chequeo de auditoría fallido',
   AUDIT_MAINTENANCE_FLAG_PRESENT: 'Marca de mantenimiento de auditoría presente',
+  OPERATOR_PASSWORD_RESET: 'Contraseña de operador reemplazada',
   TEST: 'Alerta de prueba',
 };
 

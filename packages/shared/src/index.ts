@@ -338,7 +338,11 @@ export interface PlatformAuditEntry {
 // docs/specs/SPEC-sysadmin-alerts.md). The card shows the configuration by
 // status and variable names only: never the token or the chat id.
 
-export type SysadminAlertKind = 'AUDIT_GUARDS_FAILED' | 'AUDIT_MAINTENANCE_FLAG_PRESENT' | 'TEST';
+export type SysadminAlertKind =
+  | 'AUDIT_GUARDS_FAILED'
+  | 'AUDIT_MAINTENANCE_FLAG_PRESENT'
+  | 'OPERATOR_PASSWORD_RESET'
+  | 'TEST';
 
 export type SysadminAlertOutcome = 'SENT' | 'REJECTED' | 'UNREACHABLE' | 'NOT_CONFIGURED';
 
