@@ -1,9 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { revisionReasonFields } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { clinicalDateField } from '../lib/clinicalDate';
 import { OptionalTextSchema } from '../lib/validation';
-import { episodeRepo, patientRepo } from '../repositories';
+import { episodeRepo } from '../repositories';
+import type { AuditEntry } from '../repositories/auditLogRepository';
+import type { EpisodeUpdateAudit } from '../repositories/episodeRepository';
+import type { RevisionReason } from '@ficha/shared';
 import { idParam } from '../middlewares/idParam';
+import { revisionRoutes } from './revisions';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -32,6 +38,11 @@ const EpisodeUpdateSchema = z
     status: z.enum(['ACTIVE', 'DISCHARGED', 'ABANDONED']).optional(),
     mainComplaint: OptionalTextSchema,
     closedAt: clinicalDateField('La fecha de cierre').nullable().optional(),
+    expectedVersion: ExpectedVersionSchema,
+    // A correction says why; closing and reopening do not (the repository
+    // decides which one the request is, against the stored row).
+    reason: revisionReasonFields.reason.optional(),
+    reasonNote: revisionReasonFields.reasonNote,
   })
   .superRefine((data, ctx) => {
     if (cierra(data.status) && typeof data.closedAt !== 'string') {
@@ -61,11 +72,6 @@ const EpisodeUpdateSchema = z
 
 // GET /api/patients/:patientId/episodes
 router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const episodes = await episodeRepo.listByPatient(req.context, req.params.patientId);
 
   // La alerta de inactividad se calculaba acá, y por eso el paciente que
@@ -76,28 +82,41 @@ router.get<Pick<Params, 'patientId'>>('/', async (req, res) => {
 
 // POST /api/patients/:patientId/episodes
 router.post<Pick<Params, 'patientId'>>('/', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const body = EpisodeCreateSchema.parse(req.body);
 
-  const episode = await episodeRepo.create(req.context, req.params.patientId, {
-    mainComplaint: body.mainComplaint,
-    ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
-  });
+  const episode = await episodeRepo.create(
+    req.context,
+    req.params.patientId,
+    {
+      mainComplaint: body.mainComplaint,
+      ...(body.openedAt ? { openedAt: new Date(body.openedAt) } : {}),
+    },
+    (e) => ({ action: 'EPISODE_OPENED', patientId: req.params.patientId, entityId: e.id, params: {} }),
+  );
 
   res.status(201).json({ data: episode });
 });
 
+// The audit entry of what an update did (SPEC-clinical-revisions.md §4): a
+// change of status is its own fact, with no reason; a correction names the
+// fields it changed.
+function episodeAudit(patientId: string, reason: RevisionReason | undefined): EpisodeUpdateAudit {
+  return (episode, change): AuditEntry => {
+    const base = { patientId, entityId: episode.id };
+    switch (change.kind) {
+      case 'closed':
+        return { ...base, action: 'EPISODE_CLOSED', params: { status: change.status } };
+      case 'reopened':
+        return { ...base, action: 'EPISODE_REOPENED', params: {} };
+      case 'corrected':
+        // The repository refuses a correction with no reason before asking.
+        return { ...base, action: 'EPISODE_UPDATED', params: { changedFields: change.changedFields, reason: reason! } };
+    }
+  };
+}
+
 // PATCH /api/patients/:patientId/episodes/:episodeId
 router.patch<Params>('/:episodeId', async (req, res) => {
-  if (!(await patientRepo.exists(req.context, req.params.patientId))) {
-    res.status(404).json({ error: 'Paciente no encontrado' });
-    return;
-  }
-
   const body = EpisodeUpdateSchema.parse(req.body);
 
   const result = await episodeRepo.update(
@@ -111,7 +130,11 @@ router.patch<Params>('/:episodeId', async (req, res) => {
       // episodio ACTIVE con fecha de cierre es el estado incoherente que el
       // schema ya no deja escribir a propósito.
       closedAt: body.status === 'ACTIVE' ? null : body.closedAt ? new Date(body.closedAt) : undefined,
+      expectedVersion: body.expectedVersion,
+      reason: body.reason,
+      reasonNote: body.reasonNote,
     },
+    episodeAudit(req.params.patientId, body.reason),
   );
 
   if (!result.ok) {
@@ -121,8 +144,24 @@ router.patch<Params>('/:episodeId', async (req, res) => {
         res.status(404).json({ error: 'Episodio no encontrado' });
         return;
       case 'closed_before_opened':
+        // The opening and the API's time let the client tell a wrong date from
+        // a wrong clock. Nothing here corrects the date it sent.
         res.status(400).json({
           error: 'La fecha de cierre no puede ser anterior a la apertura del episodio',
+          code: 'closed_before_opened',
+          openedAt: result.openedAt,
+          serverTime: new Date().toISOString(),
+        });
+        return;
+      case 'stale':
+        res.status(409).json(STALE_EDIT);
+        return;
+      case 'reason_required':
+        res.status(400).json({ error: 'Elegí el motivo del cambio' });
+        return;
+      case 'transition_with_correction':
+        res.status(400).json({
+          error: 'Cerrar o reabrir el episodio y corregir su motivo de consulta se guardan por separado',
         });
         return;
     }
@@ -130,5 +169,8 @@ router.patch<Params>('/:episodeId', async (req, res) => {
 
   res.json({ data: result.episode });
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/:episodeId/revisions', revisionRoutes((p) => ({ aggregate: 'episode', episodeId: p.episodeId }), 'Episodio no encontrado'));
 
 export default router;

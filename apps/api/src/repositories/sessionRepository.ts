@@ -18,15 +18,21 @@ export interface SessionEpisodeBlockDTO {
 }
 
 // The session holds the visit itself; `episodes`, one block per problem it
-// treated, ordered by episode. `observations` is the text of a note.
+// treated, ordered by episode. `observations` is the text of a note. `version`
+// is its latest revision: 0 for a session written before revisions existed.
 export interface SessionDTO {
   id: string;
+  version: number;
   patientId: string;
   sessionType: SessionType;
   sessionDate: string;
   observations: string | null;
   createdAt: string;
   updatedAt: string;
+  // When it was annulled (SPEC-clinical-revisions.md §8), or null. Only the
+  // record's list (listByPatient) returns an annulled session; every other
+  // reader leaves it out.
+  annulledAt: string | null;
   episodes: SessionEpisodeBlockDTO[];
 }
 
@@ -62,8 +68,8 @@ export interface SessionEpisodeBlockInput {
 
 export interface SessionPaymentInput {
   packageId?: string | null;
-  baseAmount: number;
-  discount: number;
+  baseAmountCents: number;
+  discountCents: number;
   notes?: string | null;
 }
 
@@ -93,17 +99,30 @@ export type SessionCreateResult =
   // El turno ya produjo su sesión. Pasa si se aprieta dos veces "registrar
   // sesión" o si otra pestaña ganó de mano: la sesión NO se crea, para no
   // duplicar el registro clínico de una misma visita.
-  | { ok: false; reason: 'appointment_taken' | SessionEpisodeRuleViolation };
+  | { ok: false; reason: 'appointment_taken' | SessionEpisodeRuleViolation }
+  // A discharge closes its episode now, and this one's opening is dated ahead
+  // of now. Nothing is recorded.
+  | { ok: false; reason: 'discharge_before_opening' };
 
 export type SessionUpdateResult =
   | { ok: true; session: SessionDTO }
   // No current session of that patient with that id.
-  | { ok: false; reason: 'not_found' | SessionEpisodeRuleViolation };
+  | { ok: false; reason: 'not_found' | SessionEpisodeRuleViolation }
+  // The editor loaded another version: someone saved in between. Nothing is written.
+  | { ok: false; reason: 'stale' };
 
 // payment queda afuera a propósito: el pago se edita por /api/payments.
 // `episodes`, when it comes, is the whole set of blocks: a block left out is
 // removed, a new one is added, and each kept one is updated field by field.
-export type SessionUpdateInput = Partial<SessionFields> & { episodes?: SessionEpisodeBlockInput[] };
+//
+// `expectedVersion` is the version the editor loaded; without it the edit applies
+// over whatever is there, as the next version. `reasonNote` goes only into the
+// revision: it is clinical text, and the audit row holds codes.
+export type SessionUpdateInput = Partial<SessionFields> & {
+  episodes?: SessionEpisodeBlockInput[];
+  expectedVersion?: number;
+  reasonNote?: string | null;
+};
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
@@ -134,31 +153,38 @@ export interface SessionRepository {
     input: SessionCreateInput,
     audit: AuditBuilder<SessionDTO>,
   ): Promise<SessionCreateResult>;
-  /** null si no hay sesión vigente de ese paciente con ese id. */
   /**
-   * Borrado lógico de una sesión cargada por error.
+   * Annuls a session entered by mistake (SPEC-clinical-revisions.md §8). It
+   * stays in the patient's record, marked, with its content in its history,
+   * and leaves every other list and metric. It writes a final version, with
+   * the reason's note.
    *
-   * - 'not_found': no existe, es de otro paciente/tenant, o ya estaba borrada.
-   * - 'paid': tiene un cobro PAGADO. No se borra: plata que entró de verdad
-   *   no se hace desaparecer desde acá. Primero hay que revertir el cobro.
-   * - 'deleted': se marcó deletedAt y, si tenía un cobro PENDING o WAIVED,
-   *   se eliminó — un cobro pendiente por una sesión que no existió no es
-   *   historial, es trabajo pendiente sobre algo que no pasó. Si salió de un
-   *   turno, el turno queda sin sessionId para poder registrarla de nuevo;
-   *   su estado no cambia.
+   * - 'not_found': no such session of that patient, or already annulled.
+   * - 'paid': it has a PAID payment. It is not annulled: money that really
+   *   came in does not disappear from here; the payment is reverted first.
+   * - 'annulled': deletedAt is set and, if it had a PENDING or WAIVED payment,
+   *   that payment is deleted — a pending charge for a visit that did not
+   *   happen is not history but work left on something that did not happen.
+   *   If it came from an appointment, the appointment loses its sessionId so
+   *   the visit can be recorded again; its status does not change.
    */
-  softDelete(
+  annul(
     ctx: TenantContext,
     patientId: string,
     id: string,
-    audit: AuditEntry,
-  ): Promise<'deleted' | 'not_found' | 'paid'>;
+    input: { reasonNote?: string | null },
+    // Built with the annulled session and the status of the payment that was
+    // deleted with it, or null if it had none.
+    audit: (session: SessionDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
+  ): Promise<'annulled' | 'not_found' | 'paid'>;
+  /** not_found if there is no current session of that patient with that id. */
   update(
     ctx: TenantContext,
     patientId: string,
     id: string,
     input: SessionUpdateInput,
-    // Called only when a field changed, with the changed fields' names.
+    // Called only when a field changed, with the changed fields' names. A save
+    // that changes nothing writes nothing: no row, no audit row, no revision.
     audit: AuditUpdateBuilder<SessionDTO, SessionAuditField>,
   ): Promise<SessionUpdateResult>;
 }

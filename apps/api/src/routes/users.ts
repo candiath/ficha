@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { EmailSchema, PasswordSchema, requiredText } from '../lib/validation';
+import { EmailSchema, requiredText } from '../lib/validation';
 import { disabledPasswordHash } from '../lib/passwordReset';
 import { userRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
@@ -17,10 +16,10 @@ router.param('id', idParam('Usuario no encontrado'));
 // asignar al crear se puede asignar después.
 const RoleSchema = z.enum(['ADMIN', 'THERAPIST']);
 
-const CreateUserSchema = z.object({
+// No password: she sets her own with the invitation link.
+const CreateUserSchema = z.strictObject({
   email: EmailSchema,
   name: requiredText(2, 'El nombre debe tener al menos 2 caracteres'),
-  password: PasswordSchema,
   role: RoleSchema.default('THERAPIST'),
 });
 
@@ -46,18 +45,27 @@ router.get('/', async (req, res) => {
 
 // POST /api/users — crear usuario para la clínica.
 router.post('/', async (req, res) => {
-  const { email, name, password, role } = CreateUserSchema.parse(req.body);
+  const { email, name, role } = CreateUserSchema.parse(req.body);
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user = await userRepo.create(req.context, { email, name, passwordHash, role });
+  const created = await userRepo.create(
+    req.context,
+    { email, name, role },
+    {
+      disabledPasswordHash: await disabledPasswordHash(),
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    },
+  );
 
   // null = ya existe un usuario con ese email (unique global).
-  if (!user) {
+  if (!created) {
     res.status(409).json({ error: 'Ya existe un usuario con ese email' });
     return;
   }
 
-  res.status(201).json({ data: user });
+  // The invitation's token is a credential: this response is not stored.
+  res.set('Cache-Control', 'no-store');
+  res.status(201).json({ data: created });
 });
 
 // PATCH /api/users/:id — cambiar el rol o activar/desactivar un usuario.

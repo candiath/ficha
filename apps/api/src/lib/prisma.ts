@@ -8,7 +8,11 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error'],
+    // No error log outside development: Prisma prints Postgres's detail, and a
+    // constraint error's detail is the failing row, clinical text included
+    // (SPEC-clinical-revisions.md §11). Every error is still thrown, and reaches
+    // the caller or the error handler.
+    log: process.env.NODE_ENV === 'development' ? ['query', 'error'] : [],
     // Interactive transactions ($transaction(async (tx) => ...)) are closed by
     // Prisma after 5 s by default, and the commit then fails with P2028. Each
     // query inside one is a round-trip to Neon, so a multi-step write (a

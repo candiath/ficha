@@ -1,4 +1,5 @@
 import { forTenant } from '../../lib/tenantScope';
+import { fullName, patientNameSelect } from './patientName';
 import type { TenantContext } from '../types';
 import type {
   AlertCreateDTO,
@@ -28,7 +29,7 @@ const alertSelect = {
   isRead: true,
   readAt: true,
   createdAt: true,
-  patient: { select: { fullName: true } },
+  patient: { select: patientNameSelect },
 } as const;
 
 function toDTO(row: {
@@ -39,12 +40,12 @@ function toDTO(row: {
   isRead: boolean;
   readAt: Date | null;
   createdAt: Date;
-  patient: { fullName: string };
+  patient: { firstName: string; lastName: string };
 }): ClinicalAlertDTO {
   return {
     id: row.id,
     patientId: row.patientId,
-    patientName: row.patient.fullName,
+    patientName: fullName(row.patient),
     type: row.type,
     message: row.message,
     isRead: row.isRead,

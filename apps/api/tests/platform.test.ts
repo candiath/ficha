@@ -270,12 +270,35 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({
         email,
         name: 'Primera Admin',
-        password: 'clave-larga-123',
       });
 
       expect(res.status).toBe(201);
-      expect(res.body.data.role).toBe('ADMIN');
-      expect(Object.keys(res.body.data).sort()).toEqual([
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.body.data.user.role).toBe('ADMIN');
+      expect(Object.keys(res.body.data).sort()).toEqual(['invitation', 'user']);
+      expect(Object.keys(res.body.data.invitation).sort()).toEqual(['expiresAt', 'token']);
+
+      // Her invitation names the operator, and both facts are audited against
+      // her and the link.
+      const newId: string = res.body.data.user.id;
+      const link = await prisma.passwordResetToken.findFirstOrThrow({ where: { userId: newId } });
+      expect(link.createdByOperatorId).toBe(op.operator.id);
+      expect(link.createdByUserId).toBeNull();
+      const audit = await prisma.platformAuditLog.findMany({
+        where: { targetUserId: newId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { action: true, entityId: true },
+      });
+      expect(audit).toEqual([
+        { action: 'ADMIN_CREATED', entityId: null },
+        { action: 'INVITATION_LINK_CREATED', entityId: link.id },
+      ]);
+      // She sets her own password with the invitation: nobody else knows it.
+      const reset = await request(app)
+        .post('/api/auth/password-reset')
+        .send({ token: res.body.data.invitation.token, newPassword: 'clave-larga-123' });
+      expect(reset.status).toBe(204);
+      expect(Object.keys(res.body.data.user).sort()).toEqual([
         'email',
         'id',
         'isActive',
@@ -306,12 +329,42 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       expect(tenant.activeAdmins).toBe(1);
     });
 
+    // Her invitation would be dead on arrival: the reset link refuses a
+    // deactivated clinic's users.
+    it('refuses to create an ADMIN in a deactivated clinic', async () => {
+      const other = await createTestClinic();
+      try {
+        await prisma.tenant.update({ where: { id: other.tenantId }, data: { deactivatedAt: new Date() } });
+        const email = other.email('en-clinica-apagada');
+        const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${other.tenantId}/users`)).send({
+          email,
+          name: 'Apagada',
+        });
+
+        expect(res.status).toBe(409);
+        expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+      } finally {
+        await other.cleanup();
+      }
+    });
+
+    it('refuses a password in the body: the new ADMIN sets her own', async () => {
+      const email = clinic.email('con-clave');
+      const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({
+        email,
+        name: 'Con Clave',
+        password: 'clave-larga-123',
+      });
+
+      expect(res.status).toBe(400);
+      expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+    });
+
     it('un email ya usado en cualquier clínica responde 409', async () => {
       const ajeno = await clinic.createUser();
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({
         email: ajeno.email,
         name: 'Repetida',
-        password: 'clave-larga-123',
       });
 
       expect(res.status).toBe(409);

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider } from 'next-themes'
 import App from './App.tsx'
+import VersionSkewNotice from '@/components/layout/VersionSkewNotice'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -33,6 +34,8 @@ createRoot(document.getElementById('root')!).render(
             <TooltipProvider>
               <App />
               <Toaster richColors position="bottom-right" />
+              {/* Over everything, clinic and platform alike: lib/buildVersion.ts. */}
+              <VersionSkewNotice />
             </TooltipProvider>
           </AuthProvider>
         </QueryClientProvider>

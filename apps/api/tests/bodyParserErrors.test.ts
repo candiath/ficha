@@ -1,6 +1,7 @@
 import request from 'supertest';
 import type { NextFunction, Request, Response } from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 import app from '../src/app';
 import { errorHandler } from '../src/middlewares/errorHandler';
 
@@ -73,6 +74,10 @@ describe('request body errors', () => {
 // An error that does not declare itself safe to expose stays a generic 500,
 // whatever its message says.
 describe('errorHandler fallback', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('answers 500 without leaking the message of an unexpected error', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const json = vi.fn();
@@ -88,5 +93,36 @@ describe('errorHandler fallback', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({ error: 'Error interno del servidor' });
+  });
+
+  // A Prisma error's message can hold the failing row or the call's arguments,
+  // clinical text included: only its kind, code, model and route are logged.
+  const MARKER = 'MARCADOR-CLINICO-7f3a';
+  const clientVersion = '5.22.0';
+  const prismaErrors = [
+    new Prisma.PrismaClientKnownRequestError(`Failing row contains (${MARKER})`, {
+      code: 'P2004',
+      clientVersion,
+      meta: { modelName: 'SessionEpisode', database_error: MARKER },
+    }),
+    new Prisma.PrismaClientUnknownRequestError(`new row violates check constraint: (${MARKER})`, { clientVersion }),
+    new Prisma.PrismaClientValidationError(`Invalid invocation: { observations: "${MARKER}" }`, { clientVersion }),
+    new Prisma.PrismaClientKnownRequestError(`Error creating UUID: ${MARKER}`, { code: 'P2023', clientVersion }),
+  ];
+
+  it.each(prismaErrors.map((err) => [err.name, err] as const))('logs a %s without its message', (_name, err) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const json = vi.fn();
+    const res = { status: vi.fn(() => ({ json })) } as unknown as Response;
+    const req = { method: 'PATCH', baseUrl: '/api/patients/:patientId/sessions', route: { path: '/:id' } } as unknown as Request;
+
+    errorHandler(err, req, res, vi.fn() as NextFunction);
+
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(consoleError.mock.calls[0]);
+    expect(logged).not.toContain(MARKER);
+    expect(logged).toContain(err.name);
+    expect(logged).toContain('PATCH /api/patients/:patientId/sessions/:id');
+    expect(JSON.stringify(json.mock.calls)).not.toContain(MARKER);
   });
 });

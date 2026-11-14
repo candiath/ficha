@@ -23,6 +23,7 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     params: Record<string, unknown>;
     targetUserId: string | null;
     targetUser: { email: string; name: string | null } | null;
+    operator: { name: string | null; email: string } | null;
   };
 
   let rows: AuditRow[];
@@ -36,16 +37,15 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
       asOperator(request(app).post(users())).send({
         email: clinic.email(local),
         name,
-        password: 'clave-larga-123',
       });
     const first = await create('first-admin', 'First Admin');
     const second = await create('second-admin', 'Second Admin');
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
-    admin = first.body.data;
+    admin = first.body.data.user;
 
     const patchUser = (body: object) =>
-      asOperator(request(app).patch(`${users()}/${second.body.data.id}`)).send(body);
+      asOperator(request(app).patch(`${users()}/${second.body.data.user.id}`)).send(body);
     expect((await patchUser({ role: 'THERAPIST' })).status).toBe(200);
     expect((await patchUser({ isActive: false })).status).toBe(200);
     expect(
@@ -74,6 +74,9 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     expect(rows.map((r) => r.action).sort()).toEqual([
       'ADMIN_CREATED',
       'ADMIN_CREATED',
+      // Each new ADMIN's invitation, then the reset link generated afterwards.
+      'INVITATION_LINK_CREATED',
+      'INVITATION_LINK_CREATED',
       'PASSWORD_RESET_LINK_CREATED',
       'TENANT_DEACTIVATED',
       'TENANT_REACTIVATED',
@@ -104,6 +107,9 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
   it('who was affected is resolved from the target', () => {
     const reset = rows.find((r) => r.action === 'PASSWORD_RESET_LINK_CREATED');
     expect(reset?.targetUser).toEqual({ email: admin.email, name: 'First Admin' });
+
+    // And who acted (area 3 review, M2).
+    for (const row of rows) expect(row.operator).toEqual({ name: op.operator.name, email: op.operator.email });
 
     const tenantRows = rows.filter((r) => r.action.startsWith('TENANT_'));
     for (const row of tenantRows) expect(row.targetUser).toBeNull();

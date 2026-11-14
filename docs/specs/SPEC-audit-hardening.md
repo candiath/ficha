@@ -222,7 +222,7 @@ model AuditLog {
 
 - **`TenantContext` gains `authSessionId: string`** (non-null), and `req.authSessionId` goes away, leaving one source of truth. The comment in `types/express.d.ts` that kept it out on purpose ("repositories never need it") stops being true: `recordAudit` needs it. Logout, password change and the device routes read `req.context.authSessionId`.
 - **Hand-built contexts in tests** (9 files) get it from a helper that creates a real session, as `createTestToken` already does. This depends on #205, without which `tsc` does not see the tests.
-- **Writes with no clinic user**, like the alert engine's, need a system context. That belongs to `clinical-audit-coverage`, the first module to record them.
+- **Writes with no clinic user** would need a system context, which the first module to record one builds. The alert engine's writes are not audited (decided 2026-11-06, see the map).
 - **"Required whenever there is an author"** is `CHECK (user_id IS NULL OR auth_session_id IS NOT NULL) NOT VALID`, added one release later (see Rollout).
 - **A constraint passed to #178:** prune `auth_sessions` no sooner than `login_events` (180 days), so a recent audit row still resolves to a device. Past that, the id still groups one login's actions. Copying the IP and user agent into every audit row would put personal data in rows that can never change, against decision 3 of the map.
 - **`AuditLogDTO` does not expose it.** Any user who reads a patient's history could otherwise count a colleague's sessions, which `CLAUDE.md` keeps private to each user.
@@ -354,11 +354,11 @@ Web: the platform audit list renders `targetUser`.
 
 1. **Checks:** kept in full.
 2. **The operator's session:** `operator-sessions` adds `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key, checked on insert as §1 checks the clinic's, filled from `req.operator`).
-3. **Versioning clinical records:** a module of its own in the map, `clinical-history`.
+3. **Versioning clinical records:** a module of its own in the map, `clinical-revisions`.
 4. **The role, session type and scale type** stay in descriptions.
 
 ## Open Questions (as asked, answered above)
 
 1. **The operator's session on platform audit rows.** You are writing `operator-sessions` yourself. I suggest that module add `platform_audit_logs.operator_session_id`: a nullable uuid with no foreign key, checked on insert as §1 checks the clinic's, and filled from `req.operator`. That is better than this module adding a column that stays null until then.
-2. **Versioning clinical records.** Ley 26.529 asks for an inviolable record. Today a `PATCH` to a session or payment overwrites its values, and after this module no audit row keeps the originals (§4). I propose a new module in the map, `clinical-history`: each update or delete of a clinical row stores the previous version in an append-only table, and the audit row records which fields changed (names only, as in "X cambió el email de Z"). Should it go in the map, and how high?
+2. **Versioning clinical records.** Ley 26.529 asks for an inviolable record. Today a `PATCH` to a session or payment overwrites its values, and after this module no audit row keeps the originals (§4). I propose a new module in the map, `clinical-revisions`: each update or delete of a clinical row stores the previous version in an append-only table, and the audit row records which fields changed (names only, as in "X cambió el email de Z"). Should it go in the map, and how high?
 3. **The new role, the session type and the scale type in descriptions.** I keep them: they are not personal or clinical data, and promoting someone to ADMIN is exactly what an audit must show. Tell me if you want them out too.

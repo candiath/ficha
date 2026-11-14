@@ -43,6 +43,7 @@ export interface OperatorAuth {
 
 export interface OperatorCredentials {
   id: string;
+  email: string;
   passwordHash: string;
 }
 
@@ -72,12 +73,11 @@ export type PlatformUserDTO = TenantUserDTO;
 export interface PlatformAdminCreateInput {
   email: string;
   name: string;
-  passwordHash: string;
 }
 
 export type PlatformAdminCreateResult =
-  | { ok: true; user: PlatformUserDTO }
-  | { ok: false; reason: 'tenant_not_found' | 'email_taken' };
+  | { ok: true; user: PlatformUserDTO; invitation: { token: string; expiresAt: string } }
+  | { ok: false; reason: 'tenant_not_found' | 'tenant_inactive' | 'email_taken' };
 
 // ─── Auditoría ───────────────────────────────────────────────────────────────
 
@@ -90,6 +90,8 @@ export interface PlatformAuditLogDTO {
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
   targetUser: { email: string; name: string | null } | null;
+  // The operator who acted, read now (area 3 review, M2).
+  operator: { name: string | null; email: string } | null;
   action: PlatformAction;
   // Codes only (SPEC-audit-structured-entries.md), read leniently.
   params: Record<string, unknown>;
@@ -126,7 +128,16 @@ export interface PlatformRepository {
   /** Usuarios de la clínica, activos e inactivos. null si la clínica no existe. */
   listTenantUsers(tenantId: string): Promise<PlatformUserDTO[] | null>;
   /** Crea un ADMIN en la clínica. El rol lo fija el repositorio: no se elige. */
-  createAdmin(op: OperatorContext, tenantId: string, input: PlatformAdminCreateInput): Promise<PlatformAdminCreateResult>;
+  /**
+   * Creates an ADMIN of the clinic with no usable password, and her
+   * invitation (a reset link), in one transaction, with both audit rows.
+   */
+  createAdmin(
+    op: OperatorContext,
+    tenantId: string,
+    input: PlatformAdminCreateInput,
+    invitation: PasswordResetIssueInput,
+  ): Promise<PlatformAdminCreateResult>;
   /**
    * Cambia rol y/o estado de un usuario de la clínica, con la misma regla
    * de "la clínica conserva una ADMIN activa" que userRepository.update.

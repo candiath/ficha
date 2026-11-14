@@ -114,3 +114,39 @@ describe('PlatformApp', () => {
     expect(screen.getByText('Operadora')).toBeInTheDocument();
   });
 });
+
+describe('PlatformApp: another tab', () => {
+  const tokenChangesElsewhere = (key: string, token: string | null) => {
+    if (token) localStorage.setItem(key, token);
+    else localStorage.removeItem(key);
+    window.dispatchEvent(new StorageEvent('storage', { key, newValue: token, storageArea: localStorage }));
+  };
+
+  it("an operator's logout there sends this tab to the platform login", async () => {
+    localStorage.setItem('ficha_platform_token', 'token-de-plataforma');
+    me.mockResolvedValue({ id: 'op1', email: 'op@ficha.test', name: 'Operadora' });
+    list.mockResolvedValue(TENANTS);
+    renderAt('/platform/tenants');
+    expect(await screen.findByText('Clínica Norte')).toBeInTheDocument();
+
+    tokenChangesElsewhere('ficha_platform_token', null);
+
+    expect(await screen.findByText('Operación de plataforma')).toBeInTheDocument();
+  });
+
+  // The clinic's session clears the clinic's cache, never the platform's:
+  // the platform has its own query client.
+  it("a clinic login there leaves this tab's platform data and queries alone", async () => {
+    localStorage.setItem('ficha_platform_token', 'token-de-plataforma');
+    me.mockResolvedValue({ id: 'op1', email: 'op@ficha.test', name: 'Operadora' });
+    list.mockResolvedValue(TENANTS);
+    renderAt('/platform/tenants');
+    expect(await screen.findByText('Clínica Norte')).toBeInTheDocument();
+
+    tokenChangesElsewhere('ficha_token', 'token-de-clinica');
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText('Clínica Norte')).toBeInTheDocument();
+    expect(me).toHaveBeenCalledTimes(1);
+  });
+});

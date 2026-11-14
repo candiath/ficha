@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { revisionReasonFields } from '@ficha/shared';
+import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { OptionalTextSchema } from '../lib/validation';
 import { episodeRepo, evaluationRepo } from '../repositories';
+import { revisionRoutes } from './revisions';
 
 type Params = { patientId: string; episodeId: string };
 
@@ -17,10 +20,14 @@ const EvaluationSchema = z.strictObject({
   otherHistory: OptionalTextSchema,
   notes: OptionalTextSchema,
   retractionMap: z.unknown().optional().nullable(),
-  flexibilityNotes: OptionalTextSchema,
   physicalActivity: OptionalTextSchema,
   painFrequency: OptionalTextSchema,
   evaScale: z.number().min(0).max(10).optional().nullable(),
+  // The version the form loaded, 0 before the first evaluation. A correction
+  // says why; the first evaluation needs no reason, so the repository decides.
+  expectedVersion: ExpectedVersionSchema,
+  reason: revisionReasonFields.reason.optional(),
+  reasonNote: revisionReasonFields.reasonNote,
 });
 
 // GET /api/patients/:patientId/episodes/:episodeId/evaluation
@@ -49,7 +56,7 @@ router.put<Params>('/', async (req, res) => {
 
   const body = EvaluationSchema.parse(req.body);
 
-  const { evaluation } = await evaluationRepo.upsert(
+  const result = await evaluationRepo.upsert(
     req.context,
     req.params.patientId,
     req.params.episodeId,
@@ -60,12 +67,25 @@ router.put<Params>('/', async (req, res) => {
             action: 'EVALUATION_UPDATED',
             patientId: req.params.patientId,
             entityId: e.id,
-            params: { changedFields },
+            // The repository refuses a correction with no reason before asking.
+            params: { changedFields, reason: body.reason! },
           }
         : { action: 'EVALUATION_CREATED', patientId: req.params.patientId, entityId: e.id, params: {} },
   );
 
-  res.json({ data: evaluation });
+  if (!result.ok) {
+    if (result.reason === 'stale') {
+      res.status(409).json(STALE_EDIT);
+      return;
+    }
+    res.status(400).json({ error: 'Elegí el motivo del cambio' });
+    return;
+  }
+
+  res.json({ data: result.evaluation });
 });
+
+// Its history (SPEC-clinical-revisions.md §7).
+router.use('/revisions', revisionRoutes((p) => ({ aggregate: 'evaluation', episodeId: p.episodeId }), 'Evaluación no encontrada'));
 
 export default router;

@@ -1,14 +1,15 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { platformRepo } from '../repositories';
 import { signOperatorToken } from '../lib/platformJwt';
+import { hashOpaqueToken } from '../lib/opaqueToken';
 import {
   createLoginLimiter,
   HASH_SENUELO,
-  isAccountThrottled,
   LOGIN_THROTTLED,
-  recordLoginEvent,
+  reserveAttempt,
+  settleAttempt,
 } from '../lib/loginGuard';
 import { EmailSchema, PasswordSchema } from '../lib/validation';
 import { authenticateOperator } from '../middlewares/platformAuth';
@@ -19,6 +20,9 @@ import { authenticateOperator } from '../middlewares/platformAuth';
 // secreto de plataforma. Los intentos van a login_events con operatorId:
 // el freno por cuenta cuenta por email, así que cubre al operador sin más.
 const router = Router();
+
+// The raw operator token of a request authenticateOperator already accepted.
+const bearer = (req: Request) => (req.headers.authorization ?? '').slice('Bearer '.length);
 
 const loginLimiter = createLoginLimiter();
 const changePasswordLimiter = createLoginLimiter();
@@ -42,7 +46,8 @@ const ChangePasswordSchema = z
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = LoginSchema.parse(req.body);
 
-  if (await isAccountThrottled(email)) {
+  const attempt = await reserveAttempt(req, 'PLATFORM', email);
+  if (!attempt) {
     res.status(429).json(LOGIN_THROTTLED);
     return;
   }
@@ -54,24 +59,12 @@ router.post('/login', loginLimiter, async (req, res) => {
   const passwordOk = await bcrypt.compare(password, operator?.passwordHash ?? HASH_SENUELO);
 
   if (!operator || !operator.isActive || !passwordOk) {
-    await recordLoginEvent(req, {
-      email,
-      tenantId: null,
-      userId: null,
-      operatorId: operator?.id ?? null,
-      success: false,
-    });
+    void settleAttempt(attempt, { operatorId: operator?.id ?? null, success: false });
     res.status(401).json({ error: 'Email o contraseña incorrectos' });
     return;
   }
 
-  void recordLoginEvent(req, {
-    email,
-    tenantId: null,
-    userId: null,
-    operatorId: operator.id,
-    success: true,
-  });
+  void settleAttempt(attempt, { operatorId: operator.id, success: true });
   platformRepo
     .touchOperatorLastLogin(operator.id)
     .catch((err) => console.error('[platform-auth] lastLoginAt', err));
@@ -96,7 +89,22 @@ router.post('/change-password', changePasswordLimiter, authenticateOperator, asy
     return;
   }
 
+  // Its own brake (area 2 review, L3), per token: a stolen token that fails
+  // ten times locks itself, and the operator, logging in again, can still
+  // change her password, which is what kills every outstanding token.
+  const attempt = await reserveAttempt(
+    req,
+    'PLATFORM_PASSWORD_CHANGE',
+    operator.email,
+    `token:${hashOpaqueToken(bearer(req)).toString('hex')}`,
+  );
+  if (!attempt) {
+    res.status(429).json(LOGIN_THROTTLED);
+    return;
+  }
+
   const valid = await bcrypt.compare(currentPassword, operator.passwordHash);
+  void settleAttempt(attempt, { operatorId: operator.id, success: valid });
   if (!valid) {
     res.status(400).json({ error: 'La contraseña actual es incorrecta' });
     return;

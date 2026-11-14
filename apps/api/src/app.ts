@@ -3,9 +3,11 @@ import express from 'express';
 import helmet from 'helmet';
 import { authenticate } from './middlewares/auth';
 import { authenticateOperator } from './middlewares/platformAuth';
+import { requireLivePatient } from './middlewares/livePatient';
 import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
+import { BUILD_VERSION_HEADER, buildVersion } from './lib/buildVersion';
 import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
@@ -25,7 +27,6 @@ import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
 import sessionsRouter from './routes/sessions';
 import tenantRouter from './routes/tenant';
-import functionalScalesRouter from './routes/functionalScales';
 import patientEventsRouter from './routes/patientEvents';
 import usersRouter from './routes/users';
 
@@ -75,7 +76,25 @@ const ALLOWED_ORIGIN: (string | RegExp)[] = IS_PRODUCTION
   ? envOrigins
   : [DEV_ORIGIN_PATTERN, ...envOrigins];
 
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+const SERVER_TIME_HEADER = 'X-Server-Time';
+
+app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: [SERVER_TIME_HEADER, BUILD_VERSION_HEADER] }));
+
+// The API's clock on every response, so the web can tell when its device's
+// clock is off. Episodes open and audit rows are stamped by this clock, so it
+// is the one a date has to agree with. Not the Date header: that one stops at
+// the second.
+//
+// And the build this process serves (lib/buildVersion.ts), so the web can tell
+// when it is out of step with this API and ask the user to reload. Without a
+// version (`npm run dev`, the tests) there is no header and no check.
+app.use((_req, res, next) => {
+  res.setHeader(SERVER_TIME_HEADER, new Date().toISOString());
+  const version = buildVersion();
+  if (version) res.setHeader(BUILD_VERSION_HEADER, version);
+  next();
+});
+
 app.use(express.json());
 
 // Marca del build: el SHA corto del commit que está sirviendo este proceso.
@@ -96,9 +115,9 @@ const BUILD_MARKER = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? 'local';
 app.get('/health', async (_req, res) => {
   try {
     await pingDatabase();
-    res.json({ status: 'ok', buildMarker: BUILD_MARKER });
+    res.json({ status: 'ok', buildMarker: BUILD_MARKER, buildVersion: buildVersion() });
   } catch {
-    res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, error: 'Base de datos no disponible' });
+    res.status(503).json({ status: 'error', buildMarker: BUILD_MARKER, buildVersion: buildVersion(), error: 'Base de datos no disponible' });
   }
 });
 
@@ -126,13 +145,15 @@ app.param('patientId', idParam('Paciente no encontrado'));
 app.param('episodeId', idParam('Episodio no encontrado'));
 
 app.use('/api/patients', patientsRouter);
-app.use('/api/patients/:patientId/episodes', episodesRouter);
-app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', evaluationRouter);
-app.use('/api/patients/:patientId/sessions', sessionsRouter);
+app.use('/api/patients/:patientId/episodes', requireLivePatient, episodesRouter);
+// The episodes mount above matches this path by prefix and runs the guard
+// too; this one stays, so the evaluation does not depend on mount order.
+app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', requireLivePatient, evaluationRouter);
+app.use('/api/patients/:patientId/sessions', requireLivePatient, sessionsRouter);
+// No requireLivePatient: a deleted patient's history stays readable.
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
-app.use('/api/patients/:patientId/consent', consentRouter);
-app.use('/api/patients/:patientId/scales', functionalScalesRouter);
-app.use('/api/patients/:patientId/events', patientEventsRouter);
+app.use('/api/patients/:patientId/consent', requireLivePatient, consentRouter);
+app.use('/api/patients/:patientId/events', requireLivePatient, patientEventsRouter);
 app.use('/api/sessions', globalSessionsRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);

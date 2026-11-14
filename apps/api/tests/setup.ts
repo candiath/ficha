@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { afterEach } from 'vitest';
+import { assertRevisionInvariant } from './revisionInvariant';
 
 // Corre antes de que cada archivo de tests importe la app. NODE_ENV=test
 // apaga el log de queries de Prisma y deja el CORS en modo desarrollo
@@ -21,6 +23,8 @@ process.env.PLATFORM_JWT_SECRET ??= 'secreto-de-plataforma-solo-para-tests-01234
 process.env.TELEGRAM_BOT_TOKEN = '';
 process.env.TELEGRAM_CHAT_ID = '';
 process.env.RENDER_SERVICE_NAME = '';
+
+afterEach(assertRevisionInvariant);
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

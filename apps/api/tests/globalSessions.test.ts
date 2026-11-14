@@ -4,7 +4,8 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // GET /api/sessions es la vista de "todas las sesiones" de la clínica: sin un
 // paciente en la URL, con el nombre de cada uno y el motivo de cada episodio.
@@ -17,6 +18,8 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   let token: string;
   let patient: { id: string };
   let episode: { id: string };
+  let patientId: string;
+  let episodeId: string;
   let sessionConEpisodio: string;
   let sessionSinEpisodio: string;
   let sessionBorrada: string;
@@ -30,11 +33,11 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
 
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Global' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Global' },
       select: { id: true },
     });
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Dorsalgia' },
       select: { id: true },
     });
@@ -48,6 +51,8 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
       return res.body.data.id as string;
     };
 
+    patientId = patient.id;
+    episodeId = episode.id;
     sessionConEpisodio = await crear(patient.id, {
       episodes: [{ episodeId: episode.id }],
       sessionDate: new Date(Date.now() - 2 * DAY_MS).toISOString(),
@@ -59,26 +64,26 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
     });
     sessionBorrada = await crear(patient.id, { episodes: [{ episodeId: episode.id }] });
     expect(
-      (await auth(request(app).delete(`/api/patients/${patient.id}/sessions/${sessionBorrada}`)))
-        .status,
+      (
+        await auth(request(app).post(`/api/patients/${patient.id}/sessions/${sessionBorrada}/annul`)).send({
+          reason: 'DATA_ENTRY_ERROR',
+        })
+      ).status,
     ).toBe(204);
 
     // La sesión de la otra clínica se inserta directo: su usuario no hace
     // falta para nada más.
     const userB = await clinicB.createUser();
-    const patientB = await prisma.patient.create({
-      data: { tenantId: clinicB.tenantId, fullName: 'Paciente de B' },
+    const patientB = await fixture.patient.create({
+      data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
       select: { id: true },
     });
     sessionDeB = (
-      await prisma.session.create({
-        data: {
-          tenantId: clinicB.tenantId,
-          patientId: patientB.id,
-          userId: userB.id,
-          sessionDate: new Date(),
-        },
-        select: { id: true },
+      await createSessionFixture({
+        tenantId: clinicB.tenantId,
+        patientId: patientB.id,
+        userId: userB.id,
+        sessionDate: new Date(),
       })
     ).id;
   });
@@ -112,14 +117,12 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   // when, nothing clinical. The clinical fields and the episodes' complaints
   // are read from the patient's own routes.
   it('each session carries only who and when', async () => {
-    await prisma.session.update({
-      where: { id: sessionConEpisodio },
-      data: { observations: 'MKobs' },
+    const edited = await auth(request(app).patch(`/api/patients/${patientId}/sessions/${sessionConEpisodio}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'MKobs',
+      episodes: [{ episodeId, patientExercises: 'MKresp', painScaleBefore: 7 }],
     });
-    await prisma.sessionEpisode.updateMany({
-      where: { sessionId: sessionConEpisodio },
-      data: { patientExercises: 'MKresp', painScaleBefore: 7 },
-    });
+    expect(edited.status).toBe(200);
 
     const res = await auth(request(app).get('/api/sessions'));
     const item = res.body.data.find((s: { id: string }) => s.id === sessionConEpisodio);
@@ -141,8 +144,8 @@ describe('GET /api/sessions: el listado global de la clínica', () => {
   // Issue #72, cerrado by design: borrar un paciente lo oculta, no reescribe
   // el pasado. Sus sesiones siguen en el historial, con su nombre.
   it('sigue nombrando al paciente aunque se lo haya borrado', async () => {
-    const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Que Se Borra' },
+    const borrado = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Que Se', lastName: 'Borra' },
       select: { id: true },
     });
     const sesion = await auth(request(app).post(`/api/patients/${borrado.id}/sessions`)).send({

@@ -1,6 +1,7 @@
 import { platformApi } from '@/lib/api';
 import type {
   ChangePasswordResponse,
+  CreatedUser,
   PasswordResetLink,
   PlatformAdminCreateInput,
   PlatformAuditEntry,
@@ -44,7 +45,7 @@ export const platformTenantsApi = {
   users: (tenantId: string) =>
     platformApi.get<PlatformUser[]>(`/api/platform/tenants/${tenantId}/users`),
   createAdmin: (tenantId: string, data: PlatformAdminCreateInput) =>
-    platformApi.post<PlatformUser>(`/api/platform/tenants/${tenantId}/users`, data),
+    platformApi.post<CreatedUser<PlatformUser>>(`/api/platform/tenants/${tenantId}/users`, data),
   updateUser: (tenantId: string, userId: string, data: UpdateUserInput) =>
     platformApi.patch<PlatformUser>(`/api/platform/tenants/${tenantId}/users/${userId}`, data),
   // 204 without a count, like the clinic's own route.

@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import type {
+  CreatedUser,
   CreateUserInput,
   PasswordResetLink,
   TenantUser,
@@ -14,7 +15,8 @@ export const userKeys = {
 // THERAPIST la API le responde 403, así que la UI no la muestra.
 export const usersApi = {
   list: () => api.get<TenantUser[]>('/api/users'),
-  create: (data: CreateUserInput) => api.post<TenantUser>('/api/users', data),
+  // The new user and her invitation link, shown once.
+  create: (data: CreateUserInput) => api.post<CreatedUser<TenantUser>>('/api/users', data),
   update: (id: string, data: UpdateUserInput) =>
     api.patch<TenantUser>(`/api/users/${id}`, data),
   // 204 without a count: how many devices she had is not shown to the ADMIN.

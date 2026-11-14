@@ -20,7 +20,10 @@ interface Props {
 }
 
 export default function PainEvolutionChart({ sessions, episodeId }: Props) {
+  // An annulled session is struck through in the list and charts nothing
+  // (SPEC-clinical-revisions.md §8).
   const data = sessions
+    .filter((s) => !s.annulledAt)
     .map((s) => ({ sessionDate: s.sessionDate, block: blockFor(s, episodeId) }))
     .filter(({ block }) => block && (block.painScaleBefore !== null || block.painScaleAfter !== null))
     .sort((a, b) => new Date(a.sessionDate).getTime() - new Date(b.sessionDate).getTime())

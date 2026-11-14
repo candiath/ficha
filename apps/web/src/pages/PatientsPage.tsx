@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Pencil,
   Plus,
+  RotateCcw,
   Trash2,
 } from 'lucide-react';import { Link } from 'react-router-dom';import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -57,11 +58,13 @@ import {
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import { SEX_CLASS, SEX_LABELS } from '@/lib/labels';
 import { toast } from 'sonner';
+import { alertKeys } from '@/services/alerts';
+import { appointmentKeys } from '@/services/appointments';
 import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
 
 const COLUMN_LABELS: Record<string, string> = {
-  fullName: 'Nombre',
+  name: 'Paciente',
   sex: 'Sexo',
   birthDate: 'Nacimiento',
   phone: 'Teléfono',
@@ -85,7 +88,9 @@ function buildColumns(
 ): ColumnDef<Patient>[] {
   return [
     {
-      accessorKey: 'fullName',
+      // The clinic finds and sorts patients by surname (#238).
+      id: 'name',
+      accessorFn: (p) => `${p.lastName}, ${p.firstName}`,
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -93,7 +98,7 @@ function buildColumns(
           className="-ml-3"
           onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
         >
-          Nombre
+          Paciente
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
@@ -102,7 +107,7 @@ function buildColumns(
           to={`/patients/${row.original.id}`}
           className="font-medium hover:underline"
         >
-          {row.getValue('fullName')}
+          {row.getValue('name')}
         </Link>
       ),
     },
@@ -158,7 +163,12 @@ function buildColumns(
             <Button variant="ghost" size="icon" onClick={() => onEdit(patient)}>
               <Pencil className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => onDelete(patient)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Eliminar a ${patient.fullName}`}
+              onClick={() => onDelete(patient)}
+            >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
           </div>
@@ -174,7 +184,7 @@ export default function PatientsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | undefined>();
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     referringDoctor: false,
@@ -185,11 +195,40 @@ export default function PatientsPage() {
     queryFn: patientApi.list,
   });
 
+  const [deletedOpen, setDeletedOpen] = useState(false);
+  const {
+    data: deletedPatients = [],
+    isLoading: deletedLoading,
+    isError: deletedError,
+  } = useQuery({
+    queryKey: patientKeys.deleted,
+    queryFn: patientApi.listDeleted,
+    enabled: deletedOpen,
+  });
+
+  // Deleting hides the patient, her appointments and her alerts (the unread
+  // badge counts live patients only); all come back on restore.
+  const refreshAfterDeletion = () => {
+    void queryClient.invalidateQueries({ queryKey: patientKeys.all });
+    void queryClient.invalidateQueries({ queryKey: appointmentKeys.all });
+    void queryClient.invalidateQueries({ queryKey: alertKeys.stats });
+  };
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => patientApi.restore(id),
+    // Also on an error: another user may have restored her already.
+    onSettled: refreshAfterDeletion,
+    onSuccess: () => toast.success('Paciente restaurado'),
+    onError: () => toast.error('Error al restaurar el paciente'),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: patientApi.remove,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: patientKeys.all });
-      toast.success('Paciente eliminado');
+    onSuccess: (_data, id) => {
+      refreshAfterDeletion();
+      toast.success('Paciente eliminado', {
+        action: { label: 'Deshacer', onClick: () => restoreMutation.mutate(id) },
+      });
       setPatientToDelete(null);
     },
     onError: () => toast.error('Error al eliminar el paciente'),
@@ -235,18 +274,24 @@ export default function PatientsPage() {
             {patients.length} paciente{patients.length !== 1 ? 's' : ''} registrados
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo paciente
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setDeletedOpen(true)}>
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Eliminados
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nuevo paciente
+          </Button>
+        </div>
       </div>
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 mb-4">
         <Input
           placeholder="Buscar por nombre..."
-          value={(table.getColumn('fullName')?.getFilterValue() as string) ?? ''}
-          onChange={(e) => table.getColumn('fullName')?.setFilterValue(e.target.value)}
+          value={(table.getColumn('name')?.getFilterValue() as string) ?? ''}
+          onChange={(e) => table.getColumn('name')?.setFilterValue(e.target.value)}
           className="max-w-sm"
         />
         <DropdownMenu>
@@ -381,8 +426,8 @@ export default function PatientsPage() {
           <DialogHeader>
             <DialogTitle>¿Eliminar a {patientToDelete?.fullName}?</DialogTitle>
             <DialogDescription>
-              Esta acción no se puede deshacer. Se eliminará el paciente junto con
-              su información asociada.
+              Su ficha y sus turnos dejan de verse. Podés restaurarlo después desde
+              «Eliminados», y vuelve todo como estaba.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -401,6 +446,49 @@ export default function PatientsPage() {
               {deleteMutation.isPending ? 'Eliminando...' : 'Eliminar'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pacientes eliminados: deshacer un borrado. */}
+      <Dialog open={deletedOpen} onOpenChange={setDeletedOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pacientes eliminados</DialogTitle>
+            <DialogDescription>
+              Al restaurar un paciente vuelven su ficha y sus turnos, tal como estaban.
+            </DialogDescription>
+          </DialogHeader>
+          {deletedLoading ? (
+            <p className="text-sm text-muted-foreground">Cargando...</p>
+          ) : deletedError ? (
+            <p className="text-sm text-destructive">
+              Error al cargar los pacientes eliminados. Intentá de nuevo.
+            </p>
+          ) : deletedPatients.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay pacientes eliminados.</p>
+          ) : (
+            <ul className="divide-y max-h-80 overflow-y-auto">
+              {deletedPatients.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-2 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{p.fullName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Eliminado el {new Date(p.deletedAt).toLocaleDateString('es-AR')}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Restaurar a ${p.fullName}`}
+                    onClick={() => restoreMutation.mutate(p.id)}
+                    disabled={restoreMutation.isPending}
+                  >
+                    Restaurar
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
         </DialogContent>
       </Dialog>
     </div>

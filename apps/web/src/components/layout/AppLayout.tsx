@@ -18,6 +18,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
+import ClockSkewNotice from '@/components/layout/ClockSkewNotice';
 import QuickNoteButton from '@/components/layout/QuickNoteButton';
 import ThemeToggle from '@/components/layout/ThemeToggle';
 import { useQuery } from '@tanstack/react-query';
@@ -161,6 +162,7 @@ export default function AppLayout() {
             )}
           </Link>
         </header>
+        <ClockSkewNotice />
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>

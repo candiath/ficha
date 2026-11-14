@@ -6,6 +6,7 @@ import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
 import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
+import { fixture } from './fixtures';
 
 // Regresión del issue #97: SessionUpdateSchema se deriva con .partial() de
 // SessionFieldsSchema, y en Zod un .default() del schema base SOBREVIVE al
@@ -28,7 +29,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     ctx = await createTestContext(clinic.tenantId, user);
-    patient = await patientRepo.create(ctx, { fullName: 'Paciente PATCH parcial' }, patientAudit('CREATED'));
+    patient = await patientRepo.create(ctx, { firstName: 'Paciente PATCH', lastName: 'parcial' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {
@@ -46,7 +47,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
   // (DISCHARGE es lo que dispara el cierre de episodios, y NOTE queda fuera
   // de los conteos del dashboard).
   async function crearConEpisodio(sessionType: 'DISCHARGE' | 'NOTE' = 'DISCHARGE') {
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: {
         tenantId: clinic.tenantId,
         patientId: patient.id,
@@ -77,7 +78,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ observations: 'solo edito notas' });
+      .send({ reason: 'DATA_ENTRY_ERROR', observations: 'solo edito notas' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.observations).toBe('solo edito notas');
@@ -93,7 +94,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ episodes: [] });
+      .send({ reason: 'DATA_ENTRY_ERROR', episodes: [] });
 
     expect(res.status).toBe(200);
     expect(res.body.data.episodes).toEqual([]);
@@ -107,7 +108,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/sessions/${sessionId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ sessionType: 'NOTE' });
+      .send({ reason: 'DATA_ENTRY_ERROR', sessionType: 'NOTE' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.sessionType).toBe('NOTE');

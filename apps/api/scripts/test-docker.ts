@@ -3,8 +3,9 @@ import path from 'node:path';
 
 // `npm test` and `npm run test:watch`: the API's integration tests against the
 // throwaway Postgres of docker-compose.yml (docs/infra.md#local-test-database).
-// Arguments go to vitest: `npm test -- tests/login.test.ts`. `npm run test:neon`
-// runs plain vitest instead, against DATABASE_URL (CI, or apps/api/.env).
+// Arguments go to vitest: `npm test -- tests/login.test.ts`. CI runs it too, on
+// PRs to dev. `npm run test:neon` runs plain vitest instead, against
+// DATABASE_URL (CI on release PRs and manual runs, or apps/api/.env).
 //
 // The URL is fixed on purpose: this script migrates whatever it points at and
 // the tests' cleanup runs there, so no environment variable can send it

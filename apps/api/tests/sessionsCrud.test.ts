@@ -6,6 +6,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { DAY_MS } from '../src/lib/clinicalDate';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // El CRUD de sesiones por HTTP: los caminos que las otras suites no cubren.
 //
@@ -39,6 +40,8 @@ describe('CRUD de sesiones por HTTP', () => {
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
   const url = (patientId = patient.id) => `/api/patients/${patientId}/sessions`;
+  const anular = (sessionId: string, patientId = patient.id) =>
+    auth(request(app).post(`${url(patientId)}/${sessionId}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -46,17 +49,17 @@ describe('CRUD de sesiones por HTTP', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
 
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente CRUD Sesiones' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente CRUD', lastName: 'Sesiones' },
       select: { id: true },
     });
-    otroPaciente = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Otro Paciente Misma Clínica' },
+    otroPaciente = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro Paciente Misma', lastName: 'Clínica' },
       select: { id: true },
     });
 
     const crearEpisodio = (patientId: string, tenantId: string, mainComplaint: string) =>
-      prisma.clinicalEpisode.create({
+      fixture.clinicalEpisode.create({
         data: { tenantId, patientId, mainComplaint },
         select: { id: true },
       });
@@ -70,13 +73,13 @@ describe('CRUD de sesiones por HTTP', () => {
         patientId: otroPaciente.id,
         name: 'Paquete del otro paciente',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
 
-    const patientB = await prisma.patient.create({
-      data: { tenantId: clinicB.tenantId, fullName: 'Paciente de B' },
+    const patientB = await fixture.patient.create({
+      data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
       select: { id: true },
     });
     packageDeB = await prisma.sessionPackage.create({
@@ -85,7 +88,7 @@ describe('CRUD de sesiones por HTTP', () => {
         patientId: patientB.id,
         name: 'Paquete de B',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -159,12 +162,14 @@ describe('CRUD de sesiones por HTTP', () => {
     expect(res.status).toBe(201);
     expect(res.body.data).toEqual({
       id: expect.any(String),
+      version: 1,
       patientId: patient.id,
       sessionType: 'SESSION',
       sessionDate: fecha,
       observations: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
+      annulledAt: null,
       episodes: [
         {
           episodeId: episodeA.id,
@@ -288,7 +293,7 @@ describe('CRUD de sesiones por HTTP', () => {
 
     const res = await auth(request(app).post(url())).send({
       sessionDate: new Date().toISOString(),
-      payment: { packageId: packageDelOtro.id, baseAmount: 100 },
+      payment: { packageId: packageDelOtro.id, baseAmountCents: 100 },
     });
 
     expect(res.status).toBe(404);
@@ -304,7 +309,7 @@ describe('CRUD de sesiones por HTTP', () => {
   it('POST rechaza un packageId de otra clínica', async () => {
     const res = await auth(request(app).post(url())).send({
       sessionDate: new Date().toISOString(),
-      payment: { packageId: packageDeB.id, baseAmount: 100 },
+      payment: { packageId: packageDeB.id, baseAmountCents: 100 },
     });
 
     expect(res.status).toBe(404);
@@ -396,6 +401,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const nueva = new Date(Date.now() - 3 * DAY_MS).toISOString();
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       sessionDate: nueva,
     });
 
@@ -413,6 +419,7 @@ describe('CRUD de sesiones por HTTP', () => {
       '1025-01-01T10:00:00.000Z',
     ]) {
       const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+        reason: 'DATA_ENTRY_ERROR',
         sessionDate: fecha,
       });
       expect(res.status, fecha).toBe(400);
@@ -428,6 +435,7 @@ describe('CRUD de sesiones por HTTP', () => {
     });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'después',
       episodes: [
         { episodeId: episodeA.id, painScaleBefore: 6, painScaleAfter: 2, patientExercises: 'Rana en el suelo' },
@@ -452,6 +460,7 @@ describe('CRUD de sesiones por HTTP', () => {
     });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeA.id, painScaleBefore: null, painScaleAfter: null }],
       observations: null,
     });
@@ -467,6 +476,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id, painScaleBefore: 5 }] });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeA.id, painScaleBefore: 12 }],
     });
 
@@ -480,6 +490,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeB.id }],
     });
 
@@ -495,6 +506,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeDelOtro.id }],
     });
 
@@ -509,6 +521,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const delOtro = await crearSesion({ observations: 'del otro' }, otroPaciente.id);
 
     const res = await auth(request(app).patch(`${url()}/${delOtro.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'pisado desde otro paciente',
     });
 
@@ -519,6 +532,7 @@ describe('CRUD de sesiones por HTTP', () => {
 
   it('PATCH inexistente da 404', async () => {
     const res = await auth(request(app).patch(`${url()}/${randomUUID()}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'nada',
     });
 
@@ -529,48 +543,50 @@ describe('CRUD de sesiones por HTTP', () => {
   // /api/payments. Un cliente que lo mande igual no tiene que romper nada ni
   // modificar el cobro.
   it('PATCH ignora un payment en el body y no toca el cobro', async () => {
-    const creada = await crearSesion({ payment: { baseAmount: 5000 } });
+    const creada = await crearSesion({ payment: { baseAmountCents: 5000 } });
 
     const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'con payment colado',
-      payment: { baseAmount: 1 },
+      payment: { baseAmountCents: 1 },
     });
 
     expect(res.status).toBe(200);
     const cobro = await prisma.payment.findUnique({
       where: { sessionId: creada.id },
-      select: { baseAmount: true },
+      select: { baseAmountCents: true },
     });
-    expect(Number(cobro?.baseAmount)).toBe(5000);
+    expect(Number(cobro?.baseAmountCents)).toBe(5000);
   });
 
-  // ── DELETE ────────────────────────────────────────────────────────────────
+  // ── Annul ─────────────────────────────────────────────────────────────────
 
-  it('DELETE bajo otro paciente de la misma clínica da 404 y no borra', async () => {
+  it("annulling under another patient of the same clinic answers 404 and annuls nothing", async () => {
     const delOtro = await crearSesion({}, otroPaciente.id);
 
-    const res = await auth(request(app).delete(`${url()}/${delOtro.id}`));
+    const res = await anular(delOtro.id);
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Sesión no encontrada' });
     await expect(filaCruda(delOtro.id)).resolves.toMatchObject({ deletedAt: null });
   });
 
-  it('DELETE de una sesión con episodio la saca del filtro por episodio', async () => {
+  it("an annulled session stays in the episode's list, marked", async () => {
     const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
 
-    expect((await auth(request(app).delete(`${url()}/${creada.id}`))).status).toBe(204);
+    expect((await anular(creada.id)).status).toBe(204);
 
     const res = await auth(request(app).get(`${url()}?episodeId=${episodeA.id}`));
-    expect(res.body.data.map((s: { id: string }) => s.id)).not.toContain(creada.id);
+    const listed = res.body.data.find((s: { id: string }) => s.id === creada.id);
+    expect(listed.annulledAt).toEqual(expect.any(String));
   });
 
-  // La sesión salió de un turno y se borra porque se cargó por error. Si el
+  // La sesión salió de un turno y se anula porque se cargó por error. Si el
   // turno quedara apuntando a la sesión borrada, la agenda diría para siempre
   // "la sesión de este turno ya está registrada" y el POST con ese
   // appointmentId daría 409: un turno atendido sin ninguna sesión que se pueda
   // ver ni volver a registrar.
-  it('DELETE libera el turno del que salió la sesión, para poder registrarla de nuevo', async () => {
+  it('annulling releases the appointment the session came from, so it can be recorded again', async () => {
     const turno = await prisma.appointment.create({
       data: {
         tenantId: clinic.tenantId,
@@ -586,7 +602,7 @@ describe('CRUD de sesiones por HTTP', () => {
       prisma.appointment.findUnique({ where: { id: turno.id }, select: { sessionId: true } }),
     ).resolves.toEqual({ sessionId: primera.id });
 
-    expect((await auth(request(app).delete(`${url()}/${primera.id}`))).status).toBe(204);
+    expect((await anular(primera.id)).status).toBe(204);
 
     // El turno ya no apunta a nada...
     await expect(
@@ -612,9 +628,9 @@ describe('CRUD de sesiones por HTTP', () => {
 
   // patientRepository.test.ts cubre GET y POST bajo un paciente borrado; acá
   // van las otras dos escrituras, que también pasan por patientRepo.exists.
-  it('PATCH y DELETE de una sesión de un paciente borrado dan 404 y no tocan nada', async () => {
-    const borrado = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Borrado Con Sesión' },
+  it('PATCH and annul of a session of a deleted patient answer 404 and touch nothing', async () => {
+    const borrado = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado Con', lastName: 'Sesión' },
       select: { id: true },
     });
     const sesion = await crearSesion(
@@ -624,12 +640,13 @@ describe('CRUD de sesiones por HTTP', () => {
     expect((await auth(request(app).delete(`/api/patients/${borrado.id}`))).status).toBe(204);
 
     const editada = await auth(request(app).patch(`${url(borrado.id)}/${sesion.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       observations: 'post mortem',
     });
     expect(editada.status).toBe(404);
     expect(editada.body).toEqual({ error: 'Paciente no encontrado' });
 
-    const borrada = await auth(request(app).delete(`${url(borrado.id)}/${sesion.id}`));
+    const borrada = await anular(sesion.id, borrado.id);
     expect(borrada.status).toBe(404);
     expect(borrada.body).toEqual({ error: 'Paciente no encontrado' });
 
@@ -641,14 +658,14 @@ describe('CRUD de sesiones por HTTP', () => {
 
   // ── Auditoría ─────────────────────────────────────────────────────────────
 
-  it('crear, editar y borrar dejan su entrada de auditoría, sin el dolor', async () => {
+  it('creating, editing and annulling leave their audit rows, without the pain', async () => {
     const creada = await crearSesion({
       episodes: [{ episodeId: episodeA.id, painScaleBefore: 7, painScaleAfter: 3 }],
     });
-    await auth(request(app).patch(`${url()}/${creada.id}`)).send({ observations: 'x' });
-    await auth(request(app).delete(`${url()}/${creada.id}`));
+    await auth(request(app).patch(`${url()}/${creada.id}`)).send({ reason: 'DATA_ENTRY_ERROR', observations: 'x' });
+    await anular(creada.id);
 
-    const buscar = (action: 'SESSION_RECORDED' | 'SESSION_UPDATED' | 'SESSION_DELETED') =>
+    const buscar = (action: 'SESSION_RECORDED' | 'SESSION_UPDATED' | 'SESSION_ANNULLED') =>
       waitFor(() =>
         prisma.auditLog.findFirst({
           where: { tenantId: clinic.tenantId, entity: 'SESSION', entityId: creada.id, action },
@@ -659,7 +676,7 @@ describe('CRUD de sesiones por HTTP', () => {
     const [alta, edicion, borrado] = await Promise.all([
       buscar('SESSION_RECORDED'),
       buscar('SESSION_UPDATED'),
-      buscar('SESSION_DELETED'),
+      buscar('SESSION_ANNULLED'),
     ]);
 
     for (const entrada of [alta, edicion, borrado]) {
@@ -667,12 +684,14 @@ describe('CRUD de sesiones por HTTP', () => {
     }
     // Codes only: the pain values stay in the session, never in the audit row.
     expect(alta.params).toEqual({});
-    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'] });
+    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['observations'], reason: 'DATA_ENTRY_ERROR' });
+    expect(borrado.params).toEqual({ sessionType: 'SESSION', reason: 'DATA_ENTRY_ERROR', payment: 'NONE' });
   });
 
   it('editing the exercises records the field name, never the text', async () => {
     const creada = await crearSesion();
     await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       episodes: [{ episodeId: episodeA.id, patientExercises: 'Rana en el suelo' }],
     });
 
@@ -682,7 +701,7 @@ describe('CRUD de sesiones por HTTP', () => {
         select: { params: true },
       }),
     );
-    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['patientExercises'] });
+    expect(edicion.params).toEqual({ sessionType: 'SESSION', changedFields: ['patientExercises'], reason: 'DATA_ENTRY_ERROR' });
   });
 
   it('una NOTE y un DISCHARGE se registran con su propia acción', async () => {
@@ -710,8 +729,8 @@ describe('CRUD de sesiones por HTTP', () => {
       request(app).get(url()),
       request(app).get(`${url()}/${creada.id}`),
       request(app).post(url()).send({ sessionDate: new Date().toISOString() }),
-      request(app).patch(`${url()}/${creada.id}`).send({ observations: 'intruso' }),
-      request(app).delete(`${url()}/${creada.id}`),
+      request(app).patch(`${url()}/${creada.id}`).send({ reason: 'DATA_ENTRY_ERROR', observations: 'intruso' }),
+      request(app).post(`${url()}/${creada.id}/annul`).send({ reason: 'DATA_ENTRY_ERROR' }),
     ];
 
     for (const pedido of pedidos) {

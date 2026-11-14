@@ -4,7 +4,8 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { settle } from '../src/lib/paymentSettlement';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Un cobro de monto cero no es una deuda: si el descuento cancela el costo
 // entero, o la sesión se dio sin cargo, no hay nada que cobrar. Dejarlo en
@@ -18,19 +19,19 @@ import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestCli
 
 describe('settle(): monto y estado se deciden juntos', () => {
   it('un cobro con monto nace pendiente', () => {
-    expect(settle(5000, 0)).toEqual({ finalAmount: 5000, status: 'PENDING' });
+    expect(settle(5000, 0)).toEqual({ finalAmountCents: 5000, status: 'PENDING' });
   });
 
   it('un cobro sin cargo desde el vamos nace eximido', () => {
-    expect(settle(0, 0)).toEqual({ finalAmount: 0, status: 'WAIVED' });
+    expect(settle(0, 0)).toEqual({ finalAmountCents: 0, status: 'WAIVED' });
   });
 
   it('un descuento que cancela el costo entero exime', () => {
-    expect(settle(5000, 5000)).toEqual({ finalAmount: 0, status: 'WAIVED' });
+    expect(settle(5000, 5000)).toEqual({ finalAmountCents: 0, status: 'WAIVED' });
   });
 
   it('un descuento parcial no exime', () => {
-    expect(settle(5000, 1000)).toEqual({ finalAmount: 4000, status: 'PENDING' });
+    expect(settle(5000, 1000)).toEqual({ finalAmountCents: 4000, status: 'PENDING' });
   });
 
   // La derivación va en una sola dirección. Volver a "hay que cobrar esto" es
@@ -38,11 +39,11 @@ describe('settle(): monto y estado se deciden juntos', () => {
   // corregirle el monto a un cobro perdonado a mano lo reabriría solo, y la
   // alerta terminaría reclamándole al paciente una deuda condonada.
   it('un eximido a mano no vuelve a pendiente aunque suba el monto', () => {
-    expect(settle(5000, 0, 'WAIVED')).toEqual({ finalAmount: 5000, status: 'WAIVED' });
+    expect(settle(5000, 0, 'WAIVED')).toEqual({ finalAmountCents: 5000, status: 'WAIVED' });
   });
 
   it('un cobro ya pagado no se toca nunca', () => {
-    expect(settle(5000, 5000, 'PAID')).toEqual({ finalAmount: 0, status: 'PAID' });
+    expect(settle(5000, 5000, 'PAID')).toEqual({ finalAmountCents: 0, status: 'PAID' });
   });
 });
 
@@ -59,12 +60,12 @@ describe('cobros de monto cero, de punta a punta', () => {
     clinic = await createTestClinic();
     user = await clinic.createUser();
     token = await createTestToken(user);
-    patient = await prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName: 'Paciente Bonificado' },
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Bonificado' },
       select: { id: true },
     });
     // Every session treats an episode (#238).
-    episode = await prisma.clinicalEpisode.create({
+    episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -84,13 +85,13 @@ describe('cobros de monto cero, de punta a punta', () => {
   });
 
   /** Crea una sesión con su cobro embebido y devuelve el cobro. */
-  async function crearCobro(baseAmount: number, discount = 0) {
+  async function crearCobro(baseAmountCents: number, discountCents = 0) {
     const sesion = await auth(
       request(app).post(`/api/patients/${patient.id}/sessions`),
     ).send({
       sessionDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
-      payment: { baseAmount, discount },
+      payment: { baseAmountCents, discountCents },
     });
     expect(sesion.status).toBe(201);
 
@@ -103,7 +104,7 @@ describe('cobros de monto cero, de punta a punta', () => {
   it('el cobro embebido en el alta de la sesión nace eximido si da cero', async () => {
     const cobro = await crearCobro(5000, 5000);
 
-    expect(cobro.finalAmount).toBe(0);
+    expect(cobro.finalAmountCents).toBe(0);
     expect(cobro.status).toBe('WAIVED');
     // No se inventa un movimiento de caja que no ocurrió.
     expect(cobro.paidAt).toBeNull();
@@ -119,7 +120,7 @@ describe('cobros de monto cero, de punta a punta', () => {
   it('un cobro con monto sigue naciendo pendiente', async () => {
     const cobro = await crearCobro(5000, 1000);
 
-    expect(cobro.finalAmount).toBe(4000);
+    expect(cobro.finalAmountCents).toBe(4000);
     expect(cobro.status).toBe('PENDING');
   });
 
@@ -128,11 +129,11 @@ describe('cobros de monto cero, de punta a punta', () => {
     expect(cobro.status).toBe('PENDING');
 
     const res = await auth(request(app).patch(`/api/payments/${cobro.id}`)).send({
-      discount: 5000,
+      discountCents: 5000,
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.finalAmount).toBe(0);
+    expect(res.body.data.finalAmountCents).toBe(0);
     expect(res.body.data.status).toBe('WAIVED');
   });
 
@@ -141,11 +142,11 @@ describe('cobros de monto cero, de punta a punta', () => {
     expect(cobro.status).toBe('WAIVED');
 
     const res = await auth(request(app).patch(`/api/payments/${cobro.id}`)).send({
-      discount: 0,
+      discountCents: 0,
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.finalAmount).toBe(5000);
+    expect(res.body.data.finalAmountCents).toBe(5000);
     expect(res.body.data.status).toBe('WAIVED');
   });
 
@@ -155,12 +156,12 @@ describe('cobros de monto cero, de punta a punta', () => {
     const cobro = await crearCobro(5000);
 
     const res = await auth(request(app).patch(`/api/payments/${cobro.id}`)).send({
-      discount: 5000,
+      discountCents: 5000,
       status: 'PENDING',
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.finalAmount).toBe(0);
+    expect(res.body.data.finalAmountCents).toBe(0);
     expect(res.body.data.status).toBe('PENDING');
   });
 
@@ -172,18 +173,15 @@ describe('cobros de monto cero, de punta a punta', () => {
       const hace20Dias = new Date();
       hace20Dias.setDate(hace20Dias.getDate() - 20);
 
-      const sesion = await prisma.session.create({
-        data: { tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: hace20Dias },
-        select: { id: true },
-      });
+      const sesion = await createSessionFixture({ tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: hace20Dias });
       await prisma.payment.create({
         data: {
           tenantId: clinic.tenantId,
           patientId,
           sessionId: sesion.id,
-          baseAmount: monto,
-          discount: 0,
-          finalAmount: monto,
+          baseAmountCents: monto,
+          discountCents: 0,
+          finalAmountCents: monto,
           status: 'PENDING',
         },
       });
@@ -198,8 +196,8 @@ describe('cobros de monto cero, de punta a punta', () => {
     }
 
     it('no alerta por un pendiente de $0', async () => {
-      const paciente = await prisma.patient.create({
-        data: { tenantId: clinic.tenantId, fullName: 'Paciente Sin Deuda' },
+      const paciente = await fixture.patient.create({
+        data: { tenantId: clinic.tenantId, firstName: 'Paciente Sin', lastName: 'Deuda' },
         select: { id: true },
       });
       await cobroPendienteViejo(paciente.id, 0);
@@ -213,8 +211,8 @@ describe('cobros de monto cero, de punta a punta', () => {
     });
 
     it('no cuenta el de $0 al agrupar con una deuda real', async () => {
-      const paciente = await prisma.patient.create({
-        data: { tenantId: clinic.tenantId, fullName: 'Paciente Con Una Deuda' },
+      const paciente = await fixture.patient.create({
+        data: { tenantId: clinic.tenantId, firstName: 'Paciente Con Una', lastName: 'Deuda' },
         select: { id: true },
       });
       await cobroPendienteViejo(paciente.id, 0);

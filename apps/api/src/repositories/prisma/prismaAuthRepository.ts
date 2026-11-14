@@ -12,8 +12,9 @@ import type {
   AuthRepository,
   CreateAuthSessionInput,
   Credentials,
-  LoginAttempt,
-  LoginEventInput,
+  LoginAttemptInput,
+  LoginAttemptOutcome,
+  LoginBrake,
   LoginUser,
   PasswordResetTarget,
   PasswordResetUseInput,
@@ -132,7 +133,7 @@ export const prismaAuthRepository: AuthRepository = {
     };
   },
 
-  async createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string }> {
+  async createAuthSession(input: CreateAuthSessionInput): Promise<{ token: string } | null> {
     const token = generateOpaqueToken();
     const data = {
       userId: input.userId,
@@ -143,29 +144,55 @@ export const prismaAuthRepository: AuthRepository = {
       userAgent: input.userAgent,
     };
 
-    if (!input.trusted) {
-      await prisma.authSession.create({ data });
-      return { token };
-    }
+    return prisma.$transaction(async (tx) => {
+      // The login compared the password outside any transaction, and a write
+      // that cuts access (a password change, a reset link, deactivating the
+      // user or the clinic) may have committed since, revoking every session
+      // she had. The session is created only if nothing changed, decided in
+      // the writes that lock what those writes lock (area 2 review, L1):
+      // - the clinic's row, shared: a deactivation waits for this login, or
+      //   wins and this one creates nothing;
+      // - the user's row, conditioned on the hash just verified and on being
+      //   active: a new password, a reset or a deactivation since makes it 0.
+      // A cut that commits after this transaction revokes this session too.
+      const [clinic] = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id"::text FROM "tenants"
+        WHERE "id" = ${input.tenantId}::uuid AND "deactivated_at" IS NULL
+        FOR SHARE`;
+      if (!clinic) return null;
+      const { count } = await tx.user.updateMany({
+        where: { id: input.userId, tenantId: input.tenantId, passwordHash: input.verifiedPasswordHash, isActive: true },
+        data: { lastLoginAt: new Date() },
+      });
+      if (count === 0) return null;
 
-    // A trusted login enforces the cap in the same transaction: the newest
-    // TRUSTED_SESSIONS_PER_USER live trusted sessions stay, older ones are
-    // demoted to normal (not closed). Two simultaneous trusted logins can
-    // leave one too many until the next one; acceptable.
-    await prisma.$transaction(async (tx) => {
-      await tx.authSession.create({ data });
+      const created = await tx.authSession.create({ data, select: { id: true } });
+      if (!input.trusted) return { token };
+
+      // A trusted login enforces the cap in the same transaction: this login's
+      // session and the newest TRUSTED_SESSIONS_PER_USER - 1 other live trusted
+      // sessions stay, older ones are demoted to normal (not closed). Two
+      // simultaneous logins of one user are serialized by the conditioned
+      // write on her row above, so the second sees the first's session.
+      //
+      // The new session is kept by id, not by its place in the order: createdAt
+      // is stamped by the API's clock with millisecond precision, so it can tie
+      // with an older session or, after the clock steps back, sort below one,
+      // and the session this login asked to trust would be the one demoted.
+      // Ties among the others go to the id, a UUIDv7 that increases within a
+      // millisecond too.
       const beyondCap = await tx.authSession.findMany({
-        where: { userId: input.userId, ...liveTrustedAuthSessionWhere(new Date()) },
-        orderBy: { createdAt: 'desc' },
-        skip: TRUSTED_SESSIONS_PER_USER,
+        where: { userId: input.userId, id: { not: created.id }, ...liveTrustedAuthSessionWhere(new Date()) },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: TRUSTED_SESSIONS_PER_USER - 1,
         select: { id: true },
       });
       await demoteAuthSessions(
         tx,
         beyondCap.map((s) => s.id),
       );
+      return { token };
     });
-    return { token };
   },
 
   async findValidAuthSession(token: string): Promise<ValidAuthSession | null> {
@@ -286,14 +313,7 @@ export const prismaAuthRepository: AuthRepository = {
   async getCredentials(userId: string): Promise<Credentials | null> {
     return prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, tenantId: true, passwordHash: true },
-    });
-  },
-
-  async touchLastLogin(userId: string): Promise<void> {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { lastLoginAt: new Date() },
+      select: { id: true, tenantId: true, email: true, passwordHash: true },
     });
   },
 
@@ -313,9 +333,11 @@ export const prismaAuthRepository: AuthRepository = {
   async checkPasswordReset(token: string): Promise<PasswordResetTarget | null> {
     const link = await prisma.passwordResetToken.findFirst({
       where: { tokenHash: hashOpaqueToken(token), ...validPasswordResetWhere(new Date()) },
-      select: { user: { select: { email: true, name: true } } },
+      select: { user: { select: { email: true, name: true, lastLoginAt: true } } },
     });
-    return link?.user ?? null;
+    if (!link) return null;
+    const { email, name, lastLoginAt } = link.user;
+    return { email, name, firstPassword: lastLoginAt === null };
   },
 
   async resetPassword(token: string, input: PasswordResetUseInput): Promise<boolean> {
@@ -352,16 +374,35 @@ export const prismaAuthRepository: AuthRepository = {
     });
   },
 
-  async recordLoginEvent(input: LoginEventInput): Promise<void> {
-    await prisma.loginEvent.create({ data: input });
+  async reserveLoginAttempt(input: LoginAttemptInput, brake: LoginBrake): Promise<string | null> {
+    // One batch, two statements: the lock, then an insert that runs only if
+    // the brake does not hold. The insert is a statement after the lock, so
+    // its snapshot sees the previous holder's attempt; and a batch keeps no
+    // pooled connection waiting on JS between statements, so a burst queues
+    // in Postgres instead of exhausting the pool (area 2 review, L2).
+    const lock = `login:${input.realm}:${input.key}`;
+    const [, rows] = await prisma.$transaction([
+      prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lock}))`,
+      prisma.$queryRaw<{ id: string }[]>`
+        INSERT INTO "login_events" ("id", "realm", "key", "email", "ip", "user_agent", "success", "created_at")
+        SELECT uuidv7(), ${input.realm}::"LoginRealm", ${input.key}, ${input.email}, ${input.ip}::text,
+               ${input.userAgent}::text, false, clock_timestamp()
+        WHERE (
+          SELECT count(*) FROM (
+            SELECT "success" FROM "login_events"
+            WHERE "realm" = ${input.realm}::"LoginRealm" AND "key" = ${input.key}
+              AND "created_at" > ${brake.since}
+            ORDER BY "created_at" DESC, "id" DESC
+            LIMIT ${brake.max}
+          ) AS recent
+          WHERE NOT recent."success"
+        ) < ${brake.max}
+        RETURNING "id"::text`,
+    ]);
+    return rows[0]?.id ?? null;
   },
 
-  async recentLoginAttempts(email: string, since: Date, limit: number): Promise<LoginAttempt[]> {
-    return prisma.loginEvent.findMany({
-      where: { email, createdAt: { gt: since } },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: { success: true },
-    });
+  async settleLoginAttempt(id: string, outcome: LoginAttemptOutcome): Promise<void> {
+    await prisma.loginEvent.update({ where: { id }, data: outcome });
   },
 };

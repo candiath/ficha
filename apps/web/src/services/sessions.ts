@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import type { AnnulData } from '@/types/patient';
 import type { Session, SessionCreateData, SessionUpdateData } from '@/types/session';
 
 export const sessionKeys = {
@@ -23,8 +24,9 @@ export const sessionApi = {
     api.post<Session>(`/api/patients/${patientId}/sessions`, data),
   update: (patientId: string, sessionId: string, data: SessionUpdateData) =>
     api.patch<Session>(`/api/patients/${patientId}/sessions/${sessionId}`, data),
-  // Borrado lógico: la sesión desaparece de los listados y de las métricas,
-  // pero la fila queda. Responde 409 si la sesión ya tiene un cobro pagado.
-  remove: (patientId: string, sessionId: string) =>
-    api.delete(`/api/patients/${patientId}/sessions/${sessionId}`),
+  // Annulled, never deleted (SPEC-clinical-revisions.md §8): it stays in the
+  // record struck through and leaves the lists and the metrics. 409 if the
+  // session has a paid payment.
+  annul: (patientId: string, sessionId: string, data: AnnulData) =>
+    api.post<void>(`/api/patients/${patientId}/sessions/${sessionId}/annul`, data),
 };

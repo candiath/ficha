@@ -48,7 +48,7 @@ async function fill(password: string, confirmation: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  check.mockResolvedValue({ email: 'fisio@clinica.test', name: 'Fede Fisio' });
+  check.mockResolvedValue({ email: 'fisio@clinica.test', name: 'Fede Fisio', firstPassword: false });
   reset.mockResolvedValue(undefined);
 });
 
@@ -77,12 +77,35 @@ describe('ResetPasswordPage', () => {
     expect(check).not.toHaveBeenCalled();
   });
 
+  it('says "restablecer" for a reset and "elegí" for an invitation', async () => {
+    renderAt('/restablecer-contrasena#tok_abc');
+    expect(await screen.findByText('Restablecer contraseña')).toBeInTheDocument();
+  });
+
+  it('asks someone who never logged in to choose her password', async () => {
+    check.mockResolvedValue({ email: 'nueva@clinica.test', name: 'Nueva', firstPassword: true });
+    renderAt('/restablecer-contrasena#tok_abc');
+    expect(await screen.findByText('Elegí tu contraseña')).toBeInTheDocument();
+    expect(screen.queryByText('Restablecer contraseña')).toBeNull();
+  });
+
   it('catches a short password before submitting', async () => {
     renderAt('/restablecer-contrasena#tok_abc');
 
     await fill('corta', 'corta');
 
     expect(await screen.findByText('La contraseña debe tener al menos 8 caracteres')).toBeInTheDocument();
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  // bcrypt reads only 72 bytes: 37 accented letters are 74.
+  it('catches a password longer than 72 bytes before submitting', async () => {
+    renderAt('/restablecer-contrasena#tok_abc');
+
+    const long = 'á'.repeat(37);
+    await fill(long, long);
+
+    expect(await screen.findByText(/La contraseña es demasiado larga/)).toBeInTheDocument();
     expect(reset).not.toHaveBeenCalled();
   });
 

@@ -21,11 +21,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { paymentApi, paymentKeys } from '@/services/payments';
+import { centsToInput, formatCents, parsePesos } from '@/lib/money';
 import type { Payment, PaymentMethod, PaymentStatus } from '@/types/payment';
-
-function formatMoney(n: number) {
-  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n);
-}
 
 function formatSessionDate(iso: string) {
   return new Date(iso).toLocaleDateString('es-AR', {
@@ -66,28 +63,22 @@ export default function PaymentEditDialog({
 function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void }) {
   const queryClient = useQueryClient();
 
-  const [baseAmount, setBaseAmount] = useState(String(payment.baseAmount));
-  const [discount, setDiscount] = useState(String(payment.discount));
+  const [baseAmount, setBaseAmount] = useState(centsToInput(payment.baseAmountCents));
+  const [discount, setDiscount] = useState(centsToInput(payment.discountCents));
   const [status, setStatus] = useState<PaymentStatus>(payment.status);
   const [method, setMethod] = useState<PaymentMethod | ''>(payment.method ?? '');
   const [notes, setNotes] = useState(payment.notes ?? '');
 
-  const base = Number(baseAmount);
-  const disc = Number(discount);
-  const montosValidos =
-    baseAmount.trim() !== '' &&
-    discount.trim() !== '' &&
-    Number.isFinite(base) &&
-    Number.isFinite(disc) &&
-    base >= 0 &&
-    disc >= 0;
+  // In cents; null when what was typed is not an amount (lib/money.ts).
+  const base = parsePesos(baseAmount);
+  const disc = parsePesos(discount);
 
   // El mismo invariante que valida la API (issue #73): un descuento mayor al
   // monto base dejaría un cobro que devuelve plata. Acá se avisa antes de
   // mandar; allá se rechaza igual, porque el PATCH es parcial y un cliente
   // directo podría mandar solo el descuento.
-  const error = !montosValidos
-    ? 'Los montos tienen que ser números positivos'
+  const error = base === null || disc === null
+    ? 'Los montos tienen que ser números positivos, con hasta dos decimales'
     : disc > base
       ? 'El descuento no puede superar el monto base'
       : status === 'PAID' && !method
@@ -97,8 +88,9 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
   const mutation = useMutation({
     mutationFn: () =>
       paymentApi.update(payment.id, {
-        baseAmount: base,
-        discount: disc,
+        // The button is disabled while there is an error: both are set here.
+        baseAmountCents: base ?? 0,
+        discountCents: disc ?? 0,
         status,
         notes,
         // Al salir de PAGADO se limpian método y fecha de cobro: si el cobro
@@ -117,7 +109,7 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
     onError: (err: Error) => toast.error(err.message || 'Error al actualizar el cobro'),
   });
 
-  const total = montosValidos ? base - disc : 0;
+  const total = base !== null && disc !== null ? base - disc : 0;
 
   return (
     <>
@@ -157,7 +149,7 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
 
         <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
           <span className="text-sm text-muted-foreground">Total</span>
-          <span className="text-sm font-semibold tabular-nums">{formatMoney(total)}</span>
+          <span className="text-sm font-semibold tabular-nums">{formatCents(total)}</span>
         </div>
 
         <div className="grid grid-cols-2 gap-4">

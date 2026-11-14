@@ -82,6 +82,7 @@ const AUDIT: PlatformAuditEntry[] = [
     tenantId: 't1',
     targetUserId: null,
     targetUser: null,
+    operator: { name: 'Operadora Uno', email: 'op1@ficha.test' },
     action: 'TENANT_CREATED',
     params: {},
     createdAt: '2026-09-01T12:00:00.000Z',
@@ -140,6 +141,18 @@ describe('PlatformTenantDetailPage', () => {
     // La acción se muestra con su etiqueta, no con el enum.
     expect(await screen.findByText('Clínica creada')).toBeInTheDocument();
     expect(screen.queryByText('TENANT_CREATED')).not.toBeInTheDocument();
+  });
+
+  // Who acted (#313): the operator by name, or by email when she has none.
+  it('names the operator who acted, by email when she has no name', async () => {
+    auditLog.mockResolvedValue([
+      AUDIT[0],
+      { ...AUDIT[0], id: 'a2', operator: { name: null, email: 'op2@ficha.test' } },
+    ]);
+    renderAt();
+
+    expect(await screen.findByText(/por Operadora Uno/)).toBeInTheDocument();
+    expect(screen.getByText(/por op2@ficha\.test/)).toBeInTheDocument();
   });
 
   it('un id que no está en la lista dice que no existe y no pide usuarios ni historial', async () => {
@@ -249,15 +262,20 @@ describe('PlatformTenantDetailPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('crear ADMIN manda los tres campos y avisa que ya puede entrar', async () => {
+  // No initial password (area 2 review, M2): the operator gets the new
+  // ADMIN's invitation link, shown once, and she sets her own password.
+  it('crear ADMIN manda nombre y email, y muestra la invitación', async () => {
     createAdmin.mockResolvedValue({
-      id: 'u-nueva',
-      email: 'nueva@norte.test',
-      name: 'Nueva Admin',
-      role: 'ADMIN',
-      isActive: true,
-      lastLoginAt: null,
-      passwordResetExpiresAt: null,
+      user: {
+        id: 'u-nueva',
+        email: 'nueva@norte.test',
+        name: 'Nueva Admin',
+        role: 'ADMIN',
+        isActive: true,
+        lastLoginAt: null,
+        passwordResetExpiresAt: '2026-10-08T15:00:00.000Z',
+      },
+      invitation: { token: 'token-de-invitacion', expiresAt: '2026-10-08T15:00:00.000Z' },
     });
     renderAt();
 
@@ -268,21 +286,20 @@ describe('PlatformTenantDetailPage', () => {
     // Con el formulario a medias el botón no se habilita.
     const enviar = within(dialog).getByRole('button', { name: 'Crear ADMIN' });
     expect(enviar).toBeDisabled();
+    expect(within(dialog).queryByLabelText(/Contraseña/)).toBeNull();
 
     await user.type(within(dialog).getByLabelText('Nombre'), 'Nueva Admin');
     await user.type(within(dialog).getByLabelText('Email'), 'nueva@norte.test');
-    await user.type(within(dialog).getByLabelText('Contraseña inicial'), 'clave-larga-123');
     expect(enviar).toBeEnabled();
     await user.click(enviar);
 
     await waitFor(() =>
-      expect(createAdmin).toHaveBeenCalledWith('t1', {
-        name: 'Nueva Admin',
-        email: 'nueva@norte.test',
-        password: 'clave-larga-123',
-      }),
+      expect(createAdmin).toHaveBeenCalledWith('t1', { name: 'Nueva Admin', email: 'nueva@norte.test' }),
     );
-    expect(toast.success).toHaveBeenCalledWith('nueva@norte.test ya puede entrar como ADMIN');
+    const invitation = await screen.findByRole('dialog', { name: 'Invitación para Nueva Admin' });
+    expect(
+      (within(invitation).getByLabelText('Enlace para restablecer la contraseña') as HTMLInputElement).value,
+    ).toContain('#token-de-invitacion');
   });
 });
 

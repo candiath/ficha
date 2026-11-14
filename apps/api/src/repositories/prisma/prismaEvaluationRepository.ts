@@ -6,12 +6,15 @@ import type {
   EvaluationAuditBuilder,
   EvaluationAuditField,
   EvaluationDTO,
+  EvaluationEditMeta,
   EvaluationRepository,
   EvaluationUpsertInput,
   EvaluationUpsertResult,
 } from '../evaluationRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
+import { recordRevision, Rollback, unlessRolledBack } from './recordRevision';
+import { evaluationSnapshot } from './clinicalSnapshots';
 
 const evaluationSelect = {
   id: true,
@@ -21,24 +24,23 @@ const evaluationSelect = {
   otherHistory: true,
   notes: true,
   retractionMap: true,
-  flexibilityNotes: true,
   physicalActivity: true,
   painFrequency: true,
   evaScale: true,
   evaluatedAt: true,
   updatedAt: true,
+  // The latest version; none is version 0.
+  revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
 } as const;
 
-type EvaluationRow = Omit<EvaluationDTO, 'evaluatedAt' | 'updatedAt'> & {
-  evaluatedAt: Date;
-  updatedAt: Date;
-};
+type EvaluationRow = Prisma.InitialEvaluationGetPayload<{ select: typeof evaluationSelect }>;
 
 const AUDIT_FIELDS = Object.keys(AUDIT_EVALUATION_FIELDS) as EvaluationAuditField[];
 
-function toDTO(row: EvaluationRow): EvaluationDTO {
+function toDTO({ revisions, ...row }: EvaluationRow): EvaluationDTO {
   return {
     ...row,
+    version: revisions[0]?.version ?? 0,
     evaluatedAt: row.evaluatedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -100,44 +102,63 @@ export const prismaEvaluationRepository: EvaluationRepository = {
     ctx: TenantContext,
     patientId: string,
     episodeId: string,
-    input: EvaluationUpsertInput,
+    { expectedVersion, reason, reasonNote, ...input }: EvaluationUpsertInput & EvaluationEditMeta,
     audit: EvaluationAuditBuilder,
   ): Promise<EvaluationUpsertResult> {
     const db = forTenant(ctx);
-    // The audit row goes in the same transaction as the write (#188).
-    return db.$transaction(async (tx) => {
-      // Locked and read first, to record which fields an update changed
-      // (#186): a concurrent edit waits for this one.
-      await lockRow(tx, 'initial_evaluations', episodeId, ctx.tenantId);
-      const existing = await tx.initialEvaluation.findUnique({
-        where: { episodeId, tenantId: ctx.tenantId },
-        select: evaluationSelect,
-      });
+    // The audit row and the version go in the same transaction as the write
+    // (#188, SPEC-clinical-revisions.md §5).
+    return unlessRolledBack(
+      db.$transaction(async (tx): Promise<EvaluationUpsertResult> => {
+        // The episode is locked, not the evaluation: before the first one there
+        // is no row to lock, and two first evaluations would both write version
+        // 1. Then read: a concurrent save waits, and reads what this one wrote.
+        await lockRow(tx, 'clinical_episodes', episodeId, ctx.tenantId);
+        const existing = await tx.initialEvaluation.findUnique({
+          where: { episodeId, tenantId: ctx.tenantId },
+          select: evaluationSelect,
+        });
+        const before = existing ? toDTO(existing) : null;
+        const version = before?.version ?? 0;
+        if (expectedVersion !== undefined && expectedVersion !== version) return { ok: false, reason: 'stale' };
 
-      const row = await tx.initialEvaluation.upsert({
-        where: { episodeId, tenantId: ctx.tenantId },
-        create: {
-          ...scalarFields(input),
-          ...jsonFields(input),
-          tenantId: ctx.tenantId,
+        const row = await tx.initialEvaluation.upsert({
+          where: { episodeId, tenantId: ctx.tenantId },
+          create: {
+            ...scalarFields(input),
+            ...jsonFields(input),
+            tenantId: ctx.tenantId,
+            patientId,
+            episodeId,
+          },
+          update: {
+            ...scalarFields(input),
+            ...jsonFields(input),
+          },
+          select: evaluationSelect,
+        });
+        const evaluation = { ...toDTO(row), version: version + 1 };
+
+        let changed: ReturnType<typeof nonEmpty<EvaluationAuditField>> = null;
+        if (before) {
+          // Compared after the write, with the same select: a save that changed
+          // nothing, or a correction with no reason, is rolled back whole.
+          changed = nonEmpty(changedFields(before, evaluation, AUDIT_FIELDS));
+          if (!changed) throw new Rollback<EvaluationUpsertResult>({ ok: true, evaluation: before, created: false });
+          if (reason === undefined) throw new Rollback<EvaluationUpsertResult>({ ok: false, reason: 'reason_required' });
+        }
+        const result = { evaluation, created: before === null };
+        const auditLogId = await recordAudit(tx, ctx, audit(result, changed));
+        await recordRevision(tx, ctx, 'evaluation_revisions', {
+          aggregateId: row.id,
           patientId,
-          episodeId,
-        },
-        update: {
-          ...scalarFields(input),
-          ...jsonFields(input),
-        },
-        select: evaluationSelect,
-      });
-
-      const result = { evaluation: toDTO(row), created: existing === null };
-      if (existing === null) {
-        await recordAudit(tx, ctx, audit(result, null));
-      } else {
-        const changed = nonEmpty(changedFields(toDTO(existing), result.evaluation, AUDIT_FIELDS));
-        if (changed) await recordAudit(tx, ctx, audit(result, changed));
-      }
-      return result;
-    });
+          version: evaluation.version,
+          auditLogId,
+          snapshot: evaluationSnapshot(row),
+          reasonNote: before ? reasonNote : undefined,
+        });
+        return { ok: true, ...result };
+      }),
+    );
   },
 };

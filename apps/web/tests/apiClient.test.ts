@@ -10,6 +10,7 @@ function mockFetch(status: number, body: unknown = {}) {
   const fn = vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(),
     json: () => Promise.resolve(body),
   });
   vi.stubGlobal('fetch', fn);

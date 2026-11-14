@@ -69,7 +69,7 @@ export default function UsersCard() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
-  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink } | null>(
+  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink; invitation?: boolean } | null>(
     null,
   );
 
@@ -115,7 +115,7 @@ export default function UsersCard() {
       // The pending badge comes with the list.
       queryClient.invalidateQueries({ queryKey: userKeys.list });
       setPending(null);
-      setResetLink({ name: u.name ?? u.email, link });
+      setResetLink({ name: u.name ?? u.email, link, invitation: u.lastLoginAt === null });
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar el enlace');
@@ -133,7 +133,7 @@ export default function UsersCard() {
   }
 
   function onResetPassword(u: TenantUser) {
-    setPending({ kind: 'reset', user: u, ...passwordResetConfirmation(u.name ?? u.email) });
+    setPending({ kind: 'reset', user: u, ...passwordResetConfirmation(u.name ?? u.email, u.lastLoginAt === null) });
   }
 
   function onDisconnect(u: TenantUser) {
@@ -289,11 +289,16 @@ export default function UsersCard() {
         )}
       </CardContent>
 
-      <UserCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <UserCreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(name, link) => setResetLink({ name, link, invitation: true })}
+      />
 
       <PasswordResetLinkDialog
         link={resetLink?.link ?? null}
         name={resetLink?.name ?? ''}
+        invitation={resetLink?.invitation}
         onClose={() => setResetLink(null)}
       />
 

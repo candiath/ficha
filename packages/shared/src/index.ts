@@ -33,6 +33,7 @@ export * from './partialDate';
 // SPEC-audit-structured-entries.md). The API validates every audit row with
 // it, and the web builds each row's sentence from it.
 export * from './auditActions';
+export * from './clinicalSnapshots';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -133,6 +134,10 @@ export interface PasswordResetLink {
 export interface PasswordResetTarget {
   email: string;
   name: string | null;
+  // She never logged in: the link is her invitation, and the page asks her to
+  // choose a password rather than reset one. Nothing the link holder could not
+  // learn by trying to log in.
+  firstPassword: boolean;
 }
 
 // Usuario del tenant como lo expone GET /api/users: la identidad de AuthUser
@@ -146,12 +151,19 @@ export interface TenantUser extends Omit<AuthUser, 'tenant'> {
   passwordResetExpiresAt: string | null;
 }
 
-// Payload de POST /api/users.
+// Payload de POST /api/users. No password: the new user gets an invitation,
+// a single-use link to set her own (area 2 review, M2).
 export interface CreateUserInput {
   email: string;
   name: string;
-  password: string;
   role?: UserRole;
+}
+
+// A new user and her invitation: the link she sets her password with. The
+// raw token is in this response only.
+export interface CreatedUser<U> {
+  user: U;
+  invitation: PasswordResetLink;
 }
 
 // Payload de PATCH /api/users/:id. Al menos uno de los dos; la API responde
@@ -296,11 +308,11 @@ export interface PlatformTenantCreateInput {
 // de esa clínica.
 export type PlatformUser = TenantUser;
 
-// El rol no se manda: el operador crea ADMIN, y punto.
+// El rol no se manda: el operador crea ADMIN, y punto. No password either:
+// she gets an invitation, like any new user.
 export interface PlatformAdminCreateInput {
   email: string;
   name: string;
-  password: string;
 }
 
 export interface PlatformAuditEntry {
@@ -312,6 +324,8 @@ export interface PlatformAuditEntry {
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
   targetUser: { email: string; name: string | null } | null;
+  // The operator who acted.
+  operator: { name: string | null; email: string } | null;
   action: PlatformAction;
   // Codes only (#186): read with readAuditParams / describeAuditEntry.
   params: Record<string, unknown>;

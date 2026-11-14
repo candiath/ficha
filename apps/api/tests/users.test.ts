@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
@@ -40,7 +41,7 @@ describe('requireRole + /api/users', () => {
       await request(app)
         .post(USERS)
         .set('Authorization', `Bearer ${therapistToken}`)
-        .send({ email: clinicA.email('intruso'), name: 'Intruso', password: 'clave-larga-123' }),
+        .send({ email: clinicA.email('intruso'), name: 'Intruso' }),
       await request(app)
         .patch(`${USERS}/${admin.id}`)
         .set('Authorization', `Bearer ${therapistToken}`)
@@ -77,11 +78,12 @@ describe('requireRole + /api/users', () => {
     const res = await request(app)
       .post(USERS)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ email, name: 'Nueva Fisio', password: 'clave-larga-123' });
+      .send({ email, name: 'Nueva Fisio' });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.role).toBe('THERAPIST');
-    expect(res.body.data.isActive).toBe(true);
+    expect(res.body.data.user.role).toBe('THERAPIST');
+    expect(res.body.data.user.isActive).toBe(true);
+    expect(res.headers['cache-control']).toBe('no-store');
 
     // El tenant sale del contexto del ADMIN, no del body: nadie puede crear
     // usuarios en otra clínica por más que lo intente.
@@ -93,19 +95,59 @@ describe('requireRole + /api/users', () => {
     const res = await request(app)
       .post(USERS)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ email: therapist.email, name: 'Duplicada', password: 'clave-larga-123' });
+      .send({ email: therapist.email, name: 'Duplicada' });
 
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ error: 'Ya existe un usuario con ese email' });
   });
 
-  it('una contraseña que no cumple la política responde 400', async () => {
+  // Nobody but her chooses her password (area 2 review, M2): the creator
+  // gets an invitation link, and a password in the body is refused.
+  it('refuses a password in the body: the new user sets her own', async () => {
     const res = await request(app)
       .post(USERS)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ email: clinicA.email('rechazada'), name: 'Rechazada', password: 'corta' });
+      .send({ email: clinicA.email('con-clave'), name: 'Con Clave', password: 'clave-larga-123' });
 
     expect(res.status).toBe(400);
+    expect(await prisma.user.findUnique({ where: { email: clinicA.email('con-clave') } })).toBeNull();
+  });
+
+  it('the new user cannot log in until she sets her password with the invitation', async () => {
+    const email = clinicA.email('invitada');
+    const created = await request(app)
+      .post(USERS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('User-Agent', 'navegador-de-la-admin')
+      .send({ email, name: 'Invitada' });
+    expect(created.status).toBe(201);
+    expect(Object.keys(created.body.data).sort()).toEqual(['invitation', 'user']);
+    expect(Object.keys(created.body.data.invitation).sort()).toEqual(['expiresAt', 'token']);
+    const { token, expiresAt } = created.body.data.invitation as { token: string; expiresAt: string };
+    expect(created.body.data.user.passwordResetExpiresAt).toBe(expiresAt);
+
+    // The link keeps who created it and from where: the trace #186 will read
+    // if the ADMIN uses it herself.
+    const link = await prisma.passwordResetToken.findFirstOrThrow({ where: { user: { email } } });
+    expect(link).toMatchObject({
+      createdByUserId: admin.id,
+      createdByOperatorId: null,
+      createdUserAgent: 'navegador-de-la-admin',
+    });
+    expect(link.createdIp).not.toBeNull();
+    // Her stored hash is a real bcrypt hash of the login's cost, so the login
+    // takes as long for a pending account as for any other (#71).
+    const { passwordHash } = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(bcrypt.getRounds(passwordHash)).toBe(10);
+
+    const login = (password: string) =>
+      request(app).post('/api/auth/login').set('X-Forwarded-For', '10.9.0.1').send({ email, password });
+
+    const reset = await request(app)
+      .post('/api/auth/password-reset')
+      .send({ token, newPassword: 'mi-clave-propia' });
+    expect(reset.status).toBe(204);
+    expect((await login('mi-clave-propia')).status).toBe(200);
   });
 
   it('un ADMIN no puede desactivar su propia cuenta', async () => {

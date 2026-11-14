@@ -31,6 +31,10 @@ export default function AppointmentDetailDialog({
 }) {
   const queryClient = useQueryClient();
   const [registrando, setRegistrando] = useState(false);
+  // A cancelled or missed appointment becomes attended when its session is
+  // registered: asked first, naming the patient, so a session about to go on
+  // the wrong appointment can still be stopped (#312).
+  const [confirmandoAsistencia, setConfirmandoAsistencia] = useState(false);
   const [verMotivo, setVerMotivo] = useState(false);
 
   // The agenda's range carries no notes and no complaint (#186,
@@ -158,11 +162,36 @@ export default function AppointmentDetailDialog({
                 <FileText className="h-4 w-4 shrink-0" />
                 La sesión de este turno ya está registrada.
               </p>
+            ) : confirmandoAsistencia ? (
+              <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm space-y-3 dark:border-amber-700 dark:bg-amber-950">
+                <p>
+                  Este turno figura como <strong>{APPOINTMENT_STATUS_LABELS[a.status].toLowerCase()}</strong>. Si
+                  registrás la sesión de <strong>{a.patientName}</strong>, el turno se marcará como atendido.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setConfirmandoAsistencia(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setConfirmandoAsistencia(false);
+                      setRegistrando(true);
+                    }}
+                  >
+                    Sí, registrar la sesión
+                  </Button>
+                </div>
+              </div>
             ) : (
               <Button
                 className="w-full"
                 disabled={pendiente}
-                onClick={() => setRegistrando(true)}
+                onClick={() =>
+                  a.status === 'CANCELLED' || a.status === 'NO_SHOW'
+                    ? setConfirmandoAsistencia(true)
+                    : setRegistrando(true)
+                }
               >
                 <FileText className="h-4 w-4 mr-2" />
                 Vino: registrar la sesión

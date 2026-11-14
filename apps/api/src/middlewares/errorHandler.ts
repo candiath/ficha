@@ -32,7 +32,7 @@ const CLIENT_ERROR_MESSAGES = new Map<unknown, string>([
 // por eso no necesitamos try/catch en cada handler.
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   // next es requerido por Express para reconocer la firma como error handler
   _next: NextFunction,
@@ -68,11 +68,44 @@ export function errorHandler(
   // validar — se responde lo mismo que idParam (no existe) y se loguea fuerte
   // para que aparezca, en vez de esconderlo detrás de un 500 genérico.
   if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2023') {
-    console.error('[ids] id malformado llegó a la base sin validar:', err.message);
+    console.error('[ids] id malformado llegó a la base sin validar:', prismaErrorSummary(err, req));
     res.status(404).json({ error: 'No encontrado' });
+    return;
+  }
+
+  if (isPrismaError(err)) {
+    console.error('[db]', prismaErrorSummary(err, req));
+    res.status(500).json({ error: 'Error interno del servidor' });
     return;
   }
 
   console.error(err);
   res.status(500).json({ error: 'Error interno del servidor' });
+}
+
+// A Prisma error's message is not safe to log: a validation error prints the
+// call's arguments, and a request error carries Postgres's detail, which for a
+// constraint violation is the failing row. Either can hold clinical text (a
+// session's observations, a revision's note). So a Prisma error is logged by
+// its kind, code, model and route only (SPEC-clinical-revisions.md §11).
+function isPrismaError(err: unknown): err is Error {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError ||
+    err instanceof Prisma.PrismaClientUnknownRequestError ||
+    err instanceof Prisma.PrismaClientValidationError ||
+    err instanceof Prisma.PrismaClientRustPanicError
+  );
+}
+
+function prismaErrorSummary(err: Error, req: Request) {
+  const known = err instanceof Prisma.PrismaClientKnownRequestError ? err : undefined;
+  const model = known?.meta?.modelName;
+  const routePath = (req.route as { path?: unknown } | undefined)?.path;
+  return {
+    name: err.name,
+    code: known?.code,
+    model: typeof model === 'string' ? model : undefined,
+    // The route's pattern, not the URL: ids stay out of the log too.
+    route: req.method ? `${req.method} ${req.baseUrl ?? ''}${typeof routePath === 'string' ? routePath : ''}` : undefined,
+  };
 }

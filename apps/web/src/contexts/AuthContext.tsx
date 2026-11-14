@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getToken, setToken, UNAUTHORIZED_EVENT } from '@/lib/api';
+import { getToken, setToken, TOKEN_KEY, UNAUTHORIZED_EVENT } from '@/lib/api';
+import { useVersionSkew, VersionSkewError } from '@/lib/buildVersion';
 import { authApi } from '@/services/auth';
 import type { AuthUser } from '@ficha/shared';
 
@@ -35,25 +36,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // en cada recarga para usuarios logueados).
   const [isLoading, setIsLoading] = useState(() => getToken() !== null);
 
+  // While the web is out of step with the API, /me is refused
+  // (lib/buildVersion.ts) and says nothing about the session: it stays loading
+  // behind the notice, and /me is asked again once the two agree. Otherwise an
+  // API deploy that finishes by itself would leave the user on the login page.
+  const versionSkewed = useVersionSkew() !== null;
+
+  // Bumped when another tab changes the token, so the effect below runs
+  // again (and cancels a /me still in flight for the previous token) even if
+  // it was already loading.
+  const [tokenChanges, setTokenChanges] = useState(0);
+
   useEffect(() => {
-    if (!getToken()) return;
+    if (!isLoading || versionSkewed || !getToken()) return;
     let cancelled = false;
+    const sent = getToken();
     authApi
       .me()
       .then((u) => {
-        if (!cancelled) setUser(u);
+        // An answer for a token that is no longer this tab's is not its user.
+        if (cancelled || getToken() !== sent) return;
+        setUser(u);
+        setIsLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        if (cancelled || err instanceof VersionSkewError) return;
         // Token vencido o inválido: el cliente HTTP ya lo limpió.
-        if (!cancelled) setUser(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        setUser(null);
+        setIsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isLoading, versionSkewed, tokenChanges]);
 
   // Cuando cualquier request devuelve 401, el cliente HTTP limpia el token
   // y dispara este evento; acá solo se refleja en el estado de React para
@@ -63,6 +78,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
+
+  // A login or logout in another tab changes the token this tab sends. This
+  // tab then forgets what it showed and who it showed it as, and reads the
+  // new user (or none): otherwise it would keep one user's name and records
+  // on screen while writing as another.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== localStorage || (e.key !== TOKEN_KEY && e.key !== null)) return;
+      queryClient.clear();
+      setUser(null);
+      setIsLoading(getToken() !== null);
+      setTokenChanges((n) => n + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string, trustDevice = false) => {
     const { token, user: loggedUser } = await authApi.login(email, password, trustDevice);

@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useBeforeUnload, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
+import { useUnsavedChanges } from '@/lib/unsavedChanges';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,8 +24,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DirtyLabel } from '@/components/ui/dirty-label';
+import AbandonEpisodeConfirm from '@/components/patients/AbandonEpisodeConfirm';
 import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
+import RevisionReasonField from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit';
 import ConsentTab from '@/components/patients/ConsentTab';
 import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
@@ -45,13 +51,15 @@ import {
 } from '@/lib/labels';
 import type { BodyMarker } from '@/types/evaluation';
 import { blockFor, type Session } from '@/types/session';
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
+import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot, renderSessionSnapshot } from '@/lib/revisionRows';
+import { revisionPaths } from '@/services/revisions';
 
 const evalSchema = z.object({
   occupation: z.string(),
   patientNarrative: z.string(),
   otherHistory: z.string(),
   notes: z.string(),
-  flexibilityNotes: z.string(),
   physicalActivity: z.string(),
   painFrequency: z.string(),
   evaScale: z.string().optional().or(z.literal('')),
@@ -199,10 +207,16 @@ function EpisodeCombobox({
   );
 }
 
-function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; onUnsavedChangesChange?: (v: boolean) => void }) {
+// The patient's occupation is edited here too, so the tab carries her version.
+function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; patientVersion?: number; onUnsavedChangesChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
   const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
   const [retractionMapDirty, setRetractionMapDirty] = useState(false);
+  // A correction says why (SPEC-clinical-revisions.md §4); the first
+  // evaluation does not, unless it also corrects the patient's occupation.
+  const revision = useRevisionReason();
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: evaluation, isLoading } = useQuery({
     queryKey: evaluationKeys.detail(patientId, episodeId),
@@ -216,7 +230,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
       patientNarrative: '',
       otherHistory: '',
       notes: '',
-      flexibilityNotes: '',
       physicalActivity: '',
       painFrequency: '',
       evaScale: '',
@@ -228,13 +241,13 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
   useEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onUnsavedChangesChange]);
+  // Gone with the form: a tab switch or a discard unmounts it, and nothing is
+  // left to ask about.
+  useEffect(() => () => onUnsavedChangesChange?.(false), [onUnsavedChangesChange]);
 
-  // Advertir al cerrar/recargar el browser
-  useBeforeUnload(
-    useCallback((e) => {
-      if (hasUnsavedChanges) e.preventDefault();
-    }, [hasUnsavedChanges]),
-  );
+  // Advertir al cerrar/recargar el browser, y al aviso de versión nueva
+  // (lib/unsavedChanges.ts).
+  useUnsavedChanges(hasUnsavedChanges);
 
   // Pre-fill when data loads (evaluation may be null on first visit)
   useEffect(() => {
@@ -248,7 +261,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
         patientNarrative: evaluation.patientNarrative ?? '',
         otherHistory: evaluation.otherHistory ?? '',
         notes: evaluation.notes ?? '',
-        flexibilityNotes: evaluation.flexibilityNotes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
         painFrequency: evaluation.painFrequency ?? '',
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
@@ -261,28 +273,54 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
 
   const mutation = useMutation({
     mutationFn: async (values: EvalFormValues) => {
-      const evalPromise = evaluationApi.upsert(patientId, episodeId, {
+      // Over the versions on screen: the first evaluation is version 0. Two
+      // requests, as before: if the second is refused, the first one stays.
+      const saved = await evaluationApi.upsert(patientId, episodeId, {
         patientNarrative: values.patientNarrative,
         otherHistory: values.otherHistory,
         notes: values.notes,
         retractionMap: retractionMap.length > 0 ? retractionMap : null,
-        flexibilityNotes: values.flexibilityNotes,
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
+        expectedVersion: evaluation?.version ?? 0,
+        ...(evaluation ? { reason: revision.reason ?? undefined, reasonNote: revision.note } : {}),
       });
       if (values.occupation !== (occupation ?? '')) {
-        await patientApi.update(patientId, { occupation: values.occupation });
+        await patientApi.update(patientId, {
+          occupation: values.occupation,
+          expectedVersion: patientVersion,
+          reason: revision.reason ?? undefined,
+          reasonNote: revision.note,
+        });
       }
-      return evalPromise;
+      return saved;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
       setRetractionMapDirty(false);
+      revision.reset();
       toast.success('Evaluación guardada');
     },
+    onError: (err: Error) => {
+      if (isStaleEdit(err)) {
+        setStaleMessage(err.message);
+        return;
+      }
+      toast.error(err.message || 'No se pudo guardar la evaluación');
+    },
   });
+
+  // After a 409: the evaluation and the patient as they are now replace the form.
+  async function reload() {
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) }),
+      queryClient.refetchQueries({ queryKey: patientKeys.detail(patientId), exact: true }),
+    ]);
+    setStaleMessage(null);
+  }
+  const correcting = !!evaluation || !!dirtyFields.occupation;
 
   if (isLoading) {
     return <div className="py-8 text-sm text-muted-foreground">Cargando...</div>;
@@ -293,10 +331,28 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
       {/* The patient's history: hers, not the episode's, with its own saves. */}
       <PatientHistoryCard patientId={patientId} />
       <Form {...form}>
-        <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))}>
+        <form
+          onSubmit={form.handleSubmit((v) => {
+            if (correcting && !revision.require()) return;
+            mutation.mutate(v);
+          })}
+        >
           <Card>
             <CardHeader className="pb-4">
-              <CardTitle className="text-base">Evaluación inicial</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Evaluación inicial</CardTitle>
+                {evaluation && <RevisionHistoryButton onClick={() => setHistoryOpen(true)} />}
+              </div>
+              {evaluation && (
+                <RevisionHistoryDialog
+                  open={historyOpen}
+                  onOpenChange={setHistoryOpen}
+                  patientId={patientId}
+                  base={revisionPaths.evaluation(patientId, episodeId)}
+                  title="Historial de la evaluación inicial"
+                  render={renderEvaluationSnapshot}
+                />
+              )}
               {evaluation && (
                 <p className="text-xs text-muted-foreground">
                   Última actualización:{' '}
@@ -417,28 +473,6 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                 />
               </div>
 
-              {/* Notas de flexibilidad y acortamientos */}
-              <FormField
-                control={form.control}
-                name="flexibilityNotes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel><DirtyLabel label="Test de flexibilidad / acortamientos" dirty={dirtyFields.flexibilityNotes} /></FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Isquiotibiales, psoas, trapecio superior..."
-                        className="resize-none"
-                        rows={2}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-
-
               <Separator />
 
               {/* Mapa corporal */}
@@ -480,6 +514,10 @@ function EvaluationTab({ patientId, episodeId, occupation, onUnsavedChangesChang
                   </FormItem>
                 )}
               />
+              {correcting && <RevisionReasonField {...revision.fieldProps} />}
+              {staleMessage && (
+                <StaleRecordNotice message={staleMessage} reloading={false} onReload={() => void reload()} />
+              )}
               <div className="flex justify-end pt-2">
                 <TooltipProvider>
                   <Tooltip>
@@ -526,6 +564,8 @@ function SessionsTab({
   const [newOpen, setNewOpen] = useState(false);
   const [closedWarning, setClosedWarning] = useState(false);
   const [selected, setSelected] = useState<Session | null>(null);
+  // An annulled session opens its history: it is read, never edited.
+  const [historyOf, setHistoryOf] = useState<Session | null>(null);
   const [page, setPage] = useState(0);
 
   const { data: sessions = [], isLoading } = useQuery({
@@ -542,17 +582,29 @@ function SessionsTab({
     episodes.find((ep) => ep.id === id)?.mainComplaint || 'Otro motivo';
 
   const reopenMutation = useMutation({
-    mutationFn: () => episodeApi.update(patientId, episodeId, { status: 'ACTIVE', closedAt: null }),
+    mutationFn: () =>
+      episodeApi.update(patientId, episodeId, {
+        status: 'ACTIVE',
+        closedAt: null,
+        expectedVersion: episodes.find((ep) => ep.id === episodeId)?.version,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) });
       toast.success('Episodio reabierto');
       setClosedWarning(false);
       setNewOpen(true);
     },
-    onError: () => toast.error('No se pudo reabrir el episodio'),
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo reabrir el episodio');
+      if (isStaleEdit(err)) queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) });
+    },
   });
 
-  const dischargeSession = sessions.find((s) => s.sessionType === 'DISCHARGE') ?? null;
+  // The record lists annulled sessions struck through (SPEC-clinical-revisions.md
+  // §8); they count in nothing: not the total, the numbering or the discharge.
+  const current = sessions.filter((s) => !s.annulledAt);
+  const annulledCount = sessions.length - current.length;
+  const dischargeSession = current.find((s) => s.sessionType === 'DISCHARGE') ?? null;
   const dischargeDate = dischargeSession
     ? new Date(dischargeSession.sessionDate).toLocaleDateString('es-AR', {
         day: '2-digit',
@@ -582,9 +634,10 @@ function SessionsTab({
       {/* Header de sección */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">
-          {sessions.length === 0
+          {current.length === 0
             ? 'Sin sesiones registradas'
-            : `${sessions.length} sesión${sessions.length !== 1 ? 'es' : ''}`}
+            : `${current.length} ${current.length === 1 ? 'sesión' : 'sesiones'}`}
+          {annulledCount > 0 && ` · ${annulledCount} anulada${annulledCount !== 1 ? 's' : ''}`}
         </p>
         <Button size="sm" onClick={handleNewSession}>
           <Plus className="h-4 w-4 mr-1" />
@@ -656,7 +709,7 @@ function SessionsTab({
         <>
         <div className="space-y-3">
           {sessions.slice(page * SESSIONS_PAGE_SIZE, (page + 1) * SESSIONS_PAGE_SIZE).map((session) => {
-            const globalIdx = sessions.indexOf(session);
+            const annulled = session.annulledAt !== null;
             const date = new Date(session.sessionDate);
             const formattedDate = date.toLocaleDateString('es-AR', {
               weekday: 'short',
@@ -665,32 +718,37 @@ function SessionsTab({
               year: 'numeric',
               timeZone: 'UTC',
             });
-            const sessionNumber = sessions.length - globalIdx;
+            // Numbered among the current ones; an annulled session has none.
+            const sessionNumber = annulled ? null : current.length - current.indexOf(session);
             // This episode's block: the pain of a visit that treated several
             // problems is the pain of each one.
             const block = blockFor(session, episodeId);
+            // An annulled session shows no clinical content in the list: it may
+            // have been entered on the wrong patient. Its content is one click
+            // away, in its history (review of #292).
             const hasPain =
-              !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
-            const otherEpisodes = session.episodes.filter((b) => b.episodeId !== episodeId);
+              !annulled && !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
+            const otherEpisodes = annulled ? [] : session.episodes.filter((b) => b.episodeId !== episodeId);
             // This episode's treatment; a note shows its own text.
-            const preview = block?.treatment ?? session.observations;
+            const preview = annulled ? null : (block?.treatment ?? session.observations);
 
             return (
               <button
                 key={session.id}
                 type="button"
                 className="w-full text-left"
-                onClick={() => setSelected(session)}
+                onClick={() => (annulled ? setHistoryOf(session) : setSelected(session))}
+                aria-label={annulled ? `Sesión anulada del ${formattedDate}: ver historial` : undefined}
               >
-                <Card className="hover:bg-muted/40 transition-colors cursor-pointer">
+                <Card className={`hover:bg-muted/40 transition-colors cursor-pointer ${annulled ? 'opacity-60' : ''}`}>
                   <CardContent className="py-4 px-5">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3 min-w-0">
                         {/* Número de sesión */}
                         <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                          {sessionNumber}
+                          {sessionNumber ?? '–'}
                         </span>
-                        <div className="min-w-0">
+                        <div className={`min-w-0 ${annulled ? 'line-through' : ''}`}>
                           <p className="text-sm font-medium capitalize">{formattedDate}</p>
                           {/* Preview del tratamiento */}
                           {preview && (
@@ -721,6 +779,7 @@ function SessionsTab({
                           </span>
                         )}
                         <SessionTypeBadge type={session.sessionType} />
+                        {annulled && <Badge variant="destructive">Anulada</Badge>}
                       </div>
                     </div>
                   </CardContent>
@@ -782,6 +841,18 @@ function SessionsTab({
           session={selected}
         />
       )}
+
+      {historyOf && (
+        <RevisionHistoryDialog
+          open
+          onOpenChange={(o) => !o && setHistoryOf(null)}
+          patientId={patientId}
+          base={revisionPaths.session(patientId, historyOf.id)}
+          title="Historial de la sesión anulada"
+          render={renderSessionSnapshot}
+          renderContext={{ episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio' }}
+        />
+      )}
     </>
   );
 }
@@ -799,6 +870,8 @@ export default function PatientDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
+  // Whose history is open: the patient's data, or the selected episode's.
+  const [history, setHistory] = useState<'patient' | 'episode' | null>(null);
   const [activeTab, setActiveTab] = useState('resumen');
   const [evalHasChanges, setEvalHasChanges] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -807,6 +880,13 @@ export default function PatientDetailPage() {
   const [newEpisodeComplaint, setNewEpisodeComplaint] = useState('');
   const [editEpisodeOpen, setEditEpisodeOpen] = useState(false);
   const [editEpisodeComplaint, setEditEpisodeComplaint] = useState('');
+  // The version the complaint on screen was read from, kept with it: a refetch
+  // while the dialog is open (on window focus, say) must not save that text over
+  // a newer version without a 409.
+  const [editEpisodeVersion, setEditEpisodeVersion] = useState(0);
+  // Correcting the complaint says why; closing and reopening do not.
+  const episodeRevision = useRevisionReason();
+  const [episodeStale, setEpisodeStale] = useState<string | null>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
   // cierra el episodio en la misma transacción. Por eso se abre el mismo modal
@@ -835,6 +915,24 @@ export default function PatientDetailPage() {
     (episodes.find((e) => e.status === 'ACTIVE') ?? episodes[0])?.id ??
     null;
 
+  // Unsaved evaluation text belongs to the episode on screen: whatever would
+  // change the episode, the tab or the page asks first (the evaluation form is
+  // keyed by episode, so a switch discards it).
+  function guardEval(action: () => void) {
+    if (evalHasChanges && activeTab === 'evaluacion') {
+      setPendingAction(() => action);
+    } else {
+      action();
+    }
+  }
+
+  // Once there is unsaved text, the episode it was typed for is pinned: a
+  // refetch that changes the first active episode must not swap the form.
+  function handleEvalDirty(dirty: boolean) {
+    setEvalHasChanges(dirty);
+    if (dirty) setActiveEpisodeId((current) => current ?? effectiveEpisodeId);
+  }
+
   const createEpisodeMutation = useMutation({
     mutationFn: (complaint: string) =>
       episodeApi.create(id!, { mainComplaint: complaint }),
@@ -846,15 +944,38 @@ export default function PatientDetailPage() {
     },
   });
 
+  const editedEpisode = episodes.find((e) => e.id === effectiveEpisodeId);
+  // Each write carries the version it was decided on; a 409 shows the message
+  // and offers a reload.
   const updateEpisodeMutation = useMutation({
-    mutationFn: (data: EpisodeUpdateData) =>
-      episodeApi.update(id!, effectiveEpisodeId!, data),
+    mutationFn: (data: EpisodeUpdateData) => episodeApi.update(id!, effectiveEpisodeId!, data),
+    onError: (err: Error) => {
+      if (isStaleEdit(err)) {
+        setEpisodeStale(err.message);
+        return;
+      }
+      toast.error(err.message || 'No se pudo guardar el episodio');
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
       setEditEpisodeOpen(false);
+      setEpisodeStale(null);
+      episodeRevision.reset();
       setConfirmAbandon(false);
     },
   });
+  // Over the version the text was read from, not the list's latest. Reopening
+  // goes over the list's latest: it acts on the status on screen, which is live.
+  const saveEpisodeComplaint = () => {
+    const reason = episodeRevision.require();
+    if (!reason) return;
+    updateEpisodeMutation.mutate({
+      mainComplaint: editEpisodeComplaint,
+      reason,
+      reasonNote: episodeRevision.note,
+      expectedVersion: editEpisodeVersion,
+    });
+  };
 
   useEffect(() => { document.title = TAB_COMPONENT[activeTab] ?? 'PatientDetailPage'; }, [activeTab]);
 
@@ -876,13 +997,7 @@ export default function PatientDetailPage() {
         variant="ghost"
         size="sm"
         className="-ml-3 mb-4 text-muted-foreground"
-        onClick={() => {
-          if (evalHasChanges) {
-            setPendingAction(() => () => navigate('/patients'));
-          } else {
-            navigate('/patients');
-          }
-        }}
+        onClick={() => guardEval(() => navigate('/patients'))}
       >
         <ArrowLeft className="h-4 w-4 mr-1" />
         Pacientes
@@ -947,8 +1062,10 @@ export default function PatientDetailPage() {
           <EpisodeCombobox
             episodes={episodes}
             selectedId={effectiveEpisodeId}
-            onSelect={setActiveEpisodeId}
-            onNewEpisode={() => setNewEpisodeOpen(true)}
+            onSelect={(episodeId) => {
+              if (episodeId !== effectiveEpisodeId) guardEval(() => setActiveEpisodeId(episodeId));
+            }}
+            onNewEpisode={() => guardEval(() => setNewEpisodeOpen(true))}
           />
           {effectiveEpisodeId && (
             <button
@@ -956,7 +1073,12 @@ export default function PatientDetailPage() {
               title="Editar motivo del episodio"
               onClick={() => {
                 const ep = episodes.find((e) => e.id === effectiveEpisodeId);
+                // The selection is pinned, so a refetch cannot move the dialog
+                // to another episode.
+                setActiveEpisodeId(effectiveEpisodeId);
                 setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                setEditEpisodeVersion(ep?.version ?? 0);
+                episodeRevision.reset();
                 setConfirmAbandon(false);
                 setEditEpisodeOpen(true);
               }}
@@ -965,13 +1087,14 @@ export default function PatientDetailPage() {
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
+          {effectiveEpisodeId && <RevisionHistoryButton onClick={() => setHistory('episode')} />}
           {effectiveEpisodeId && episodes.find((e) => e.id === effectiveEpisodeId)?.status !== 'ACTIVE' && (
             <span className="text-xs text-muted-foreground">
               Episodio cerrado.{' '}
               <button
                 type="button"
                 className="text-primary underline-offset-2 hover:underline"
-                onClick={() => setNewEpisodeOpen(true)}
+                onClick={() => guardEval(() => setNewEpisodeOpen(true))}
               >
                 ¿Nueva consulta?
               </button>
@@ -981,13 +1104,7 @@ export default function PatientDetailPage() {
       )}
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(tab) => {
-        if (evalHasChanges && activeTab === 'evaluacion') {
-          setPendingAction(() => () => setActiveTab(tab));
-        } else {
-          setActiveTab(tab);
-        }
-      }}>
+      <Tabs value={activeTab} onValueChange={(tab) => guardEval(() => setActiveTab(tab))}>
         <TabsList variant="line">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
@@ -1001,7 +1118,10 @@ export default function PatientDetailPage() {
         <TabsContent value="resumen" className="mt-6">
           <Card>
             <CardHeader className="pb-4">
-              <CardTitle className="text-base">Datos personales</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Datos personales</CardTitle>
+                <RevisionHistoryButton onClick={() => setHistory('patient')} />
+              </div>
             </CardHeader>
             <CardContent>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
@@ -1042,10 +1162,14 @@ export default function PatientDetailPage() {
         <TabsContent value="evaluacion" className="mt-6">
           {effectiveEpisodeId ? (
             <EvaluationTab
+              // A new form per episode: one with no evaluation yet must not
+              // keep the previous episode's fields (they would be saved on it).
+              key={effectiveEpisodeId}
               patientId={id!}
               episodeId={effectiveEpisodeId}
               occupation={patient.occupation}
-              onUnsavedChangesChange={setEvalHasChanges}
+              patientVersion={patient.version}
+              onUnsavedChangesChange={handleEvalDirty}
             />
           ) : (
             <div className="py-12 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
@@ -1058,6 +1182,7 @@ export default function PatientDetailPage() {
         <TabsContent value="sesiones" className="mt-6">
           {effectiveEpisodeId ? (
             <SessionsTab
+              key={effectiveEpisodeId}
               patientId={id!}
               episodeId={effectiveEpisodeId}
               episodeStatus={episodes.find((e) => e.id === effectiveEpisodeId)?.status ?? 'ACTIVE'}
@@ -1113,30 +1238,20 @@ export default function PatientDetailPage() {
       </Dialog>
 
       {/* Dialog: Editar episodio (motivo + estado) */}
-      <Dialog open={editEpisodeOpen} onOpenChange={(o) => { setEditEpisodeOpen(o); setConfirmAbandon(false); }}>
+      <Dialog open={editEpisodeOpen} onOpenChange={(o) => { setEditEpisodeOpen(o); setConfirmAbandon(false); setEpisodeStale(null); }}>
         <DialogContent>
           {confirmAbandon ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>¿Marcar como abandonado?</DialogTitle>
-                <DialogDescription>
-                  El episodio se cerrará sin alta formal. El paciente no tiene sesiones de cierre registradas.
-                  Podrás reactivarlo en cualquier momento.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setConfirmAbandon(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => updateEpisodeMutation.mutate({ status: 'ABANDONED', closedAt: new Date().toISOString() })}
-                  disabled={updateEpisodeMutation.isPending}
-                >
-                  {updateEpisodeMutation.isPending ? 'Guardando...' : 'Confirmar abandono'}
-                </Button>
-              </DialogFooter>
-            </>
+            <AbandonEpisodeConfirm
+              patientId={id!}
+              episodeId={effectiveEpisodeId!}
+              episodeVersion={editedEpisode?.version ?? 0}
+              onCancel={() => setConfirmAbandon(false)}
+              onAbandoned={() => {
+                queryClient.invalidateQueries({ queryKey: episodeKeys.list(id!) });
+                setEditEpisodeOpen(false);
+                setConfirmAbandon(false);
+              }}
+            />
           ) : (
             <>
               <DialogHeader>
@@ -1152,11 +1267,28 @@ export default function PatientDetailPage() {
                   value={editEpisodeComplaint}
                   onChange={(e) => setEditEpisodeComplaint(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint });
+                    if (e.key === 'Enter') saveEpisodeComplaint();
                   }}
                   autoFocus
                 />
               </div>
+              <RevisionReasonField {...episodeRevision.fieldProps} />
+              {episodeStale && (
+                <StaleRecordNotice
+                  message={episodeStale}
+                  reloading={false}
+                  onReload={() => {
+                    void queryClient
+                      .fetchQuery({ queryKey: episodeKeys.list(id!), queryFn: () => episodeApi.list(id!), staleTime: 0 })
+                      .then((fresh) => {
+                        const ep = fresh.find((e) => e.id === effectiveEpisodeId);
+                        setEditEpisodeComplaint(ep?.mainComplaint ?? '');
+                        setEditEpisodeVersion(ep?.version ?? 0);
+                        setEpisodeStale(null);
+                      });
+                  }}
+                />
+              )}
               <DialogFooter className="flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
                 <div className="flex gap-2">
                   {episodes.find((e) => e.id === effectiveEpisodeId)?.status === 'ACTIVE' ? (
@@ -1197,7 +1329,9 @@ export default function PatientDetailPage() {
                     <Button
                       variant="ghost"
                       className="text-xs"
-                      onClick={() => updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null })}
+                      onClick={() =>
+                        updateEpisodeMutation.mutate({ status: 'ACTIVE', closedAt: null, expectedVersion: editedEpisode?.version })
+                      }
                       disabled={updateEpisodeMutation.isPending}
                     >
                       Reactivar episodio
@@ -1209,7 +1343,7 @@ export default function PatientDetailPage() {
                     Cancelar
                   </Button>
                   <Button
-                    onClick={() => updateEpisodeMutation.mutate({ mainComplaint: editEpisodeComplaint })}
+                    onClick={saveEpisodeComplaint}
                     disabled={updateEpisodeMutation.isPending}
                   >
                     {updateEpisodeMutation.isPending ? 'Guardando...' : 'Guardar'}
@@ -1228,6 +1362,25 @@ export default function PatientDetailPage() {
           patientId={id!}
           episodeId={effectiveEpisodeId}
           sessionType="DISCHARGE"
+        />
+      )}
+
+      <RevisionHistoryDialog
+        open={history === 'patient'}
+        onOpenChange={(o) => !o && setHistory(null)}
+        patientId={id!}
+        base={revisionPaths.patient(id!)}
+        title="Historial de los datos del paciente"
+        render={renderPatientSnapshot}
+      />
+      {effectiveEpisodeId && (
+        <RevisionHistoryDialog
+          open={history === 'episode'}
+          onOpenChange={(o) => !o && setHistory(null)}
+          patientId={id!}
+          base={revisionPaths.episode(id!, effectiveEpisodeId)}
+          title="Historial del episodio"
+          render={renderEpisodeSnapshot}
         />
       )}
 

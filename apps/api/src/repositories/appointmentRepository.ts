@@ -1,4 +1,6 @@
 import type { AppointmentStatus } from '@prisma/client';
+import type { AUDIT_APPOINTMENT_FIELDS } from '@ficha/shared';
+import type { AuditBuilder, AuditEntry } from './auditLogRepository';
 import type { TenantContext } from './types';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -53,6 +55,23 @@ export interface AppointmentUpdateInput {
   notes?: string | null;
 }
 
+export type AppointmentAuditField = keyof typeof AUDIT_APPOINTMENT_FIELDS;
+
+// What an update did, decided against the stored row: whether it cancelled the
+// appointment, and which other fields changed (the status among them, unless
+// that change was the cancellation).
+export interface AppointmentChange {
+  cancelled: boolean;
+  changedFields: [AppointmentAuditField, ...AppointmentAuditField[]] | null;
+}
+
+// The route turns the change into its audit entries: one per fact. Not called
+// when nothing changed: an update that changes nothing records nothing.
+export type AppointmentUpdateAudit = (
+  appointment: AppointmentDTO,
+  change: AppointmentChange,
+) => AuditEntry[];
+
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 export interface AppointmentRepository {
@@ -71,16 +90,26 @@ export interface AppointmentRepository {
   /**
    * Crea uno o varios turnos. Con más de un slot, todos comparten un
    * `seriesId` nuevo y se escriben en una transacción: una serie a medias
-   * sería peor que ninguna.
+   * sería peor que ninguna. One audit row per appointment, in the same
+   * transaction.
    */
-  create(ctx: TenantContext, input: AppointmentCreateInput): Promise<AppointmentDTO[]>;
+  create(
+    ctx: TenantContext,
+    input: AppointmentCreateInput,
+    audit: AuditBuilder<AppointmentDTO>,
+  ): Promise<AppointmentDTO[]>;
 
-  /** null si el turno no existe o es de otra clínica. */
+  /**
+   * null si el turno no existe o es de otra clínica. 'episode_not_found' if
+   * the episode sent is not one of the appointment's patient's: nothing is
+   * written.
+   */
   update(
     ctx: TenantContext,
     id: string,
     input: AppointmentUpdateInput,
-  ): Promise<AppointmentDTO | null>;
+    audit: AppointmentUpdateAudit,
+  ): Promise<AppointmentDTO | null | 'episode_not_found'>;
 
   /**
    * Cancela los turnos de una serie que todavía no ocurrieron.
@@ -92,7 +121,12 @@ export interface AppointmentRepository {
    * puede haber ocurrido y faltar registrarlo.
    *
    * Devuelve cuántos se cancelaron; 0 si la serie no existe o ya no queda
-   * nada por cancelar.
+   * nada por cancelar. One audit row per appointment cancelled.
    */
-  cancelSeriesFrom(ctx: TenantContext, seriesId: string, desde: Date): Promise<number>;
+  cancelSeriesFrom(
+    ctx: TenantContext,
+    seriesId: string,
+    desde: Date,
+    audit: AuditBuilder<{ id: string; patientId: string }>,
+  ): Promise<number>;
 }

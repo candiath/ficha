@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { IdSchema, OptionalTextSchema, requiredText } from '../lib/validation';
+import { CentsSchema, IdSchema, OptionalTextSchema, requiredText } from '../lib/validation';
 import { packageRepo, patientRepo } from '../repositories';
+import type { AuditEntry } from '../repositories/auditLogRepository';
 import { idParam } from '../middlewares/idParam';
 
 // Las queries viven en packageRepo (incluida la regla "no borrar un paquete
@@ -14,7 +15,7 @@ const PackageCreateSchema = z.object({
   patientId: IdSchema,
   name: requiredText(1, 'El paquete necesita un nombre'),
   totalSessions: z.number().int().min(1),
-  pricePerSession: z.number().positive(),
+  pricePerSessionCents: CentsSchema.min(1, 'El precio por sesión tiene que ser mayor a cero'),
   notes: OptionalTextSchema,
 });
 
@@ -39,13 +40,23 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const pkg = await packageRepo.create(req.context, body);
+  const pkg = await packageRepo.create(req.context, body, (p): AuditEntry => ({
+    action: 'PACKAGE_CREATED',
+    patientId: p.patientId,
+    entityId: p.id,
+    params: {},
+  }));
   res.status(201).json({ data: pkg });
 });
 
 // DELETE /api/packages/:id — solo si no tiene sesiones usadas
 router.delete('/:id', async (req, res) => {
-  const result = await packageRepo.deleteIfUnused(req.context, req.params.id);
+  const result = await packageRepo.deleteIfUnused(req.context, req.params.id, (p): AuditEntry => ({
+    action: 'PACKAGE_DELETED',
+    patientId: p.patientId,
+    entityId: p.id,
+    params: {},
+  }));
 
   if (result === 'not_found') {
     res.status(404).json({ error: 'Paquete no encontrado' });

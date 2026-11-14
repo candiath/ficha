@@ -66,7 +66,7 @@ export default function PlatformTenantDetailPage() {
   const queryClient = useQueryClient();
   const [createAdminOpen, setCreateAdminOpen] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
-  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink } | null>(
+  const [resetLink, setResetLink] = useState<{ name: string; link: PasswordResetLink; invitation?: boolean } | null>(
     null,
   );
 
@@ -156,7 +156,7 @@ export default function PlatformTenantDetailPage() {
       queryClient.invalidateQueries({ queryKey: platformKeys.users(tenantId) });
       queryClient.invalidateQueries({ queryKey: platformKeys.audit(tenantId) });
       setPending(null);
-      setResetLink({ name: u.name ?? u.email, link });
+      setResetLink({ name: u.name ?? u.email, link, invitation: u.lastLoginAt === null });
     },
     onError: (err: Error) => {
       toast.error(err.message || 'No se pudo generar el enlace');
@@ -172,7 +172,7 @@ export default function PlatformTenantDetailPage() {
 
   function onResetPassword(u: PlatformUser) {
     setPending({
-      ...passwordResetConfirmation(u.name ?? u.email),
+      ...passwordResetConfirmation(u.name ?? u.email, u.lastLoginAt === null),
       run: () => resetPassword.mutate(u),
     });
   }
@@ -404,13 +404,16 @@ export default function PlatformTenantDetailPage() {
                         affected comes from the row's target. */}
                     {a.targetUser && (
                       <span className="text-muted-foreground">
-                        {' · '}
+                        {' · a '}
                         <span>
                           {a.targetUser.name
                             ? `${a.targetUser.name} (${a.targetUser.email})`
                             : a.targetUser.email}
                         </span>
                       </span>
+                    )}
+                    {a.operator && (
+                      <span className="text-muted-foreground"> · por {a.operator.name || a.operator.email}</span>
                     )}
                   </span>
                 </li>
@@ -424,6 +427,7 @@ export default function PlatformTenantDetailPage() {
       <PasswordResetLinkDialog
         link={resetLink?.link ?? null}
         name={resetLink?.name ?? ''}
+        invitation={resetLink?.invitation}
         onClose={() => setResetLink(null)}
       />
 
@@ -431,7 +435,10 @@ export default function PlatformTenantDetailPage() {
         tenantId={tenantId}
         open={createAdminOpen}
         onClose={() => setCreateAdminOpen(false)}
-        onCreated={invalidateAll}
+        onCreated={(name, link) => {
+          invalidateAll();
+          setResetLink({ name, link, invitation: true });
+        }}
       />
 
       <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
@@ -463,7 +470,7 @@ function CreateAdminDialog({
   tenantId: string;
   open: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (name: string, invitation: PasswordResetLink) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -481,11 +488,10 @@ function CreateAdminForm({
 }: {
   tenantId: string;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (name: string, invitation: PasswordResetLink) => void;
 }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
 
   // Los mismos mínimos que la API; allá se validan igual.
   const error =
@@ -493,21 +499,17 @@ function CreateAdminForm({
       ? 'El nombre debe tener al menos 2 caracteres'
       : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
         ? 'Ingresá un email válido'
-        : password.length < 8
-          ? 'La contraseña debe tener al menos 8 caracteres'
-          : null;
+        : null;
 
   const mutation = useMutation({
     mutationFn: () =>
       platformTenantsApi.createAdmin(tenantId, {
         name,
         email,
-        password,
       }),
-    onSuccess: (user) => {
-      onCreated();
-      toast.success(`${user.email} ya puede entrar como ADMIN`);
+    onSuccess: ({ user, invitation }) => {
       onClose();
+      onCreated(user.name ?? user.email, invitation);
     },
     onError: (err: Error) => toast.error(err.message || 'No se pudo crear el ADMIN'),
   });
@@ -518,7 +520,7 @@ function CreateAdminForm({
         <DialogTitle>Crear ADMIN</DialogTitle>
         <DialogDescription>
           Quien administra la clínica: crea al resto del personal y edita la configuración.
-          Pasale la contraseña inicial por un canal seguro; la cambia desde Mi cuenta.
+          Al crearla recibís un enlace de invitación: con él elige su propia contraseña.
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4">
@@ -536,17 +538,7 @@ function CreateAdminForm({
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="pa-password">Contraseña inicial</Label>
-          <Input
-            id="pa-password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        {error && (name || email || password) && (
+        {error && (name || email) && (
           <p className="text-sm text-destructive">{error}</p>
         )}
       </div>

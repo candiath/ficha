@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // POST /api/patients/:id/sessions con payment: sesión, cobro y cierre de
 // episodios se crean en una sola transacción. Antes el frontend encadenaba
@@ -32,11 +33,11 @@ describe('creación atómica de sesión con pago', () => {
     userA = await clinicA.createUser();
     tokenA = await createTestToken(userA);
 
-    patientA = await prisma.patient.create({
-      data: { tenantId: clinicA.tenantId, fullName: 'Paciente Atómico' },
+    patientA = await fixture.patient.create({
+      data: { tenantId: clinicA.tenantId, firstName: 'Paciente', lastName: 'Atómico' },
       select: { id: true },
     });
-    episodeA = await prisma.clinicalEpisode.create({
+    episodeA = await fixture.clinicalEpisode.create({
       data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Lumbalgia' },
       select: { id: true },
     });
@@ -46,7 +47,7 @@ describe('creación atómica de sesión con pago', () => {
         patientId: patientA.id,
         name: 'Paquete atómico',
         totalSessions: 10,
-        pricePerSession: 100,
+        pricePerSessionCents: 100,
       },
       select: { id: true },
     });
@@ -69,7 +70,7 @@ describe('creación atómica de sesión con pago', () => {
   it('crea sesión + pago en un solo request', async () => {
     const res = await postSession({
       episodes: [{ episodeId: episodeA.id }],
-      payment: { packageId: packageA.id, baseAmount: 100, discount: 20, notes: 'seña' },
+      payment: { packageId: packageA.id, baseAmountCents: 100, discountCents: 20, notes: 'seña' },
     });
 
     expect(res.status).toBe(201);
@@ -77,30 +78,44 @@ describe('creación atómica de sesión con pago', () => {
 
     const payment = await prisma.payment.findUnique({
       where: { sessionId },
-      select: { patientId: true, packageId: true, finalAmount: true, status: true },
+      select: { patientId: true, packageId: true, finalAmountCents: true, status: true },
     });
     expect(payment).toMatchObject({
       patientId: patientA.id,
       packageId: packageA.id,
       status: 'PENDING',
     });
-    expect(Number(payment?.finalAmount)).toBe(80);
+    expect(Number(payment?.finalAmountCents)).toBe(80);
   });
 
   it('si algo falla dentro de la transacción no queda sesión huérfana', async () => {
     const before = await prisma.session.count({ where: { patientId: patientA.id } });
 
-    // Monto fuera del Decimal(10,2) de payments: pasa la validación de la ruta
-    // (solo exige nonnegative) y revienta al insertar el pago, ya con la sesión
-    // creada — el rollback debe llevarse las dos filas.
-    const res = await postSession({
-      episodes: [{ episodeId: episodeA.id }],
-      payment: { baseAmount: 99_999_999_999 },
-    });
+    // The payment's insert fails, with the session already created: the
+    // rollback must take both rows. Amounts in cents no longer overflow their
+    // column, so a trigger makes it fail, only for this test's marker (other
+    // test files share the database).
+    const marker = `fail-${patientA.id}`;
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION test_fail_payment() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'forced by sessionAtomicCreate.test.ts'; END $$`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_fail_payment BEFORE INSERT ON payments
+      FOR EACH ROW WHEN (NEW.notes = '${marker}') EXECUTE FUNCTION test_fail_payment()`);
 
-    expect(res.status).toBeGreaterThanOrEqual(500);
-    const after = await prisma.session.count({ where: { patientId: patientA.id } });
-    expect(after).toBe(before);
+    try {
+      const res = await postSession({
+        episodes: [{ episodeId: episodeA.id }],
+        payment: { baseAmountCents: 10_000, notes: marker },
+      });
+
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      const after = await prisma.session.count({ where: { patientId: patientA.id } });
+      expect(after).toBe(before);
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER test_fail_payment ON payments');
+      await prisma.$executeRawUnsafe('DROP FUNCTION test_fail_payment()');
+    }
   });
 
   it('un alta cierra el episodio en el mismo request', async () => {
@@ -118,5 +133,23 @@ describe('creación atómica de sesión con pago', () => {
     });
     expect(episode?.status).toBe('DISCHARGED');
     expect(episode?.closedAt).not.toBeNull();
+  });
+
+  it('a discharge of an episode that opens later is refused, and nothing is recorded', async () => {
+    const openedAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const episode = await fixture.clinicalEpisode.create({
+      data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Cervicalgia', openedAt },
+      select: { id: true },
+    });
+    const sessionsBefore = await prisma.session.count({ where: { patientId: patientA.id } });
+
+    const res = await postSession({ sessionType: 'DISCHARGE', episodes: [{ episodeId: episode.id }] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('El episodio abre más adelante: no se puede dar de alta antes de su apertura');
+    await expect(
+      prisma.clinicalEpisode.findUnique({ where: { id: episode.id }, select: { status: true, closedAt: true } }),
+    ).resolves.toEqual({ status: 'ACTIVE', closedAt: null });
+    await expect(prisma.session.count({ where: { patientId: patientA.id } })).resolves.toBe(sessionsBefore);
   });
 });

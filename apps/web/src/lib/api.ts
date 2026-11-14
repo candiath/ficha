@@ -7,7 +7,23 @@
 // plataforma no desloguea la clínica ni al revés — son dos logins distintos
 // contra dos secretos distintos, y acá también tienen que estar separados.
 
+import { BUILD_VERSION_HEADER, recordApiVersion, VersionSkewError } from '@/lib/buildVersion';
+import { recordServerTime, SERVER_TIME_HEADER } from '@/lib/serverClock';
+
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
+// A refused request: its message is the API's, for the user, and its body
+// carries whatever a screen needs to offer a way out.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
 
 interface ApiClientConfig {
   /** Clave de localStorage donde vive el token de esta sesión. */
@@ -44,6 +60,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
   async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const token = getToken();
+    const sentAt = Date.now();
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
@@ -52,16 +69,30 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         ...options?.headers,
       },
     });
+    recordServerTime(res.headers.get(SERVER_TIME_HEADER), sentAt, Date.now());
 
     // Token vencido/inválido o cuenta desactivada: la sesión ya no sirve.
-    if (res.status === 401 && !path.startsWith(config.loginPath)) {
+    // Only if it is still the token this request carried: another tab may have
+    // logged in meanwhile, and its session is not the one that ended.
+    if (res.status === 401 && !path.startsWith(config.loginPath) && getToken() === token) {
       setToken(null);
       window.dispatchEvent(new Event(config.unauthorizedEvent));
     }
 
+    // An API from another build may send data this web reads wrong (an old
+    // web would show annulled sessions as current), so a read is refused and
+    // the notice asks for a reload (lib/buildVersion.ts). A write already
+    // happened on the server: its response is let through, or the user would
+    // see an error for something that was saved, and the form would still
+    // count as unsaved.
+    const skewed = recordApiVersion(res.headers.get(BUILD_VERSION_HEADER));
+    if (skewed && (options?.method ?? 'GET') === 'GET') {
+      throw new VersionSkewError();
+    }
+
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error ?? `Error ${res.status}`);
+      throw new ApiError(body.error ?? `Error ${res.status}`, res.status, body);
     }
 
     if (res.status === 204) return undefined as T;
@@ -90,8 +121,13 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 // necesita conocer el router ni ningún contexto de React.
 export const UNAUTHORIZED_EVENT = 'ficha:unauthorized';
 
+// The localStorage keys of the two sessions: the auth contexts listen for
+// changes to them made in another tab.
+export const TOKEN_KEY = 'ficha_token';
+export const PLATFORM_TOKEN_KEY = 'ficha_platform_token';
+
 export const api = createApiClient({
-  tokenKey: 'ficha_token',
+  tokenKey: TOKEN_KEY,
   unauthorizedEvent: UNAUTHORIZED_EVENT,
   loginPath: '/api/auth/login',
 });
@@ -104,7 +140,22 @@ export const setToken = api.setToken;
 export const PLATFORM_UNAUTHORIZED_EVENT = 'ficha:platform-unauthorized';
 
 export const platformApi = createApiClient({
-  tokenKey: 'ficha_platform_token',
+  tokenKey: PLATFORM_TOKEN_KEY,
   unauthorizedEvent: PLATFORM_UNAUTHORIZED_EVENT,
   loginPath: '/api/platform/auth/login',
 });
+
+// ── Build version ────────────────────────────────────────────────────────────
+
+/**
+ * Asks the API for its build version again, outside any session: the notice
+ * that waits for an API deploy uses it to notice the deploy finished.
+ */
+export async function recheckApiVersion(): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/health`);
+    recordApiVersion(res.headers.get(BUILD_VERSION_HEADER));
+  } catch {
+    // The API is down mid-deploy: the next check will tell.
+  }
+}

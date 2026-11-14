@@ -1,14 +1,15 @@
 export type PaymentStatus = 'PENDING' | 'PAID' | 'WAIVED';
 export type PaymentMethod = 'CASH' | 'TRANSFER';
 
+// Amounts in integer cents (lib/money.ts).
 export interface Payment {
   id: string;
   patientId: string;
   sessionId: string;
   packageId: string | null;
-  baseAmount: number;
-  discount: number;
-  finalAmount: number;
+  baseAmountCents: number;
+  discountCents: number;
+  finalAmountCents: number;
   status: PaymentStatus;
   method: PaymentMethod | null;
   paidAt: string | null;
@@ -21,7 +22,7 @@ export interface Payment {
 }
 
 export interface LastBasePrice {
-  amount: number | null;
+  amountCents: number | null;
   date: string;
   isStale: boolean;
 }
@@ -32,7 +33,7 @@ export interface SessionPackage {
   patientName: string;
   name: string;
   totalSessions: number;
-  pricePerSession: number;
+  pricePerSessionCents: number;
   usedSessions: number;
   remainingSessions: number;
   notes: string | null;
@@ -40,8 +41,8 @@ export interface SessionPackage {
 }
 
 export interface PaymentUpdateData {
-  baseAmount?: number;
-  discount?: number;
+  baseAmountCents?: number;
+  discountCents?: number;
   status?: PaymentStatus;
   method?: PaymentMethod | null;
   paidAt?: string | null;
@@ -53,6 +54,6 @@ export interface SessionPackageFormData {
   patientId: string;
   name: string;
   totalSessions: number;
-  pricePerSession: number;
+  pricePerSessionCents: number;
   notes?: string | null;
 }

@@ -4,6 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
 
 // Hay un solo vacío en la API y es `null`. Un formulario web no tiene null:
 // tiene "". Hasta ahora esa traducción la hacía React, con un `.trim() || null`
@@ -41,7 +42,7 @@ describe('un solo vacío: "" entra como null', () => {
 
   async function crearPaciente(body: Record<string, unknown> = {}) {
     const res = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente de Prueba',
+      firstName: 'Paciente de', lastName: 'Prueba',
       ...body,
     });
     expect(res.status).toBe(201);
@@ -74,6 +75,7 @@ describe('un solo vacío: "" entra como null', () => {
     const patient = await crearPaciente({ phone: '11-5555-0000', occupation: 'Docente' });
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       phone: '',
     });
 
@@ -87,6 +89,7 @@ describe('un solo vacío: "" entra como null', () => {
     const patient = await crearPaciente({ occupation: 'Docente' });
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
       occupation: null,
     });
 
@@ -96,14 +99,14 @@ describe('un solo vacío: "" entra como null', () => {
   // ── Texto obligatorio ─────────────────────────────────────────────────────
 
   it('un nombre de solo espacios es 400, no un paciente sin nombre', async () => {
-    const res = await auth(request(app).post('/api/patients')).send({ fullName: '   ' });
+    const res = await auth(request(app).post('/api/patients')).send({ firstName: '   ', lastName: 'Test' });
 
     expect(res.status).toBe(400);
-    expect(res.body.details).toHaveProperty('fullName');
+    expect(res.body.details).toHaveProperty('firstName');
   });
 
   it('el nombre se guarda trimeado', async () => {
-    const patient = await crearPaciente({ fullName: '  Ana María Pérez  ' });
+    const patient = await crearPaciente({ firstName: 'Ana María', lastName: 'Pérez' });
     expect(patient.fullName).toBe('Ana María Pérez');
   });
 
@@ -116,7 +119,7 @@ describe('un solo vacío: "" entra como null', () => {
 
     // Lo que no es una fecha sigue siendo 400: "" es ausencia, "ayer" es error.
     const invalida = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente Fecha',
+      firstName: 'Paciente', lastName: 'Fecha',
       birthDate: 'ayer',
     });
     expect(invalida.status).toBe(400);
@@ -127,7 +130,7 @@ describe('un solo vacío: "" entra como null', () => {
     expect(patient.sex).toBeNull();
 
     const invalido = await auth(request(app).post('/api/patients')).send({
-      fullName: 'Paciente Sexo',
+      firstName: 'Paciente', lastName: 'Sexo',
       sex: 'NO_EXISTE',
     });
     expect(invalido.status).toBe(400);
@@ -155,7 +158,7 @@ describe('un solo vacío: "" entra como null', () => {
 
   it('el cobro embebido en el alta de sesión sigue la misma regla', async () => {
     const patient = await crearPaciente();
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
@@ -163,7 +166,7 @@ describe('un solo vacío: "" entra como null', () => {
     const res = await auth(request(app).post(`/api/patients/${patient.id}/sessions`)).send({
       sessionDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
-      payment: { packageId: '', baseAmount: 100, notes: '   ' },
+      payment: { packageId: '', baseAmountCents: 100, notes: '   ' },
     });
 
     expect(res.status).toBe(201);

@@ -1,3 +1,5 @@
+import type { RevisionMeta } from './patient';
+
 export type EpisodeStatus = 'ACTIVE' | 'DISCHARGED' | 'ABANDONED';
 
 export interface ClinicalEpisode {
@@ -9,6 +11,8 @@ export interface ClinicalEpisode {
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // The latest version (0: none yet).
+  version: number;
 }
 
 export interface EpisodeCreateData {
@@ -16,7 +20,8 @@ export interface EpisodeCreateData {
   openedAt?: string;
 }
 
-export interface EpisodeUpdateData {
+// A correction carries a reason; closing and reopening do not.
+export interface EpisodeUpdateData extends RevisionMeta {
   status?: EpisodeStatus;
   mainComplaint?: string | null;
   closedAt?: string | null;

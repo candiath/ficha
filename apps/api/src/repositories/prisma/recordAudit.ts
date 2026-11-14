@@ -26,13 +26,16 @@ export function assertAuditEntry(table: AuditTable, action: string, params: unkn
 // The entity comes from the catalog, never from the caller. `select` keeps the
 // INSERT's RETURNING to the id: a column this code does not read can be
 // dropped while it still serves.
+//
+// Returns the row's id, which a clinical revision points at
+// (SPEC-clinical-revisions.md §4).
 export async function recordAudit(
   tx: Prisma.TransactionClient,
   ctx: TenantContext,
   entry: AuditEntry,
-): Promise<void> {
+): Promise<string> {
   assertAuditEntry('audit_logs', entry.action, entry.params);
-  await tx.auditLog.create({
+  const { id } = await tx.auditLog.create({
     data: {
       tenantId: ctx.tenantId,
       patientId: entry.patientId,
@@ -45,5 +48,30 @@ export async function recordAudit(
       authSessionId: ctx.authSessionId,
     },
     select: { id: true },
+  });
+  return id;
+}
+
+// Several rows of one write in a single INSERT: a series of appointments is one
+// request and up to 52 rows, and a loop of inserts would eat the transaction's
+// timeout on a slow connection.
+export async function recordAudits(
+  tx: Prisma.TransactionClient,
+  ctx: TenantContext,
+  entries: readonly AuditEntry[],
+): Promise<void> {
+  for (const entry of entries) assertAuditEntry('audit_logs', entry.action, entry.params);
+  await tx.auditLog.createMany({
+    data: entries.map((entry) => ({
+      tenantId: ctx.tenantId,
+      patientId: entry.patientId,
+      entity: auditEntityOf('audit_logs', entry.action)!,
+      entityId: entry.entityId,
+      action: entry.action,
+      params: entry.params,
+      actorType: 'USER' as const,
+      userId: ctx.userId,
+      authSessionId: ctx.authSessionId,
+    })),
   });
 }

@@ -10,13 +10,13 @@ A manifest classifies every write route (`POST`, `PUT`, `PATCH`, `DELETE`) of th
 
 - **audited**: writes a row to a named table (`audit_logs`, `platform_audit_logs`, `login_events`, or a table a later module creates);
 - **exempt**: does not record an action, with the reason (e.g. the route writes nothing, or it only validates);
-- **debt**: no audit row yet, with the module id of the spec that will close it (`clinic-audit`, `account-audit`, `clinical-audit-coverage`, `security-events`).
+- **debt**: no audit row yet, with the module id of the spec that will close it (`clinic-audit`, `account-audit`, `security-events`).
 
 A test reads `apps/api/src/app.ts` and `apps/api/src/routes/*.ts`, extracts every write route with its full mount path, and compares the set against the manifest.
 
 ## Limits (stated, not checked)
 
-- **Writes on GET are out of the manifest.** `GET /api/alerts` and `/stats` create alerts through `refreshAlerts`. They belong to `clinical-audit-coverage` (the engine's rows, no actor), which must add them to the map's debt when it starts.
+- **Writes on GET are out of the manifest.** `GET /api/alerts` and `/stats` create alerts through `refreshAlerts`. They are not audited: alerts are notifications, not clinical facts (decided 2026-11-06, see the map).
 - **`audited` means the route writes its row, not that the table is named correctly.** The test does not read `recordAudit` calls; each module's tests do.
 - **Best-effort writes are `audited` too.** The successful login event is written fire-and-forget and errors are swallowed (`lib/loginGuard.ts`). `login_events` is listed as audited; `security-events` removes the gap.
 - **Debt is compared with the map by hand** at each PR that closes debt. The test does not parse `audit-map.md`.

@@ -4,6 +4,7 @@ import {
   createTestClinic,
   createTestOperator,
   deleteSysadminAlerts,
+  expectRestrictedDelete,
   type TestClinic,
   type TestOperator,
 } from './helpers';
@@ -175,9 +176,10 @@ describe('sysadmin alert tables', () => {
     try {
       await prisma.sysadminAlert.create({ data: { kind: 'TEST', operatorId: other.operator.id } });
 
-      await expect(
+      await expectRestrictedDelete(
         prisma.platformOperator.delete({ where: { id: other.operator.id } }),
-      ).rejects.toMatchObject({ code: 'P2003' });
+        'sysadmin_alerts_operator_id_fkey',
+      );
     } finally {
       await other.cleanup();
     }

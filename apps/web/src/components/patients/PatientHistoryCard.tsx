@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Ban, History, Pencil, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   elapsedSince,
@@ -16,7 +16,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -29,9 +28,21 @@ import { PATIENT_EVENT_KIND_LABELS } from '@/lib/labels';
 import { patientEventApi, patientEventKeys } from '@/services/patientEvents';
 import { tenantApi, tenantKeys } from '@/services/tenant';
 import { PATIENT_EVENT_KINDS, type PatientEvent, type PatientEventKind } from '@/types/patientEvent';
+import type { AnnulData } from '@/types/patient';
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField';
+import { useRevisionReason } from '@/hooks/useRevisionReason';
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit';
+import { ApiError } from '@/lib/api';
+import RevisionHistoryDialog from '@/components/patients/RevisionHistoryDialog';
+import AnnulDialog from '@/components/patients/AnnulDialog';
+import { renderPatientEventSnapshot } from '@/lib/revisionRows';
+import { revisionPaths } from '@/services/revisions';
 
 // The patient's history ("Antecedentes", #238): what she lived, as dated facts.
-// It belongs to the patient, so the same list shows from every episode.
+// It belongs to the patient, so the same list shows from every episode. An
+// event entered by mistake is annulled, not deleted: it stays, struck through,
+// with its history (SPEC-clinical-revisions.md §8).
 
 function useClinicToday(): string {
   const { data: tenant } = useQuery({ queryKey: tenantKeys.config, queryFn: tenantApi.get });
@@ -46,21 +57,31 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
   const queryClient = useQueryClient();
   const today = useClinicToday();
   const [editing, setEditing] = useState<PatientEvent | 'new' | null>(null);
-  const [deleting, setDeleting] = useState<PatientEvent | null>(null);
+  const [annulling, setAnnulling] = useState<PatientEvent | null>(null);
+  const [historyOf, setHistoryOf] = useState<PatientEvent | null>(null);
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, refetch } = useQuery({
     queryKey: patientEventKeys.list(patientId),
     queryFn: () => patientEventApi.list(patientId),
   });
 
-  const removeMutation = useMutation({
-    mutationFn: (id: string) => patientEventApi.remove(patientId, id),
+  const annulMutation = useMutation({
+    mutationFn: ({ id, reason, reasonNote }: { id: string } & AnnulData) =>
+      patientEventApi.annul(patientId, id, { reason, reasonNote }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
-      toast.success('Antecedente eliminado');
-      setDeleting(null);
+      toast.success('Antecedente anulado');
+      setAnnulling(null);
     },
-    onError: () => toast.error('No se pudo eliminar el antecedente'),
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo anular el antecedente');
+      // Annulled or gone meanwhile (404): the list shows what it is now, and
+      // there is nothing left to annul.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
+        setAnnulling(null);
+      }
+    },
   });
 
   return (
@@ -91,12 +112,19 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
           <ul className="divide-y">
             {events.map((event) => (
               <li key={event.id} className="flex items-start justify-between gap-3 py-2.5">
-                <div className="min-w-0 space-y-1">
+                <div className={`min-w-0 space-y-1 ${event.annulledAt ? 'opacity-60' : ''}`}>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="secondary">{PATIENT_EVENT_KIND_LABELS[event.kind]}</Badge>
+                    {event.annulledAt && <Badge variant="destructive">Anulado</Badge>}
                     <span className="text-xs text-muted-foreground">{describeWhen(event.occurred, today)}</span>
                   </div>
-                  <p className="text-sm">{event.description}</p>
+                  {/* An annulled event shows no description here: it may have
+                      been entered on the wrong patient. It is in its history. */}
+                  {event.annulledAt ? (
+                    <p className="text-sm text-muted-foreground">Anulado: el contenido está en su historial.</p>
+                  ) : (
+                    <p className="text-sm">{event.description}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button
@@ -104,21 +132,38 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8"
-                    aria-label="Editar antecedente"
-                    onClick={() => setEditing(event)}
+                    aria-label="Ver historial del antecedente"
+                    title="Ver historial"
+                    onClick={() => setHistoryOf(event)}
                   >
-                    <Pencil className="h-4 w-4" />
+                    <History className="h-4 w-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    aria-label="Eliminar antecedente"
-                    onClick={() => setDeleting(event)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {/* An annulled event is read, never edited: only its history. */}
+                  {!event.annulledAt && (
+                    <>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label="Editar antecedente"
+                        onClick={() => setEditing(event)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        aria-label="Anular antecedente"
+                        title="Anular"
+                        onClick={() => setAnnulling(event)}
+                      >
+                        <Ban className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </li>
             ))}
@@ -126,39 +171,45 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
         )}
       </CardContent>
 
+      {historyOf && (
+        <RevisionHistoryDialog
+          open
+          onOpenChange={(o) => !o && setHistoryOf(null)}
+          patientId={patientId}
+          base={revisionPaths.patientEvent(patientId, historyOf.id)}
+          title="Historial del antecedente"
+          render={renderPatientEventSnapshot}
+        />
+      )}
+
       {editing && (
-        // Mounted per event, so its state starts from that event.
+        // Mounted per event and version, so its state starts from that one,
+        // and a reload after a 409 starts it again from the version just read.
         <PatientEventDialog
-          key={editing === 'new' ? 'new' : editing.id}
+          key={editing === 'new' ? 'new' : `${editing.id}:${editing.version}`}
           patientId={patientId}
           event={editing === 'new' ? undefined : editing}
           today={today}
           onClose={() => setEditing(null)}
+          onReload={async () => {
+            if (editing === 'new') return;
+            const fresh = (await refetch()).data?.find((e) => e.id === editing.id);
+            // Gone meanwhile: nothing left to edit.
+            setEditing(fresh ?? null);
+          }}
         />
       )}
 
-      <Dialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>¿Eliminar este antecedente?</DialogTitle>
-            <DialogDescription>
-              Deja de aparecer en la ficha del paciente. Queda registrado en la actividad.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleting(null)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={removeMutation.isPending}
-              onClick={() => deleting && removeMutation.mutate(deleting.id)}
-            >
-              {removeMutation.isPending ? 'Eliminando...' : 'Eliminar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AnnulDialog
+        open={annulling !== null}
+        onOpenChange={(open) => !open && setAnnulling(null)}
+        title="¿Anular este antecedente?"
+        description="Queda en la ficha tachado, con su historial, y ya no se puede editar."
+        pending={annulMutation.isPending}
+        onConfirm={(reason, reasonNote) =>
+          annulling && annulMutation.mutate({ id: annulling.id, reason, reasonNote })
+        }
+      />
     </Card>
   );
 }
@@ -231,16 +282,24 @@ function PatientEventDialog({
   event,
   today,
   onClose,
+  onReload,
 }: {
   patientId: string;
   event?: PatientEvent;
   today: string;
   onClose: () => void;
+  // Reads the event again after a 409, and opens this dialog on it.
+  onReload: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<PatientEventKind | null>(event?.kind ?? null);
   const [description, setDescription] = useState(event?.description ?? '');
   const [whenState, setWhenState] = useState<WhenState>(() => initialWhen(event?.occurred));
+  // An edit is a correction: it says why, and names the version it was made
+  // over (SPEC-clinical-revisions.md §4, §5).
+  const revision = useRevisionReason();
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
 
   const occurred = occurredFrom(whenState, today);
   const isFuture = !!occurred && occurred.date > today;
@@ -250,14 +309,28 @@ function PatientEventDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const data = { kind: kind!, description, occurred: occurred ?? null };
-      return event ? patientEventApi.update(patientId, event.id, data) : patientEventApi.create(patientId, data);
+      if (!event) return patientEventApi.create(patientId, data);
+      // The button checked it; this keeps a correction from leaving without one.
+      if (!revision.reason) throw new Error(MISSING_REASON);
+      return patientEventApi.update(patientId, event.id, {
+        ...data,
+        expectedVersion: event.version,
+        reason: revision.reason,
+        reasonNote: revision.note,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
       toast.success(event ? 'Antecedente actualizado' : 'Antecedente registrado');
       onClose();
     },
-    onError: () => toast.error('No se pudo guardar el antecedente'),
+    onError: (err: Error) => {
+      if (event && isStaleEdit(err)) {
+        setStaleMessage(err.message);
+        return;
+      }
+      toast.error(err.message || 'No se pudo guardar el antecedente');
+    },
   });
 
   return (
@@ -392,13 +465,27 @@ function PatientEventDialog({
               </p>
             )}
           </div>
+
+          {event && (
+            <RevisionReasonField {...revision.fieldProps} />
+          )}
+          {staleMessage && (
+            <StaleRecordNotice
+              message={staleMessage}
+              reloading={reloading}
+              onReload={() => {
+                setReloading(true);
+                void onReload().finally(() => setReloading(false));
+              }}
+            />
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button disabled={!canSave || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button disabled={!canSave || mutation.isPending} onClick={() => (!event || revision.require()) && mutation.mutate()}>
             {mutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </DialogFooter>

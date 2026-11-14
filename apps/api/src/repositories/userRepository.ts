@@ -21,7 +21,6 @@ export interface TenantUserDTO {
 export interface UserCreateInput {
   email: string;
   name: string;
-  passwordHash: string;
   role: UserRole;
 }
 
@@ -65,7 +64,16 @@ export interface UserRepository {
   /** Usuarios de la clínica, activos e inactivos, por fecha de alta. */
   list(ctx: TenantContext): Promise<TenantUserDTO[]>;
   /** null si ya existe un usuario con ese email (unique global). */
-  create(ctx: TenantContext, input: UserCreateInput): Promise<TenantUserDTO | null>;
+  /**
+   * Creates the user with no usable password and her invitation, a reset
+   * link (issuePasswordReset), in one transaction: nobody but her ever knows
+   * her password (area 2 review, M2). null if the email is taken.
+   */
+  create(
+    ctx: TenantContext,
+    input: UserCreateInput,
+    invitation: PasswordResetIssueInput,
+  ): Promise<{ user: TenantUserDTO; invitation: PasswordResetLink } | null>;
   /**
    * Cambia rol y/o estado. `not_found` si el usuario no existe o es de otra
    * clínica; `last_admin` si el cambio dejaría a la clínica sin una ADMIN

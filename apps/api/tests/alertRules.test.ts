@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AlertType, User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
+import { fixture } from './fixtures';
 
 // El motor de alertas corre al LEER las alertas, no por un cron: el plan free
 // de Render no tiene uno. Antes la única regla que existía vivía en el GET de
@@ -50,27 +51,25 @@ describe('motor de alertas', () => {
   }
 
   async function crearPaciente(fullName: string) {
-    return prisma.patient.create({
-      data: { tenantId: clinic.tenantId, fullName },
+    return fixture.patient.create({
+      data: { tenantId: clinic.tenantId, ...splitName(fullName) },
       select: { id: true },
     });
   }
 
   /** Un episodio con su última sesión hace `diasAtras`, o sin ninguna. */
   async function crearEpisodio(patientId: string, diasAtras: number | null) {
-    const episodio = await prisma.clinicalEpisode.create({
+    const episodio = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId, mainComplaint: 'Lumbalgia' },
       select: { id: true },
     });
     if (diasAtras !== null) {
-      await prisma.session.create({
-        data: {
-          tenantId: clinic.tenantId,
-          patientId,
-          userId: user.id,
-          sessionDate: haceDias(diasAtras),
-          episodes: { create: [{ episodeId: episodio.id }] },
-        },
+      await createSessionFixture({
+        tenantId: clinic.tenantId,
+        patientId,
+        userId: user.id,
+        sessionDate: haceDias(diasAtras),
+        blocks: [{ episodeId: episodio.id }],
       });
     }
     return episodio;
@@ -124,9 +123,9 @@ describe('motor de alertas', () => {
   it('no alerta por un episodio ya cerrado', async () => {
     const paciente = await crearPaciente('Paciente De Alta');
     const episodio = await crearEpisodio(paciente.id, 60);
-    await prisma.clinicalEpisode.update({
+    await fixture.clinicalEpisode.update({
       where: { id: episodio.id },
-      data: { status: 'DISCHARGED' },
+      data: { status: 'DISCHARGED', closedAt: new Date() },
     });
     await destrabarMotor();
 
@@ -138,23 +137,20 @@ describe('motor de alertas', () => {
 
   /** Una sesión con su cobro pendiente, fechada `diasAtras`. */
   async function crearCobroPendiente(patientId: string, diasAtras: number, monto: number) {
-    const sesion = await prisma.session.create({
-      data: {
-        tenantId: clinic.tenantId,
-        patientId,
-        userId: user.id,
-        sessionDate: haceDias(diasAtras),
-      },
-      select: { id: true },
+    const sesion = await createSessionFixture({
+      tenantId: clinic.tenantId,
+      patientId,
+      userId: user.id,
+      sessionDate: haceDias(diasAtras),
     });
     await prisma.payment.create({
       data: {
         tenantId: clinic.tenantId,
         patientId,
         sessionId: sesion.id,
-        baseAmount: monto,
-        discount: 0,
-        finalAmount: monto,
+        baseAmountCents: monto,
+        discountCents: 0,
+        finalAmountCents: monto,
         status: 'PENDING',
       },
     });
@@ -203,7 +199,7 @@ describe('motor de alertas', () => {
     await crearCobroPendiente(paciente.id, 40, 15000);
     await prisma.payment.updateMany({
       where: { patientId: paciente.id },
-      data: { status: 'PAID', paidAt: new Date() },
+      data: { status: 'PAID', paidAt: new Date(), method: 'CASH' },
     });
     await destrabarMotor();
 
@@ -280,11 +276,11 @@ describe('motor de alertas', () => {
     const otra = await createTestClinic();
     try {
       const otroUser = await otra.createUser();
-      const otroPaciente = await prisma.patient.create({
-        data: { tenantId: otra.tenantId, fullName: 'Ajeno' },
+      const otroPaciente = await fixture.patient.create({
+        data: { tenantId: otra.tenantId, firstName: 'Ajeno', lastName: 'Test' },
         select: { id: true },
       });
-      await prisma.clinicalEpisode.create({
+      await fixture.clinicalEpisode.create({
         data: { tenantId: otra.tenantId, patientId: otroPaciente.id },
       });
 
@@ -305,6 +301,7 @@ describe('motor de alertas', () => {
 
       await sleep(200);
       await prisma.clinicalAlert.deleteMany({ where: { tenantId: otra.tenantId } });
+      await deleteAuditRows([otra.tenantId]);
       await prisma.clinicalEpisode.deleteMany({ where: { tenantId: otra.tenantId } });
       await prisma.patient.deleteMany({ where: { tenantId: otra.tenantId } });
       void otroUser;

@@ -338,7 +338,11 @@ describe('using a reset link', () => {
     const res = await check(token);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ data: { email: therapist.email, name: 'Tere Fisio' } });
+    // She never logged in: the page asks her to choose a password.
+    expect(res.body).toEqual({ data: { email: therapist.email, name: 'Tere Fisio', firstPassword: true } });
+
+    await prisma.user.update({ where: { id: therapist.id }, data: { lastLoginAt: new Date() } });
+    expect((await check(token)).body.data.firstPassword).toBe(false);
   });
 
   it('sets the new password: she logs in with it, not with the old one', async () => {

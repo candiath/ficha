@@ -39,7 +39,7 @@ describe('ids UUID', () => {
     token = await createTestToken(admin);
     operator = await createTestOperator();
 
-    const res = await auth(request(app).post('/api/patients')).send({ fullName: 'Paciente UUID' });
+    const res = await auth(request(app).post('/api/patients')).send({ firstName: 'Paciente', lastName: 'UUID' });
     patientId = res.body.data.id;
   });
 
@@ -88,10 +88,6 @@ describe('ids UUID', () => {
       );
       expect(evaluacion.status).toBe(404);
       expect(evaluacion.body).toEqual({ error: 'Episodio no encontrado' });
-
-      const escala = await auth(request(app).get(`/api/patients/${patientId}/scales/${MALFORMADO}`));
-      expect(escala.status).toBe(404);
-      expect(escala.body).toEqual({ error: 'Escala no encontrada' });
     });
 
     it('rutas del operador de plataforma', async () => {

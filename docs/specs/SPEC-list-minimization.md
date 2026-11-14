@@ -13,7 +13,7 @@ Clinical detail is read only inside a patient's record, so a single request cann
 **Clinical** is every column except keys and timestamps of:
 
 - `Session`, `ClinicalEpisode` and `InitialEvaluation`, including its JSON columns and `evaScale`;
-- `FunctionalScale`, including its type: an OSWESTRY scale means a lumbar problem;
+- `FunctionalScale`, including its type: an OSWESTRY scale means a lumbar problem (the model was removed on 2026-10-27);
 - `InformedConsent`, whether signed or not.
 
 It also covers anything derived from those columns: the complaint inside an engine alert, a pain trend.

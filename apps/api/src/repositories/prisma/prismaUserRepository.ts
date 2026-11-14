@@ -3,6 +3,7 @@ import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
   PasswordResetIssueInput,
+  PasswordResetLink,
   PasswordResetIssueResult,
   TenantUserDTO,
   UserCreateInput,
@@ -47,11 +48,23 @@ export const prismaUserRepository: UserRepository = {
     return rows.map(toDTO);
   },
 
-  async create(ctx: TenantContext, input: UserCreateInput): Promise<TenantUserDTO | null> {
+  async create(
+    ctx: TenantContext,
+    input: UserCreateInput,
+    invitation: PasswordResetIssueInput,
+  ): Promise<{ user: TenantUserDTO; invitation: PasswordResetLink } | null> {
     const db = forTenant(ctx);
     try {
-      const row = await db.user.create({ data: input, select: tenantUserSelect });
-      return toDTO(row);
+      return await db.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: { ...input, tenantId: ctx.tenantId, passwordHash: invitation.disabledPasswordHash },
+          select: { id: true },
+        });
+        const link = await issuePasswordReset(tx, created.id, { userId: ctx.userId }, invitation);
+        // Read after the link, so the list's "pending" badge comes with it.
+        const row = await tx.user.findUniqueOrThrow({ where: { id: created.id }, select: tenantUserSelect });
+        return { user: toDTO(row), invitation: { token: link.token, expiresAt: link.expiresAt } };
+      });
     } catch (err) {
       // P2002 = violación del unique de email. null para que la ruta responda
       // 409; dejarlo pasar sería el 500 opaco del errorHandler.

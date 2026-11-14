@@ -8,7 +8,8 @@ import app from '../src/app';
 import { instantToClinicTime } from '../src/lib/clinicTime';
 import { prisma } from '../src/lib/prisma';
 import { LIST_SCOPE, type Shape } from './listScopeManifest';
-import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
+import { createSessionFixture, createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
+import { fixture as rows } from './fixtures';
 
 // Global lists carry no clinical text (#186, docs/specs/SPEC-list-minimization.md
 // §6). Two parts:
@@ -35,6 +36,10 @@ const GET_CALL = /\b(?:router|app)\.get\b/g;
 const GET_ROUTE = /\b(?:router|app)\.get\s*(?:<[^()]*?>)?\(\s*'([^']*)'/g;
 const MOUNT = /app\.use\(\s*'([^']*)'\s*,(?:[^;]*?,)?\s*(\w+Router)\s*\)/g;
 const IMPORT = /import\s+(\w+)\s+from\s+'\.\/routes\/(\w+)'/g;
+// A router a route file builds from another file's factory and mounts under
+// its own paths: `router.use('/:sessionId/revisions', revisionRoutes(…))`.
+const NESTED_IMPORT = /import\s+\{\s*(\w+)\s*\}\s+from\s+'\.\/(\w+)'/g;
+const NESTED_MOUNT = /router\.use\(\s*'([^']*)'\s*,\s*(\w+)\(/g;
 
 function getRoutes(source: string, prefixes: string[]): string[] {
   const keys: string[] = [];
@@ -54,11 +59,24 @@ function extract() {
     if (file) prefixesOfFile.set(file, [...(prefixesOfFile.get(file) ?? []), prefix]);
   }
 
+  // Nested mounts, under every prefix of the file that mounts them.
+  const files = readdirSync(ROUTES).filter((f) => f.endsWith('.ts'));
+  for (const file of files) {
+    const source = readFileSync(path.join(ROUTES, file), 'utf8');
+    const fileOfFactory = new Map([...source.matchAll(NESTED_IMPORT)].map(([, name, child]) => [name, `${child}.ts`]));
+    for (const [, sub, factory] of source.matchAll(NESTED_MOUNT)) {
+      const child = fileOfFactory.get(factory);
+      if (!child) continue;
+      const nested = (prefixesOfFile.get(file) ?? []).map((p) => `${p}${sub}`);
+      prefixesOfFile.set(child, [...(prefixesOfFile.get(child) ?? []), ...nested]);
+    }
+  }
+
   const keys = getRoutes(appSource, ['']);
   let calls = [...appSource.matchAll(GET_CALL)].length;
   let literals = [...appSource.matchAll(GET_ROUTE)].length;
   const unmounted: string[] = [];
-  for (const file of readdirSync(ROUTES).filter((f) => f.endsWith('.ts'))) {
+  for (const file of files) {
     const source = readFileSync(path.join(ROUTES, file), 'utf8');
     const count = [...source.matchAll(GET_ROUTE)].length;
     calls += [...source.matchAll(GET_CALL)].length;
@@ -71,7 +89,9 @@ function extract() {
 
 // The record itself: its routes may return clinical text.
 const isPatientRecord = (key: string) =>
-  key.startsWith('GET /api/patients/:patientId') || key === 'GET /api/patients/:id';
+  key.startsWith('GET /api/patients/:patientId') ||
+  key === 'GET /api/patients/:id' ||
+  key.startsWith('GET /api/patients/:id/');
 
 describe('every GET route is classified', () => {
   const { keys, calls, literals, unmounted } = extract();
@@ -110,12 +130,16 @@ const CLINICAL_MODELS = [
   'PatientEvent',
   'ClinicalEpisode',
   'InitialEvaluation',
-  'EvaluationPhoto',
   'Session',
   'SessionEpisode',
-  'SessionPhoto',
-  'FunctionalScale',
+  'SessionRevision',
   'InformedConsent',
+  // Snapshots of clinical records, and the notes of their corrections.
+  'PatientRevision',
+  'EpisodeRevision',
+  'EvaluationRevision',
+  'ConsentRevision',
+  'PatientEventRevision',
 ] as const;
 
 const NOT_CLINICAL: Record<string, string> = {
@@ -178,6 +202,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface Fixture {
   patientId: string;
+  deletedPatientId: string;
   sessionId: string;
   appointmentId: string;
   paymentId: string;
@@ -264,73 +289,84 @@ describe('global lists carry no clinical text', () => {
     const { timezone } = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     today = instantToClinicTime(new Date(), timezone).date;
 
-    const patient = await prisma.patient.create({
-      data: { tenantId, fullName: 'Paciente Sonda', referringDoctor: 'Dr. Derivante' },
+    const patient = await rows.patient.create({
+      data: { tenantId, firstName: 'Paciente', lastName: 'Sonda', referringDoctor: 'Dr. Derivante' },
       select: { id: true },
     });
     const patientId = patient.id;
+    // A deleted patient, for the list to restore one.
+    const deletedPatient = await rows.patient.create({
+      data: { tenantId, firstName: 'Paciente', lastName: 'Borrada' },
+      select: { id: true },
+    });
+    await prisma.patient.update({ where: { id: deletedPatient.id }, data: { deletedAt: new Date() } });
 
     const episodeData = marked('ClinicalEpisode');
-    const episode = await prisma.clinicalEpisode.create({
+    const episode = await rows.clinicalEpisode.create({
       data: { tenantId, patientId, status: 'ACTIVE', ...episodeData },
       select: { id: true },
     });
     createdClinicalModels.add('ClinicalEpisode');
 
-    const evaluation = await prisma.initialEvaluation.create({
+    await rows.initialEvaluation.create({
       data: { tenantId, patientId, episodeId: episode.id, ...(marked('InitialEvaluation') as object) },
-      select: { id: true },
     });
     createdClinicalModels.add('InitialEvaluation');
 
     // The patient's history (#238): a dated fact, with clinical text.
-    await prisma.patientEvent.create({
+    await rows.patientEvent.create({
       data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientEvent') as { description: string }) },
     });
     createdClinicalModels.add('PatientEvent');
-    await prisma.evaluationPhoto.create({
-      data: { initialEvaluationId: evaluation.id, ...(marked('EvaluationPhoto') as { storageKey: string }) },
-    });
-    createdClinicalModels.add('EvaluationPhoto');
 
     // Old enough for the engine: the episode has had no session for 40 days,
     // and the session's payment is overdue.
-    const session = await prisma.session.create({
-      data: {
-        tenantId,
-        patientId,
-        userId: user.id,
-        sessionDate: new Date(Date.now() - 40 * DAY_MS),
-        // A session's clinical text is in its blocks (#238): marked too.
-        episodes: {
-          create: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
-        },
-        ...marked('Session'),
-      },
-      select: { id: true },
+    const session = await createSessionFixture({
+      tenantId,
+      patientId,
+      userId: user.id,
+      sessionDate: new Date(Date.now() - 40 * DAY_MS),
+      // A session's clinical text is in its blocks (#238): marked too.
+      blocks: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
+      ...marked('Session'),
     });
     createdClinicalModels.add('Session');
     createdClinicalModels.add('SessionEpisode');
-    await prisma.sessionPhoto.create({
-      data: { sessionId: session.id, ...(marked('SessionPhoto') as { storageKey: string }) },
-    });
-    createdClinicalModels.add('SessionPhoto');
+    // Its snapshot holds the session's markers; reason_note gets its own below.
+    createdClinicalModels.add('SessionRevision');
+    // The fixtures above wrote version 1 of each, with the markers of its row.
+    for (const model of ['PatientRevision', 'EpisodeRevision', 'EvaluationRevision', 'PatientEventRevision'] as const) {
+      createdClinicalModels.add(model);
+    }
 
-    await prisma.functionalScale.create({
-      data: {
-        tenantId,
-        patientId,
-        scaleType: 'OSWESTRY',
-        score: 42,
-        ...(marked('FunctionalScale') as { responses: Prisma.InputJsonValue; interpretation: string }),
-      },
-    });
-    createdClinicalModels.add('FunctionalScale');
-    await prisma.informedConsent.create({ data: { tenantId, patientId, signed: true, signedAt: new Date() } });
+    await rows.informedConsent.create({ data: { tenantId, patientId, signedAt: new Date() } });
     createdClinicalModels.add('InformedConsent');
+    createdClinicalModels.add('ConsentRevision');
+
+    // A second version of each aggregate, with the content of the first and a
+    // marker in its reason note: every revision column then holds a marker
+    // (SPEC-clinical-revisions.md §7). It reuses the first's audit row, which
+    // a revision may share.
+    const second = async (
+      delegate: { findFirstOrThrow(a: object): Promise<Record<string, unknown>>; create(a: object): Promise<unknown> },
+    ) => {
+      const first = await delegate.findFirstOrThrow({ where: { tenantId, patientId }, orderBy: { version: 'desc' } });
+      delete first.id;
+      await delegate.create({ data: { ...first, version: Number(first.version) + 1, reasonNote: marker() } });
+    };
+    for (const delegate of [
+      prisma.sessionRevision,
+      prisma.patientRevision,
+      prisma.episodeRevision,
+      prisma.evaluationRevision,
+      prisma.consentRevision,
+      prisma.patientEventRevision,
+    ]) {
+      await second(delegate);
+    }
 
     const pkg = await prisma.sessionPackage.create({
-      data: { tenantId, patientId, name: 'Paquete Sonda', totalSessions: 10, pricePerSession: 100 },
+      data: { tenantId, patientId, name: 'Paquete Sonda', totalSessions: 10, pricePerSessionCents: 100 },
       select: { id: true },
     });
     const payment = await prisma.payment.create({
@@ -339,8 +375,8 @@ describe('global lists carry no clinical text', () => {
         patientId,
         sessionId: session.id,
         packageId: pkg.id,
-        baseAmount: 100,
-        finalAmount: 100,
+        baseAmountCents: 100,
+        finalAmountCents: 100,
         notes: 'Nota administrativa',
       },
       select: { id: true },
@@ -362,6 +398,7 @@ describe('global lists carry no clinical text', () => {
 
     fixture = {
       patientId,
+      deletedPatientId: deletedPatient.id,
       sessionId: session.id,
       appointmentId: appointment.id,
       paymentId: payment.id,
@@ -377,13 +414,10 @@ describe('global lists carry no clinical text', () => {
     await prisma.clinicalAlert.deleteMany({ where });
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
-    await prisma.sessionPhoto.deleteMany({ where: { session: where } });
     // A session's blocks (#238) restrict its deletion: they go first.
     await prisma.sessionEpisode.deleteMany({ where });
     await prisma.session.deleteMany({ where });
-    await prisma.evaluationPhoto.deleteMany({ where: { initialEvaluation: where } });
     await prisma.initialEvaluation.deleteMany({ where });
-    await prisma.functionalScale.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patientEvent.deleteMany({ where });
@@ -393,7 +427,9 @@ describe('global lists carry no clinical text', () => {
 
   it('the fixture fills every clinical model', () => {
     expect([...createdClinicalModels].sort()).toEqual([...CLINICAL_MODELS].sort());
-    expect(markers.length).toBeGreaterThan(20);
+    // A sanity floor that marked() wrote markers at all, not a count of the
+    // clinical columns: removing a column must not break it.
+    expect(markers.length).toBeGreaterThan(10);
   });
 
   // How to call each probed route, and the fixture rows it must return.
@@ -416,6 +452,10 @@ describe('global lists carry no clinical text', () => {
     'GET /api/payments': {
       url: () => '/api/payments',
       controls: (data) => (data as { id: string }[]).some((p) => p.id === fixture.paymentId),
+    },
+    'GET /api/patients/deleted': {
+      url: () => '/api/patients/deleted',
+      controls: (data) => (data as { id: string }[]).some((p) => p.id === fixture.deletedPatientId),
     },
     'GET /api/patients': {
       url: () => '/api/patients',
