@@ -20,9 +20,9 @@ Monorepo de npm workspaces.
 ## Arrancar
 
 Hace falta Node 24 y un `apps/api/.env` con `DATABASE_URL` y
-`DIRECT_DATABASE_URL` apuntando a la branch `development` de Neon, más un
-`JWT_SECRET` y un `PLATFORM_JWT_SECRET` de 32+ caracteres, distintos entre sí.
-Hay un `.env.example` al lado.
+`DIRECT_DATABASE_URL` apuntando a la branch `development` de Neon. No hace
+falta ningún secreto de firma: las sesiones de la clínica y del operador son
+filas en la base. Hay un `.env.example` al lado.
 
 ```bash
 npm install
@@ -53,7 +53,7 @@ Ramas `feat/*` o `fix/*` desde `dev`; los PRs van **contra `dev`, nunca contra
 Promover a producción es un PR `dev` → `main`.
 
 Hay tres entornos aislados de verdad —producción, testing y desarrollo—, cada
-uno con su propia branch de Neon y sus propios `JWT_SECRET` y `PLATFORM_JWT_SECRET`.
+uno con su propia branch de Neon (y por lo tanto sus propias sesiones).
 
 ## Documentación
 

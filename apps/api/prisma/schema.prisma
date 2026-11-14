@@ -229,9 +229,9 @@ model PasswordResetToken {
 // (forTenant inyecta el tenantId en cada query). Un "SYSADMIN" dentro de
 // users que "vea todas las clínicas" sería una excepción a esa regla en cada
 // repositorio, y users.tenantId es obligatorio: el operador no pertenece a
-// ninguna. Tiene su propio login, su propio hash y su propio secreto de JWT
-// (PLATFORM_JWT_SECRET): un token de operador no lo acepta authenticate, ni
-// uno de usuario el middleware de operador.
+// ninguna. Tiene su propio login, su propio hash y sus propias sesiones
+// (platform_operator_sessions): un token de operador no lo acepta
+// authenticate, ni uno de usuario el middleware de operador.
 // ─────────────────────────────────────────────────────────────────────────────
 model PlatformOperator {
   id                String    @id @default(uuid(7)) @db.Uuid
