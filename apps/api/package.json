@@ -19,7 +19,8 @@
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "create:operator": "ts-node --transpile-only scripts/create-operator.ts",
-    "purge:test-audit": "ts-node --transpile-only scripts/purge-test-audit.ts"
+    "purge:test-audit": "ts-node --transpile-only scripts/purge-test-audit.ts",
+    "reset:operator-password": "ts-node --transpile-only scripts/reset-operator-password.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
