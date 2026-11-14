@@ -9,7 +9,8 @@ import { auditEntityOf, auditEntryProblem, SESSION_SNAPSHOT_VERSION } from '@fic
 import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
 import { unwatchClinic, watchClinic } from './revisionInvariant';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../src/repositories/auditLogRepository';
-import type { PatientAuditField } from '../src/repositories/patientRepository';
+import type { PatientAuditField, PatientCreateInput, PatientDTO, PatientRecordDTO } from '../src/repositories/patientRepository';
+import { patientRepo } from '../src/repositories';
 import type { RevisionTable } from '../src/repositories/prisma/recordRevision';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
@@ -251,6 +252,18 @@ export function patientAudit(action: 'CREATED' | 'UPDATED') {
         entityId: p.id,
         params: { changedFields, reason: 'DATA_ENTRY_ERROR' },
       });
+}
+
+// The patient patientRepo.create wrote. A refusal (her document is another
+// patient's) fails the test: the tests that expect one call the repository.
+export async function createPatientRecord(
+  ctx: TenantContext,
+  input: PatientCreateInput,
+  audit: AuditBuilder<PatientDTO> = patientAudit('CREATED'),
+): Promise<PatientRecordDTO> {
+  const result = await patientRepo.create(ctx, input, audit);
+  if (!result.ok) throw new Error(`patient not created: ${result.reason}`);
+  return result.patient;
 }
 
 export function patientDeleteAudit(patientId: string): AuditEntry {

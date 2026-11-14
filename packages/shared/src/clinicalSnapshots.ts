@@ -7,6 +7,73 @@ import { z } from 'zod';
 // written is never changed: a new field is a new schema and a new version, and
 // the old ones stay here, because the rows that hold them never change either.
 // tests/historyProjectionCoverage.test.ts proves each one still parses.
+//
+// ─── Changing a snapshot ────────────────────────────────────────────────────
+//
+// Each aggregate has a history (`*_SNAPSHOTS`): its schemas, oldest first, and
+// for every version after the first, how the one before reads in its shape
+// (`upcast`). Everything that reads a stored snapshot goes through
+// `history.read(schemaVersion, snapshot)`, which answers it in the CURRENT
+// shape: the write path, to compare with what is being saved; the history
+// view, to show it; the tests' invariant. Nothing rewrites a stored row.
+//
+// To add a field (the patient's document is the worked example, below):
+//   1. write the new schema (`…SnapshotV2`) next to the old one;
+//   2. append `{ schema, upcast }` to the history: the new field of an old
+//      version is whatever "it was not recorded" means, usually null;
+//   3. add the field to the projection (apps/api clinicalSnapshots.ts) and to
+//      the renderer (apps/web revisionRows.ts).
+// Removing a field is the same with an upcast that drops it; the history view
+// then needs a renderer of its own for the old version, or what it held stops
+// being shown. A new value of an enum is a new version too: the old schema
+// stays as strict as the rows it describes.
+
+export interface SnapshotHistory<Current> {
+  /** The version new revisions are written with. */
+  readonly version: number;
+  /** The schema of that version. */
+  readonly schema: z.ZodType<Current>;
+  /**
+   * A stored snapshot of any known version, in the current shape. null when
+   * the version is unknown or the snapshot is not what its version says.
+   */
+  read(schemaVersion: number, snapshot: unknown): Current | null;
+}
+
+export interface SnapshotStep {
+  readonly schema: z.ZodType;
+  /**
+   * How the version before reads in this one's shape; absent on the first.
+   * Its argument is the previous version's snapshot, which `read` has just
+   * parsed with that version's schema: each definition types it.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly upcast?: (previous: any) => unknown;
+}
+
+// `steps[0]` is version 1. Current is named by the caller: the type of the
+// last schema.
+export function snapshotHistory<Current>(steps: readonly [SnapshotStep, ...SnapshotStep[]]): SnapshotHistory<Current> {
+  const current = steps[steps.length - 1].schema as z.ZodType<Current>;
+  return {
+    version: steps.length,
+    schema: current,
+    read(schemaVersion, snapshot) {
+      if (!Number.isInteger(schemaVersion) || schemaVersion < 1 || schemaVersion > steps.length) return null;
+      const stored = steps[schemaVersion - 1].schema.safeParse(snapshot);
+      if (!stored.success) return null;
+      let value: unknown = stored.data;
+      for (const step of steps.slice(schemaVersion)) {
+        if (!step.upcast) return null;
+        value = step.upcast(value);
+      }
+      // An upcast that builds something other than its own schema is a bug of
+      // this file: refused here, not carried into a comparison.
+      const result = current.safeParse(value);
+      return result.success ? result.data : null;
+    },
+  };
+}
 
 const text = z.string().nullable();
 const pain = z.number().int().nullable();
@@ -33,7 +100,8 @@ export const SessionSnapshotV1 = z.strictObject({
 
 export type SessionSnapshotV1 = z.infer<typeof SessionSnapshotV1>;
 
-export const SESSION_SNAPSHOT_VERSION = 1;
+export const SESSION_SNAPSHOTS = snapshotHistory<SessionSnapshotV1>([{ schema: SessionSnapshotV1 }]);
+export const SESSION_SNAPSHOT_VERSION = SESSION_SNAPSHOTS.version;
 
 // ─── Patient ────────────────────────────────────────────────────────────────
 
@@ -52,7 +120,27 @@ export const PatientSnapshotV1 = z.strictObject({
 
 export type PatientSnapshotV1 = z.infer<typeof PatientSnapshotV1>;
 
-export const PATIENT_SNAPSHOT_VERSION = 1;
+// Version 2 adds the document that identifies her (2026-11): its type and its
+// number, both or neither (patientDocument.ts). No production row holds
+// version 1: it is kept as the worked example of a version change, and for
+// the test databases.
+export const PatientSnapshotV2 = z.strictObject({
+  ...PatientSnapshotV1.shape,
+  documentType: z.enum(['DNI', 'PASSPORT', 'FOREIGN_ID', 'OTHER']).nullable(),
+  documentNumber: text,
+});
+
+export type PatientSnapshotV2 = z.infer<typeof PatientSnapshotV2>;
+
+export const PATIENT_SNAPSHOTS = snapshotHistory<PatientSnapshotV2>([
+  { schema: PatientSnapshotV1 },
+  {
+    schema: PatientSnapshotV2,
+    // A version written before the document existed recorded none.
+    upcast: (v1: PatientSnapshotV1): PatientSnapshotV2 => ({ ...v1, documentType: null, documentNumber: null }),
+  },
+]);
+export const PATIENT_SNAPSHOT_VERSION = PATIENT_SNAPSHOTS.version;
 
 // ─── Episode ────────────────────────────────────────────────────────────────
 
@@ -66,7 +154,8 @@ export const EpisodeSnapshotV1 = z.strictObject({
 
 export type EpisodeSnapshotV1 = z.infer<typeof EpisodeSnapshotV1>;
 
-export const EPISODE_SNAPSHOT_VERSION = 1;
+export const EPISODE_SNAPSHOTS = snapshotHistory<EpisodeSnapshotV1>([{ schema: EpisodeSnapshotV1 }]);
+export const EPISODE_SNAPSHOT_VERSION = EPISODE_SNAPSHOTS.version;
 
 // ─── Initial evaluation ─────────────────────────────────────────────────────
 
@@ -84,7 +173,8 @@ export const EvaluationSnapshotV1 = z.strictObject({
 
 export type EvaluationSnapshotV1 = z.infer<typeof EvaluationSnapshotV1>;
 
-export const EVALUATION_SNAPSHOT_VERSION = 1;
+export const EVALUATION_SNAPSHOTS = snapshotHistory<EvaluationSnapshotV1>([{ schema: EvaluationSnapshotV1 }]);
+export const EVALUATION_SNAPSHOT_VERSION = EVALUATION_SNAPSHOTS.version;
 
 // ─── Informed consent ───────────────────────────────────────────────────────
 
@@ -96,7 +186,8 @@ export const ConsentSnapshotV1 = z.strictObject({
 
 export type ConsentSnapshotV1 = z.infer<typeof ConsentSnapshotV1>;
 
-export const CONSENT_SNAPSHOT_VERSION = 1;
+export const CONSENT_SNAPSHOTS = snapshotHistory<ConsentSnapshotV1>([{ schema: ConsentSnapshotV1 }]);
+export const CONSENT_SNAPSHOT_VERSION = CONSENT_SNAPSHOTS.version;
 
 // ─── Patient event ──────────────────────────────────────────────────────────
 
@@ -112,4 +203,5 @@ export const PatientEventSnapshotV1 = z.strictObject({
 
 export type PatientEventSnapshotV1 = z.infer<typeof PatientEventSnapshotV1>;
 
-export const PATIENT_EVENT_SNAPSHOT_VERSION = 1;
+export const PATIENT_EVENT_SNAPSHOTS = snapshotHistory<PatientEventSnapshotV1>([{ schema: PatientEventSnapshotV1 }]);
+export const PATIENT_EVENT_SNAPSHOT_VERSION = PATIENT_EVENT_SNAPSHOTS.version;

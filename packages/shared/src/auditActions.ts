@@ -102,6 +102,8 @@ export const AUDIT_PATIENT_FIELDS = {
   lastName: 'el apellido',
   birthDate: 'la fecha de nacimiento',
   sex: 'el sexo',
+  documentType: 'el tipo de documento',
+  documentNumber: 'el número de documento',
   phone: 'el teléfono',
   occupation: 'la ocupación',
   referringDoctor: 'el médico derivante',

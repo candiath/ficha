@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit, splitName } from './helpers';
+import { createPatientRecord, deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit, splitName } from './helpers';
 
 // patientRepo es el único lugar donde vive la política de borrado lógico:
 // TODO método opera sobre pacientes vigentes (deletedAt: null). Antes de estos
@@ -57,7 +57,7 @@ afterAll(async () => {
 // Cada test crea su propio paciente: así el orden de ejecución no importa y un
 // test que borra no le saca el piso al siguiente.
 function crearPaciente(fullName: string, ctx: TenantContext = ctxA) {
-  return patientRepo.create(ctx, splitName(fullName), patientAudit('CREATED'));
+  return createPatientRecord(ctx, splitName(fullName), patientAudit('CREATED'));
 }
 
 // Lee la fila cruda con el cliente base (sin scope de tenant ni filtro de
@@ -71,7 +71,7 @@ function filaCruda(id: string) {
 
 describe('patientRepo: política de vigencia (repo directo)', () => {
   it('create devuelve el DTO con fechas ISO y sin campos internos', async () => {
-    const patient = await patientRepo.create(
+    const patient = await createPatientRecord(
       ctxA,
       { firstName: 'Paciente', lastName: 'Nuevo', birthDate: new Date('1990-05-10') },
       patientAudit('CREATED'),

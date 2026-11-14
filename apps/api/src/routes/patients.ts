@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { revisionReasonFields } from '@ficha/shared';
+import { DOCUMENT_TYPES, normalizeDocumentNumber, revisionReasonFields } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import {
   OptionalDateSchema,
@@ -9,6 +9,7 @@ import {
   requiredText,
 } from '../lib/validation';
 import { patientRepo } from '../repositories';
+import type { DocumentHolder } from '../repositories/patientRepository';
 import { idParam } from '../middlewares/idParam';
 import { revisionRoutes } from './revisions';
 
@@ -20,11 +21,13 @@ router.param('id', idParam('Paciente no encontrado'));
 
 // Los campos opcionales usan los schemas compartidos: un "" del formulario
 // entra como null y el campo ausente no se toca (lib/validation.ts).
-const PatientCreateSchema = z.object({
+const PatientFieldsSchema = z.object({
   firstName: requiredText(1, 'El nombre es obligatorio'),
   lastName: requiredText(1, 'El apellido es obligatorio'),
   birthDate: OptionalDateSchema,
   sex: optionalEnum(['MALE', 'FEMALE', 'OTHER']),
+  documentType: optionalEnum(DOCUMENT_TYPES),
+  documentNumber: OptionalTextSchema,
   phone: OptionalTextSchema,
   occupation: OptionalTextSchema,
   referringDoctor: OptionalTextSchema,
@@ -33,13 +36,65 @@ const PatientCreateSchema = z.object({
   insurancePlan: OptionalTextSchema,
 });
 
+// The document is a type and a number, both or neither, and they travel
+// together: a request that names one names the other, so the pair can be
+// checked and the number normalized for its type without reading the row.
+// The number is stored in its canonical form (packages/shared
+// patientDocument.ts): what the clinic's unique key compares.
+function withDocument<T extends { documentType?: (typeof DOCUMENT_TYPES)[number] | null; documentNumber?: string | null }>(
+  body: T,
+  ctx: z.RefinementCtx,
+): T {
+  const { documentType: type, documentNumber: number } = body;
+  if ((type === undefined) !== (number === undefined)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [type === undefined ? 'documentType' : 'documentNumber'],
+      message: 'El tipo y el número de documento se envían juntos',
+    });
+    return body;
+  }
+  if (type === undefined || number === undefined) return body;
+  if (type === null && number === null) return body;
+  if (type === null) {
+    ctx.addIssue({ code: 'custom', path: ['documentType'], message: 'Elegí el tipo de documento' });
+    return body;
+  }
+  if (number === null) {
+    ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'Ingresá el número de documento' });
+    return body;
+  }
+  const normalized = normalizeDocumentNumber(type, number);
+  if (!normalized.ok) {
+    ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: normalized.error });
+    return body;
+  }
+  return { ...body, documentNumber: normalized.number };
+}
+
+const PatientCreateSchema = PatientFieldsSchema.transform(withDocument);
+
 // An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
 // §4), even when it changes only contact or coverage, which are not versioned,
 // and which version it was made over, so a stale form gets a 409.
-const PatientUpdateSchema = PatientCreateSchema.partial().extend({
-  expectedVersion: ExpectedVersionSchema,
-  ...revisionReasonFields,
-});
+const PatientUpdateSchema = PatientFieldsSchema.partial()
+  .extend({
+    expectedVersion: ExpectedVersionSchema,
+    ...revisionReasonFields,
+  })
+  .transform(withDocument);
+
+// A clinic holds one patient per document. The answer names who has it, so
+// the user can open her record or, if she was deleted, restore her.
+function documentTaken(holder: DocumentHolder | null) {
+  if (!holder) return { error: 'Ya hay un paciente con ese documento' };
+  return {
+    error: holder.deleted
+      ? `Ya hay un paciente con ese documento: ${holder.fullName}, que está eliminado. Restauralo desde Pacientes eliminados.`
+      : `Ya hay un paciente con ese documento: ${holder.fullName}`,
+    holder,
+  };
+}
 
 // GET /api/patients
 router.get('/', async (req, res) => {
@@ -69,14 +124,19 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const body = PatientCreateSchema.parse(req.body);
 
-  const patient = await patientRepo.create(req.context, body, (p) => ({
+  const result = await patientRepo.create(req.context, body, (p) => ({
     action: 'PATIENT_CREATED',
     patientId: p.id,
     entityId: p.id,
     params: {},
   }));
 
-  res.status(201).json({ data: patient });
+  if (!result.ok) {
+    res.status(409).json(documentTaken(result.holder));
+    return;
+  }
+
+  res.status(201).json({ data: result.patient });
 });
 
 // PATCH /api/patients/:id
@@ -95,6 +155,10 @@ router.patch('/:id', async (req, res) => {
     // casos, sin revelar cuál fue.
     if (result.reason === 'not_found') {
       res.status(404).json({ error: 'Paciente no encontrado' });
+      return;
+    }
+    if (result.reason === 'document_taken') {
+      res.status(409).json(documentTaken(result.holder));
       return;
     }
     res.status(409).json(STALE_EDIT);

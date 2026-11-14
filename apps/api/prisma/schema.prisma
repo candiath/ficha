@@ -474,6 +474,15 @@ enum Sex {
   OTHER
 }
 
+// The kind of document that identifies a patient (packages/shared
+// patientDocument.ts). Codes are permanent: they are in patient snapshots.
+enum DocumentType {
+  DNI
+  PASSPORT
+  FOREIGN_ID
+  OTHER
+}
+
 model Patient {
   id              String    @id @default(uuid(7)) @db.Uuid
   tenantId        String    @map("tenant_id") @db.Uuid
@@ -484,6 +493,12 @@ model Patient {
   lastName        String    @map("last_name")
   birthDate       DateTime? @map("birth_date") @db.Date
   sex             Sex?
+  // The document that identifies her: both or neither (a CHECK in the
+  // migration). Optional: a newborn has none yet. The number is stored
+  // normalized (a DNI as its digits), so the unique key below sees
+  // "12.345.678" and "12345678" as the same.
+  documentType    DocumentType? @map("document_type")
+  documentNumber  String?   @map("document_number")
   phone           String?
   occupation      String?
   referringDoctor String?   @map("referring_doctor")
@@ -512,6 +527,10 @@ model Patient {
   // Audit rows reference (tenant_id, id), so they cannot name another
   // clinic's patient (#186); Postgres needs a unique constraint to reference.
   @@unique([tenantId, id])
+  // One patient per document in a clinic, deleted patients included: a
+  // duplicate can never be merged afterwards (rows do not move between
+  // patients). Rows with no document do not collide: NULLs are distinct.
+  @@unique([tenantId, documentType, documentNumber])
   @@index([tenantId])
   @@index([tenantId, lastName, firstName])
   @@map("patients")

@@ -1,12 +1,20 @@
 import { Prisma } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import {
+  CONSENT_SNAPSHOTS,
   ConsentSnapshotV1,
+  EPISODE_SNAPSHOTS,
+  EVALUATION_SNAPSHOTS,
   EpisodeSnapshotV1,
   EvaluationSnapshotV1,
+  PATIENT_EVENT_SNAPSHOTS,
+  PATIENT_SNAPSHOTS,
   PatientEventSnapshotV1,
   PatientSnapshotV1,
+  PatientSnapshotV2,
+  SESSION_SNAPSHOTS,
   SessionSnapshotV1,
+  type SnapshotHistory,
 } from '@ficha/shared';
 import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
 import {
@@ -49,7 +57,7 @@ const COVERAGE: Record<string, { projected: string[]; excluded: Record<string, s
     excluded: { tenantId: IDENTITY, patientId: IDENTITY, sessionId: IDENTITY },
   },
   Patient: {
-    projected: fieldsOf(PatientSnapshotV1),
+    projected: fieldsOf(PatientSnapshotV2),
     excluded: {
       id: IDENTITY,
       tenantId: IDENTITY,
@@ -96,39 +104,70 @@ const COVERAGE: Record<string, { projected: string[]; excluded: Record<string, s
 const ID_1 = '019a0000-0000-7000-8000-000000000001';
 const ID_2 = '019a0000-0000-7000-8000-000000000002';
 
-// One stored v1 snapshot per aggregate, as the database holds it, and the row
-// it was built from. Every past schema version keeps its fixture here.
-const V1 = [
+// One stored snapshot per aggregate and schema version, as the database holds
+// it. Every past version keeps its fixture here, with how it reads today
+// (`current`: what its history answers for it). The latest version of each
+// aggregate also has the row it is built from (`build`).
+interface Stored {
+  name: string;
+  version: number;
+  schema: { parse(value: unknown): unknown; safeParse(value: unknown): { success: boolean } };
+  history: SnapshotHistory<unknown>;
+  stored: unknown;
+  build?: () => unknown;
+  current?: unknown;
+}
+
+const PATIENT_V1 = {
+  firstName: 'Ana',
+  lastName: 'Pérez',
+  birthDate: '1980-05-03T00:00:00.000Z',
+  sex: 'FEMALE',
+  occupation: 'Docente',
+  referringDoctor: null,
+};
+
+const STORED: Stored[] = [
   {
     name: 'session',
+    version: 1,
     schema: SessionSnapshotV1,
+    history: SESSION_SNAPSHOTS,
     build: () => sessionSnapshot({ ...SESSION, sessionType: 'SESSION', sessionDate: new Date(SESSION.sessionDate) }),
-    stored: undefined as unknown,
+    stored: undefined,
+  },
+  {
+    // Before the document (2026-11): it reads today as a patient with none.
+    name: 'patient',
+    version: 1,
+    schema: PatientSnapshotV1,
+    history: PATIENT_SNAPSHOTS,
+    stored: PATIENT_V1,
+    current: { ...PATIENT_V1, documentType: null, documentNumber: null },
   },
   {
     name: 'patient',
-    schema: PatientSnapshotV1,
+    version: 2,
+    schema: PatientSnapshotV2,
+    history: PATIENT_SNAPSHOTS,
     build: () =>
       patientSnapshot({
         firstName: 'Ana',
         lastName: 'Pérez',
         birthDate: new Date('1980-05-03T00:00:00.000Z'),
         sex: 'FEMALE',
+        documentType: 'DNI',
+        documentNumber: '30123456',
         occupation: 'Docente',
         referringDoctor: null,
       }),
-    stored: {
-      firstName: 'Ana',
-      lastName: 'Pérez',
-      birthDate: '1980-05-03T00:00:00.000Z',
-      sex: 'FEMALE',
-      occupation: 'Docente',
-      referringDoctor: null,
-    },
+    stored: { ...PATIENT_V1, documentType: 'DNI', documentNumber: '30123456' },
   },
   {
     name: 'episode',
+    version: 1,
     schema: EpisodeSnapshotV1,
+    history: EPISODE_SNAPSHOTS,
     build: () =>
       episodeSnapshot({
         status: 'DISCHARGED',
@@ -145,7 +184,9 @@ const V1 = [
   },
   {
     name: 'evaluation',
+    version: 1,
     schema: EvaluationSnapshotV1,
+    history: EVALUATION_SNAPSHOTS,
     build: () =>
       evaluationSnapshot({
         patientNarrative: 'Dolor al levantarse',
@@ -168,13 +209,17 @@ const V1 = [
   },
   {
     name: 'consent',
+    version: 1,
     schema: ConsentSnapshotV1,
+    history: CONSENT_SNAPSHOTS,
     build: () => consentSnapshot({ signedAt: new Date('2026-10-01T12:00:00.000Z'), revokedAt: null }),
     stored: { signedAt: '2026-10-01T12:00:00.000Z', revokedAt: null },
   },
   {
     name: 'patient event',
+    version: 1,
     schema: PatientEventSnapshotV1,
+    history: PATIENT_EVENT_SNAPSHOTS,
     build: () =>
       patientEventSnapshot({
         kind: 'FRACTURE',
@@ -210,7 +255,7 @@ const SESSION = {
     },
   ],
 };
-V1[0].stored = SESSION;
+STORED[0].stored = SESSION;
 
 describe('history projections', () => {
   it.each(Object.entries(COVERAGE))('holds every column of %s to a decision', (name, { projected, excluded }) => {
@@ -220,18 +265,40 @@ describe('history projections', () => {
     expect([...projected, ...Object.keys(excluded)].sort()).toEqual([...columns].sort());
   });
 
-  describe.each(V1)('a v1 $name snapshot', ({ schema, build, stored }) => {
-    it('is built with exactly the fields of the schema', () => {
-      expect(schema.parse(build())).toEqual(stored);
-      expect(build()).toEqual(stored);
-    });
+  it('has a fixture for every version of every aggregate', () => {
+    const histories = [
+      SESSION_SNAPSHOTS,
+      PATIENT_SNAPSHOTS,
+      EPISODE_SNAPSHOTS,
+      EVALUATION_SNAPSHOTS,
+      CONSENT_SNAPSHOTS,
+      PATIENT_EVENT_SNAPSHOTS,
+    ];
+    for (const history of histories) {
+      const versions = STORED.filter((s) => s.history === history).map((s) => s.version);
+      expect(versions).toEqual(Array.from({ length: history.version }, (_, i) => i + 1));
+    }
+  });
 
+  describe.each(STORED)('a v$version $name snapshot', ({ version, schema, history, build, stored, current }) => {
     it('still parses as stored', () => {
       expect(schema.parse(stored)).toEqual(stored);
     });
 
     it('refuses a field it does not know', () => {
       expect(schema.safeParse({ ...(stored as object), extra: 1 }).success).toBe(false);
+    });
+
+    // What the write path compares with and the history view shows.
+    it('reads in the current shape through its history', () => {
+      expect(history.read(version, stored)).toEqual(current ?? stored);
+      expect(history.schema.safeParse(history.read(version, stored)).success).toBe(true);
+    });
+
+    it.skipIf(version !== history.version)('is the one the projection builds, with exactly its fields', () => {
+      expect(build).toBeDefined();
+      expect(schema.parse(build!())).toEqual(stored);
+      expect(build!()).toEqual(stored);
     });
   });
 });

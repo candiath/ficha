@@ -34,6 +34,7 @@ export * from './partialDate';
 // it, and the web builds each row's sentence from it.
 export * from './auditActions';
 export * from './clinicalSnapshots';
+export * from './patientDocument';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 

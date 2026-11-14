@@ -37,6 +37,44 @@ async function createPatient(tx: Tx, data: Prisma.PatientUncheckedCreateInput): 
   return row;
 }
 
+// A patient as a release before the document left her: her version 1 was
+// written with schema version 1 of the patient snapshot, which has no document
+// (packages/shared clinicalSnapshots.ts). For the tests of a schema version
+// change: such a row is never rewritten, and must keep reading and editing.
+async function createPatientAtSchemaV1(tx: Tx, data: Prisma.PatientUncheckedCreateInput): Promise<Patient> {
+  const row = await tx.patient.create({ data });
+  const { id: auditLogId } = await tx.auditLog.create({
+    data: {
+      tenantId: row.tenantId,
+      patientId: row.id,
+      entity: 'PATIENT',
+      entityId: row.id,
+      action: 'PATIENT_CREATED',
+      params: {},
+      actorType: 'SYSTEM',
+    },
+    select: { id: true },
+  });
+  await tx.patientRevision.create({
+    data: {
+      tenantId: row.tenantId,
+      patientId: row.id,
+      version: 1,
+      auditLogId,
+      schemaVersion: 1,
+      snapshot: {
+        firstName: row.firstName,
+        lastName: row.lastName,
+        birthDate: row.birthDate?.toISOString() ?? null,
+        sex: row.sex,
+        occupation: row.occupation,
+        referringDoctor: row.referringDoctor,
+      },
+    },
+  });
+  return row;
+}
+
 async function createEpisode(tx: Tx, data: Prisma.ClinicalEpisodeUncheckedCreateInput): Promise<ClinicalEpisode> {
   const row = await tx.clinicalEpisode.create({ data });
   await episodeVersionOne(tx, row);
@@ -111,7 +149,11 @@ function delegate<D, R>(create: (tx: Tx, data: D) => Promise<R>) {
 }
 
 export const fixture = {
-  patient: delegate(createPatient),
+  patient: {
+    ...delegate(createPatient),
+    createAtSchemaV1: ({ data }: { data: Prisma.PatientUncheckedCreateInput }): Promise<Patient> =>
+      prisma.$transaction((tx) => createPatientAtSchemaV1(tx, data)),
+  },
   clinicalEpisode: {
     ...delegate(createEpisode),
     update: (args: Parameters<typeof updateEpisode>[1]): Promise<ClinicalEpisode> =>

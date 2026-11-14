@@ -203,7 +203,9 @@ describe('revision routes', () => {
       'returns version 1 of the %s',
       async (aggregate) => {
         const res = await expectStatus(get(`${bases()[aggregate]}/1`), 200);
-        expect(res.body.data).toMatchObject({ version: 1, schemaVersion: 1, snapshot: expect.any(Object) });
+        // The schema version it was written with: the patient's is 2 since her document.
+        const schemaVersion = aggregate === 'patient' ? 2 : 1;
+        expect(res.body.data).toMatchObject({ version: 1, schemaVersion, snapshot: expect.any(Object) });
       },
     );
 

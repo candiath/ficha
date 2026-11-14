@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
+import { createPatientRecord, deleteAuditRows, createTestContext, createTestClinic, createTestToken, type TestClinic, patientAudit, patientDeleteAudit } from './helpers';
 
 // Política de alertas centralizada en los repos: el chequeo de paciente de
 // POST /api/alerts pasa por patientRepo.exists, que además del tenant filtra
@@ -38,7 +38,7 @@ describe('alertas: vigencia del paciente', () => {
   }
 
   it('rechaza con 404 la alerta sobre un paciente borrado y no crea la fila', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Paciente', lastName: 'Borrado' }, patientAudit('CREATED'));
+    const patient = await createPatientRecord(ctx, { firstName: 'Paciente', lastName: 'Borrado' }, patientAudit('CREATED'));
     await patientRepo.softDelete(ctx, patient.id, patientDeleteAudit(patient.id));
 
     const res = await postAlert(patient.id);
@@ -53,7 +53,7 @@ describe('alertas: vigencia del paciente', () => {
   // Only the engine writes the other types, with its own fixed wording; by
   // hand, an alert is a custom reminder (#186, SPEC-list-minimization.md §3).
   it('accepts only custom alerts by hand', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Paciente Con', lastName: 'Alerta' }, patientAudit('CREATED'));
+    const patient = await createPatientRecord(ctx, { firstName: 'Paciente Con', lastName: 'Alerta' }, patientAudit('CREATED'));
 
     for (const type of ['FOLLOW_UP', 'NO_SHOW', 'PAYMENT']) {
       const res = await request(app)
@@ -80,7 +80,7 @@ describe('alertas: vigencia del paciente', () => {
   // sesiones (que conservan el nombre del paciente borrado a propósito, issue
   // #72), una alerta sobre un paciente eliminado pide una acción imposible.
   it('las alertas de un paciente borrado desaparecen de la lista y del contador', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Paciente A', lastName: 'Borrar' }, patientAudit('CREATED'));
+    const patient = await createPatientRecord(ctx, { firstName: 'Paciente A', lastName: 'Borrar' }, patientAudit('CREATED'));
     const created = await postAlert(patient.id);
     expect(created.status).toBe(201);
     const alertId = created.body.data.id as string;
@@ -117,7 +117,7 @@ describe('alertas: vigencia del paciente', () => {
   });
 
   it('marca como leída una alerta del tenant', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Paciente Con', lastName: 'Alerta' }, patientAudit('CREATED'));
+    const patient = await createPatientRecord(ctx, { firstName: 'Paciente Con', lastName: 'Alerta' }, patientAudit('CREATED'));
     const created = await postAlert(patient.id);
     expect(created.status).toBe(201);
 

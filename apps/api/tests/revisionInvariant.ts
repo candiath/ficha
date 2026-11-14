@@ -21,7 +21,7 @@ export function unwatchClinic(tenantId: string): void {
 
 interface Checked {
   id: string;
-  revisions: { snapshot: unknown }[];
+  revisions: { schemaVersion: number; snapshot: unknown }[];
 }
 
 export async function assertRevisionInvariant(): Promise<void> {
@@ -29,10 +29,11 @@ export async function assertRevisionInvariant(): Promise<void> {
   const { prisma } = await import('../src/lib/prisma');
   const { sessionSnapshot } = await import('../src/repositories/prisma/sessionSnapshot');
   const snapshots = await import('../src/repositories/prisma/clinicalSnapshots');
+  const shared = await import('@ficha/shared');
   const { isDeepStrictEqual } = await import('node:util');
 
   const where = { tenantId: { in: [...clinics] } };
-  const latest = { select: { snapshot: true }, orderBy: { version: 'desc' }, take: 1 } as const;
+  const latest = { select: { schemaVersion: true, snapshot: true }, orderBy: { version: 'desc' }, take: 1 } as const;
 
   const [sessions, patients, episodes, evaluations, consents, events] = await Promise.all([
     prisma.session.findMany({
@@ -55,20 +56,32 @@ export async function assertRevisionInvariant(): Promise<void> {
   ]);
 
   const problems: string[] = [];
-  function check<R extends Checked>(name: string, rows: R[], project: (row: R) => unknown): void {
+  // The latest snapshot as it reads today: one written with an earlier schema
+  // version is compared in the current shape, as the write path does
+  // (packages/shared clinicalSnapshots.ts). One that does not read is drift.
+  function check<R extends Checked>(
+    name: string,
+    rows: R[],
+    project: (row: R) => unknown,
+    history: { read(schemaVersion: number, snapshot: unknown): unknown },
+  ): void {
     const unversioned = rows.filter((r) => r.revisions.length === 0).map((r) => r.id);
     const drifted = rows
-      .filter((r) => r.revisions.length > 0 && !isDeepStrictEqual(project(r), r.revisions[0].snapshot))
+      .filter(
+        (r) =>
+          r.revisions.length > 0 &&
+          !isDeepStrictEqual(project(r), history.read(r.revisions[0].schemaVersion, r.revisions[0].snapshot)),
+      )
       .map((r) => r.id);
     if (unversioned.length > 0) problems.push(`${name} with no revision: [${unversioned.join(', ')}]`);
     if (drifted.length > 0) problems.push(`${name} differing from their latest snapshot: [${drifted.join(', ')}]`);
   }
-  check('sessions', sessions, sessionSnapshot);
-  check('patients', patients, snapshots.patientSnapshot);
-  check('episodes', episodes, snapshots.episodeSnapshot);
-  check('evaluations', evaluations, snapshots.evaluationSnapshot);
-  check('consents', consents, snapshots.consentSnapshot);
-  check('patient events', events, snapshots.patientEventSnapshot);
+  check('sessions', sessions, sessionSnapshot, shared.SESSION_SNAPSHOTS);
+  check('patients', patients, snapshots.patientSnapshot, shared.PATIENT_SNAPSHOTS);
+  check('episodes', episodes, snapshots.episodeSnapshot, shared.EPISODE_SNAPSHOTS);
+  check('evaluations', evaluations, snapshots.evaluationSnapshot, shared.EVALUATION_SNAPSHOTS);
+  check('consents', consents, snapshots.consentSnapshot, shared.CONSENT_SNAPSHOTS);
+  check('patient events', events, snapshots.patientEventSnapshot, shared.PATIENT_EVENT_SNAPSHOTS);
 
   if (problems.length > 0) {
     throw new Error(

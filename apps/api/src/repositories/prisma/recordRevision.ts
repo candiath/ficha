@@ -1,19 +1,13 @@
 import { Prisma } from '@prisma/client';
 import {
-  CONSENT_SNAPSHOT_VERSION,
-  ConsentSnapshotV1,
-  EPISODE_SNAPSHOT_VERSION,
-  EVALUATION_SNAPSHOT_VERSION,
-  EpisodeSnapshotV1,
-  EvaluationSnapshotV1,
-  PATIENT_EVENT_SNAPSHOT_VERSION,
-  PATIENT_SNAPSHOT_VERSION,
-  PatientEventSnapshotV1,
-  PatientSnapshotV1,
-  SESSION_SNAPSHOT_VERSION,
-  SessionSnapshotV1,
+  CONSENT_SNAPSHOTS,
+  EPISODE_SNAPSHOTS,
+  EVALUATION_SNAPSHOTS,
+  PATIENT_EVENT_SNAPSHOTS,
+  PATIENT_SNAPSHOTS,
+  SESSION_SNAPSHOTS,
+  type SnapshotHistory,
 } from '@ficha/shared';
-import type { z } from 'zod';
 import type { TenantContext } from '../types';
 
 // Clinical revisions (docs/specs/SPEC-clinical-revisions.md): every write to a
@@ -74,52 +68,48 @@ type StoredRevision = { version: number; schemaVersion: number; snapshot: Prisma
 const latest = { orderBy: { version: 'desc' }, select: { version: true, schemaVersion: true, snapshot: true } } as const;
 
 // Per revisions table: how a version is written and the latest one read, and the
-// schema its snapshot is parsed with. A patient is its own aggregate, so its
-// revision's patient_id is the aggregate's id.
+// history of its snapshot's schemas (packages/shared clinicalSnapshots.ts): a
+// version is written with the current one, and one of any earlier version is
+// read in the current shape. A patient is its own aggregate, so its revision's
+// patient_id is the aggregate's id.
 const TABLES = {
   session_revisions: {
-    schema: SessionSnapshotV1,
-    schemaVersion: SESSION_SNAPSHOT_VERSION,
+    snapshots: SESSION_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
       tx.sessionRevision.create({ data: { ...f, tenantId, sessionId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
       tx.sessionRevision.findFirst({ where: { tenantId, sessionId: id }, ...latest }),
   },
   patient_revisions: {
-    schema: PatientSnapshotV1,
-    schemaVersion: PATIENT_SNAPSHOT_VERSION,
+    snapshots: PATIENT_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, patientId: _patientId, ...f }: RevisionFields) =>
       tx.patientRevision.create({ data: { ...f, tenantId, patientId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
       tx.patientRevision.findFirst({ where: { tenantId, patientId: id }, ...latest }),
   },
   episode_revisions: {
-    schema: EpisodeSnapshotV1,
-    schemaVersion: EPISODE_SNAPSHOT_VERSION,
+    snapshots: EPISODE_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
       tx.episodeRevision.create({ data: { ...f, tenantId, episodeId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
       tx.episodeRevision.findFirst({ where: { tenantId, episodeId: id }, ...latest }),
   },
   evaluation_revisions: {
-    schema: EvaluationSnapshotV1,
-    schemaVersion: EVALUATION_SNAPSHOT_VERSION,
+    snapshots: EVALUATION_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
       tx.evaluationRevision.create({ data: { ...f, tenantId, evaluationId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
       tx.evaluationRevision.findFirst({ where: { tenantId, evaluationId: id }, ...latest }),
   },
   consent_revisions: {
-    schema: ConsentSnapshotV1,
-    schemaVersion: CONSENT_SNAPSHOT_VERSION,
+    snapshots: CONSENT_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
       tx.consentRevision.create({ data: { ...f, tenantId, consentId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
       tx.consentRevision.findFirst({ where: { tenantId, consentId: id }, ...latest }),
   },
   patient_event_revisions: {
-    schema: PatientEventSnapshotV1,
-    schemaVersion: PATIENT_EVENT_SNAPSHOT_VERSION,
+    snapshots: PATIENT_EVENT_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
       tx.patientEventRevision.create({ data: { ...f, tenantId, patientEventId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
@@ -129,7 +119,8 @@ const TABLES = {
 
 export type RevisionTable = keyof typeof TABLES;
 
-export type SnapshotOf<T extends RevisionTable> = z.infer<(typeof TABLES)[T]['schema']>;
+export type SnapshotOf<T extends RevisionTable> =
+  (typeof TABLES)[T]['snapshots'] extends SnapshotHistory<infer Current> ? Current : never;
 
 export interface LatestRevision<T extends RevisionTable> {
   version: number;
@@ -137,22 +128,22 @@ export interface LatestRevision<T extends RevisionTable> {
 }
 
 // The latest version of an aggregate, or null if it has none (version 0: written
-// before revisions existed). The caller holds the aggregate's lock.
+// before revisions existed), with its snapshot in the current shape whatever
+// version it was written with. The caller holds the aggregate's lock.
 export async function latestRevision<T extends RevisionTable>(
   tx: Tx,
   tenantId: string,
   table: T,
   aggregateId: string,
 ): Promise<LatestRevision<T> | null> {
-  const { schema, schemaVersion, latest: read } = TABLES[table];
+  const { snapshots, latest: read } = TABLES[table];
   const revision = await read(tx, tenantId, aggregateId);
   if (!revision) return null;
-
-  const parsed = schema.safeParse(revision.snapshot);
-  if (revision.schemaVersion !== schemaVersion || !parsed.success) {
+  const snapshot = snapshots.read(revision.schemaVersion, revision.snapshot);
+  if (snapshot === null) {
     throw new RevisionError(`revision unreadable: schema=${revision.schemaVersion} table=${table} id=${aggregateId}`);
   }
-  return { version: revision.version, snapshot: parsed.data as SnapshotOf<T> };
+  return { version: revision.version, snapshot: snapshot as SnapshotOf<T> };
 }
 
 export async function recordRevision<T extends RevisionTable>(
@@ -161,12 +152,12 @@ export async function recordRevision<T extends RevisionTable>(
   table: T,
   fields: Omit<RevisionFields, 'schemaVersion' | 'snapshot'> & { snapshot: SnapshotOf<T> },
 ): Promise<void> {
-  const { write, schemaVersion } = TABLES[table];
+  const { write, snapshots } = TABLES[table];
   try {
     await write(tx, ctx.tenantId, {
       ...fields,
-      schemaVersion,
-      snapshot: fields.snapshot,
+      schemaVersion: snapshots.version,
+      snapshot: fields.snapshot as Prisma.InputJsonValue,
     });
   } catch (e) {
     const message = `revision write failed: code=${errorCode(e)} table=${table} id=${fields.aggregateId}`;

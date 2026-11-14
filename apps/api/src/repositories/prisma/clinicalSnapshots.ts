@@ -1,10 +1,10 @@
-import type { DatePrecision, EpisodeStatus, PatientEventKind, Sex } from '@prisma/client';
+import type { DatePrecision, DocumentType, EpisodeStatus, PatientEventKind, Sex } from '@prisma/client';
 import type {
   ConsentSnapshotV1,
   EpisodeSnapshotV1,
   EvaluationSnapshotV1,
   PatientEventSnapshotV1,
-  PatientSnapshotV1,
+  PatientSnapshotV2,
 } from '@ficha/shared';
 
 // The canonical projections of the patient, the episode, the initial
@@ -22,6 +22,8 @@ export const patientSnapshotSelect = {
   lastName: true,
   birthDate: true,
   sex: true,
+  documentType: true,
+  documentNumber: true,
   occupation: true,
   referringDoctor: true,
 } as const;
@@ -31,14 +33,18 @@ export function patientSnapshot(p: {
   lastName: string;
   birthDate: Date | null;
   sex: Sex | null;
+  documentType: DocumentType | null;
+  documentNumber: string | null;
   occupation: string | null;
   referringDoctor: string | null;
-}): PatientSnapshotV1 {
+}): PatientSnapshotV2 {
   return {
     firstName: p.firstName,
     lastName: p.lastName,
     birthDate: isoOrNull(p.birthDate),
     sex: p.sex,
+    documentType: p.documentType,
+    documentNumber: p.documentNumber,
     occupation: p.occupation,
     referringDoctor: p.referringDoctor,
   };

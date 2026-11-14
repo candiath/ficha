@@ -3,9 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
+import { createPatientRecord, deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit } from './helpers';
 import { fixture } from './fixtures';
 
 // Regresión del issue #97: SessionUpdateSchema se deriva con .partial() de
@@ -29,7 +28,7 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     user = await clinic.createUser();
     token = await createTestToken(user);
     ctx = await createTestContext(clinic.tenantId, user);
-    patient = await patientRepo.create(ctx, { firstName: 'Paciente PATCH', lastName: 'parcial' }, patientAudit('CREATED'));
+    patient = await createPatientRecord(ctx, { firstName: 'Paciente PATCH', lastName: 'parcial' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {
