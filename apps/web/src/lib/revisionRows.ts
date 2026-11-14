@@ -1,13 +1,14 @@
 import {
-  ConsentSnapshotV1,
-  EpisodeSnapshotV1,
-  EvaluationSnapshotV1,
-  PatientEventSnapshotV1,
-  PatientSnapshotV1,
-  SessionSnapshotV1,
+  CONSENT_SNAPSHOTS,
+  DOCUMENT_TYPE_LABELS,
+  EPISODE_SNAPSHOTS,
+  EVALUATION_SNAPSHOTS,
+  PATIENT_EVENT_SNAPSHOTS,
+  PATIENT_SNAPSHOTS,
+  SESSION_SNAPSHOTS,
   formatPartialDate,
+  type SnapshotHistory,
 } from '@ficha/shared';
-import type { z } from 'zod';
 import {
   EPISODE_STATUS_LABELS,
   PATIENT_EVENT_KIND_LABELS,
@@ -60,16 +61,26 @@ function utcDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('es-AR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-// A snapshot of a schema version this screen does not know, or that does not
-// parse, renders as null: the dialog says so instead of guessing.
-function parsed<S extends z.ZodType>(schema: S, version: number, snapshot: unknown, render: (s: z.infer<S>) => SnapshotRow[]) {
-  if (version !== 1) return null;
-  const result = schema.safeParse(snapshot);
-  return result.success ? render(result.data) : null;
+// A snapshot is shown in the current shape, whatever schema version it was
+// written with: its history reads it (packages/shared clinicalSnapshots.ts), so
+// a field a later version added shows as empty in the versions before it. One
+// of a version this build does not know, or that does not parse, renders as
+// null: the dialog says so instead of guessing.
+//
+// A version change that REMOVES a field needs a renderer of its own for the
+// old versions here, or what they held stops being shown.
+function parsed<Current>(
+  history: SnapshotHistory<Current>,
+  version: number,
+  snapshot: unknown,
+  render: (s: Current) => SnapshotRow[],
+) {
+  const current = history.read(version, snapshot);
+  return current === null ? null : render(current);
 }
 
 export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) =>
-  parsed(SessionSnapshotV1, version, snapshot, (s) => [
+  parsed(SESSION_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'sessionType', label: 'Tipo', value: SESSION_TYPE_LABELS[s.sessionType] ?? s.sessionType },
     { key: 'sessionDate', label: 'Fecha', value: dateTime(s.sessionDate) },
     ...(s.sessionType === 'NOTE' || s.observations ? [{ key: 'observations', label: 'Nota', value: text(s.observations) }] : []),
@@ -93,17 +104,22 @@ export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) 
   ]);
 
 export const renderPatientSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(PatientSnapshotV1, version, snapshot, (s) => [
+  parsed(PATIENT_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'firstName', label: 'Nombre', value: text(s.firstName) },
     { key: 'lastName', label: 'Apellido', value: text(s.lastName) },
     { key: 'birthDate', label: 'Fecha de nacimiento', value: utcDate(s.birthDate) },
     { key: 'sex', label: 'Sexo', value: s.sex ? (SEX_LABELS[s.sex] ?? s.sex) : EMPTY },
+    {
+      key: 'document',
+      label: 'Documento',
+      value: s.documentType && s.documentNumber ? `${DOCUMENT_TYPE_LABELS[s.documentType]} ${s.documentNumber}` : EMPTY,
+    },
     { key: 'occupation', label: 'Ocupación', value: text(s.occupation) },
     { key: 'referringDoctor', label: 'Médico derivante', value: text(s.referringDoctor) },
   ]);
 
 export const renderEpisodeSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(EpisodeSnapshotV1, version, snapshot, (s) => [
+  parsed(EPISODE_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'mainComplaint', label: 'Motivo de consulta', value: text(s.mainComplaint) },
     { key: 'status', label: 'Estado', value: EPISODE_STATUS_LABELS[s.status] ?? s.status },
     { key: 'openedAt', label: 'Apertura', value: date(s.openedAt) },
@@ -111,7 +127,7 @@ export const renderEpisodeSnapshot: SnapshotRenderer = (snapshot, version) =>
   ]);
 
 export const renderEvaluationSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(EvaluationSnapshotV1, version, snapshot, (s) => [
+  parsed(EVALUATION_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'evaluatedAt', label: 'Fecha de evaluación', value: date(s.evaluatedAt) },
     { key: 'patientNarrative', label: 'Relato del paciente', value: text(s.patientNarrative) },
     { key: 'otherHistory', label: 'Otros antecedentes', value: text(s.otherHistory) },
@@ -122,13 +138,13 @@ export const renderEvaluationSnapshot: SnapshotRenderer = (snapshot, version) =>
   ]);
 
 export const renderConsentSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(ConsentSnapshotV1, version, snapshot, (s) => [
+  parsed(CONSENT_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'signedAt', label: 'Firmado', value: dateTime(s.signedAt) },
     { key: 'revokedAt', label: 'Revocado', value: s.revokedAt ? dateTime(s.revokedAt) : 'No' },
   ]);
 
 export const renderPatientEventSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(PatientEventSnapshotV1, version, snapshot, (s) => [
+  parsed(PATIENT_EVENT_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'kind', label: 'Tipo', value: PATIENT_EVENT_KIND_LABELS[s.kind] ?? s.kind },
     { key: 'description', label: 'Descripción', value: text(s.description) },
     {
