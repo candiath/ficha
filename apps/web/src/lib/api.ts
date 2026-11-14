@@ -1,4 +1,4 @@
-// Cliente HTTP centralizado: adjunta el token JWT en cada request y
+// Cliente HTTP centralizado: adjunta el token de sesión en cada request y
 // maneja el 401 en un solo lugar (en vez de página por página).
 //
 // Hay dos instancias, una por sesión: la de la clínica (`api`) y la del

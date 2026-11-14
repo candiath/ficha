@@ -1,6 +1,5 @@
 import { platformApi } from '@/lib/api';
 import type {
-  ChangePasswordResponse,
   CreatedUser,
   PasswordResetLink,
   PlatformAdminCreateInput,
@@ -28,12 +27,14 @@ export const platformAuthApi = {
   login: (email: string, password: string) =>
     platformApi.post<PlatformLoginResponse>('/api/platform/auth/login', { email, password }),
   me: () => platformApi.get<PlatformOperator>('/api/platform/auth/me'),
-  // Devuelve un token nuevo: el cambio invalida todos los anteriores.
+  // 204: the current session survives, every other one is revoked.
   changePassword: (currentPassword: string, newPassword: string) =>
-    platformApi.post<ChangePasswordResponse>('/api/platform/auth/change-password', {
+    platformApi.post<void>('/api/platform/auth/change-password', {
       currentPassword,
       newPassword,
     }),
+  // Revokes the current session on the server.
+  logout: () => platformApi.post<void>('/api/platform/auth/logout', {}),
 };
 
 export const platformTenantsApi = {
