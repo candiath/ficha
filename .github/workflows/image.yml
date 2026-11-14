@@ -8,18 +8,17 @@ name: API image
 # push (the release PR for `main`), the same reasoning that keeps test.yml off
 # push events. Pushes only come from people with write access, so a fork can
 # never publish an image.
+#
+# Every push, with no `paths` filter, as Render rebuilt on every push: the API
+# reports the commit time it was built from (X-Build-Version) and the web
+# blocks while the API is older than itself (lib/buildVersion.ts). With a
+# filter, a web-only push moved the web ahead and left the API image behind,
+# and the web stayed on "Estamos actualizando" until someone rebuilt it.
 on:
   push:
     branches: [main, dev]
-    paths:
-      - apps/api/**
-      - packages/shared/**
-      - package.json
-      - package-lock.json
-      - .dockerignore
-      - .github/workflows/image.yml
-  # To publish a branch's image without a new commit (the first time, or after
-  # a change outside the paths above that the image depends on).
+  # To publish a branch's image without a new commit (the first time, or to
+  # rebuild one).
   workflow_dispatch:
 
 # Two pushes to the same branch build in order; the newer one wins the tag.
