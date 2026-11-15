@@ -93,6 +93,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
       'versioned table changes content: the column was ignored by the client and holds no clinical data the ' +
       'revisions could lose.',
     violations: ['DROP COLUMN: ALTER TABLE "initial_evaluations" DROP COLUMN "retraction_map"'],
+  },
   '20261116120000_timestamptz': {
     reason:
       'Every timestamp column becomes timestamptz(3) before the relaunch (#238), while no table holds ' +

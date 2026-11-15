@@ -74,6 +74,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
       'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "action" TYPE "PlatformAction_new" USING "action"::text::"PlatformAction_',
       'RENAME: ALTER TYPE "PlatformAction_new" RENAME TO "PlatformAction"',
     ],
+  },
   '20261116120000_timestamptz': {
     reason:
       'Every timestamp column becomes timestamptz(3) before the relaunch (#238), with no real rows yet. ' +
