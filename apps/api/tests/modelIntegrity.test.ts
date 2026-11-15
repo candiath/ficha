@@ -198,7 +198,7 @@ describe('The database keeps the model consistent', () => {
         prisma.$executeRaw`INSERT INTO users (id, tenant_id, email, password_hash, name, updated_at)
           VALUES (gen_random_uuid(), ${clinic.tenantId}::uuid, ${clinic.email('sin-nombre')}, 'x', ${name}, now())`;
 
-      await expect(userWithName(null)).rejects.toThrow(/null value in column "name"/);
+      await expect(userWithName(null)).rejects.toThrow(/23502/); // not_null_violation
       await expect(userWithName('   ')).rejects.toThrow(/users_name_present/);
       await expect(prisma.user.create({ data: { tenantId: clinic.tenantId, email: clinic.email('vacio'), passwordHash: 'x', name: '' } }))
         .rejects.toThrow(/users_name_present/);
