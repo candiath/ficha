@@ -50,7 +50,7 @@ Cada entorno tiene su propia branch. There is no signing secret: clinic sessions
 
 ### Backups
 
-El PITR de Neon cubre 6 horas. Además hay un `pg_dump` diario de producción en un repo privado aparte, disparado también al **abrir** el PR de release (`.github/workflows/backup-antes-del-release.yml`). La credencial de producción vive solo allá. Its history was started over after the wipe of 2026-10-12 and is started over again after the relaunch's wipe (#238); from then on the dumps hold real clinical data. Acá solo está `BACKUP_DISPATCH_TOKEN`, un PAT fine-grained con **Actions: write** (y no Contents, que daría lectura de los dumps) que usa el endpoint `workflow_dispatch`.
+Neon's PITR covers 6 hours. On top of that, production gets a daily `pg_dump -Fc` from a separate private repository, where the production credential lives. It is also triggered when a release PR is **opened** (`.github/workflows/backup-antes-del-release.yml`). The dump is encrypted with `age` and uploaded to a Backblaze B2 bucket, never committed and never on disk in plaintext. Nath keeps the private key offline. Each object is locked (COMPLIANCE) until it expires: 30 days for the dailies, 12 months for the monthly copy. The upload key can only write. A monthly restore test checks the newest dump. A deleted patient stays in the backups until they expire. Details and the restore runbook are in [`docs/infra.md`](docs/infra.md#backups). The repository's old plaintext dump history is started over after the relaunch's wipe (#238). All this repo holds is `BACKUP_DISPATCH_TOKEN`, a fine-grained PAT with **Actions: write** (not Contents, which could change that repository's workflows) for the `workflow_dispatch` endpoint.
 
 ## Base de datos
 

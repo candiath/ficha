@@ -101,19 +101,27 @@ Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `productio
 
 ## Backups
 
-El point-in-time recovery de Neon en el plan free cubre **6 horas** hacia atrás (`history_retention_seconds: 21600`). Alcanza para deshacer un error que se nota enseguida; no alcanza para nada que se descubra al día siguiente, ni sirve si se pierde la cuenta.
+Neon's point-in-time recovery covers **6 hours** back on the free plan (`history_retention_seconds: 21600`). That undoes a mistake noticed right away; it does nothing for one found the next day, or if the account is lost.
 
-Por eso hay un **repositorio de backups aparte, privado**, con un `pg_dump` de producción versionado por git. El dump se escribe siempre en los mismos dos archivos —`dump/schema.sql` y `dump/data.sql`— y cada corrida que encuentra diferencias deja un commit: el historial de git *es* el versionado, y `git log dump/data.sql` es la línea de tiempo de la base. Una corrida sin cambios no commitea nada, y la detección es `git diff --cached --quiet`, sin preguntarle nada a la base.
+So production is also dumped every day by a **separate, private backups repository**, where the production credential lives (its README has the details and the setup). Since 2026-11 the dumps are no longer committed there: git never forgets, so a patient who asked to be deleted stayed in every old dump, in plain text.
 
-Corre diario a las 06:00 UTC, a mano, y desde este repo al abrir el PR de release (`.github/workflows/backup-antes-del-release.yml`) — al **abrir** y no al mergear, porque para cuando el merge ocurre Render ya arrancó el build y `migrate deploy` puede estar corriendo.
+- `backup.yml` pipes `pg_dump -Fc` to [`age`](https://age-encryption.org), encrypting to one public key, and uploads the ciphertext to a **Backblaze B2 bucket**. The plaintext never touches a disk. The private key is kept offline by Nath, not in any repository.
+- Every object is uploaded **locked in COMPLIANCE mode** until it expires: dailies 30 days, a monthly copy (the run of the 1st) 12 months. Nobody can delete it or shorten the lock before then, not even the account owner. The bucket's lifecycle rules delete it afterwards.
+- The upload key can write and set locks, nothing else: it cannot read, list or delete. A stolen one cannot destroy a backup. B2 was picked over Cloudflare R2 for this: R2's tokens that write also read and list.
+- Next to each dump goes an encrypted file with every table's row count at dump time. `restore-test.yml`, on the 3rd of each month, checks that the newest daily is at most 48 hours old. If the private key is in that repository as `AGE_IDENTITY`, it also restores the dump into a throwaway Postgres 18, compares every count, and runs `audit-guards.sql`. Without the key, the restore is a manual drill every quarter (*Restoring a backup*).
+- A failure of either workflow sends a fixed Telegram message through the sysadmin bot.
 
-**La credencial de producción vive solo en el repo privado.** Éste es público: aunque las secrets no se filtran a los PRs de forks, cualquiera con permiso de escritura podría sacarlas modificando un workflow. Acá solo está `BACKUP_DISPATCH_TOKEN`, que puede disparar aquel workflow y nada más.
+It runs daily at 06:00 UTC, by hand, and from this repo when a release PR is **opened** (`.github/workflows/backup-antes-del-release.yml`), not merged: by the time of the merge, Render has started the build and `migrate deploy` may be running.
 
-Ese disparo va por el endpoint de **`workflow_dispatch`** (`/actions/workflows/{id}/dispatches`), no por el de `repository_dispatch` (`/dispatches`), y la diferencia es de permisos: en un PAT fine-grained el segundo exige **Contents: write** sobre el repo privado, y Contents incluye lectura — o sea que el token del repo público podría bajarse los dumps con las historias clínicas. El primero se conforma con **Actions: write**, que permite pedir un backup pero no leerlo.
+**The production credential lives only in the private repository.** This one is public: secrets do not reach PRs from forks, but anyone with write access could extract them by changing a workflow. All this repo has is `BACKUP_DISPATCH_TOKEN`, which can trigger that workflow and nothing else.
 
-Se respalda **solo producción**: `staging` y `development` hold only test data, nothing there needs a backup.
+The trigger goes through the **`workflow_dispatch`** endpoint (`/actions/workflows/{id}/dispatches`), not `repository_dispatch` (`/dispatches`), because of permissions. In a fine-grained PAT, the second needs **Contents: write** on the private repo. That is enough to push a workflow that prints its secrets, and before the bucket it also meant reading the dumps. The first needs only **Actions: write**, which can ask for a backup but not read one. The contract is the workflow file `backup.yml`, `ref=main` and the input `motivo`.
 
-The backups repository's history was restarted on 2026-10-12, right after the first wipe (#223): the dumps of the fictitious data were dropped, and the history began with the empty database. The launch was then postponed, and the history is restarted again after the second wipe, at the relaunch (#238), dropping the dumps of the clinic's trial the same way. Every dump from the relaunch on holds real clinical data in plain text, protected only by the repository being private.
+**A deletion outlives the backups that hold it**: a patient deleted in production stays in the dailies for about a month and in the monthlies for about a year. The lock is what stops anyone from removing them earlier, on purpose. A restore therefore brings back every patient deleted since that dump, and those deletions have to be applied again.
+
+Only **production** is backed up: `staging` and `development` hold only test data, so nothing there needs a backup.
+
+The backups repository's history (the plain-SQL dumps of before the bucket) was restarted on 2026-10-12, right after the first wipe (#223). It is restarted again after the relaunch's wipe (#238), dropping the dumps of the clinic's trial. From then on, that repository holds no data.
 
 ## Audit tables
 
@@ -174,7 +182,38 @@ It was rehearsed on a branch copied from `production` (same tables, triggers, co
 
 ### Restoring a backup
 
-The dumps in the backups repository load with the triggers already in place: `schema.sql` creates them before `data.sql` inserts. Loaded naively:
+**Never restore over production.** Bring a copy up next to it, take what is needed, and put it back by hand; for a total disaster, the same steps target a new, empty Postgres 18 or newer.
+
+The dumps in the bucket are custom-format (`pg_dump -Fc`) and encrypted with `age`. Run these in Git Bash, not PowerShell 5.1, whose pipes re-encode binary data. You need `age`, Docker, the B2 CLI and the private key:
+
+```bash
+# 1. Download a dump and its counts (B2 CLI with the account's key, or the web UI).
+b2 ls b2://<bucket>/daily/
+b2 file download b2://<bucket>/daily/ficha-<time>.dump.age ./ficha.dump.age
+b2 file download b2://<bucket>/daily/ficha-<time>.counts.age ./ficha.counts.age
+
+# 2. An empty Postgres 18.
+docker run -d --name ficha-restore -e POSTGRES_PASSWORD=x -p 55432:5432 postgres:18
+until docker exec ficha-restore pg_isready -U postgres -q; do sleep 1; done; sleep 3
+
+# 3. Decrypt and restore in one pipe: the plaintext never lands on disk.
+age --decrypt --identity /path/to/ficha-backup.key ficha.dump.age \
+  | docker exec -i ficha-restore pg_restore -U postgres -d postgres \
+      --no-owner --no-privileges --exit-on-error --single-transaction
+
+# 4. Check: the audit guards, and the counts against the restored tables.
+docker exec -i ficha-restore psql -U postgres -v ON_ERROR_STOP=1 -q < apps/api/prisma/audit-guards.sql
+age --decrypt --identity /path/to/ficha-backup.key ficha.counts.age
+
+# 5. Take what is needed, then throw it all away.
+docker rm -f ficha-restore; rm ficha.dump.age ficha.counts.age
+```
+
+**No trigger is switched off.** In a custom-format restore, `pg_restore` creates the tables, loads their rows, and only then creates indexes, constraints and triggers (the post-data section). So the audit triggers do not exist while the rows load. No `created_at` is restamped, no session check rejects an audit row whose session was pruned, and the foreign keys are checked when they are created. The single transaction means a failure loads nothing. Tested on 2026-11-15 in Docker, with Ficha's migrations and an audit row whose session had been deleted. The row came back with its `created_at` and session, every table matched its dump-time count, and the guards passed. `restore-test.yml` repeats the check every month when it holds the key.
+
+#### Plain-SQL dumps (before the bucket)
+
+The dumps committed to the backups repository until 2026-11 (`dump/schema.sql`, `dump/data.sql`) load with the triggers already in place: `schema.sql` creates them before `data.sql` inserts. Loaded naively:
 - the session check rejects audit rows whose session was pruned, or not loaded yet (`audit_logs` sorts before `auth_sessions`);
 - the stamp trigger would rewrite every `created_at` to the moment of the restore.
 
