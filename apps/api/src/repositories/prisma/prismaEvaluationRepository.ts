@@ -25,7 +25,7 @@ const evaluationSelect = {
   notes: true,
   physicalActivity: true,
   painFrequency: true,
-  evaScale: true,
+  painScale: true,
   evaluatedAt: true,
   updatedAt: true,
   // The latest version; none is version 0.

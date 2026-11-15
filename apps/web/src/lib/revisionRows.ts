@@ -15,6 +15,7 @@ import {
   SESSION_TYPE_LABELS,
   SEX_LABELS,
 } from '@/lib/labels';
+import { formatDay } from '@/lib/calendarDate';
 
 // How a revision's snapshot reads on screen (SPEC-clinical-revisions.md §7):
 // one renderer per aggregate turns its snapshot into labelled rows, read-only.
@@ -54,11 +55,10 @@ function date(iso: string | null): string {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-// A date of birth is the ISO string of its UTC midnight: read in UTC, or the
-// day before shows west of Greenwich.
-function utcDate(iso: string | null): string {
-  if (!iso) return EMPTY;
-  return new Date(iso).toLocaleDateString('es-AR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+// A date of birth is a day (YYYY-MM-DD, as the history reads every version of
+// the patient snapshot): written out from its parts, with no time zone to shift it.
+function day(value: string | null): string {
+  return formatDay(value) ?? EMPTY;
 }
 
 // A snapshot is shown in the current shape, whatever schema version it was
@@ -107,7 +107,7 @@ export const renderPatientSnapshot: SnapshotRenderer = (snapshot, version) =>
   parsed(PATIENT_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'firstName', label: 'Nombre', value: text(s.firstName) },
     { key: 'lastName', label: 'Apellido', value: text(s.lastName) },
-    { key: 'birthDate', label: 'Fecha de nacimiento', value: utcDate(s.birthDate) },
+    { key: 'birthDate', label: 'Fecha de nacimiento', value: day(s.birthDate) },
     { key: 'sex', label: 'Sexo', value: s.sex ? (SEX_LABELS[s.sex] ?? s.sex) : EMPTY },
     {
       key: 'document',
@@ -133,7 +133,7 @@ export const renderEvaluationSnapshot: SnapshotRenderer = (snapshot, version) =>
     { key: 'otherHistory', label: 'Otros antecedentes', value: text(s.otherHistory) },
     { key: 'physicalActivity', label: 'Actividad física', value: text(s.physicalActivity) },
     { key: 'painFrequency', label: 'Frecuencia del dolor', value: text(s.painFrequency) },
-    { key: 'evaScale', label: 'Escala EVA', value: num(s.evaScale) },
+    { key: 'painScale', label: 'Escala EVA', value: num(s.painScale) },
     { key: 'notes', label: 'Notas', value: text(s.notes) },
   ]);
 

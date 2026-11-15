@@ -93,7 +93,7 @@ function valuesOf(patient: Patient | undefined): FormValues {
   return {
     firstName: patient?.firstName ?? '',
     lastName: patient?.lastName ?? '',
-    birthDate: patient?.birthDate ? patient.birthDate.slice(0, 10) : '',
+    birthDate: patient?.birthDate ?? '',
     sex: patient?.sex ?? undefined,
     documentType: patient?.documentType ?? NO_DOCUMENT,
     documentNumber: patient?.documentNumber ?? '',

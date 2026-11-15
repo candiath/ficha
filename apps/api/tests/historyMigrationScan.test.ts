@@ -86,6 +86,14 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261117130000_drop_unused_columns': {
+    reason:
+      "The evaluation's body map column (retraction_map) is dropped before the relaunch: no code has read or " +
+      'written it since #238, and no snapshot ever held it (SPEC-clinical-revisions.md §3). Nothing in a ' +
+      'versioned table changes content: the column was ignored by the client and holds no clinical data the ' +
+      'revisions could lose.',
+    violations: ['DROP COLUMN: ALTER TABLE "initial_evaluations" DROP COLUMN "retraction_map"'],
+  },
   '20261116120000_timestamptz': {
     reason:
       'Every timestamp column becomes timestamptz(3) before the relaunch (#238), while no table holds ' +

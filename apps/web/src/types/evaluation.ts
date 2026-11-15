@@ -10,7 +10,7 @@ export interface InitialEvaluation {
   notes: string | null;
   physicalActivity: string | null;
   painFrequency: string | null;
-  evaScale: number | null;
+  painScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
   // The latest version (0: none yet).

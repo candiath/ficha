@@ -16,6 +16,8 @@ import type {
 
 const iso = (d: Date) => d.toISOString();
 const isoOrNull = (d: Date | null) => d?.toISOString() ?? null;
+// A DATE column: its day, YYYY-MM-DD.
+export const dayOrNull = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 export const patientSnapshotSelect = {
   firstName: true,
@@ -41,7 +43,7 @@ export function patientSnapshot(p: {
   return {
     firstName: p.firstName,
     lastName: p.lastName,
-    birthDate: isoOrNull(p.birthDate),
+    birthDate: dayOrNull(p.birthDate),
     sex: p.sex,
     documentType: p.documentType,
     documentNumber: p.documentNumber,
@@ -72,7 +74,7 @@ export function evaluationSnapshot(e: {
   notes: string | null;
   physicalActivity: string | null;
   painFrequency: string | null;
-  evaScale: number | null;
+  painScale: number | null;
   evaluatedAt: Date;
 }): EvaluationSnapshotV1 {
   return {
@@ -81,7 +83,7 @@ export function evaluationSnapshot(e: {
     notes: e.notes,
     physicalActivity: e.physicalActivity,
     painFrequency: e.painFrequency,
-    evaScale: e.evaScale,
+    painScale: e.painScale,
     evaluatedAt: iso(e.evaluatedAt),
   };
 }
@@ -101,7 +103,7 @@ export function patientEventSnapshot(e: {
     kind: e.kind,
     description: e.description,
     // A @db.Date column: its day, without the midnight Prisma reads it at.
-    occurredOn: e.occurredOn?.toISOString().slice(0, 10) ?? null,
+    occurredOn: dayOrNull(e.occurredOn),
     occurredPrecision: e.occurredPrecision,
     occurredApproximate: e.occurredApproximate,
   };

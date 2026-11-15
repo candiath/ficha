@@ -107,8 +107,9 @@ export const SESSION_SNAPSHOT_VERSION = SESSION_SNAPSHOTS.version;
 
 // Identification and clinical context (SPEC-clinical-revisions.md §1). Contact
 // and coverage are not versioned: their changes are named in the audit row
-// only. A date of birth is the ISO string of its UTC midnight, as the DTO
-// sends it.
+// only. In version 1 a date of birth is the ISO string of its UTC midnight
+// (1980-05-03T00:00:00.000Z); from version 2 it is the day (1980-05-03), as a
+// patient event's occurredOn is.
 export const PatientSnapshotV1 = z.strictObject({
   firstName: z.string(),
   lastName: z.string(),
@@ -123,9 +124,12 @@ export type PatientSnapshotV1 = z.infer<typeof PatientSnapshotV1>;
 // Version 2 adds the document that identifies her (2026-11): its type and its
 // number, both or neither (patientDocument.ts). No production row holds
 // version 1: it is kept as the worked example of a version change, and for
-// the test databases.
+// the test databases. Version 2 was edited in place, before it was ever
+// released, to hold the date of birth as the day (2026-11-15): no row of it
+// carries the timestamp, so it needed no version 3.
 export const PatientSnapshotV2 = z.strictObject({
   ...PatientSnapshotV1.shape,
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   documentType: z.enum(['DNI', 'PASSPORT', 'FOREIGN_ID', 'OTHER']).nullable(),
   documentNumber: text,
 });
@@ -136,8 +140,14 @@ export const PATIENT_SNAPSHOTS = snapshotHistory<PatientSnapshotV2>([
   { schema: PatientSnapshotV1 },
   {
     schema: PatientSnapshotV2,
-    // A version written before the document existed recorded none.
-    upcast: (v1: PatientSnapshotV1): PatientSnapshotV2 => ({ ...v1, documentType: null, documentNumber: null }),
+    // A version written before the document existed recorded none, and held
+    // the date of birth as a timestamp: its first ten characters are the day.
+    upcast: (v1: PatientSnapshotV1): PatientSnapshotV2 => ({
+      ...v1,
+      birthDate: v1.birthDate?.slice(0, 10) ?? null,
+      documentType: null,
+      documentNumber: null,
+    }),
   },
 ]);
 export const PATIENT_SNAPSHOT_VERSION = PATIENT_SNAPSHOTS.version;
@@ -161,13 +171,16 @@ export const EPISODE_SNAPSHOT_VERSION = EPISODE_SNAPSHOTS.version;
 
 // evaluatedAt as ISO. The body map (retractionMap) left the evaluation before
 // the relaunch, so no version of this schema that production holds ever had it.
+// painScale (an integer from 0 to 10, named evaScale until 2026-11-15) was
+// edited in place, with no version 2: no real row of this schema exists, so no
+// stored snapshot names the old key or holds a decimal.
 export const EvaluationSnapshotV1 = z.strictObject({
   patientNarrative: text,
   otherHistory: text,
   notes: text,
   physicalActivity: text,
   painFrequency: text,
-  evaScale: z.number().nullable(),
+  painScale: pain,
   evaluatedAt: z.string(),
 });
 

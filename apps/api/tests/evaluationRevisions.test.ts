@@ -49,12 +49,12 @@ describe('evaluation revisions', () => {
   it('writes version 1 on the first save, with no reason, and the next on a correction', async () => {
     const episodeId = await newEpisode();
 
-    const first = await put(episodeId, { notes: 'Primera', evaScale: 6, painFrequency: 'Diario', expectedVersion: 0 });
+    const first = await put(episodeId, { notes: 'Primera', painScale: 6, painFrequency: 'Diario', expectedVersion: 0 });
     expect(first.status).toBe(200);
     expect(first.body.data.version).toBe(1);
 
     const second = await put(episodeId, {
-      evaScale: 4,
+      painScale: 4,
       reason: 'LATE_INFORMATION',
       reasonNote: 'Lo trajo escrito',
       expectedVersion: 1,
@@ -66,12 +66,12 @@ describe('evaluation revisions', () => {
     const rows = await auditRows(first.body.data.id);
     expect(rows.map((r) => [r.action, r.params])).toEqual([
       ['EVALUATION_CREATED', {}],
-      ['EVALUATION_UPDATED', { changedFields: ['evaScale'], reason: 'LATE_INFORMATION' }],
+      ['EVALUATION_UPDATED', { changedFields: ['painScale'], reason: 'LATE_INFORMATION' }],
     ]);
     expect(v1).toMatchObject({ version: 1, auditLogId: rows[0].id, reasonNote: null });
-    expect(v1.snapshot).toMatchObject({ notes: 'Primera', evaScale: 6, painFrequency: 'Diario' });
+    expect(v1.snapshot).toMatchObject({ notes: 'Primera', painScale: 6, painFrequency: 'Diario' });
     expect(v2).toMatchObject({ version: 2, auditLogId: rows[1].id, reasonNote: 'Lo trajo escrito' });
-    expect(v2.snapshot).toMatchObject({ notes: 'Primera', evaScale: 4 });
+    expect(v2.snapshot).toMatchObject({ notes: 'Primera', painScale: 4 });
   });
 
   it('requires a reason to correct, and none to create', async () => {
@@ -88,9 +88,9 @@ describe('evaluation revisions', () => {
 
   it('answers 200 to a save that changes nothing, and writes nothing', async () => {
     const episodeId = await newEpisode();
-    const first = await put(episodeId, { notes: 'Igual', evaScale: 5 });
+    const first = await put(episodeId, { notes: 'Igual', painScale: 5 });
 
-    const res = await put(episodeId, { evaScale: 5, notes: 'Igual', reason: 'DATA_ENTRY_ERROR' });
+    const res = await put(episodeId, { painScale: 5, notes: 'Igual', reason: 'DATA_ENTRY_ERROR' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.updatedAt).toBe(first.body.data.updatedAt);

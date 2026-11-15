@@ -92,7 +92,7 @@ describe('CRUD de la evaluación inicial', () => {
       otherHistory: 'Toma anticoagulantes',
       physicalActivity: 'Natación 2x semana',
       painFrequency: 'Diaria',
-      evaScale: 7,
+      painScale: 7,
     });
 
     expect(res.status).toBe(200);
@@ -101,7 +101,7 @@ describe('CRUD de la evaluación inicial', () => {
       episodeId: propio.id,
       patientNarrative: 'Dolor dorsal desde que cambió de silla en el trabajo',
       otherHistory: 'Toma anticoagulantes',
-      evaScale: 7,
+      painScale: 7,
     });
     expect(typeof res.body.data.evaluatedAt).toBe('string');
     expect(res.body.data).not.toHaveProperty('tenantId');
@@ -118,12 +118,12 @@ describe('CRUD de la evaluación inicial', () => {
   it('el segundo PUT actualiza la misma fila y la audita como corrección', async () => {
     const propio = await nuevoEpisodio();
 
-    const alta = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 5 });
-    const correccion = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 3 });
+    const alta = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', painScale: 5 });
+    const correccion = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', painScale: 3 });
 
     expect(correccion.status).toBe(200);
     expect(correccion.body.data.id).toBe(alta.body.data.id);
-    expect(correccion.body.data.evaScale).toBe(3);
+    expect(correccion.body.data.painScale).toBe(3);
 
     // Una evaluación por episodio, no dos.
     await expect(
@@ -132,23 +132,23 @@ describe('CRUD de la evaluación inicial', () => {
 
     // Names only: which field changed, never its value.
     await expect(auditoria(alta.body.data.id, 'EVALUATION_UPDATED')).resolves.toMatchObject({
-      params: { changedFields: ['evaScale'] },
+      params: { changedFields: ['painScale'] },
     });
   });
 
   it('un campo mandado en null se borra', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', notes: 'Primera consulta', evaScale: 8 });
+    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', notes: 'Primera consulta', painScale: 8 });
 
     const res = await auth(request(app).put(url(propio.id))).send({
       reason: 'DATA_ENTRY_ERROR',
       notes: null,
-      evaScale: null,
+      painScale: null,
     });
 
     expect(res.status).toBe(200);
     expect(res.body.data.notes).toBeNull();
-    expect(res.body.data.evaScale).toBeNull();
+    expect(res.body.data.painScale).toBeNull();
   });
 
   it('el campo ausente no se toca', async () => {
@@ -156,7 +156,7 @@ describe('CRUD de la evaluación inicial', () => {
     await auth(request(app).put(url(propio.id))).send({
       reason: 'DATA_ENTRY_ERROR',
       notes: 'Primera consulta',
-      evaScale: 7,
+      painScale: 7,
     });
 
     const res = await auth(request(app).put(url(propio.id))).send({
@@ -167,7 +167,7 @@ describe('CRUD de la evaluación inicial', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.patientNarrative).toBe('Dolor dorsal');
     expect(res.body.data.notes).toBe('Primera consulta');
-    expect(res.body.data.evaScale).toBe(7);
+    expect(res.body.data.painScale).toBe(7);
   });
 
   // The body map left the evaluation before the relaunch (#238): the schema is
@@ -214,19 +214,26 @@ describe('CRUD de la evaluación inicial', () => {
   // ── Validación ────────────────────────────────────────────────────────────
 
   it('rechaza una EVA fuera de 0 a 10', async () => {
-    const res = await auth(request(app).put(url())).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 11 });
+    const res = await auth(request(app).put(url())).send({ reason: 'DATA_ENTRY_ERROR', painScale: 11 });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Datos inválidos');
-    expect(res.body.details).toHaveProperty('evaScale');
+    expect(res.body.details).toHaveProperty('painScale');
+  });
+
+  it('rechaza una EVA con decimales: la columna es un entero', async () => {
+    const res = await auth(request(app).put(url())).send({ reason: 'DATA_ENTRY_ERROR', painScale: 6.5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.details).toHaveProperty('painScale');
   });
 
   it('acepta EVA 0: no tener dolor es un dato, no un campo vacío', async () => {
     const propio = await nuevoEpisodio();
-    const res = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 0 });
+    const res = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', painScale: 0 });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.evaScale).toBe(0);
+    expect(res.body.data.painScale).toBe(0);
   });
 
   // ── El episodio manda sobre el 404 ────────────────────────────────────────
@@ -235,7 +242,7 @@ describe('CRUD de la evaluación inicial', () => {
     const inexistente = randomUUID();
 
     const get = await auth(request(app).get(url(inexistente)));
-    const put = await auth(request(app).put(url(inexistente))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4 });
+    const put = await auth(request(app).put(url(inexistente))).send({ reason: 'DATA_ENTRY_ERROR', painScale: 4 });
 
     expect(get.status).toBe(404);
     expect(get.body.error).toBe('Episodio no encontrado');
@@ -252,7 +259,7 @@ describe('CRUD de la evaluación inicial', () => {
       select: { id: true },
     });
 
-    const res = await auth(request(app).put(url(suEpisodio.id))).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 9 });
+    const res = await auth(request(app).put(url(suEpisodio.id))).send({ reason: 'DATA_ENTRY_ERROR', painScale: 9 });
 
     expect(res.status).toBe(404);
     await expect(
@@ -340,7 +347,7 @@ describe('CRUD de la evaluación inicial', () => {
   it('sin token no se lee ni se escribe', async () => {
     for (const res of await Promise.all([
       request(app).get(url()),
-      request(app).put(url()).send({ evaScale: 5 }),
+      request(app).put(url()).send({ painScale: 5 }),
     ])) {
       expect(res.status).toBe(401);
       expect(res.body.error).toBe('No autenticado');

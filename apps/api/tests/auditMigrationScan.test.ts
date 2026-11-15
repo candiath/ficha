@@ -59,6 +59,22 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261117120000_drop_dead_audit_codes': {
+    reason:
+      'Before the relaunch, with no row holding them, the dead audit codes leave the enums (AuditAction, ' +
+      'AuditEntity, PlatformAction). Postgres cannot drop an enum value, so each type is recreated: a new ' +
+      'type, the column switched through text, the old type dropped and the new one renamed. A DO block ' +
+      'before each switch fails the migration if a row still holds a removed value. A type change rewrites ' +
+      'the table without firing the row triggers, and audit-guards.sql passes unchanged.',
+    violations: [
+      'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "action" TYPE "AuditAction_new" USING "action"::text::"AuditAction_new"',
+      'RENAME: ALTER TYPE "AuditAction_new" RENAME TO "AuditAction"',
+      'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "entity" TYPE "AuditEntity_new" USING "entity"::text::"AuditEntity_new"',
+      'RENAME: ALTER TYPE "AuditEntity_new" RENAME TO "AuditEntity"',
+      'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "action" TYPE "PlatformAction_new" USING "action"::text::"PlatformAction_',
+      'RENAME: ALTER TYPE "PlatformAction_new" RENAME TO "PlatformAction"',
+    ],
+  },
   '20261116120000_timestamptz': {
     reason:
       'Every timestamp column becomes timestamptz(3) before the relaunch (#238), with no real rows yet. ' +

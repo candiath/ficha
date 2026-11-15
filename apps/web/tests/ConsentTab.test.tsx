@@ -32,11 +32,11 @@ const REVOKED: InformedConsent = {
   version: 2,
 };
 
-function renderTab() {
+function renderTab(patient: Patient = PATIENT) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ConsentTab patient={PATIENT} />
+      <ConsentTab patient={patient} />
     </QueryClientProvider>,
   );
 }
@@ -48,6 +48,14 @@ beforeEach(() => {
 });
 
 describe('ConsentTab', () => {
+  // A date of birth is a plain day: the same one in any time zone.
+  it('shows the date of birth as the day it is', async () => {
+    vi.mocked(consentApi.get).mockResolvedValue(null);
+    renderTab({ ...PATIENT, birthDate: '1980-05-03' });
+
+    expect(await screen.findByText('03/05/1980')).toBeInTheDocument();
+  });
+
   it('signs a first consent as version 0', async () => {
     vi.mocked(consentApi.get).mockResolvedValue(null);
     vi.mocked(consentApi.sign).mockResolvedValue({ ...REVOKED, signed: true, revokedAt: null, version: 1 });

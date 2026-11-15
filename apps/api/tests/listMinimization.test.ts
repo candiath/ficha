@@ -23,7 +23,7 @@ import { fixture as rows } from './fixtures';
 //   response cannot pass), carry no marker outside its allowed paths, and
 //   match its pinned keys exactly, recursively.
 //
-// Numeric clinical columns (pain, evaScale, a scale's score) cannot hold a
+// Numeric clinical columns (pain, painScale, a scale's score) cannot hold a
 // marker: the pinned keys are their guard.
 
 // ─── Inventory ───────────────────────────────────────────────────────────────

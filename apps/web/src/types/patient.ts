@@ -6,6 +6,7 @@ export interface Patient {
   lastName: string;
   // "firstName lastName", built by the API for display.
   fullName: string;
+  // A day, YYYY-MM-DD, with no time zone (lib/calendarDate.ts).
   birthDate: string | null;
   sex: 'MALE' | 'FEMALE' | 'OTHER' | null;
   // The document that identifies her: both or neither. The number as the API

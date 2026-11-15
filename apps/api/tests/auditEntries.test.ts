@@ -273,13 +273,13 @@ describe('audit rows record codes, never values', () => {
     });
     const url = `/api/patients/${patient.id}/episodes/${episode.id}/evaluation`;
 
-    const created = await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 6, notes: 'Primera' });
-    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4, notes: 'Primera' });
-    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', evaScale: 4, notes: 'Primera' });
+    const created = await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', painScale: 6, notes: 'Primera' });
+    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', painScale: 4, notes: 'Primera' });
+    await auth(request(app).put(url)).send({ reason: 'DATA_ENTRY_ERROR', painScale: 4, notes: 'Primera' });
 
     expect(await actionsOf(created.body.data.id)).toEqual([
       { action: 'EVALUATION_CREATED', params: {} },
-      { action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale'], reason: 'DATA_ENTRY_ERROR' } },
+      { action: 'EVALUATION_UPDATED', params: { changedFields: ['painScale'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
   });
 
