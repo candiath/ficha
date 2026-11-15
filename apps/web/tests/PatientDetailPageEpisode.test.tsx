@@ -260,3 +260,12 @@ describe('PatientDetailPage: the episode over its version', () => {
     expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toMatchObject({ mainComplaint: 'Mío', expectedVersion: 2 });
   });
 });
+
+// Hidden until a consent records the text the patient signed (#248).
+describe('PatientDetailPage: tabs', () => {
+  it('offers no informed consent tab', async () => {
+    renderPage();
+    expect(await screen.findByRole('tab', { name: 'Sesiones' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Consentimiento' })).not.toBeInTheDocument();
+  });
+});

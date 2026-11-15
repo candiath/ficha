@@ -89,8 +89,8 @@ describe('sysadmin alert tables', () => {
       });
 
       const [stored] = await prisma.$queryRaw<{ alertAge: number; deliveryAge: number }[]>`
-        SELECT extract(epoch FROM (now() AT TIME ZONE 'UTC') - a.created_at)::float8 AS "alertAge",
-               extract(epoch FROM (now() AT TIME ZONE 'UTC') - d.created_at)::float8 AS "deliveryAge"
+        SELECT extract(epoch FROM now() - a.created_at)::float8 AS "alertAge",
+               extract(epoch FROM now() - d.created_at)::float8 AS "deliveryAge"
         FROM sysadmin_alerts a JOIN sysadmin_alert_deliveries d ON d.alert_id = a.id
         WHERE d.id = ${delivery.id}::uuid`;
       expect(Math.abs(stored.alertAge)).toBeLessThan(60);

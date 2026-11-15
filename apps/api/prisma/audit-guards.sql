@@ -290,7 +290,8 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.audit_maintenance_on()', '475ea0b36f23ed709a26e54aa89fc4f2'),
       ('public.audit_rows_are_append_only()', 'c35b0c6e4047a5b148f0750d2e2f2065'),
-      ('public.audit_rows_stamp_created_at()', '0faed1c7656e41e1c747993b78b23af1'),
+      -- Since 20261116120000_timestamptz: clock_timestamp() into a timestamptz.
+      ('public.audit_rows_stamp_created_at()', '0005a6f9a83ea5bfae363642c491ed28'),
       ('public.audit_logs_check_session()', 'd6f9e9aa7014b9600e7c11f516f02af6'),
       ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d')
     ) AS f(signature, hash)

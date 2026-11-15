@@ -104,7 +104,7 @@ describe('audit rows are append-only', () => {
     }
   });
 
-  it("stamps the database's current UTC time, whatever the caller sent", async () => {
+  it("stamps the database's current time, whatever the caller sent or the session's time zone", async () => {
     // In a session whose time zone is not UTC (Neon's default is UTC, which
     // would hide a stamp that followed the session's zone).
     const { id } = await prisma.$transaction(async (tx) => {
@@ -112,11 +112,13 @@ describe('audit rows are append-only', () => {
       return tx.auditLog.create({ data: row({ createdAt: new Date('2020-01-01T00:00:00Z') }), select: { id: true } });
     });
 
+    // Two instants (created_at is timestamptz): no session's zone enters.
     const [stored] = await prisma.$queryRaw<{ age: number }[]>`
-      SELECT extract(epoch FROM (now() AT TIME ZONE 'UTC') - created_at)::float8 AS age
+      SELECT extract(epoch FROM now() - created_at)::float8 AS age
       FROM audit_logs WHERE id = ${id}::uuid`;
     // now() is the start of this query's transaction, a moment after the
-    // insert: the age is small, and never the six years the caller asked for.
+    // insert: the age is small. A stamp that followed the session's zone would
+    // be three hours off, and the caller's date six years.
     expect(Math.abs(stored.age)).toBeLessThan(60);
   });
 

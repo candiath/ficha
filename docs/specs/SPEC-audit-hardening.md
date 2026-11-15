@@ -97,6 +97,8 @@ END
 $$;
 ```
 
+**Since `20261116120000_timestamptz`** every `created_at` is `timestamptz(3)`, and the stamp is `clock_timestamp()` itself: `clock_timestamp() AT TIME ZONE 'UTC'` is a UTC wall time, right for a column without time zone, which a `timestamptz` column would read in the session's zone.
+
 The switch is turned on with `SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`.
 
 Seven triggers, and no others:
