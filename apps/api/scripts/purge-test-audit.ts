@@ -40,7 +40,7 @@ async function main() {
       SELECT t.id FROM tenants t
       WHERE t.slug ~ '^test-[0-9a-f]{8}$'
         AND t.name = 'Clínica Test ' || substr(t.slug, 6)
-        AND t.created_at < (now() AT TIME ZONE 'UTC') - interval '1 hour'
+        AND t.created_at < now() - interval '1 hour'
         AND NOT EXISTS (
           SELECT 1 FROM users u WHERE u.tenant_id = t.id AND u.email NOT LIKE ${TEST_DOMAIN}
         )`;

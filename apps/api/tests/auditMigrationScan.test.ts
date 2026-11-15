@@ -59,6 +59,20 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261116120000_timestamptz': {
+    reason:
+      'Every timestamp column becomes timestamptz(3) before the relaunch (#238), with no real rows yet. ' +
+      'The four audit created_at columns are converted with AT TIME ZONE \'UTC\', so the stored instants ' +
+      'do not change, and the stamp function writes clock_timestamp() itself, the instant, into them ' +
+      '(new hash in audit-guards.sql).',
+    violations: [
+      'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3) USING "created_at" AT TIME ZONE',
+      'ALTER COLUMN: ALTER TABLE "sysadmin_alerts" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3) USING "created_at" AT TIME ZONE \'UT',
+      'ALTER COLUMN: ALTER TABLE "sysadmin_alert_deliveries" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3) USING "created_at" AT TIM',
+      'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3) USING "created_at" AT TIME ZONE \'UTC\'',
+      'CREATE OR REPLACE FUNCTION: CREATE OR REPLACE FUNCTION public.audit_rows_stamp_created_at() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_ca',
+    ],
+  },
   '20261107120000_clinical_revisions_aggregates': {
     reason:
       'The tables of the other five clinical aggregates (SPEC-clinical-revisions.md §6) are born ' +
