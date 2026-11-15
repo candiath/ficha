@@ -143,7 +143,8 @@ const STORED: Stored[] = [
     schema: PatientSnapshotV1,
     history: PATIENT_SNAPSHOTS,
     stored: PATIENT_V1,
-    current: { ...PATIENT_V1, documentType: null, documentNumber: null },
+    // The timestamp of version 1 reads as its day.
+    current: { ...PATIENT_V1, birthDate: '1980-05-03', documentType: null, documentNumber: null },
   },
   {
     name: 'patient',
@@ -161,7 +162,7 @@ const STORED: Stored[] = [
         occupation: 'Docente',
         referringDoctor: null,
       }),
-    stored: { ...PATIENT_V1, documentType: 'DNI', documentNumber: '30123456' },
+    stored: { ...PATIENT_V1, birthDate: '1980-05-03', documentType: 'DNI', documentNumber: '30123456' },
   },
   {
     name: 'episode',
@@ -194,7 +195,7 @@ const STORED: Stored[] = [
         notes: null,
         physicalActivity: null,
         painFrequency: 'Diario',
-        evaScale: 6,
+        painScale: 6,
         evaluatedAt: new Date('2026-10-01T12:00:00.000Z'),
       }),
     stored: {
@@ -203,7 +204,7 @@ const STORED: Stored[] = [
       notes: null,
       physicalActivity: null,
       painFrequency: 'Diario',
-      evaScale: 6,
+      painScale: 6,
       evaluatedAt: '2026-10-01T12:00:00.000Z',
     },
   },
@@ -256,6 +257,23 @@ const SESSION = {
   ],
 };
 STORED[0].stored = SESSION;
+
+describe('the patient snapshot history', () => {
+  it('reads no date of birth in version 1 as none in version 2', () => {
+    expect(PATIENT_SNAPSHOTS.read(1, { ...PATIENT_V1, birthDate: null })).toEqual({
+      ...PATIENT_V1,
+      birthDate: null,
+      documentType: null,
+      documentNumber: null,
+    });
+  });
+
+  it('refuses a timestamp in version 2, which holds the day', () => {
+    const v2 = { ...PATIENT_V1, documentType: null, documentNumber: null };
+    expect(PatientSnapshotV2.safeParse({ ...v2, birthDate: '1980-05-03' }).success).toBe(true);
+    expect(PatientSnapshotV2.safeParse(v2).success).toBe(false);
+  });
+});
 
 describe('history projections', () => {
   it.each(Object.entries(COVERAGE))('holds every column of %s to a decision', (name, { projected, excluded }) => {

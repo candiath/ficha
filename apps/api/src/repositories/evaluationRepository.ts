@@ -29,7 +29,7 @@ export interface EvaluationDTO {
   notes: string | null;
   physicalActivity: string | null;
   painFrequency: string | null;
-  evaScale: number | null;
+  painScale: number | null;
   evaluatedAt: string;
   updatedAt: string;
   // The latest version; 0 if it has none yet.
@@ -45,7 +45,7 @@ export interface EvaluationUpsertInput {
   notes?: string | null;
   physicalActivity?: string | null;
   painFrequency?: string | null;
-  evaScale?: number | null;
+  painScale?: number | null;
 }
 
 // ─── Port ────────────────────────────────────────────────────────────────────

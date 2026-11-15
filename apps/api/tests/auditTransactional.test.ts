@@ -100,12 +100,12 @@ describe('audit rows are written in the same transaction as their action', () =>
   // as a 400 with the parameter's details. It still rolls the write back.
   it('an entry the catalog refuses rolls the write back, as a server error', async () => {
     const before = await prisma.patient.count({ where: { tenantId: clinic.tenantId } });
-    const deprecated = (p: { id: string }) =>
-      ({ action: 'CREATED', patientId: p.id, entityId: p.id, params: {} }) as unknown as AuditEntry;
+    const unknown = (p: { id: string }) =>
+      ({ action: 'NOT_AN_ACTION', patientId: p.id, entityId: p.id, params: {} }) as unknown as AuditEntry;
     const freeText = (p: { id: string }) =>
       ({ action: 'PATIENT_UPDATED', patientId: p.id, entityId: p.id, params: { changedFields: ['Dolor 42%'] } }) as unknown as AuditEntry;
 
-    for (const entry of [deprecated, freeText]) {
+    for (const entry of [unknown, freeText]) {
       const error = await patientRepo.create(ctx, { firstName: 'Rechazada', lastName: 'Test' }, entry).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(AuditEntryError);
       expect(error).not.toBeInstanceOf(ZodError);

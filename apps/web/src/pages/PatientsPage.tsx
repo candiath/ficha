@@ -62,6 +62,7 @@ import { alertKeys } from '@/services/alerts';
 import { appointmentKeys } from '@/services/appointments';
 import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
+import { formatDay } from '@/lib/calendarDate';
 import { DOCUMENT_TYPE_LABELS } from '@ficha/shared';
 
 const COLUMN_LABELS: Record<string, string> = {
@@ -73,16 +74,6 @@ const COLUMN_LABELS: Record<string, string> = {
   occupation: 'Ocupación',
   referringDoctor: 'Médico derivante',
 };
-
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
 
 function buildColumns(
   onEdit: (p: Patient) => void,
@@ -148,7 +139,7 @@ function buildColumns(
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => formatDate(row.getValue('birthDate')),
+      cell: ({ row }) => formatDay(row.getValue('birthDate')) ?? '—',
     },
     {
       accessorKey: 'documentNumber',

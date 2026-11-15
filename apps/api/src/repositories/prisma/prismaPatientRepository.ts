@@ -7,7 +7,7 @@ import type { TenantContext } from '../types';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 import { latestRevision, recordRevision, Rollback, unlessRolledBack } from './recordRevision';
-import { patientSnapshot } from './clinicalSnapshots';
+import { dayOrNull, patientSnapshot } from './clinicalSnapshots';
 import type {
   DeletedPatientDTO,
   DocumentHolder,
@@ -65,7 +65,7 @@ function toDTO(row: PatientRow): PatientDTO {
   return {
     ...row,
     fullName: fullName(row),
-    birthDate: row.birthDate?.toISOString() ?? null,
+    birthDate: dayOrNull(row.birthDate),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

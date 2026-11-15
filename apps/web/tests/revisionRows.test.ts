@@ -25,8 +25,12 @@ describe('snapshot renderers', () => {
     referringDoctor: 'Dr. López',
   };
 
-  it('the patient: identification and clinical context, the birth date in UTC', () => {
-    const rows = renderPatientSnapshot({ ...PATIENT_V1, documentType: 'DNI', documentNumber: '30123456' }, 2, {});
+  it('the patient: identification and clinical context, the birth date as a plain day', () => {
+    const rows = renderPatientSnapshot(
+      { ...PATIENT_V1, birthDate: '1990-03-01', documentType: 'DNI', documentNumber: '30123456' },
+      2,
+      {},
+    );
     expect(view(rows)).toEqual({
       Nombre: 'Ana',
       Apellido: 'Pérez',
@@ -44,14 +48,25 @@ describe('snapshot renderers', () => {
     const before = renderPatientSnapshot(PATIENT_V1, 1, {});
     expect(view(before)).toMatchObject({ Nombre: 'Ana', Documento: '—', 'Médico derivante': 'Dr. López' });
 
-    const after = renderPatientSnapshot({ ...PATIENT_V1, documentType: 'DNI', documentNumber: '30123456' }, 2, {});
+    const after = renderPatientSnapshot(
+      { ...PATIENT_V1, birthDate: '1990-03-01', documentType: 'DNI', documentNumber: '30123456' },
+      2,
+      {},
+    );
     expect([...changedKeys(after!, before)]).toEqual(['document']);
+  });
+
+  // Version 1 held the date of birth as a UTC midnight; the history reads it as its day.
+  it('a version 1 date of birth shows the same day as version 2', () => {
+    expect(view(renderPatientSnapshot(PATIENT_V1, 1, {}))['Fecha de nacimiento']).toBe('01/03/1990');
   });
 
   it('does not guess a snapshot that is not what its schema version says', () => {
     // Version 1 never held a document; version 2 always names both fields.
     expect(renderPatientSnapshot({ ...PATIENT_V1, documentType: null, documentNumber: null }, 1, {})).toBeNull();
     expect(renderPatientSnapshot(PATIENT_V1, 2, {})).toBeNull();
+    // A timestamp is not a day: version 2 refuses it.
+    expect(renderPatientSnapshot({ ...PATIENT_V1, documentType: null, documentNumber: null }, 2, {})).toBeNull();
     expect(renderPatientSnapshot(PATIENT_V1, 3, {})).toBeNull();
   });
 
@@ -71,7 +86,7 @@ describe('snapshot renderers', () => {
       notes: '',
       physicalActivity: null,
       painFrequency: 'Diario',
-      evaScale: 7,
+      painScale: 7,
       evaluatedAt: '2026-01-05T12:00:00.000Z',
     };
     const rows = renderEvaluationSnapshot(snapshot, 1, {});
@@ -81,8 +96,8 @@ describe('snapshot renderers', () => {
       'Frecuencia del dolor': 'Diario',
       'Escala EVA': '7',
     });
-    const scored = renderEvaluationSnapshot({ ...snapshot, evaScale: 4 }, 1, {});
-    expect([...changedKeys(scored!, rows)]).toEqual(['evaScale']);
+    const scored = renderEvaluationSnapshot({ ...snapshot, painScale: 4 }, 1, {});
+    expect([...changedKeys(scored!, rows)]).toEqual(['painScale']);
     // A snapshot that still carries the body map, removed before the relaunch,
     // is not one this screen knows: it says so instead of guessing.
     expect(renderEvaluationSnapshot({ ...snapshot, retractionMap: [{ x: 1, y: 2 }] }, 1, {})).toBeNull();

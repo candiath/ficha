@@ -16,7 +16,7 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────────────────
 // Multi-tenancy row-level: TODA tabla de dominio lleva tenantId para garantizar
 // que no se filtren datos entre clínicas. Sin excepción.
-// Tablas de catálogo global (body_regions) son la única excepción permitida.
+// (No hay hoy ninguna tabla de catálogo global: toda tabla de dominio lleva tenantId.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,9 +240,6 @@ model PlatformOperator {
   name              String?
   isActive          Boolean   @default(true) @map("is_active")
   lastLoginAt       DateTime? @map("last_login_at")
-  // Neither read nor written since operator-sessions (a password change
-  // revokes sessions instead). Its DROP goes in a later release.
-  passwordChangedAt DateTime? @map("password_changed_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -294,8 +291,6 @@ enum PlatformAction {
   TENANT_REACTIVATED
   ADMIN_CREATED
   USER_ROLE_CHANGED
-  // Deprecated: split into USER_DEACTIVATED and USER_REACTIVATED.
-  USER_ACTIVE_CHANGED
   USER_DEVICES_DISCONNECTED
   PASSWORD_RESET_LINK_CREATED
   INVITATION_LINK_CREATED
@@ -603,8 +598,11 @@ model PatientEvent {
   occurredApproximate Boolean          @default(false) @map("occurred_approximate")
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
-  // Deleted logically, like sessions: one entered by mistake disappears from
-  // the record, and the row stays for the audit trail.
+  // The date it was annulled (null = in force). An entry made by mistake is
+  // annulled, never deleted, and there is no restore route: the row stays with
+  // its history, the record shows it struck through with no clinical content,
+  // and every other reader leaves it out (see "Annulling sessions and patient
+  // events" in CLAUDE.md).
   deletedAt           DateTime?        @map("deleted_at")
 
   tenant    Tenant                 @relation(fields: [tenantId], references: [id])
@@ -632,13 +630,9 @@ model InitialEvaluation {
   // exceptional ("Otros antecedentes").
   otherHistory     String?  @map("other_history")
   notes            String?
-  // The body map left the evaluation before the relaunch (#238): its shape was
-  // never defined, and a snapshot would have kept it for good. Ignored so the
-  // client never names the column; its DROP goes in the next release.
-  retractionMap    Json?    @map("retraction_map") @ignore
   physicalActivity String?  @map("physical_activity")
   painFrequency    String?  @map("pain_frequency")
-  evaScale         Int?     @map("eva_scale")
+  painScale        Int?     @map("pain_scale")
   evaluatedAt      DateTime @default(now()) @map("evaluated_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -676,13 +670,13 @@ model Session {
   observations String?
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
-  // Borrado lógico, igual que Patient: una sesión cargada por error
-  // desaparece de los listados pero la fila queda, para no romper el pivote
-  // con episodios ni la auditoría, y para que el borrado sea reversible.
-  // Su cobro sí se elimina de verdad al borrarla, pero solo puede estar
-  // PENDING o WAIVED: una sesión ya cobrada no se deja borrar (409). El turno
-  // del que salió, si hubo uno, queda sin sessionId para poder registrarla
-  // de nuevo.
+  // The date the session was annulled (null = in force). A session entered by
+  // mistake is annulled, never deleted, and there is no restore route: the row
+  // stays with its history and its link to its episodes, the record shows it
+  // struck through with no clinical content, and every other reader leaves it
+  // out. A paid session cannot be annulled (409); annulling deletes its
+  // pending or waived payment and releases the appointment it came from, so
+  // it can be recorded again.
   deletedAt    DateTime?   @map("deleted_at")
 
   tenant      Tenant            @relation(fields: [tenantId], references: [id])
@@ -1004,31 +998,26 @@ model InformedConsent {
 // One code per business fact, declared with its parameters and wording in
 // packages/shared/src/auditActions.ts, which recordAudit validates against
 // (#186, docs/specs/SPEC-audit-structured-entries.md). Codes are permanent:
-// never renamed, reused or removed. CREATED, UPDATED and DELETED are the
-// format before the catalog: deprecated, kept for the rows that have them.
+// never renamed, reused or removed. The values of the format before the
+// catalog (CREATED, UPDATED, DELETED) and the other dead ones were dropped
+// before the relaunch, when no row held them (20261117120000).
 enum AuditAction {
-  CREATED
-  UPDATED
-  DELETED
   PATIENT_CREATED
   PATIENT_UPDATED
   PATIENT_DELETED
   PATIENT_RESTORED
   EVALUATION_CREATED
   EVALUATION_UPDATED
-  SCALE_APPLIED
   SESSION_RECORDED
   NOTE_RECORDED
   DISCHARGE_RECORDED
   SESSION_UPDATED
-  SESSION_DELETED
   PAYMENT_CREATED
   PAYMENT_UPDATED
   CONSENT_SIGNED
   CONSENT_REVOKED
   PATIENT_EVENT_RECORDED
   PATIENT_EVENT_UPDATED
-  PATIENT_EVENT_DELETED
   EPISODE_OPENED
   EPISODE_CLOSED
   EPISODE_REOPENED
@@ -1048,7 +1037,6 @@ enum AuditEntity {
   SESSION
   PAYMENT
   CONSENT
-  SCALE
   PATIENT_EVENT
   EPISODE
   APPOINTMENT

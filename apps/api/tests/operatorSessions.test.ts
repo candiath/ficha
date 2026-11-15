@@ -95,10 +95,6 @@ describe('operator sessions', () => {
         request(app).post(`${AUTH}/login`).set('X-Forwarded-For', from()).send({ email: target.operator.email, password });
       expect((await login(TEST_PASSWORD)).status).toBe(401);
       expect((await login(newPassword)).status).toBe(200);
-
-      // The deprecated column is no longer written.
-      const row = await prisma.platformOperator.findUnique({ where: { id: target.operator.id } });
-      expect(row?.passwordChangedAt).toBeNull();
     } finally {
       await target.cleanup();
     }

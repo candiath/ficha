@@ -12,7 +12,7 @@ Clinical detail is read only inside a patient's record, so a single request cann
 
 **Clinical** is every column except keys and timestamps of:
 
-- `Session`, `ClinicalEpisode` and `InitialEvaluation`, including its JSON columns and `evaScale`;
+- `Session`, `ClinicalEpisode` and `InitialEvaluation`, including its JSON columns and `painScale`;
 - `FunctionalScale`, including its type: an OSWESTRY scale means a lumbar problem (the model was removed on 2026-10-27);
 - `InformedConsent`, whether signed or not.
 
@@ -99,7 +99,7 @@ A new `GET` without an entry fails the test.
 - **Assertions.**
   - No marker appears anywhere in the raw body.
   - The exact key set of every item, recursively, on every array element, matches the manifest.
-- **Numbers.** Numeric clinical columns (pain, `evaScale`, scores) cannot hold a marker. The key pinning is their guard, and the manifest says so.
+- **Numbers.** Numeric clinical columns (pain, `painScale`, scores) cannot hold a marker. The key pinning is their guard, and the manifest says so.
 
 Two paths are allowlisted for clinical-looking text: the dashboard's `pathologies[].name` (an aggregate that names no patient, Decision 1) and `GET /api/patients`' `referringDoctor` (administrative, Decision 2). The fixture puts no marker in them.
 

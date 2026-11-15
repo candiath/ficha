@@ -1,5 +1,4 @@
 import {
-  Activity,
   CalendarDays,
   CircleDot,
   ClipboardList,
@@ -54,12 +53,6 @@ const ENTITY_CONFIG: Record<
     color:
       'bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
     label: 'Consentimiento',
-  },
-  SCALE: {
-    icon: Activity,
-    color:
-      'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
-    label: 'Escala',
   },
   PATIENT_EVENT: {
     icon: History,

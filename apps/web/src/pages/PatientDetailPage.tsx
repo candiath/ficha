@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
+import { ageOnDay, formatDay } from '@/lib/calendarDate';
 import { useUnsavedChanges } from '@/lib/unsavedChanges';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,7 +62,7 @@ const evalSchema = z.object({
   notes: z.string(),
   physicalActivity: z.string(),
   painFrequency: z.string(),
-  evaScale: z.string().optional().or(z.literal('')),
+  painScale: z.string().optional().or(z.literal('')),
 });
 
 type EvalFormValues = z.infer<typeof evalSchema>;
@@ -76,14 +77,9 @@ function formatDate(iso: string | null | undefined) {
   });
 }
 
-function getAge(iso: string | null | undefined): string | undefined {
-  if (!iso) return undefined;
-  const today = new Date();
-  const birth = new Date(iso);
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return `${age} años`;
+function getAge(day: string | null | undefined): string | undefined {
+  const age = ageOnDay(day);
+  return age === null ? undefined : `${age} años`;
 }
 
 function DetailField({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -229,7 +225,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
       notes: '',
       physicalActivity: '',
       painFrequency: '',
-      evaScale: '',
+      painScale: '',
     },
   });
   const { isDirty, dirtyFields } = form.formState;
@@ -260,7 +256,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         notes: evaluation.notes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
         painFrequency: evaluation.painFrequency ?? '',
-        evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
+        painScale: evaluation.painScale ? String(evaluation.painScale) : '',
       });
     }
   }, [evaluation, form, occupation]);
@@ -275,7 +271,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         notes: values.notes,
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
-        evaScale: values.evaScale ? Number(values.evaScale) : null,
+        painScale: values.painScale ? Number(values.painScale) : null,
         expectedVersion: evaluation?.version ?? 0,
         ...(evaluation ? { reason: revision.reason ?? undefined, reasonNote: revision.note } : {}),
       });
@@ -446,15 +442,16 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
                 />
                 <FormField
                   control={form.control}
-                  name="evaScale"
+                  name="painScale"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
+                      <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.painScale} /></FormLabel>
                       <FormControl>
                         <Input
                           type="number"
                           min="0"
                           max="10"
+                          step="1"
                           placeholder="0-10"
                           {...field}
                         />
@@ -959,7 +956,7 @@ export default function PatientDetailPage() {
   }
 
   const age = getAge(patient.birthDate);
-  const birthFormatted = formatDate(patient.birthDate);
+  const birthFormatted = formatDay(patient.birthDate) ?? undefined;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">

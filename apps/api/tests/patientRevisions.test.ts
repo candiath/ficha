@@ -62,7 +62,7 @@ describe('patient revisions', () => {
     expect(revision.snapshot).toEqual({
       firstName: 'Ana',
       lastName: 'Pérez',
-      birthDate: '1980-05-03T00:00:00.000Z',
+      birthDate: '1980-05-03',
       sex: 'FEMALE',
       documentType: null,
       documentNumber: null,

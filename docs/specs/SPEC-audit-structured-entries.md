@@ -46,6 +46,7 @@ From the conversation of 2026-10-11, after reviewing OWASP's Logging and Logging
 
 The rule every later module follows, and the reason for most of what is below:
 
+- **Exception, once (2026-11-15):** before the relaunch, with no row holding them, the deprecated codes this spec lists (`CREATED`, `UPDATED`, `DELETED`, `SCALE_APPLIED`, `SESSION_DELETED`, `PATIENT_EVENT_DELETED`, `PlatformAction.USER_ACTIVE_CHANGED`, entity `SCALE`) were removed from the enums and the catalog (migration `20261117120000_drop_dead_audit_codes`). The `deprecated` mechanism stays for the first code replaced after the relaunch.
 - **An action code is never renamed, reused or removed** once a release has written it. Its Postgres enum value stays; a replaced code is marked *deprecated* in the catalog, which keeps a wording for it and refuses to write it.
 - **The same holds for parameter values.** The catalog keeps its own list of the values each parameter accepts (`AUDIT_SCALE_TYPES`…), separate from the domain enums and from request validation, and that list only grows: a scale type the clinic stops offering still renders in the rows that name it, and dropping it from the domain does not let anyone create one again.
 - **Parameters are additive, and optional for readers.** A new parameter may be required when writing, but every reader treats it as possibly missing: the rows written before it exist. Changing the meaning or type of an existing parameter is a new action.

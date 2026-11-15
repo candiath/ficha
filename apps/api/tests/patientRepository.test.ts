@@ -79,7 +79,7 @@ describe('patientRepo: política de vigencia (repo directo)', () => {
 
     expect(patient.fullName).toBe('Paciente Nuevo');
     expect(typeof patient.createdAt).toBe('string');
-    expect(patient.birthDate).toMatch(/^1990-05-10T/);
+    expect(patient.birthDate).toBe('1990-05-10');
     // El select del repo es el contrato con el front: tenantId es interno y
     // deletedAt siempre sería null acá, así que ninguno debe viajar.
     expect(patient).not.toHaveProperty('tenantId');

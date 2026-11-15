@@ -85,7 +85,16 @@ const FROZEN = new Set([
   '20261106120000_audit_appointments_and_packages',
 ]);
 
-const ALLOWED: Record<string, { reason: string; violations: string[] }> = {};
+const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261117130000_drop_unused_columns': {
+    reason:
+      "The evaluation's body map column (retraction_map) is dropped before the relaunch: no code has read or " +
+      'written it since #238, and no snapshot ever held it (SPEC-clinical-revisions.md §3). Nothing in a ' +
+      'versioned table changes content: the column was ignored by the client and holds no clinical data the ' +
+      'revisions could lose.',
+    violations: ['DROP COLUMN: ALTER TABLE "initial_evaluations" DROP COLUMN "retraction_map"'],
+  },
+};
 
 export function historyViolations(sql: string): string[] {
   const code = sql.replace(/--[^\n]*/g, '');

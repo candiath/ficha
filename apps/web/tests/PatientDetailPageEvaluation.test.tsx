@@ -93,7 +93,7 @@ const EVALUATION: InitialEvaluation = {
   notes: 'Primera',
   physicalActivity: null,
   painFrequency: null,
-  evaScale: null,
+  painScale: null,
   evaluatedAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
   version: 2,

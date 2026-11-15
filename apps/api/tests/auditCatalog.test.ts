@@ -25,7 +25,6 @@ import {
   AUDIT_PAYMENT_STATUSES,
   AUDIT_REVISION_REASONS,
   AUDIT_ROLES,
-  AUDIT_SCALE_TYPES,
   AUDIT_SESSION_FIELDS,
   AUDIT_SESSION_TYPES,
   type AuditActionDef,
@@ -109,7 +108,6 @@ describe('the audit catalog matches the schema', () => {
 
   it('every code value is upper case, with no three digits in a row', () => {
     for (const values of [
-      AUDIT_SCALE_TYPES,
       AUDIT_SESSION_TYPES,
       AUDIT_PAYMENT_STATUSES,
       AUDIT_ROLES,
@@ -134,13 +132,30 @@ describe('writing is strict', () => {
     ).toBeNull();
   });
 
-  it('refuses unknown and deprecated actions', () => {
+  it('refuses unknown actions', () => {
     expect(auditEntryProblem('audit_logs', 'VIEWED', {})).toMatch(/unknown/);
-    expect(auditEntryProblem('audit_logs', 'CREATED', {})).toMatch(/deprecated/);
-    expect(auditEntryProblem('platform_audit_logs', 'USER_ACTIVE_CHANGED', {})).toMatch(/deprecated/);
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'NDI' })).toMatch(/deprecated/);
     // A code is unique per table, not across them.
     expect(auditEntryProblem('platform_audit_logs', 'PATIENT_CREATED', {})).toMatch(/unknown/);
+  });
+
+  // No action is deprecated today. The mechanism stays for the day one is: this
+  // adds a made-up one to the catalog for the length of the test.
+  it('refuses a deprecated action, but still reads and words its rows', () => {
+    const audit = AUDIT_ACTIONS.audit_logs as unknown as Record<string, AuditActionDef>;
+    audit.LEGACY_TEST_ACTION = {
+      deprecated: true,
+      kind: 'update',
+      params: {},
+      label: 'Acción antigua',
+      describe: () => 'Hizo algo antiguo',
+    };
+    try {
+      expect(auditEntryProblem('audit_logs', 'LEGACY_TEST_ACTION', {})).toMatch(/deprecated/);
+      expect(describeAuditEntry('audit_logs', 'LEGACY_TEST_ACTION', {})).toBe('Hizo algo antiguo');
+      expect(auditActionLabel('audit_logs', 'LEGACY_TEST_ACTION')).toBe('Acción antigua');
+    } finally {
+      delete audit.LEGACY_TEST_ACTION;
+    }
   });
 
   it('refuses free text, unknown keys, unknown values and an empty change list', () => {
@@ -168,7 +183,7 @@ describe('reading is lenient', () => {
   });
 
   it('reads anything that is not an object as no parameters', () => {
-    for (const raw of [null, 'x', 3, ['a']]) expect(readAuditParams('audit_logs', 'SCALE_APPLIED', raw)).toEqual({});
+    for (const raw of [null, 'x', 3, ['a']]) expect(readAuditParams('audit_logs', 'SESSION_UPDATED', raw)).toEqual({});
   });
 
   it('every action has a sentence with none of its parameters', () => {

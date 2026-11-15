@@ -21,7 +21,7 @@ const EvaluationSchema = z.strictObject({
   notes: OptionalTextSchema,
   physicalActivity: OptionalTextSchema,
   painFrequency: OptionalTextSchema,
-  evaScale: z.number().min(0).max(10).optional().nullable(),
+  painScale: z.number().int().min(0).max(10).optional().nullable(),
   // The version the form loaded, 0 before the first evaluation. A correction
   // says why; the first evaluation needs no reason, so the repository decides.
   expectedVersion: ExpectedVersionSchema,

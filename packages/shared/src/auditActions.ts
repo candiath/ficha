@@ -21,13 +21,6 @@ import { z } from 'zod';
 // tests/auditCatalog.test.ts checks that every value of the mirrored Prisma
 // enum is here.
 
-// No Prisma enum since the functional scales were removed (2026-10-27): kept
-// for the SCALE_APPLIED rows.
-export const AUDIT_SCALE_TYPES = {
-  OSWESTRY: 'Oswestry (ODI)',
-  NDI: 'Neck Disability Index (NDI)',
-} as const;
-
 export const AUDIT_SESSION_TYPES = {
   SESSION: 'sesión',
   NOTE: 'nota clínica',
@@ -78,7 +71,8 @@ export const AUDIT_ANNULLED_SESSION_PAYMENTS = {
 // Why a clinical record was corrected or annulled (SPEC-clinical-revisions.md
 // §4). Attached to each *_UPDATED and annulment action in the step that
 // versions its aggregate: the catalog validates strictly, so a parameter is
-// required from the commit that adds it. The form preselects DATA_ENTRY_ERROR.
+// required from the commit that adds it. The form preselects nothing (since
+// 2026-11-08): the user picks the reason, so it is never a default left in place.
 export const AUDIT_REVISION_REASONS = {
   DATA_ENTRY_ERROR: 'error de confección',
   LATE_INFORMATION: 'información recibida después',
@@ -118,7 +112,7 @@ export const AUDIT_EVALUATION_FIELDS = {
   notes: 'las notas',
   physicalActivity: 'la actividad física',
   painFrequency: 'la frecuencia del dolor',
-  evaScale: 'la escala EVA',
+  painScale: 'la escala EVA',
 } as const;
 
 export const AUDIT_SESSION_FIELDS = {
@@ -201,7 +195,6 @@ export type AuditReadParamsOf<S extends ParamShape> = Partial<AuditParamsOf<S>>;
 export type AuditEntity =
   | 'PATIENT'
   | 'EVALUATION'
-  | 'SCALE'
   | 'SESSION'
   | 'PAYMENT'
   | 'CONSENT'
@@ -320,17 +313,6 @@ export const AUDIT_ACTIONS = {
           : 'Actualizó la evaluación inicial';
       },
     }),
-    // The functional scales (Oswestry, NDI) were removed on 2026-10-27: no screen
-    // had offered them since June.
-    SCALE_APPLIED: action({
-      deprecated: true,
-      entity: 'SCALE',
-      kind: 'create',
-      params: { scaleType: code(AUDIT_SCALE_TYPES) },
-      label: 'Escala aplicada',
-      describe: (p) =>
-        p.scaleType ? `Aplicó la escala ${AUDIT_SCALE_TYPES[p.scaleType]}` : 'Aplicó una escala',
-    }),
     SESSION_RECORDED: action({
       entity: 'SESSION',
       kind: 'create',
@@ -368,16 +350,6 @@ export const AUDIT_ACTIONS = {
         const changed = joinFields(p.changedFields, AUDIT_SESSION_FIELDS);
         return changed ? `Actualizó ${changed} ${what}` : `Actualizó los datos ${what}`;
       },
-    }),
-    // Replaced by SESSION_ANNULLED (SPEC-clinical-revisions.md §8): a session
-    // is no longer deleted, only annulled with a reason.
-    SESSION_DELETED: action({
-      deprecated: true,
-      entity: 'SESSION',
-      kind: 'delete',
-      params: {},
-      label: 'Sesión eliminada',
-      describe: () => 'Eliminó una sesión',
     }),
     // The entry stays in the record, struck through, and its content in its
     // history; lists and metrics leave it out.
@@ -452,16 +424,6 @@ export const AUDIT_ACTIONS = {
         const changed = joinFields(p.changedFields, AUDIT_PATIENT_EVENT_FIELDS);
         return changed ? `Actualizó ${changed} de un antecedente` : 'Actualizó un antecedente';
       },
-    }),
-    // Replaced by PATIENT_EVENT_ANNULLED (SPEC-clinical-revisions.md §8).
-    PATIENT_EVENT_DELETED: action({
-      deprecated: true,
-      entity: 'PATIENT_EVENT',
-      kind: 'delete',
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
-      label: 'Antecedente eliminado',
-      describe: (p) =>
-        p.kind ? `Eliminó un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Eliminó un antecedente',
     }),
     PATIENT_EVENT_ANNULLED: action({
       entity: 'PATIENT_EVENT',
@@ -550,29 +512,6 @@ export const AUDIT_ACTIONS = {
       label: 'Paquete eliminado',
       describe: () => 'Eliminó un paquete de sesiones',
     }),
-    // Before the catalog (until 2026-10), an action was the entity plus one of
-    // these, and the fact itself lived in a Spanish description.
-    CREATED: action({
-      deprecated: true,
-      kind: 'create',
-      params: {},
-      label: 'Creación',
-      describe: () => 'Registro creado',
-    }),
-    UPDATED: action({
-      deprecated: true,
-      kind: 'update',
-      params: {},
-      label: 'Actualización',
-      describe: () => 'Registro actualizado',
-    }),
-    DELETED: action({
-      deprecated: true,
-      kind: 'delete',
-      params: {},
-      label: 'Eliminación',
-      describe: () => 'Registro eliminado',
-    }),
   },
 
   platform_audit_logs: {
@@ -649,15 +588,6 @@ export const AUDIT_ACTIONS = {
       params: {},
       label: 'Alerta de prueba enviada',
       describe: () => 'Envió una alerta de prueba',
-    }),
-    // Until 2026-10, deactivating and reactivating were one action, and which
-    // one lived in the description.
-    USER_ACTIVE_CHANGED: action({
-      deprecated: true,
-      kind: 'update',
-      params: {},
-      label: 'Cambio de estado',
-      describe: () => 'Cambió el estado de la usuaria',
     }),
   },
 } as const;
