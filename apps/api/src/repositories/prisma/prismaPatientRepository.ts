@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { AUDIT_PATIENT_FIELDS } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import { fullName, patientNameSelect } from './patientName';
@@ -9,7 +10,9 @@ import { latestRevision, recordRevision, Rollback, unlessRolledBack } from './re
 import { patientSnapshot } from './clinicalSnapshots';
 import type {
   DeletedPatientDTO,
+  DocumentHolder,
   PatientCreateInput,
+  PatientCreateResult,
   PatientAuditField,
   PatientDTO,
   PatientEditMeta,
@@ -26,6 +29,8 @@ const patientSelect = {
   ...patientNameSelect,
   birthDate: true,
   sex: true,
+  documentType: true,
+  documentNumber: true,
   phone: true,
   occupation: true,
   referringDoctor: true,
@@ -42,6 +47,8 @@ type PatientRow = {
   lastName: string;
   birthDate: Date | null;
   sex: PatientDTO['sex'];
+  documentType: PatientDTO['documentType'];
+  documentNumber: string | null;
   phone: string | null;
   occupation: string | null;
   referringDoctor: string | null;
@@ -72,6 +79,27 @@ const withVersion = {
 
 function toRecordDTO({ revisions, ...row }: PatientRow & { revisions: { version: number }[] }): PatientRecordDTO {
   return { ...toDTO(row), version: revisions[0]?.version ?? 0 };
+}
+
+// The unique key on (clinic, document type, document number) refused the write.
+// The patients table has no other unique key a write here could hit.
+function isDocumentTaken(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+}
+
+// Who has the document a write was just refused for, deleted or not. Read
+// after the refused transaction ended: null if she is gone by then, or if the
+// write named no document at all.
+async function documentHolder(
+  ctx: TenantContext,
+  document: { documentType?: PatientDTO['documentType']; documentNumber?: string | null },
+): Promise<DocumentHolder | null> {
+  if (!document.documentType || !document.documentNumber) return null;
+  const row = await forTenant(ctx).patient.findFirst({
+    where: { documentType: document.documentType, documentNumber: document.documentNumber },
+    select: { id: true, ...patientNameSelect, deletedAt: true },
+  });
+  return row ? { id: row.id, fullName: fullName(row), deleted: row.deletedAt !== null } : null;
 }
 
 async function getById(ctx: TenantContext, id: string): Promise<PatientRecordDTO | null> {
@@ -113,24 +141,29 @@ export const prismaPatientRepository: PatientRepository = {
     ctx: TenantContext,
     input: PatientCreateInput,
     audit: AuditBuilder<PatientDTO>,
-  ): Promise<PatientRecordDTO> {
+  ): Promise<PatientCreateResult> {
     const db = forTenant(ctx);
-    return db.$transaction(async (tx) => {
-      const row = await tx.patient.create({
-        data: { ...input, tenantId: ctx.tenantId },
-        select: patientSelect,
+    try {
+      return await db.$transaction(async (tx): Promise<PatientCreateResult> => {
+        const row = await tx.patient.create({
+          data: { ...input, tenantId: ctx.tenantId },
+          select: patientSelect,
+        });
+        const patient = toDTO(row);
+        const auditLogId = await recordAudit(tx, ctx, audit(patient));
+        await recordRevision(tx, ctx, 'patient_revisions', {
+          aggregateId: row.id,
+          patientId: row.id,
+          version: 1,
+          auditLogId,
+          snapshot: patientSnapshot(row),
+        });
+        return { ok: true, patient: { ...patient, version: 1 } };
       });
-      const patient = toDTO(row);
-      const auditLogId = await recordAudit(tx, ctx, audit(patient));
-      await recordRevision(tx, ctx, 'patient_revisions', {
-        aggregateId: row.id,
-        patientId: row.id,
-        version: 1,
-        auditLogId,
-        snapshot: patientSnapshot(row),
-      });
-      return { ...patient, version: 1 };
-    });
+    } catch (e) {
+      if (!isDocumentTaken(e)) throw e;
+      return { ok: false, reason: 'document_taken', holder: await documentHolder(ctx, input) };
+    }
   },
 
   async update(
@@ -190,7 +223,10 @@ export const prismaPatientRepository: PatientRepository = {
         });
         return { ok: true, patient: { ...patient, version: version + 1 } };
       }),
-    );
+    ).catch(async (e: unknown): Promise<PatientUpdateResult> => {
+      if (!isDocumentTaken(e)) throw e;
+      return { ok: false, reason: 'document_taken', holder: await documentHolder(ctx, input) };
+    });
   },
 
   async softDelete(ctx: TenantContext, id: string, audit: AuditEntry): Promise<boolean> {

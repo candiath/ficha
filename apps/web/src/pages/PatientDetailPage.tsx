@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { DOCUMENT_TYPE_LABELS } from '@ficha/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -1110,6 +1111,14 @@ export default function PatientDetailPage() {
                   value={
                     birthFormatted
                       ? `${birthFormatted}${age ? ` (${age})` : ''}`
+                      : undefined
+                  }
+                />
+                <DetailField
+                  label="Documento"
+                  value={
+                    patient.documentType && patient.documentNumber
+                      ? `${DOCUMENT_TYPE_LABELS[patient.documentType]} ${patient.documentNumber}`
                       : undefined
                   }
                 />

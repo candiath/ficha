@@ -16,27 +16,43 @@ import {
 const view = (rows: SnapshotRow[] | null) => Object.fromEntries((rows ?? []).map((r) => [r.label, r.value]));
 
 describe('snapshot renderers', () => {
+  const PATIENT_V1 = {
+    firstName: 'Ana',
+    lastName: 'Pérez',
+    birthDate: '1990-03-01T00:00:00.000Z',
+    sex: 'FEMALE',
+    occupation: null,
+    referringDoctor: 'Dr. López',
+  };
+
   it('the patient: identification and clinical context, the birth date in UTC', () => {
-    const rows = renderPatientSnapshot(
-      {
-        firstName: 'Ana',
-        lastName: 'Pérez',
-        birthDate: '1990-03-01T00:00:00.000Z',
-        sex: 'FEMALE',
-        occupation: null,
-        referringDoctor: 'Dr. López',
-      },
-      1,
-      {},
-    );
+    const rows = renderPatientSnapshot({ ...PATIENT_V1, documentType: 'DNI', documentNumber: '30123456' }, 2, {});
     expect(view(rows)).toEqual({
       Nombre: 'Ana',
       Apellido: 'Pérez',
       'Fecha de nacimiento': '01/03/1990',
       Sexo: 'Femenino',
+      Documento: 'DNI 30123456',
       Ocupación: '—',
       'Médico derivante': 'Dr. López',
     });
+  });
+
+  // The document made the patient snapshot version 2. A version written
+  // before it is shown as a patient with none, and adding one reads as a change.
+  it('a patient version written before the document shows it as empty', () => {
+    const before = renderPatientSnapshot(PATIENT_V1, 1, {});
+    expect(view(before)).toMatchObject({ Nombre: 'Ana', Documento: '—', 'Médico derivante': 'Dr. López' });
+
+    const after = renderPatientSnapshot({ ...PATIENT_V1, documentType: 'DNI', documentNumber: '30123456' }, 2, {});
+    expect([...changedKeys(after!, before)]).toEqual(['document']);
+  });
+
+  it('does not guess a snapshot that is not what its schema version says', () => {
+    // Version 1 never held a document; version 2 always names both fields.
+    expect(renderPatientSnapshot({ ...PATIENT_V1, documentType: null, documentNumber: null }, 1, {})).toBeNull();
+    expect(renderPatientSnapshot(PATIENT_V1, 2, {})).toBeNull();
+    expect(renderPatientSnapshot(PATIENT_V1, 3, {})).toBeNull();
   });
 
   it('the episode: complaint, status and dates', () => {

@@ -4,10 +4,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { packageRepo, patientRepo } from '../src/repositories';
+import { packageRepo } from '../src/repositories';
 import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
 import {
+  createPatientRecord,
   createSessionFixture,
   deleteAuditRows,
   createTestContext,
@@ -53,9 +54,9 @@ describe('packageRepo: deleteIfUnused y pertenencia', () => {
     ctxA = await createTestContext(clinicA.tenantId, userA);
     ctxB = await createTestContext(clinicB.tenantId, userB);
 
-    patientA = await patientRepo.create(ctxA, { firstName: 'Paciente', lastName: 'A' }, patientAudit('CREATED'));
-    patientA2 = await patientRepo.create(ctxA, { firstName: 'Paciente', lastName: 'A2' }, patientAudit('CREATED'));
-    patientB = await patientRepo.create(ctxB, { firstName: 'Paciente', lastName: 'B' }, patientAudit('CREATED'));
+    patientA = await createPatientRecord(ctxA, { firstName: 'Paciente', lastName: 'A' }, patientAudit('CREATED'));
+    patientA2 = await createPatientRecord(ctxA, { firstName: 'Paciente', lastName: 'A2' }, patientAudit('CREATED'));
+    patientB = await createPatientRecord(ctxB, { firstName: 'Paciente', lastName: 'B' }, patientAudit('CREATED'));
   });
 
   afterAll(async () => {

@@ -1,4 +1,4 @@
-import type { RevisionReason } from '@ficha/shared';
+import type { DocumentType, RevisionReason } from '@ficha/shared';
 
 export interface Patient {
   id: string;
@@ -8,6 +8,10 @@ export interface Patient {
   fullName: string;
   birthDate: string | null;
   sex: 'MALE' | 'FEMALE' | 'OTHER' | null;
+  // The document that identifies her: both or neither. The number as the API
+  // stores it (a DNI as its digits).
+  documentType: DocumentType | null;
+  documentNumber: string | null;
   phone: string | null;
   occupation: string | null;
   referringDoctor: string | null;
@@ -26,6 +30,9 @@ export interface PatientFormData {
   lastName: string;
   birthDate?: string | null;
   sex?: 'MALE' | 'FEMALE' | 'OTHER' | null;
+  // Sent together, or neither (the API refuses one without the other).
+  documentType?: DocumentType | null;
+  documentNumber?: string | null;
   phone?: string | null;
   occupation?: string | null;
   referringDoctor?: string | null;

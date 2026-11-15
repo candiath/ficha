@@ -93,6 +93,8 @@ export const LIST_SCOPE: Record<string, ListScope> = {
       fullName: true,
       birthDate: true,
       sex: true,
+      documentType: true,
+      documentNumber: true,
       phone: true,
       occupation: true,
       referringDoctor: true,

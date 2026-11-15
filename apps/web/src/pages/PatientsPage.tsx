@@ -62,10 +62,12 @@ import { alertKeys } from '@/services/alerts';
 import { appointmentKeys } from '@/services/appointments';
 import { patientApi, patientKeys } from '@/services/patients';
 import type { Patient } from '@/types/patient';
+import { DOCUMENT_TYPE_LABELS } from '@ficha/shared';
 
 const COLUMN_LABELS: Record<string, string> = {
   name: 'Paciente',
   sex: 'Sexo',
+  documentNumber: 'Documento',
   birthDate: 'Nacimiento',
   phone: 'Teléfono',
   occupation: 'Ocupación',
@@ -91,6 +93,16 @@ function buildColumns(
       // The clinic finds and sorts patients by surname (#238).
       id: 'name',
       accessorFn: (p) => `${p.lastName}, ${p.firstName}`,
+      // The search box filters this column: by name, or by document, written
+      // with or without its dots.
+      filterFn: (row, _columnId, search: string) => {
+        const text = search.trim().toLowerCase();
+        if (!text) return true;
+        const { firstName, lastName, documentNumber } = row.original;
+        if (`${lastName}, ${firstName} ${lastName}`.toLowerCase().includes(text)) return true;
+        const compact = text.replace(/[\s.]/g, '');
+        return compact !== '' && (documentNumber ?? '').toLowerCase().includes(compact);
+      },
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -137,6 +149,18 @@ function buildColumns(
         </Button>
       ),
       cell: ({ row }) => formatDate(row.getValue('birthDate')),
+    },
+    {
+      accessorKey: 'documentNumber',
+      header: 'Documento',
+      cell: ({ row }) => {
+        const { documentType, documentNumber } = row.original;
+        return documentType && documentNumber ? (
+          `${DOCUMENT_TYPE_LABELS[documentType]} ${documentNumber}`
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
     },
     {
       accessorKey: 'phone',
@@ -289,7 +313,7 @@ export default function PatientsPage() {
       {/* Toolbar */}
       <div className="flex items-center gap-2 mb-4">
         <Input
-          placeholder="Buscar por nombre..."
+          placeholder="Buscar por nombre o documento..."
           value={(table.getColumn('name')?.getFilterValue() as string) ?? ''}
           onChange={(e) => table.getColumn('name')?.setFilterValue(e.target.value)}
           className="max-w-sm"
