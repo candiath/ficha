@@ -95,7 +95,7 @@ export interface PlatformAuditLogDTO {
   tenantId: string | null;
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
-  targetUser: { email: string; name: string | null } | null;
+  targetUser: { email: string; name: string } | null;
   // The operator who acted, read now (area 3 review, M2).
   operator: { name: string | null; email: string } | null;
   action: PlatformAction;

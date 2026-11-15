@@ -9,7 +9,7 @@ export interface RevisionSummary {
   params: Record<string, unknown>;
   actorType: AuditActorType;
   // Who wrote it; null for the system.
-  author: { id: string; name: string | null } | null;
+  author: { id: string; name: string } | null;
   createdAt: string;
 }
 

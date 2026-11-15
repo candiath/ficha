@@ -193,6 +193,17 @@ describe('The database keeps the model consistent', () => {
       ).rejects.toThrow(/patients_first_name_present/);
     });
 
+    it('refuses a user with no name or a blank one', async () => {
+      const userWithName = (name: string | null) =>
+        prisma.$executeRaw`INSERT INTO users (id, tenant_id, email, password_hash, name, updated_at)
+          VALUES (gen_random_uuid(), ${clinic.tenantId}::uuid, ${clinic.email('sin-nombre')}, 'x', ${name}, now())`;
+
+      await expect(userWithName(null)).rejects.toThrow(/23502/); // not_null_violation
+      await expect(userWithName('   ')).rejects.toThrow(/users_name_present/);
+      await expect(prisma.user.create({ data: { tenantId: clinic.tenantId, email: clinic.email('vacio'), passwordHash: 'x', name: '' } }))
+        .rejects.toThrow(/users_name_present/);
+    });
+
     it('refuses a consent revoked before it was signed', async () => {
       const signedAt = new Date();
       await expect(

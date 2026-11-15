@@ -55,7 +55,7 @@ export interface AuthTenant {
 export interface AuthUser {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
   role: UserRole;
   tenant: AuthTenant;
 }
@@ -127,7 +127,7 @@ export interface PasswordResetLink {
 // Public reset page: whose account a valid link resets.
 export interface PasswordResetTarget {
   email: string;
-  name: string | null;
+  name: string;
   // She never logged in: the link is her invitation, and the page asks her to
   // choose a password rather than reset one. Nothing the link holder could not
   // learn by trying to log in.
@@ -317,7 +317,7 @@ export interface PlatformAuditEntry {
   tenantId: string | null;
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
-  targetUser: { email: string; name: string | null } | null;
+  targetUser: { email: string; name: string } | null;
   // The operator who acted.
   operator: { name: string | null; email: string } | null;
   action: PlatformAction;

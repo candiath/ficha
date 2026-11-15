@@ -22,7 +22,7 @@ describe('platform audit rows carry codes, never names', { timeout: 30_000 }, ()
     action: string;
     params: Record<string, unknown>;
     targetUserId: string | null;
-    targetUser: { email: string; name: string | null } | null;
+    targetUser: { email: string; name: string } | null;
     operator: { name: string | null; email: string } | null;
   };
 

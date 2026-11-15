@@ -348,6 +348,19 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
       }
     });
 
+    it.each([
+      ['missing', {}],
+      ['empty', { name: '' }],
+      ['only spaces', { name: '   ' }],
+      ['null', { name: null }],
+    ])('refuses an ADMIN whose name is %s, and leaves no row', async (_case, name) => {
+      const email = clinic.email(`admin-sin-nombre-${_case.replace(' ', '-')}`);
+      const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({ email, ...name });
+
+      expect(res.status).toBe(400);
+      expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+    });
+
     it('refuses a password in the body: the new ADMIN sets her own', async () => {
       const email = clinic.email('con-clave');
       const res = await asOperator(request(app).post(`${PLATFORM}/tenants/${tenantId}/users`)).send({
@@ -375,6 +388,7 @@ describe('operador de plataforma', { timeout: 30_000 }, () => {
         data: {
           tenantId,
           email: clinic.email('fisio-delegada'),
+          name: 'Fisio Delegada',
           passwordHash: 'x',
           role: 'THERAPIST',
         },

@@ -21,7 +21,7 @@ export interface TenantIdentity {
 export interface LoginUser {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
   role: UserRole;
   tenant: TenantIdentity;
   tenantId: string;
@@ -61,7 +61,7 @@ export interface CreateAuthSessionInput {
 export interface PublicProfile {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
   role: UserRole;
   tenant: TenantIdentity;
 }
@@ -106,7 +106,7 @@ export interface LoginBrake {
 // holds the link already controls the account, so this reveals nothing new.
 export interface PasswordResetTarget {
   email: string;
-  name: string | null;
+  name: string;
   firstPassword: boolean;
 }
 
