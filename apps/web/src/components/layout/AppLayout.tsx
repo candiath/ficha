@@ -83,7 +83,7 @@ function NavItems({
 export default function AppLayout() {
   // RequireAuth garantiza que hay sesión cuando este layout se renderiza.
   const { user, logout } = useAuth();
-  const displayName = user?.name ?? user?.email ?? '';
+  const displayName = user?.name ?? '';
 
   const { data: stats } = useQuery({
     queryKey: alertKeys.stats,

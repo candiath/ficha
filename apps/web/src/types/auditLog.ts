@@ -8,7 +8,7 @@ export interface AuditLog {
   userId: string | null;
   actorType: AuditActorType;
   // Who acted; null for a SYSTEM row.
-  author: { id: string; name: string | null } | null;
+  author: { id: string; name: string } | null;
   entity: string;
   entityId: string;
   action: string;

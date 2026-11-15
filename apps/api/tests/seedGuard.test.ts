@@ -14,7 +14,7 @@ describe('seed guard', () => {
     clinic = await createTestClinic();
     await clinic.createUser();
     await prisma.user.create({
-      data: { tenantId: clinic.tenantId, email: foreign, passwordHash: TEST_PASSWORD },
+      data: { tenantId: clinic.tenantId, email: foreign, name: 'Ajena', passwordHash: TEST_PASSWORD },
     });
   });
 

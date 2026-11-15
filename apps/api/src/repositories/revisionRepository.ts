@@ -24,7 +24,7 @@ export type RevisionAggregate = RevisionTarget['aggregate'];
 
 export interface RevisionAuthorDTO {
   id: string;
-  name: string | null;
+  name: string;
 }
 
 // One version, as the list shows it. `params` are the audit row's codes (the

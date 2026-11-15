@@ -9,9 +9,8 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_LABELS } from '@/lib/labels';
 
-// "María García" → "MG"; sin nombre, la inicial del email.
-function getInitials(name: string | null, email: string): string {
-  if (!name) return email.charAt(0).toUpperCase();
+// "María García" → "MG".
+function getInitials(name: string): string {
   return name
     .split(/\s+/)
     .map((w) => w.charAt(0))
@@ -29,10 +28,10 @@ export default function AccountPage() {
   if (!user) return null;
 
   const profile = {
-    name: user.name ?? user.email,
+    name: user.name,
     email: user.email,
     role: ROLE_LABELS[user.role],
-    initials: getInitials(user.name, user.email),
+    initials: getInitials(user.name),
   };
 
   return (

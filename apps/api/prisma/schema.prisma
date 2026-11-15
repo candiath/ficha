@@ -117,7 +117,7 @@ model User {
   tenantId     String    @map("tenant_id") @db.Uuid
   email        String    @unique
   passwordHash String    @map("password_hash")
-  name         String?
+  name         String
   role         UserRole  @default(THERAPIST)
   // Desactivar un usuario revoca su acceso sin borrar la fila: las sesiones
   // y registros de auditoría que creó deben seguir apuntando a él.

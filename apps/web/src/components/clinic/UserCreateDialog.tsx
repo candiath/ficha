@@ -69,7 +69,7 @@ export default function UserCreateDialog({ open, onClose, onCreated }: Props) {
       queryClient.invalidateQueries({ queryKey: userKeys.list });
       form.reset();
       onClose();
-      onCreated(user.name ?? user.email, invitation);
+      onCreated(user.name, invitation);
     },
     // 409 "ya existe un usuario con ese email" llega con el mensaje del servidor.
     onError: (err) => {
