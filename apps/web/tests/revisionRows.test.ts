@@ -48,12 +48,11 @@ describe('snapshot renderers', () => {
     expect(view(rows)).toEqual({ 'Motivo de consulta': 'Lumbalgia', Estado: 'Alta', Apertura: '05/01/2026', Cierre: '—' });
   });
 
-  it('the evaluation: its texts, and whether the body map has marks, never its drawing', () => {
+  it('the evaluation: its texts and its pain score', () => {
     const snapshot = {
       patientNarrative: 'Dolor al levantarse',
       otherHistory: null,
       notes: '',
-      retractionMap: [{ x: 1, y: 2 }],
       physicalActivity: null,
       painFrequency: 'Diario',
       evaScale: 7,
@@ -65,11 +64,12 @@ describe('snapshot renderers', () => {
       Notas: '—',
       'Frecuencia del dolor': 'Diario',
       'Escala EVA': '7',
-      'Mapa de retracciones': 'Con marcas',
     });
-    // A new mark changes the row, though it still reads "Con marcas".
-    const moved = renderEvaluationSnapshot({ ...snapshot, retractionMap: [{ x: 3, y: 2 }] }, 1, {});
-    expect([...changedKeys(moved!, rows)]).toEqual(['retractionMap']);
+    const scored = renderEvaluationSnapshot({ ...snapshot, evaScale: 4 }, 1, {});
+    expect([...changedKeys(scored!, rows)]).toEqual(['evaScale']);
+    // A snapshot that still carries the body map, removed before the relaunch,
+    // is not one this screen knows: it says so instead of guessing.
+    expect(renderEvaluationSnapshot({ ...snapshot, retractionMap: [{ x: 1, y: 2 }] }, 1, {})).toBeNull();
   });
 
   it('the consent: signed, and revoked or not', () => {

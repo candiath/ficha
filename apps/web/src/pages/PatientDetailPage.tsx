@@ -25,7 +25,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DirtyLabel } from '@/components/ui/dirty-label';
 import AbandonEpisodeConfirm from '@/components/patients/AbandonEpisodeConfirm';
-import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import RevisionReasonField from '@/components/patients/RevisionReasonField';
 import { useRevisionReason } from '@/hooks/useRevisionReason';
@@ -48,7 +47,6 @@ import {
   SEX_CLASS,
   SEX_LABELS,
 } from '@/lib/labels';
-import type { BodyMarker } from '@/types/evaluation';
 import { blockFor, type Session } from '@/types/session';
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
 import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot, renderSessionSnapshot } from '@/lib/revisionRows';
@@ -209,8 +207,6 @@ function EpisodeCombobox({
 // The patient's occupation is edited here too, so the tab carries her version.
 function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; patientVersion?: number; onUnsavedChangesChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
-  const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
-  const [retractionMapDirty, setRetractionMapDirty] = useState(false);
   // A correction says why (SPEC-clinical-revisions.md §4); the first
   // evaluation does not, unless it also corrects the patient's occupation.
   const revision = useRevisionReason();
@@ -235,7 +231,7 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
     },
   });
   const { isDirty, dirtyFields } = form.formState;
-  const hasUnsavedChanges = isDirty || retractionMapDirty;
+  const hasUnsavedChanges = isDirty;
 
   useEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges);
@@ -264,9 +260,6 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         painFrequency: evaluation.painFrequency ?? '',
         evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
       });
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRetractionMap(evaluation.retractionMap ?? []);
-      setRetractionMapDirty(false);
     }
   }, [evaluation, form, occupation]);
 
@@ -278,7 +271,6 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         patientNarrative: values.patientNarrative,
         otherHistory: values.otherHistory,
         notes: values.notes,
-        retractionMap: retractionMap.length > 0 ? retractionMap : null,
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
         evaScale: values.evaScale ? Number(values.evaScale) : null,
@@ -298,7 +290,6 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
-      setRetractionMapDirty(false);
       revision.reset();
       toast.success('Evaluación guardada');
     },
@@ -474,27 +465,6 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
 
               <Separator />
 
-              {/* Mapa corporal */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">Mapa corporal — Retracciones</h3>
-                <p className="text-xs text-muted-foreground">
-                  Marcá zonas de retracción, dolor o alteración en el diagrama.
-                  Los cambios se guardan junto con la evaluación.
-                </p>
-                <BodyDiagram
-                  markers={retractionMap}
-                  onAddMarker={(marker) => {
-                    setRetractionMap((prev) => [...prev, { ...marker, id: crypto.randomUUID() }]);
-                    setRetractionMapDirty(true);
-                  }}
-                  onRemoveMarker={(id) => {
-                    setRetractionMap((prev) => prev.filter((m) => m.id !== id));
-                    setRetractionMapDirty(true);
-                  }}
-                />
-              </div>
-
-              <Separator />
               <FormField
                 control={form.control}
                 name="notes"

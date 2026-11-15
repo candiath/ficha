@@ -166,7 +166,7 @@ export async function recordRevision<T extends RevisionTable>(
     await write(tx, ctx.tenantId, {
       ...fields,
       schemaVersion,
-      snapshot: fields.snapshot as Prisma.InputJsonValue,
+      snapshot: fields.snapshot,
     });
   } catch (e) {
     const message = `revision write failed: code=${errorCode(e)} table=${table} id=${fields.aggregateId}`;

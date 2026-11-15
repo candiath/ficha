@@ -25,7 +25,6 @@ describe('CRUD de la evaluación inicial', () => {
     `/api/patients/${patientId}/episodes/${episodeId}/evaluation`;
 
   // The evaluation's one JSON column.
-  const MAPA = [{ id: 'm1', x: 50, y: 12, label: 'Trapecio', severity: 'high', notes: '', view: 'back' }];
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -152,15 +151,12 @@ describe('CRUD de la evaluación inicial', () => {
     expect(res.body.data.evaScale).toBeNull();
   });
 
-  // El caso de #161: hasta que se arregló, un campo ausente se comportaba
-  // distinto según su tipo —el escalar sobrevivía y el JSON se borraba—, así
-  // que este mismo request conservaba `notes` y vaciaba lo guardado en JSON.
-  it('el campo ausente no se toca, sea escalar o JSON', async () => {
+  it('el campo ausente no se toca', async () => {
     const propio = await nuevoEpisodio();
     await auth(request(app).put(url(propio.id))).send({
       reason: 'DATA_ENTRY_ERROR',
       notes: 'Primera consulta',
-      retractionMap: MAPA,
+      evaScale: 7,
     });
 
     const res = await auth(request(app).put(url(propio.id))).send({
@@ -171,19 +167,19 @@ describe('CRUD de la evaluación inicial', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.patientNarrative).toBe('Dolor dorsal');
     expect(res.body.data.notes).toBe('Primera consulta');
-    expect(res.body.data.retractionMap).toEqual(MAPA);
+    expect(res.body.data.evaScale).toBe(7);
   });
 
-  it('una columna JSON se borra mandándola en null, como cualquier otro campo', async () => {
+  // The body map left the evaluation before the relaunch (#238): the schema is
+  // strict, so a client that still sends it is told, not ignored.
+  it('refuses the body map, which is no longer a field of the evaluation', async () => {
     const propio = await nuevoEpisodio();
-    await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', retractionMap: MAPA, notes: 'Queda' });
 
-    const res = await auth(request(app).put(url(propio.id))).send({ reason: 'DATA_ENTRY_ERROR', retractionMap: null });
+    const res = await auth(request(app).put(url(propio.id))).send({ notes: 'Queda', retractionMap: [{ x: 1, y: 2 }] });
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.retractionMap).toBeNull();
-    // Y lo que no viajó en el body sigue donde estaba.
-    expect(res.body.data.notes).toBe('Queda');
+    expect(res.status).toBe(400);
+    const read = await auth(request(app).get(url(propio.id)));
+    expect(read.body.data).toBeNull();
   });
 
   it('un texto se borra con "" igual que con null, porque lo normaliza la API', async () => {

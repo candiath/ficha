@@ -506,35 +506,6 @@ async function main() {
       patientNarrative:
         'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana. Los síntomas empeoran al final de la jornada laboral frente a la pantalla.',
       otherHistory: 'Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
-      retractionMap: [
-        {
-          id: 'rm-1',
-          x: 50,
-          y: 12,
-          label: 'Contractura trapecio bilateral',
-          severity: 'high',
-          notes: 'Bilateral, más marcada a derecha. Trigger points activos.',
-          view: 'back',
-        },
-        {
-          id: 'rm-2',
-          x: 50,
-          y: 8,
-          label: 'Tensión suboccipital',
-          severity: 'medium',
-          notes: 'Genera cefalea occipital. Restricción en flexo-extensión C0-C1.',
-          view: 'back',
-        },
-        {
-          id: 'rm-3',
-          x: 50,
-          y: 14,
-          label: 'Retracción cadena anterior tórax',
-          severity: 'medium',
-          notes: 'Pectorales menores acortados. Contribuyen a la protracción escapular.',
-          view: 'front',
-        },
-      ],
       evaluatedAt: new Date('2025-12-05T09:30:00.000Z'),
     },
   });

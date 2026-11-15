@@ -20,8 +20,6 @@ export interface EvaluationEditMeta {
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
-// `retractionMap` viaja como unknown: el port no expone tipos de Prisma y su
-// shape real todavía lo define el frontend que lo dibuja.
 export interface EvaluationDTO {
   id: string;
   patientId: string;
@@ -29,7 +27,6 @@ export interface EvaluationDTO {
   patientNarrative: string | null;
   otherHistory: string | null;
   notes: string | null;
-  retractionMap: unknown;
   physicalActivity: string | null;
   painFrequency: string | null;
   evaScale: number | null;
@@ -42,15 +39,10 @@ export interface EvaluationDTO {
 // El PUT actualiza lo que viene y deja el resto como estaba, con la regla que
 // vale en toda la API (lib/validation.ts): el campo ausente no se toca, el que
 // viene en null —o en "" desde un formulario— se borra.
-//
-// Antes era mitad y mitad: los escalares ausentes se preservaban y los Json
-// ausentes se borraban, así que el mismo request conservaba `notes` y vaciaba
-// lo guardado en JSON (#161).
 export interface EvaluationUpsertInput {
   patientNarrative?: string | null;
   otherHistory?: string | null;
   notes?: string | null;
-  retractionMap?: unknown;
   physicalActivity?: string | null;
   painFrequency?: string | null;
   evaScale?: number | null;

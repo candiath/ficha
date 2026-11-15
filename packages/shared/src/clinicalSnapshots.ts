@@ -70,13 +70,12 @@ export const EPISODE_SNAPSHOT_VERSION = 1;
 
 // ─── Initial evaluation ─────────────────────────────────────────────────────
 
-// The body map stays unknown inside the snapshot, as in its column, until its
-// shape is defined. evaluatedAt as ISO.
+// evaluatedAt as ISO. The body map (retractionMap) left the evaluation before
+// the relaunch, so no version of this schema that production holds ever had it.
 export const EvaluationSnapshotV1 = z.strictObject({
   patientNarrative: text,
   otherHistory: text,
   notes: text,
-  retractionMap: z.unknown(),
   physicalActivity: text,
   painFrequency: text,
   evaScale: z.number().nullable(),
