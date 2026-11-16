@@ -3,7 +3,7 @@ import {
   DOCUMENT_TYPE_LABELS,
   EPISODE_SNAPSHOTS,
   EVALUATION_SNAPSHOTS,
-  PATIENT_EVENT_SNAPSHOTS,
+  PATIENT_ANTECEDENT_SNAPSHOTS,
   PATIENT_SNAPSHOTS,
   ENCOUNTER_SNAPSHOTS,
   formatPartialDate,
@@ -11,7 +11,7 @@ import {
 } from '@ficha/shared';
 import {
   EPISODE_STATUS_LABELS,
-  PATIENT_EVENT_KIND_LABELS,
+  PATIENT_ANTECEDENT_KIND_LABELS,
   ENCOUNTER_TYPE_LABELS,
   SEX_LABELS,
 } from '@/lib/labels';
@@ -143,9 +143,9 @@ export const renderConsentSnapshot: SnapshotRenderer = (snapshot, version) =>
     { key: 'revokedAt', label: 'Revocado', value: s.revokedAt ? dateTime(s.revokedAt) : 'No' },
   ]);
 
-export const renderPatientEventSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(PATIENT_EVENT_SNAPSHOTS, version, snapshot, (s) => [
-    { key: 'kind', label: 'Tipo', value: PATIENT_EVENT_KIND_LABELS[s.kind] ?? s.kind },
+export const renderPatientAntecedentSnapshot: SnapshotRenderer = (snapshot, version) =>
+  parsed(PATIENT_ANTECEDENT_SNAPSHOTS, version, snapshot, (s) => [
+    { key: 'kind', label: 'Tipo', value: PATIENT_ANTECEDENT_KIND_LABELS[s.kind] ?? s.kind },
     { key: 'description', label: 'Descripción', value: text(s.description) },
     {
       key: 'occurred',

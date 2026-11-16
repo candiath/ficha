@@ -59,6 +59,27 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261118130000_rename_patient_event_to_antecedent': {
+    reason:
+      'PatientEvent becomes PatientAntecedent (the record\x27s "Antecedentes") before the relaunch, while no ' +
+      'deployed database holds clinical rows (#238). Only names change, as in the Encounter rename above: ' +
+      'the revisions table, its column, constraints and triggers keep their definitions (audit-guards.sql ' +
+      'pins the new names), and the audit codes PATIENT_EVENT* are renamed in place.',
+    violations: [
+      "RENAME: ALTER TYPE \"AuditEntity\" RENAME VALUE 'PATIENT_EVENT' TO 'PATIENT_ANTECEDENT'",
+      "RENAME: ALTER TYPE \"AuditAction\" RENAME VALUE 'PATIENT_EVENT_RECORDED' TO 'PATIENT_ANTECEDENT_RECORDED'",
+      "RENAME: ALTER TYPE \"AuditAction\" RENAME VALUE 'PATIENT_EVENT_UPDATED' TO 'PATIENT_ANTECEDENT_UPDATED'",
+      "RENAME: ALTER TYPE \"AuditAction\" RENAME VALUE 'PATIENT_EVENT_ANNULLED' TO 'PATIENT_ANTECEDENT_ANNULLED'",
+      "RENAME: ALTER TABLE \"patient_event_revisions\" RENAME TO \"patient_antecedent_revisions\"",
+      "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME COLUMN \"patient_event_id\" TO \"patient_antecedent_id\"",
+      "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_tenant_id_fkey\" TO \"patient_antece",
+      "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_tenant_id_patient_id_audit_log_id_",
+      "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_tenant_id_patient_id_patient_event",
+      "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_version_positive\" TO \"patient_ante",
+      "RENAME: ALTER TRIGGER \"patient_event_revisions_append_only\" ON \"patient_antecedent_revisions\" RENAME TO \"patient_antecedent_revi",
+      "RENAME: ALTER TRIGGER \"patient_event_revisions_no_truncate\" ON \"patient_antecedent_revisions\" RENAME TO \"patient_antecedent_revi",
+    ],
+  },
   '20261118120000_rename_session_to_encounter': {
     reason:
       'The clinical Session becomes Encounter before the relaunch, while no deployed database holds ' +
@@ -174,7 +195,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 };
 
 const AUDIT_NAMES =
-  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|session_revisions|encounter_revisions|patient_revisions|episode_revisions|evaluation_revisions|consent_revisions|patient_event_revisions|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
+  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|session_revisions|encounter_revisions|patient_revisions|episode_revisions|evaluation_revisions|consent_revisions|patient_event_revisions|patient_antecedent_revisions|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
 
 const FORBIDDEN: [string, RegExp][] = [
   ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],

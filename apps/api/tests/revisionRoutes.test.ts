@@ -20,7 +20,7 @@ describe('revision routes', () => {
   let patientB: string;
   let episodeId: string;
   let encounterId: string;
-  let eventId: string;
+  let antecedentId: string;
   let encounterOfB: string;
 
   const REASON = { reason: 'LATE_INFORMATION' };
@@ -40,7 +40,7 @@ describe('revision routes', () => {
     episode: `/api/patients/${patientA}/episodes/${episodeId}/revisions`,
     evaluation: `/api/patients/${patientA}/episodes/${episodeId}/evaluation/revisions`,
     consent: `/api/patients/${patientA}/consent/revisions`,
-    patientEvent: `/api/patients/${patientA}/events/${eventId}/revisions`,
+    patientAntecedent: `/api/patients/${patientA}/antecedents/${antecedentId}/revisions`,
   });
 
   beforeAll(async () => {
@@ -62,7 +62,7 @@ describe('revision routes', () => {
     );
     patientB = (await created('/api/patients', { firstName: 'Berta', lastName: 'Otra' })).id;
 
-    // Episode, evaluation, encounter (with its episode block), consent, event.
+    // Episode, evaluation, encounter (with its episode block), consent, antecedent.
     episodeId = (await created(`/api/patients/${patientA}/episodes`, { mainComplaint: 'Lumbalgia' })).id;
     await expectStatus(
       auth(request(app).put(`/api/patients/${patientA}/episodes/${episodeId}/evaluation`)).send({
@@ -87,8 +87,8 @@ describe('revision routes', () => {
       200,
     );
     await created(`/api/patients/${patientA}/consent`, { expectedVersion: 0 });
-    eventId = (
-      await created(`/api/patients/${patientA}/events`, {
+    antecedentId = (
+      await created(`/api/patients/${patientA}/antecedents`, {
         kind: 'SURGERY',
         description: 'Rodilla',
         occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
@@ -114,7 +114,7 @@ describe('revision routes', () => {
       await prisma.initialEvaluation.deleteMany({ where });
       await prisma.clinicalEpisode.deleteMany({ where });
       await prisma.informedConsent.deleteMany({ where });
-      await prisma.patientEvent.deleteMany({ where });
+      await prisma.patientAntecedent.deleteMany({ where });
       await prisma.patient.deleteMany({ where });
       await c.cleanup();
     }
@@ -149,7 +149,7 @@ describe('revision routes', () => {
       ['episode', ['EPISODE_OPENED']],
       ['evaluation', ['EVALUATION_CREATED']],
       ['consent', ['CONSENT_SIGNED']],
-      ['patientEvent', ['PATIENT_EVENT_RECORDED']],
+      ['patientAntecedent', ['PATIENT_ANTECEDENT_RECORDED']],
     ] as const)('lists the %s’s versions', async (aggregate, actions) => {
       const res = await expectStatus(get(bases()[aggregate]), 200);
       expect(res.body.data.map((r: { action: string }) => r.action)).toEqual(actions);
@@ -199,7 +199,7 @@ describe('revision routes', () => {
       });
     });
 
-    it.each(['patient', 'episode', 'evaluation', 'consent', 'patientEvent'] as const)(
+    it.each(['patient', 'episode', 'evaluation', 'consent', 'patientAntecedent'] as const)(
       'returns version 1 of the %s',
       async (aggregate) => {
         const res = await expectStatus(get(`${bases()[aggregate]}/1`), 200);
@@ -235,14 +235,14 @@ describe('revision routes', () => {
     it('answers 404 to patient A’s episode through patient B’s path, for the episode and its evaluation', async () => {
       await expectStatus(get(`/api/patients/${patientB}/episodes/${episodeId}/revisions`), 404);
       await expectStatus(get(`/api/patients/${patientB}/episodes/${episodeId}/evaluation/revisions/1`), 404);
-      await expectStatus(get(`/api/patients/${patientB}/events/${eventId}/revisions`), 404);
+      await expectStatus(get(`/api/patients/${patientB}/antecedents/${antecedentId}/revisions`), 404);
     });
 
     it('answers 404 to a patient without a consent', async () => {
       await expectStatus(get(`/api/patients/${patientB}/consent/revisions`), 404);
     });
 
-    it.each(['patient', 'encounter', 'episode', 'evaluation', 'consent', 'patientEvent'] as const)(
+    it.each(['patient', 'encounter', 'episode', 'evaluation', 'consent', 'patientAntecedent'] as const)(
       'answers 404 to another clinic, for the %s',
       async (aggregate) => {
         await expectStatus(get(bases()[aggregate], otherToken), 404);
@@ -259,7 +259,7 @@ describe('revision routes', () => {
       ['/api/patients/{patient}/encounters/no-es-un-id/revisions/1', 'Sesión no encontrada'],
       ['/api/patients/{patient}/episodes/no-es-un-id/revisions', 'Episodio no encontrado'],
       ['/api/patients/{patient}/episodes/no-es-un-id/evaluation/revisions', 'Episodio no encontrado'],
-      ['/api/patients/{patient}/events/no-es-un-id/revisions', 'Antecedente no encontrado'],
+      ['/api/patients/{patient}/antecedents/no-es-un-id/revisions', 'Antecedente no encontrado'],
     ])('answers 404 to a malformed id: %s', async (template, error) => {
       const path = template.replace('{patient}', patientA).replace('{encounter}', encounterId);
       expect((await expectStatus(get(path), 404)).body).toEqual({ error });

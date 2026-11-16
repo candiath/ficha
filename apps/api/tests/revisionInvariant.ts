@@ -3,7 +3,7 @@
 // (SPEC-clinical-revisions.md §9): a repository write that skips recordRevision
 // fails the test that exercises it. The six aggregates: encounters (with their
 // blocks), patients, episodes, initial evaluations, informed consents and
-// patient events.
+// patient antecedents.
 //
 // tests/setup.ts calls this from an afterEach. Vitest runs after-hooks in reverse
 // order of definition, so that one runs after the file's own, and well before any
@@ -35,7 +35,7 @@ export async function assertRevisionInvariant(): Promise<void> {
   const where = { tenantId: { in: [...clinics] } };
   const latest = { select: { schemaVersion: true, snapshot: true }, orderBy: { version: 'desc' }, take: 1 } as const;
 
-  const [encounters, patients, episodes, evaluations, consents, events] = await Promise.all([
+  const [encounters, patients, episodes, evaluations, consents, antecedents] = await Promise.all([
     prisma.encounter.findMany({
       where,
       select: {
@@ -52,7 +52,7 @@ export async function assertRevisionInvariant(): Promise<void> {
     prisma.clinicalEpisode.findMany({ where, include: { revisions: latest } }),
     prisma.initialEvaluation.findMany({ where, include: { revisions: latest } }),
     prisma.informedConsent.findMany({ where, include: { revisions: latest } }),
-    prisma.patientEvent.findMany({ where, include: { revisions: latest } }),
+    prisma.patientAntecedent.findMany({ where, include: { revisions: latest } }),
   ]);
 
   const problems: string[] = [];
@@ -81,7 +81,7 @@ export async function assertRevisionInvariant(): Promise<void> {
   check('episodes', episodes, snapshots.episodeSnapshot, shared.EPISODE_SNAPSHOTS);
   check('evaluations', evaluations, snapshots.evaluationSnapshot, shared.EVALUATION_SNAPSHOTS);
   check('consents', consents, snapshots.consentSnapshot, shared.CONSENT_SNAPSHOTS);
-  check('patient events', events, snapshots.patientEventSnapshot, shared.PATIENT_EVENT_SNAPSHOTS);
+  check('patient antecedents', antecedents, snapshots.patientAntecedentSnapshot, shared.PATIENT_ANTECEDENT_SNAPSHOTS);
 
   if (problems.length > 0) {
     throw new Error(

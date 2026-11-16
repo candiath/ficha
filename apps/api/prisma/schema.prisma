@@ -90,27 +90,27 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  users                 User[]
-  patients              Patient[]
-  encounters            Encounter[]
-  initialEvaluations    InitialEvaluation[]
-  sessionPackages       SessionPackage[]
-  payments              Payment[]
-  informedConsents      InformedConsent[]
-  auditLogs             AuditLog[]
-  clinicalAlerts        ClinicalAlert[]
-  clinicalEpisodes      ClinicalEpisode[]
-  encounterBlocks       EncounterBlock[]
-  encounterRevisions    EncounterRevision[]
-  patientRevisions      PatientRevision[]
-  episodeRevisions      EpisodeRevision[]
-  evaluationRevisions   EvaluationRevision[]
-  consentRevisions      ConsentRevision[]
-  patientEventRevisions PatientEventRevision[]
-  patientEvents         PatientEvent[]
-  loginEvents           LoginEvent[]
-  appointments          Appointment[]
-  platformAuditLogs     PlatformAuditLog[]
+  users                      User[]
+  patients                   Patient[]
+  encounters                 Encounter[]
+  initialEvaluations         InitialEvaluation[]
+  sessionPackages            SessionPackage[]
+  payments                   Payment[]
+  informedConsents           InformedConsent[]
+  auditLogs                  AuditLog[]
+  clinicalAlerts             ClinicalAlert[]
+  clinicalEpisodes           ClinicalEpisode[]
+  encounterBlocks            EncounterBlock[]
+  encounterRevisions         EncounterRevision[]
+  patientRevisions           PatientRevision[]
+  episodeRevisions           EpisodeRevision[]
+  evaluationRevisions        EvaluationRevision[]
+  consentRevisions           ConsentRevision[]
+  patientAntecedentRevisions PatientAntecedentRevision[]
+  patientAntecedents         PatientAntecedent[]
+  loginEvents                LoginEvent[]
+  appointments               Appointment[]
+  platformAuditLogs          PlatformAuditLog[]
 
   @@map("tenants")
 }
@@ -524,7 +524,7 @@ model Patient {
   clinicalAlerts     ClinicalAlert[]
   clinicalEpisodes   ClinicalEpisode[]
   appointments       Appointment[]
-  events             PatientEvent[]
+  antecedents        PatientAntecedent[]
   revisions          PatientRevision[]
 
   // Audit rows reference (tenant_id, id), so they cannot name another
@@ -571,7 +571,7 @@ model ClinicalEpisode {
   @@map("clinical_episodes")
 }
 
-enum PatientEventKind {
+enum PatientAntecedentKind {
   FRACTURE
   SURGERY
   TRAUMA
@@ -595,34 +595,34 @@ enum DatePrecision {
 // "approximate" mark. "Hace dos meses" is stored as the month it meant, so it
 // never ages. No date at all when the patient does not know; CHECKs in the
 // migration keep the three columns consistent.
-model PatientEvent {
-  id                  String           @id @default(uuid(7)) @db.Uuid
-  tenantId            String           @map("tenant_id") @db.Uuid
-  patientId           String           @map("patient_id") @db.Uuid
-  kind                PatientEventKind
+model PatientAntecedent {
+  id                  String                @id @default(uuid(7)) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  patientId           String                @map("patient_id") @db.Uuid
+  kind                PatientAntecedentKind
   description         String
-  occurredOn          DateTime?        @map("occurred_on") @db.Date
-  occurredPrecision   DatePrecision?   @map("occurred_precision")
-  occurredApproximate Boolean          @default(false) @map("occurred_approximate")
-  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  occurredOn          DateTime?             @map("occurred_on") @db.Date
+  occurredPrecision   DatePrecision?        @map("occurred_precision")
+  occurredApproximate Boolean               @default(false) @map("occurred_approximate")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
   // The date it was annulled (null = in force). An entry made by mistake is
   // annulled, never deleted, and there is no restore route: the row stays with
   // its history, the record shows it struck through with no clinical content,
   // and every other reader leaves it out (see "Annulling encounters and patient
-  // events" in CLAUDE.md).
-  deletedAt           DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  // antecedents" in CLAUDE.md).
+  deletedAt           DateTime?             @map("deleted_at") @db.Timestamptz(3)
 
-  tenant    Tenant                 @relation(fields: [tenantId], references: [id])
-  patient   Patient                @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  revisions PatientEventRevision[]
+  tenant    Tenant                      @relation(fields: [tenantId], references: [id])
+  patient   Patient                     @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  revisions PatientAntecedentRevision[]
 
   // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
-  // §2): a version cannot name another clinic's or another patient's event.
+  // §2): a version cannot name another clinic's or another patient's antecedent.
   @@unique([tenantId, patientId, id])
   @@index([tenantId])
   @@index([patientId])
-  @@map("patient_events")
+  @@map("patient_antecedents")
 }
 
 model InitialEvaluation {
@@ -634,7 +634,7 @@ model InitialEvaluation {
   episodeId        String   @unique @map("episode_id") @db.Uuid
   // The patient's account: what happened, how it started ("Relato del paciente").
   patientNarrative String?  @map("patient_narrative")
-  // What the patient's history list (PatientEvent) does not hold: something
+  // What the patient's history list (PatientAntecedent) does not hold: something
   // exceptional ("Otros antecedentes").
   otherHistory     String?  @map("other_history")
   notes            String?
@@ -870,29 +870,29 @@ model ConsentRevision {
   @@map("consent_revisions")
 }
 
-// One version of a patient event, as of the write that made it: the same shape and
+// One version of a patient antecedent, as of the write that made it: the same shape and
 // guarantees as EncounterRevision (append-only, pinned by audit-guards.sql).
-model PatientEventRevision {
-  id             String  @id @default(uuid(7)) @db.Uuid
-  tenantId       String  @map("tenant_id") @db.Uuid
-  patientId      String  @map("patient_id") @db.Uuid
-  patientEventId String  @map("patient_event_id") @db.Uuid
-  version        Int
+model PatientAntecedentRevision {
+  id                  String  @id @default(uuid(7)) @db.Uuid
+  tenantId            String  @map("tenant_id") @db.Uuid
+  patientId           String  @map("patient_id") @db.Uuid
+  patientAntecedentId String  @map("patient_antecedent_id") @db.Uuid
+  version             Int
   // Not unique: one action can own several revisions (a discharge).
-  auditLogId     String  @map("audit_log_id") @db.Uuid
-  snapshot       Json
-  schemaVersion  Int     @map("schema_version")
+  auditLogId          String  @map("audit_log_id") @db.Uuid
+  snapshot            Json
+  schemaVersion       Int     @map("schema_version")
   // Clinical content: never in an audit row, a log or a global list.
-  reasonNote     String? @map("reason_note")
+  reasonNote          String? @map("reason_note")
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  patientEvent PatientEvent @relation(fields: [tenantId, patientId, patientEventId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
-  auditLog     AuditLog     @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  patientAntecedent PatientAntecedent @relation(fields: [tenantId, patientId, patientAntecedentId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  auditLog          AuditLog          @relation(fields: [tenantId, patientId, auditLogId], references: [tenantId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
 
-  @@unique([patientEventId, version])
+  @@unique([patientAntecedentId, version])
   @@index([tenantId])
   @@index([auditLogId])
-  @@map("patient_event_revisions")
+  @@map("patient_antecedent_revisions")
 }
 
 enum PaymentStatus {
@@ -1024,8 +1024,8 @@ enum AuditAction {
   PAYMENT_UPDATED
   CONSENT_SIGNED
   CONSENT_REVOKED
-  PATIENT_EVENT_RECORDED
-  PATIENT_EVENT_UPDATED
+  PATIENT_ANTECEDENT_RECORDED
+  PATIENT_ANTECEDENT_UPDATED
   EPISODE_OPENED
   EPISODE_CLOSED
   EPISODE_REOPENED
@@ -1036,7 +1036,7 @@ enum AuditAction {
   PACKAGE_CREATED
   PACKAGE_DELETED
   ENCOUNTER_ANNULLED
-  PATIENT_EVENT_ANNULLED
+  PATIENT_ANTECEDENT_ANNULLED
 }
 
 enum AuditEntity {
@@ -1045,7 +1045,7 @@ enum AuditEntity {
   ENCOUNTER
   PAYMENT
   CONSENT
-  PATIENT_EVENT
+  PATIENT_ANTECEDENT
   EPISODE
   APPOINTMENT
   PACKAGE
@@ -1091,12 +1091,12 @@ model AuditLog {
   patient Patient @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   user    User?   @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
-  encounterRevisions    EncounterRevision[]
-  patientRevisions      PatientRevision[]
-  episodeRevisions      EpisodeRevision[]
-  evaluationRevisions   EvaluationRevision[]
-  consentRevisions      ConsentRevision[]
-  patientEventRevisions PatientEventRevision[]
+  encounterRevisions         EncounterRevision[]
+  patientRevisions           PatientRevision[]
+  episodeRevisions           EpisodeRevision[]
+  evaluationRevisions        EvaluationRevision[]
+  consentRevisions           ConsentRevision[]
+  patientAntecedentRevisions PatientAntecedentRevision[]
 
   // For the composite keys of the clinical revisions (SPEC-clinical-revisions.md
   // §2): a version can only name an audit row of its own clinic and patient.

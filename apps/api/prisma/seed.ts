@@ -1,4 +1,4 @@
-import { type DatePrecision, type PatientEventKind, Prisma, PrismaClient } from '@prisma/client';
+import { type DatePrecision, type PatientAntecedentKind, Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
@@ -79,14 +79,14 @@ async function seedBlock(
 }
 
 // An entry of a patient's history (#238), with its partial date.
-async function seedEvent(
+async function seedAntecedent(
   id: string,
   owner: { tenantId: string; patientId: string },
-  kind: PatientEventKind,
+  kind: PatientAntecedentKind,
   description: string,
   occurred: { date: string; precision: DatePrecision; approximate?: boolean } | null,
 ): Promise<void> {
-  await prisma.patientEvent.upsert({
+  await prisma.patientAntecedent.upsert({
     where: { id },
     update: {},
     create: {
@@ -272,20 +272,20 @@ async function main() {
   // Each kind of date: a year, a month (approximate, as "hace unos meses"
   // becomes), a day, and none.
   const mariaOwner = { tenantId: tenant.id, patientId: patient.id };
-  await seedEvent(devId('dev-event-001'), mariaOwner, 'FRACTURE', 'Fractura de muñeca izquierda, tratada con yeso', {
+  await seedAntecedent(devId('dev-antecedent-001'), mariaOwner, 'FRACTURE', 'Fractura de muñeca izquierda, tratada con yeso', {
     date: '2019-01-01',
     precision: 'YEAR',
   });
-  await seedEvent(devId('dev-event-002'), mariaOwner, 'PAIN_ONSET', 'Dolor lumbar al estar sentada', {
+  await seedAntecedent(devId('dev-antecedent-002'), mariaOwner, 'PAIN_ONSET', 'Dolor lumbar al estar sentada', {
     date: '2025-11-01',
     precision: 'MONTH',
     approximate: true,
   });
-  await seedEvent(devId('dev-event-003'), mariaOwner, 'TRAUMA', 'Torcedura de tobillo derecho bajando una escalera', {
+  await seedAntecedent(devId('dev-antecedent-003'), mariaOwner, 'TRAUMA', 'Torcedura de tobillo derecho bajando una escalera', {
     date: '2026-02-20',
     precision: 'DAY',
   });
-  await seedEvent(devId('dev-event-004'), mariaOwner, 'SURGERY', 'Cesárea', null);
+  await seedAntecedent(devId('dev-antecedent-004'), mariaOwner, 'SURGERY', 'Cesárea', null);
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
   // The shoulder and its discharge, the year before; then the back alone,
@@ -516,16 +516,16 @@ async function main() {
 
   // ── Antecedentes ─────────────────────────────────────────────────────────
   const javierOwner = { tenantId: tenant.id, patientId: p2.id };
-  await seedEvent(devId('dev-event-101'), javierOwner, 'DIAGNOSIS', 'Hernia discal C5-C6 leve, confirmada por RMN', {
+  await seedAntecedent(devId('dev-antecedent-101'), javierOwner, 'DIAGNOSIS', 'Hernia discal C5-C6 leve, confirmada por RMN', {
     date: '2024-02-01',
     precision: 'MONTH',
   });
-  await seedEvent(devId('dev-event-102'), javierOwner, 'PAIN_ONSET', 'Cervicalgia con cefaleas tensionales', {
+  await seedAntecedent(devId('dev-antecedent-102'), javierOwner, 'PAIN_ONSET', 'Cervicalgia con cefaleas tensionales', {
     date: '2025-06-01',
     precision: 'MONTH',
     approximate: true,
   });
-  await seedEvent(devId('dev-event-103'), javierOwner, 'SURGERY', 'Apendicectomía', {
+  await seedAntecedent(devId('dev-antecedent-103'), javierOwner, 'SURGERY', 'Apendicectomía', {
     date: '2010-01-01',
     precision: 'YEAR',
     approximate: true,

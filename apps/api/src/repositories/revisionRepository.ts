@@ -16,7 +16,7 @@ export type RevisionTarget =
   | { aggregate: 'episode'; episodeId: string }
   | { aggregate: 'evaluation'; episodeId: string }
   | { aggregate: 'consent' }
-  | { aggregate: 'patientEvent'; eventId: string };
+  | { aggregate: 'patientAntecedent'; antecedentId: string };
 
 export type RevisionAggregate = RevisionTarget['aggregate'];
 
@@ -53,7 +53,7 @@ export interface RevisionDTO extends RevisionSummaryDTO {
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 // Both read only aggregates of a patient of the clinic that exists and is not
-// deleted. A soft-deleted encounter or event keeps its history readable: its
+// deleted. A soft-deleted encounter or antecedent keeps its history readable: its
 // deletion is one of its versions.
 export interface RevisionRepository {
   // Newest first. null: no such aggregate under this patient (or the patient is

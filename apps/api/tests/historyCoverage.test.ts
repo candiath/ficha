@@ -12,11 +12,11 @@ import { HISTORY_COVERAGE } from './historyCoverageManifest';
 const REPOSITORIES = path.join(__dirname, '..', 'src', 'repositories', 'prisma');
 
 const VERB = '(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)';
-const DELEGATES = '(?:encounter|encounterBlock|patient|clinicalEpisode|initialEvaluation|informedConsent|patientEvent)';
-const RELATIONS = '(?:encounters?|episodes|patients?|clinicalEpisodes?|initialEvaluations?|informedConsent|events)';
-const TABLES = '(?:encounters|encounter_blocks|patients|clinical_episodes|initial_evaluations|informed_consents|patient_events)';
+const DELEGATES = '(?:encounter|encounterBlock|patient|clinicalEpisode|initialEvaluation|informedConsent|patientAntecedent)';
+const RELATIONS = '(?:encounters?|episodes|patients?|clinicalEpisodes?|initialEvaluations?|informedConsent|antecedents)';
+const TABLES = '(?:encounters|encounter_blocks|patients|clinical_episodes|initial_evaluations|informed_consents|patient_antecedents)';
 const WRITES = [
-  // A delegate call: tx.encounter.update(…), db.patientEvent.updateMany(…).
+  // A delegate call: tx.encounter.update(…), db.patientAntecedent.updateMany(…).
   new RegExp(String.raw`\.${DELEGATES}\s*\.\s*${VERB}\b`),
   // A nested write through a relation: encounters: { update: … }, episodes: { create: … }.
   new RegExp(String.raw`\b${RELATIONS}:\s*\{\s*${VERB}\b`),
@@ -80,8 +80,8 @@ describe('history coverage', () => {
   async raw(ctx) {
     await tx.$executeRaw\`UPDATE encounters SET observations = null\`;
   },
-  async event(ctx) {
-    await db.patientEvent.updateMany({ where, data });
+  async antecedent(ctx) {
+    await db.patientAntecedent.updateMany({ where, data });
   },
   async rawConsent(ctx) {
     await tx.$executeRaw\`DELETE FROM informed_consents WHERE true\`;
@@ -91,7 +91,7 @@ describe('history coverage', () => {
       'repo.sneak',
       'repo.nested',
       'repo.raw',
-      'repo.event',
+      'repo.antecedent',
       'repo.rawConsent',
     ]);
   });

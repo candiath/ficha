@@ -1,6 +1,6 @@
 import type { PaymentMethod } from '@/types/payment';
 import type { UserRole } from '@ficha/shared';
-import type { PatientEventKind } from '@/types/patientEvent';
+import type { PatientAntecedentKind } from '@/types/patientAntecedent';
 
 export const SEX_LABELS: Record<string, string> = {
   MALE: 'Masculino',
@@ -27,7 +27,7 @@ export const EPISODE_STATUS_CLASS: Record<string, string> = {
 };
 
 // An entry of the patient's history (#238).
-export const PATIENT_EVENT_KIND_LABELS: Record<PatientEventKind, string> = {
+export const PATIENT_ANTECEDENT_KIND_LABELS: Record<PatientAntecedentKind, string> = {
   FRACTURE: 'Fractura',
   SURGERY: 'Cirugía',
   TRAUMA: 'Traumatismo',

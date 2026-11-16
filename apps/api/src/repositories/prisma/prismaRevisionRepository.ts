@@ -55,9 +55,9 @@ async function aggregateExists(db: Db, patientId: string, target: RevisionTarget
       );
     case 'consent':
       return (await db.informedConsent.findFirst({ where: { patientId, patient: livePatient }, select })) !== null;
-    case 'patientEvent':
+    case 'patientAntecedent':
       return (
-        (await db.patientEvent.findFirst({ where: { id: target.eventId, patientId, patient: livePatient }, select })) !==
+        (await db.patientAntecedent.findFirst({ where: { id: target.antecedentId, patientId, patient: livePatient }, select })) !==
         null
       );
   }
@@ -84,8 +84,8 @@ function revisions(db: Db, patientId: string, target: RevisionTarget): { delegat
       return of(db.evaluationRevision, { evaluation: { episodeId: target.episodeId } });
     case 'consent':
       return of(db.consentRevision, {});
-    case 'patientEvent':
-      return of(db.patientEventRevision, { patientEventId: target.eventId });
+    case 'patientAntecedent':
+      return of(db.patientAntecedentRevision, { patientAntecedentId: target.antecedentId });
   }
 }
 

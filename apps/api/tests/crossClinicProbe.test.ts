@@ -36,12 +36,12 @@ const VALID_BODY: Record<string, object> = {
     observations: 'Sonda',
   },
   'POST /api/patients/:patientId/encounters/:encounterId/annul': { reason: 'DATA_ENTRY_ERROR' },
-  'PATCH /api/patients/:patientId/events/:eventId': {
+  'PATCH /api/patients/:patientId/antecedents/:antecedentId': {
     expectedVersion: 1,
     reason: 'DATA_ENTRY_ERROR',
     description: 'Sonda',
   },
-  'POST /api/patients/:patientId/events/:eventId/annul': { reason: 'DATA_ENTRY_ERROR' },
+  'POST /api/patients/:patientId/antecedents/:antecedentId/annul': { reason: 'DATA_ENTRY_ERROR' },
 };
 
 // Routes that answer another clinic's id with an empty 200 instead of a 404,

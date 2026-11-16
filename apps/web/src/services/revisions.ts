@@ -11,7 +11,7 @@ export const revisionPaths = {
   evaluation: (patientId: string, episodeId: string) =>
     `/api/patients/${patientId}/episodes/${episodeId}/evaluation/revisions`,
   consent: (patientId: string) => `/api/patients/${patientId}/consent/revisions`,
-  patientEvent: (patientId: string, eventId: string) => `/api/patients/${patientId}/events/${eventId}/revisions`,
+  patientAntecedent: (patientId: string, antecedentId: string) => `/api/patients/${patientId}/antecedents/${antecedentId}/revisions`,
 };
 
 export const revisionKeys = {

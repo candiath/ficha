@@ -13,7 +13,7 @@
 -- sysadmin_alert_deliveries. The clinical revisions tables get the same checks
 -- (docs/specs/SPEC-clinical-revisions.md §6): encounter_revisions, patient_revisions,
 -- episode_revisions, evaluation_revisions, consent_revisions and
--- patient_event_revisions.
+-- patient_antecedent_revisions.
 DO $guards$
 DECLARE
   -- The audit tables, resolved without erroring: a missing one is reported
@@ -28,7 +28,7 @@ DECLARE
   episode_revs regclass := to_regclass('public.episode_revisions');
   evaluation_revs regclass := to_regclass('public.evaluation_revisions');
   consent_revs regclass := to_regclass('public.consent_revisions');
-  event_revs regclass := to_regclass('public.patient_event_revisions');
+  antecedent_revs regclass := to_regclass('public.patient_antecedent_revisions');
 
   problems text[] := '{}';
   tbl regclass;
@@ -45,10 +45,10 @@ BEGIN
   IF episode_revs IS NULL THEN problems := problems || 'table episode_revisions is missing'::text; END IF;
   IF evaluation_revs IS NULL THEN problems := problems || 'table evaluation_revisions is missing'::text; END IF;
   IF consent_revs IS NULL THEN problems := problems || 'table consent_revisions is missing'::text; END IF;
-  IF event_revs IS NULL THEN problems := problems || 'table patient_event_revisions is missing'::text; END IF;
+  IF antecedent_revs IS NULL THEN problems := problems || 'table patient_antecedent_revisions is missing'::text; END IF;
 
   -- Triggers: exactly these, enabled. Each one is described by its name,
-  -- timing/events/level (tgtype), the function it calls, its WHEN condition
+  -- timing/antecedents/level (tgtype), the function it calls, its WHEN condition
   -- (hashed: pg_get_expr cannot print one that reads both NEW and OLD),
   -- its UPDATE OF columns, its arguments and whether it is a constraint
   -- trigger. Internal triggers (foreign keys) are checked below as constraints.
@@ -85,9 +85,9 @@ BEGIN
     (consent_revs,
      'consent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'consent_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
-    (event_revs,
-     'patient_event_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'patient_event_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
+    (antecedent_revs,
+     'patient_antecedent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'patient_antecedent_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
   LOOP
     -- A missing table is already reported above.
     CONTINUE WHEN tbl IS NULL;
@@ -164,9 +164,9 @@ BEGIN
       (consent_revs, 'consent_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
       (consent_revs, 'consent_revisions_tenant_id_patient_id_consent_id_fkey', 'tenant_id,patient_id,consent_id', 'public.informed_consents'::regclass, 'tenant_id,patient_id,id'),
       (consent_revs, 'consent_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
-      (event_revs, 'patient_event_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
-      (event_revs, 'patient_event_revisions_tenant_id_patient_id_patient_event_fkey', 'tenant_id,patient_id,patient_event_id', 'public.patient_events'::regclass, 'tenant_id,patient_id,id'),
-      (event_revs, 'patient_event_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
+      (antecedent_revs, 'patient_antecedent_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (antecedent_revs, 'patient_antecedent_revisions_tenant_id_patient_id_patient__fkey', 'tenant_id,patient_id,patient_antecedent_id', 'public.patient_antecedents'::regclass, 'tenant_id,patient_id,id'),
+      (antecedent_revs, 'patient_antecedent_revisions_tenant_id_patient_id_audit_lo_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
     ) AS fk(tbl, name, cols, target, target_cols)
   LOOP
     CONTINUE WHEN r.tbl IS NULL OR r.target IS NULL;
@@ -211,7 +211,7 @@ BEGIN
       (episode_revs, 'episode_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (evaluation_revs, 'evaluation_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (consent_revs, 'consent_revisions_version_positive', $$CHECK ((version >= 1))$$),
-      (event_revs, 'patient_event_revisions_version_positive', $$CHECK ((version >= 1))$$)
+      (antecedent_revs, 'patient_antecedent_revisions_version_positive', $$CHECK ((version >= 1))$$)
     ) AS c(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -268,13 +268,13 @@ BEGIN
       (consent_revs, 'audit_log_id'),
       (consent_revs, 'snapshot'),
       (consent_revs, 'schema_version'),
-      (event_revs, 'tenant_id'),
-      (event_revs, 'patient_id'),
-      (event_revs, 'patient_event_id'),
-      (event_revs, 'version'),
-      (event_revs, 'audit_log_id'),
-      (event_revs, 'snapshot'),
-      (event_revs, 'schema_version')
+      (antecedent_revs, 'tenant_id'),
+      (antecedent_revs, 'patient_id'),
+      (antecedent_revs, 'patient_antecedent_id'),
+      (antecedent_revs, 'version'),
+      (antecedent_revs, 'audit_log_id'),
+      (antecedent_revs, 'snapshot'),
+      (antecedent_revs, 'schema_version')
     ) AS c(tbl, col)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -322,8 +322,8 @@ BEGIN
        'CREATE UNIQUE INDEX evaluation_revisions_evaluation_id_version_key ON public.evaluation_revisions USING btree (evaluation_id, version)'),
       (consent_revs, 'consent_revisions_consent_id_version_key',
        'CREATE UNIQUE INDEX consent_revisions_consent_id_version_key ON public.consent_revisions USING btree (consent_id, version)'),
-      (event_revs, 'patient_event_revisions_patient_event_id_version_key',
-       'CREATE UNIQUE INDEX patient_event_revisions_patient_event_id_version_key ON public.patient_event_revisions USING btree (patient_event_id, version)')
+      (antecedent_revs, 'patient_antecedent_revisions_patient_antecedent_id_version_key',
+       'CREATE UNIQUE INDEX patient_antecedent_revisions_patient_antecedent_id_version_key ON public.patient_antecedent_revisions USING btree (patient_antecedent_id, version)')
     ) AS i(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;

@@ -54,7 +54,7 @@ const ENTITY_CONFIG: Record<
       'bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
     label: 'Consentimiento',
   },
-  PATIENT_EVENT: {
+  PATIENT_ANTECEDENT: {
     icon: History,
     color:
       'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300',

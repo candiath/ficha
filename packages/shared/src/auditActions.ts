@@ -34,7 +34,7 @@ export const AUDIT_PAYMENT_STATUSES = {
 } as const;
 
 // What kind of thing the patient lived: an entry of her history (#238).
-export const AUDIT_PATIENT_EVENT_KINDS = {
+export const AUDIT_PATIENT_ANTECEDENT_KINDS = {
   FRACTURE: 'fractura',
   SURGERY: 'cirugía',
   TRAUMA: 'traumatismo',
@@ -128,7 +128,7 @@ export const AUDIT_ENCOUNTER_FIELDS = {
   observations: 'la nota',
 } as const;
 
-export const AUDIT_PATIENT_EVENT_FIELDS = {
+export const AUDIT_PATIENT_ANTECEDENT_FIELDS = {
   kind: 'el tipo',
   description: 'la descripción',
   occurred: 'la fecha',
@@ -198,7 +198,7 @@ export type AuditEntity =
   | 'ENCOUNTER'
   | 'PAYMENT'
   | 'CONSENT'
-  | 'PATIENT_EVENT'
+  | 'PATIENT_ANTECEDENT'
   | 'EPISODE'
   | 'APPOINTMENT'
   | 'PACKAGE';
@@ -406,32 +406,32 @@ export const AUDIT_ACTIONS = {
       label: 'Consentimiento revocado',
       describe: () => 'Registró la revocación del consentimiento informado',
     }),
-    PATIENT_EVENT_RECORDED: action({
-      entity: 'PATIENT_EVENT',
+    PATIENT_ANTECEDENT_RECORDED: action({
+      entity: 'PATIENT_ANTECEDENT',
       kind: 'create',
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
+      params: { kind: code(AUDIT_PATIENT_ANTECEDENT_KINDS) },
       label: 'Antecedente registrado',
       describe: (p) =>
-        p.kind ? `Registró un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Registró un antecedente',
+        p.kind ? `Registró un antecedente (${AUDIT_PATIENT_ANTECEDENT_KINDS[p.kind]})` : 'Registró un antecedente',
     }),
-    PATIENT_EVENT_UPDATED: action({
-      entity: 'PATIENT_EVENT',
+    PATIENT_ANTECEDENT_UPDATED: action({
+      entity: 'PATIENT_ANTECEDENT',
       kind: 'update',
       // The kind after the update, as ENCOUNTER_UPDATED keeps the type.
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), changedFields: fields(AUDIT_PATIENT_EVENT_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
+      params: { kind: code(AUDIT_PATIENT_ANTECEDENT_KINDS), changedFields: fields(AUDIT_PATIENT_ANTECEDENT_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Antecedente actualizado',
       describe: (p) => {
-        const changed = joinFields(p.changedFields, AUDIT_PATIENT_EVENT_FIELDS);
+        const changed = joinFields(p.changedFields, AUDIT_PATIENT_ANTECEDENT_FIELDS);
         return changed ? `Actualizó ${changed} de un antecedente` : 'Actualizó un antecedente';
       },
     }),
-    PATIENT_EVENT_ANNULLED: action({
-      entity: 'PATIENT_EVENT',
+    PATIENT_ANTECEDENT_ANNULLED: action({
+      entity: 'PATIENT_ANTECEDENT',
       kind: 'delete',
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), reason: code(AUDIT_REVISION_REASONS) },
+      params: { kind: code(AUDIT_PATIENT_ANTECEDENT_KINDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Antecedente anulado',
       describe: (p) =>
-        p.kind ? `Anuló un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Anuló un antecedente',
+        p.kind ? `Anuló un antecedente (${AUDIT_PATIENT_ANTECEDENT_KINDS[p.kind]})` : 'Anuló un antecedente',
     }),
     // An episode's status changes are facts with actions of their own, and take
     // no reason; EPISODE_UPDATED is only a correction of its data. One request

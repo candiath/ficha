@@ -459,7 +459,7 @@ describe('audit-guards.sql', () => {
       'episode_revisions',
       'evaluation_revisions',
       'consent_revisions',
-      'patient_event_revisions',
+      'patient_antecedent_revisions',
     ];
     const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),

@@ -1,14 +1,14 @@
-import type { DatePrecision, DocumentType, EpisodeStatus, PatientEventKind, Sex } from '@prisma/client';
+import type { DatePrecision, DocumentType, EpisodeStatus, PatientAntecedentKind, Sex } from '@prisma/client';
 import type {
   ConsentSnapshotV1,
   EpisodeSnapshotV1,
   EvaluationSnapshotV1,
-  PatientEventSnapshotV1,
+  PatientAntecedentSnapshotV1,
   PatientSnapshotV2,
 } from '@ficha/shared';
 
 // The canonical projections of the patient, the episode, the initial
-// evaluation, the informed consent and the patient event
+// evaluation, the informed consent and the patient antecedent
 // (SPEC-clinical-revisions.md §3): the one mapping from each row to its
 // snapshot, used to write a version and to decide whether a write changed
 // anything. The encounter's is in encounterSnapshot.ts.
@@ -92,13 +92,13 @@ export function consentSnapshot(c: { signedAt: Date; revokedAt: Date | null }): 
   return { signedAt: iso(c.signedAt), revokedAt: isoOrNull(c.revokedAt) };
 }
 
-export function patientEventSnapshot(e: {
-  kind: PatientEventKind;
+export function patientAntecedentSnapshot(e: {
+  kind: PatientAntecedentKind;
   description: string;
   occurredOn: Date | null;
   occurredPrecision: DatePrecision | null;
   occurredApproximate: boolean;
-}): PatientEventSnapshotV1 {
+}): PatientAntecedentSnapshotV1 {
   return {
     kind: e.kind,
     description: e.description,

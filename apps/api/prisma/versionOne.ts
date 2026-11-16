@@ -4,7 +4,7 @@ import type {
   InformedConsent,
   InitialEvaluation,
   Patient,
-  PatientEvent,
+  PatientAntecedent,
   Prisma,
   PrismaClient,
 } from '@prisma/client';
@@ -14,7 +14,7 @@ import {
   CONSENT_SNAPSHOT_VERSION,
   EPISODE_SNAPSHOT_VERSION,
   EVALUATION_SNAPSHOT_VERSION,
-  PATIENT_EVENT_SNAPSHOT_VERSION,
+  PATIENT_ANTECEDENT_SNAPSHOT_VERSION,
   PATIENT_SNAPSHOT_VERSION,
   ENCOUNTER_SNAPSHOT_VERSION,
 } from '@ficha/shared';
@@ -22,7 +22,7 @@ import {
   consentSnapshot,
   episodeSnapshot,
   evaluationSnapshot,
-  patientEventSnapshot,
+  patientAntecedentSnapshot,
   patientSnapshot,
 } from '../src/repositories/prisma/clinicalSnapshots';
 import { encounterSnapshot } from '../src/repositories/prisma/encounterSnapshot';
@@ -120,12 +120,12 @@ export async function consentVersionOne(tx: Tx, row: InformedConsent): Promise<v
   });
 }
 
-export async function patientEventVersionOne(tx: Tx, row: PatientEvent): Promise<void> {
-  const auditLogId = await creationRow(tx, row, 'PATIENT_EVENT_RECORDED', { kind: row.kind });
-  await tx.patientEventRevision.create({
+export async function patientAntecedentVersionOne(tx: Tx, row: PatientAntecedent): Promise<void> {
+  const auditLogId = await creationRow(tx, row, 'PATIENT_ANTECEDENT_RECORDED', { kind: row.kind });
+  await tx.patientAntecedentRevision.create({
     data: {
-      ...revisionFields(row, auditLogId, PATIENT_EVENT_SNAPSHOT_VERSION, patientEventSnapshot(row)),
-      patientEventId: row.id,
+      ...revisionFields(row, auditLogId, PATIENT_ANTECEDENT_SNAPSHOT_VERSION, patientAntecedentSnapshot(row)),
+      patientAntecedentId: row.id,
     },
   });
 }
@@ -180,8 +180,8 @@ export async function versionUnversioned(prisma: PrismaClient, tenantId: string)
       async (tx, id) => consentVersionOne(tx, await tx.informedConsent.findUniqueOrThrow({ where: { id } })),
     ],
     [
-      await prisma.patientEvent.findMany({ where: unversioned, ...pick }),
-      async (tx, id) => patientEventVersionOne(tx, await tx.patientEvent.findUniqueOrThrow({ where: { id } })),
+      await prisma.patientAntecedent.findMany({ where: unversioned, ...pick }),
+      async (tx, id) => patientAntecedentVersionOne(tx, await tx.patientAntecedent.findUniqueOrThrow({ where: { id } })),
     ],
     [
       await prisma.encounter.findMany({ where: unversioned, ...pick }),

@@ -313,7 +313,7 @@ export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
     await tx.episodeRevision.deleteMany(clinics);
     await tx.evaluationRevision.deleteMany(clinics);
     await tx.consentRevision.deleteMany(clinics);
-    await tx.patientEventRevision.deleteMany(clinics);
+    await tx.patientAntecedentRevision.deleteMany(clinics);
     await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await tx.platformAuditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
   });
@@ -336,8 +336,8 @@ export async function deleteRevisions(table: RevisionTable, aggregateIds: string
         return tx.evaluationRevision.deleteMany({ where: { evaluationId: ids } });
       case 'consent_revisions':
         return tx.consentRevision.deleteMany({ where: { consentId: ids } });
-      case 'patient_event_revisions':
-        return tx.patientEventRevision.deleteMany({ where: { patientEventId: ids } });
+      case 'patient_antecedent_revisions':
+        return tx.patientAntecedentRevision.deleteMany({ where: { patientAntecedentId: ids } });
     }
   });
 }

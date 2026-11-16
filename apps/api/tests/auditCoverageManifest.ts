@@ -59,10 +59,10 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // Initial evaluation (routes/evaluations.ts)
   'PUT /api/patients/:patientId/episodes/:episodeId/evaluation': audited('audit_logs'),
 
-  // The patient's history (routes/patientEvents.ts, #238)
-  'POST /api/patients/:patientId/events': audited('audit_logs'),
-  'PATCH /api/patients/:patientId/events/:eventId': audited('audit_logs'),
-  'POST /api/patients/:patientId/events/:eventId/annul': audited('audit_logs'),
+  // The patient's history (routes/patientAntecedents.ts, #238)
+  'POST /api/patients/:patientId/antecedents': audited('audit_logs'),
+  'PATCH /api/patients/:patientId/antecedents/:antecedentId': audited('audit_logs'),
+  'POST /api/patients/:patientId/antecedents/:antecedentId/annul': audited('audit_logs'),
 
   // Packages (routes/packages.ts)
   'POST /api/packages': audited('audit_logs'),

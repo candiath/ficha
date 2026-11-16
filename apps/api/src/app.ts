@@ -26,7 +26,7 @@ import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
 import encountersRouter from './routes/encounters';
 import tenantRouter from './routes/tenant';
-import patientEventsRouter from './routes/patientEvents';
+import patientAntecedentsRouter from './routes/patientAntecedents';
 import usersRouter from './routes/users';
 
 // Arma la app de Express completa (middlewares, rutas, error handler) sin
@@ -148,7 +148,7 @@ app.use('/api/patients/:patientId/encounters', requireLivePatient, encountersRou
 // No requireLivePatient: a deleted patient's history stays readable.
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', requireLivePatient, consentRouter);
-app.use('/api/patients/:patientId/events', requireLivePatient, patientEventsRouter);
+app.use('/api/patients/:patientId/antecedents', requireLivePatient, patientAntecedentsRouter);
 app.use('/api/encounters', globalEncountersRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);

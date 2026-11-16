@@ -127,7 +127,7 @@ describe('every GET route is classified', () => {
 // patientId, or hanging from a clinical one, is classified here or below, so
 // a new one has to be placed.
 const CLINICAL_MODELS = [
-  'PatientEvent',
+  'PatientAntecedent',
   'ClinicalEpisode',
   'InitialEvaluation',
   'Encounter',
@@ -139,7 +139,7 @@ const CLINICAL_MODELS = [
   'EpisodeRevision',
   'EvaluationRevision',
   'ConsentRevision',
-  'PatientEventRevision',
+  'PatientAntecedentRevision',
 ] as const;
 
 const NOT_CLINICAL: Record<string, string> = {
@@ -314,10 +314,10 @@ describe('global lists carry no clinical text', () => {
     createdClinicalModels.add('InitialEvaluation');
 
     // The patient's history (#238): a dated fact, with clinical text.
-    await rows.patientEvent.create({
-      data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientEvent') as { description: string }) },
+    await rows.patientAntecedent.create({
+      data: { tenantId, patientId, kind: 'FRACTURE', ...(marked('PatientAntecedent') as { description: string }) },
     });
-    createdClinicalModels.add('PatientEvent');
+    createdClinicalModels.add('PatientAntecedent');
 
     // Old enough for the engine: the episode has had no encounter for 40 days,
     // and the encounter's payment is overdue.
@@ -335,7 +335,7 @@ describe('global lists carry no clinical text', () => {
     // Its snapshot holds the encounter's markers; reason_note gets its own below.
     createdClinicalModels.add('EncounterRevision');
     // The fixtures above wrote version 1 of each, with the markers of its row.
-    for (const model of ['PatientRevision', 'EpisodeRevision', 'EvaluationRevision', 'PatientEventRevision'] as const) {
+    for (const model of ['PatientRevision', 'EpisodeRevision', 'EvaluationRevision', 'PatientAntecedentRevision'] as const) {
       createdClinicalModels.add(model);
     }
 
@@ -360,7 +360,7 @@ describe('global lists carry no clinical text', () => {
       prisma.episodeRevision,
       prisma.evaluationRevision,
       prisma.consentRevision,
-      prisma.patientEventRevision,
+      prisma.patientAntecedentRevision,
     ]) {
       await second(delegate);
     }
@@ -420,7 +420,7 @@ describe('global lists carry no clinical text', () => {
     await prisma.initialEvaluation.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
-    await prisma.patientEvent.deleteMany({ where });
+    await prisma.patientAntecedent.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
   });

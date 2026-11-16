@@ -5,8 +5,8 @@ import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
-// The write path of a patient event's versions (SPEC-clinical-revisions.md §5).
-describe('patient event revisions', () => {
+// The write path of a patient antecedent's versions (SPEC-clinical-revisions.md §5).
+describe('patient antecedent revisions', () => {
   let clinic: TestClinic;
   let token: string;
   let patientId: string;
@@ -15,10 +15,10 @@ describe('patient event revisions', () => {
   const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
-  const url = (id = '') => `/api/patients/${patientId}/events${id && `/${id}`}`;
+  const url = (id = '') => `/api/patients/${patientId}/antecedents${id && `/${id}`}`;
   const patch = (id: string, body: object) => auth(request(app).patch(url(id))).send({ ...REASON, ...body });
 
-  const newEvent = async (): Promise<string> => {
+  const newAntecedent = async (): Promise<string> => {
     const res = await auth(request(app).post(url())).send({
       kind: 'SURGERY',
       description: 'Cirugía de rodilla',
@@ -28,8 +28,8 @@ describe('patient event revisions', () => {
     return res.body.data.id as string;
   };
 
-  const revisions = (patientEventId: string) =>
-    prisma.patientEventRevision.findMany({ where: { patientEventId }, orderBy: { version: 'asc' } });
+  const revisions = (patientAntecedentId: string) =>
+    prisma.patientAntecedentRevision.findMany({ where: { patientAntecedentId }, orderBy: { version: 'asc' } });
   const auditRows = (entityId: string) =>
     prisma.auditLog.findMany({ where: { entityId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
 
@@ -45,13 +45,13 @@ describe('patient event revisions', () => {
     await sleep(200);
     const where = { tenantId: clinic.tenantId };
     await deleteAuditRows([clinic.tenantId]);
-    await prisma.patientEvent.deleteMany({ where });
+    await prisma.patientAntecedent.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
   });
 
   it('writes version 1 on creation, and the next on a correction with its reason and note', async () => {
-    const id = await newEvent();
+    const id = await newAntecedent();
     const res = await patch(id, { description: 'Cirugía de rodilla derecha', reasonNote: 'Era la derecha', expectedVersion: 1 });
 
     expect(res.status).toBe(200);
@@ -59,8 +59,8 @@ describe('patient event revisions', () => {
     const [v1, v2] = await revisions(id);
     const rows = await auditRows(id);
     expect(rows.map((r) => [r.action, r.params])).toEqual([
-      ['PATIENT_EVENT_RECORDED', { kind: 'SURGERY' }],
-      ['PATIENT_EVENT_UPDATED', { kind: 'SURGERY', changedFields: ['description'], reason: 'DATA_ENTRY_ERROR' }],
+      ['PATIENT_ANTECEDENT_RECORDED', { kind: 'SURGERY' }],
+      ['PATIENT_ANTECEDENT_UPDATED', { kind: 'SURGERY', changedFields: ['description'], reason: 'DATA_ENTRY_ERROR' }],
     ]);
     expect(v1).toMatchObject({ version: 1, auditLogId: rows[0].id, reasonNote: null });
     expect(v1.snapshot).toEqual({
@@ -75,8 +75,8 @@ describe('patient event revisions', () => {
   });
 
   it('answers 200 to a save that changes nothing, and writes nothing', async () => {
-    const id = await newEvent();
-    const before = await prisma.patientEvent.findUniqueOrThrow({ where: { id } });
+    const id = await newAntecedent();
+    const before = await prisma.patientAntecedent.findUniqueOrThrow({ where: { id } });
 
     const res = await patch(id, {
       description: 'Cirugía de rodilla',
@@ -86,20 +86,20 @@ describe('patient event revisions', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.version).toBe(1);
-    expect((await prisma.patientEvent.findUniqueOrThrow({ where: { id } })).updatedAt).toEqual(before.updatedAt);
+    expect((await prisma.patientAntecedent.findUniqueOrThrow({ where: { id } })).updatedAt).toEqual(before.updatedAt);
     expect(await auditRows(id)).toHaveLength(1);
     expect(await revisions(id)).toHaveLength(1);
   });
 
   it('requires a reason to correct', async () => {
-    const id = await newEvent();
+    const id = await newAntecedent();
     const res = await auth(request(app).patch(url(id))).send({ description: 'Sin motivo' });
     expect(res.status).toBe(400);
     expect(await revisions(id)).toHaveLength(1);
   });
 
   it('answers 409 to a stale version, and writes nothing', async () => {
-    const id = await newEvent();
+    const id = await newAntecedent();
     await patch(id, { description: 'Primera corrección' });
 
     const res = await patch(id, { description: 'Segunda corrección', expectedVersion: 1 });
@@ -110,7 +110,7 @@ describe('patient event revisions', () => {
   });
 
   it('lets one of two concurrent edits of the same version through', async () => {
-    const id = await newEvent();
+    const id = await newAntecedent();
     const results = await Promise.all([
       patch(id, { description: 'Una versión', expectedVersion: 1 }),
       patch(id, { description: 'Otra versión', expectedVersion: 1 }),
@@ -120,8 +120,8 @@ describe('patient event revisions', () => {
     expect((await revisions(id)).map((r) => r.version)).toEqual([1, 2]);
   });
 
-  it('a concurrent edit and annulment take consecutive versions, or the edit finds no event', async () => {
-    const id = await newEvent();
+  it('a concurrent edit and annulment take consecutive versions, or the edit finds no antecedent', async () => {
+    const id = await newAntecedent();
     const [edit, removal] = await Promise.all([
       patch(id, { description: 'Editado a la vez' }),
       auth(request(app).post(`${url(id)}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' }),
@@ -133,14 +133,14 @@ describe('patient event revisions', () => {
     expect(versions).toEqual(edit.status === 200 ? [1, 2, 3] : [1, 2]);
   });
 
-  it('writes a version with the same content when the event is annulled, with its reason and note', async () => {
-    const id = await newEvent();
+  it('writes a version with the same content when the antecedent is annulled, with its reason and note', async () => {
+    const id = await newAntecedent();
     const res = await auth(request(app).post(`${url(id)}/annul`)).send({ reason: 'OTHER', reasonNote: 'Era de otra paciente' });
     expect(res.status).toBe(204);
 
     const [first, second] = await revisions(id);
     const [, audit] = await auditRows(id);
-    expect(audit).toMatchObject({ action: 'PATIENT_EVENT_ANNULLED', params: { kind: 'SURGERY', reason: 'OTHER' } });
+    expect(audit).toMatchObject({ action: 'PATIENT_ANTECEDENT_ANNULLED', params: { kind: 'SURGERY', reason: 'OTHER' } });
     expect(second).toMatchObject({ version: 2, auditLogId: audit.id, reasonNote: 'Era de otra paciente' });
     expect(second.snapshot).toEqual(first.snapshot);
   });

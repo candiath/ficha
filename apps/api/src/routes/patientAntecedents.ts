@@ -3,18 +3,18 @@ import { z } from 'zod';
 import { partialDateSchema, revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { requiredText } from '../lib/validation';
-import { patientEventRepo } from '../repositories';
+import { patientAntecedentRepo } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 import { revisionRoutes } from './revisions';
 
 type ParentParams = { patientId: string };
-type EventParams = { patientId: string; eventId: string };
+type AntecedentParams = { patientId: string; antecedentId: string };
 
-// Mounted at /api/patients/:patientId/events: the patient's history
-// ("Antecedentes", #238). The queries live in patientEventRepo; here, the
+// Mounted at /api/patients/:patientId/antecedents: the patient's history
+// ("Antecedentes", #238). The queries live in patientAntecedentRepo; here, the
 // HTTP: validate the body, require a current patient, record the audit.
 const router = Router({ mergeParams: true });
-router.param('eventId', idParam('Antecedente no encontrado'));
+router.param('antecedentId', idParam('Antecedente no encontrado'));
 
 const KINDS = ['FRACTURE', 'SURGERY', 'TRAUMA', 'DIAGNOSIS', 'PAIN_ONSET', 'OTHER'] as const;
 
@@ -25,7 +25,7 @@ const notInTheFuture = partialDateSchema.refine(
   { error: 'La fecha no puede ser futura', path: ['date'] },
 );
 
-const EventSchema = z.strictObject({
+const AntecedentSchema = z.strictObject({
   kind: z.enum(KINDS),
   description: requiredText(2, 'Describí el antecedente'),
   // null: she does not know when.
@@ -34,41 +34,41 @@ const EventSchema = z.strictObject({
 
 // An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
 // §4), and which version it was made over, so a stale form gets a 409.
-const EventUpdateSchema = EventSchema.partial().extend({
+const AntecedentUpdateSchema = AntecedentSchema.partial().extend({
   expectedVersion: ExpectedVersionSchema,
   ...revisionReasonFields,
 });
 
-// GET /api/patients/:patientId/events
+// GET /api/patients/:patientId/antecedents
 router.get<ParentParams>('/', async (req, res) => {
-  res.json({ data: await patientEventRepo.listByPatient(req.context, req.params.patientId) });
+  res.json({ data: await patientAntecedentRepo.listByPatient(req.context, req.params.patientId) });
 });
 
-// POST /api/patients/:patientId/events
+// POST /api/patients/:patientId/antecedents
 router.post<ParentParams>('/', async (req, res) => {
-  const input = EventSchema.parse(req.body);
+  const input = AntecedentSchema.parse(req.body);
 
-  const event = await patientEventRepo.create(req.context, req.params.patientId, input, (e) => ({
-    action: 'PATIENT_EVENT_RECORDED',
+  const antecedent = await patientAntecedentRepo.create(req.context, req.params.patientId, input, (e) => ({
+    action: 'PATIENT_ANTECEDENT_RECORDED',
     patientId: req.params.patientId,
     entityId: e.id,
     params: { kind: e.kind },
   }));
 
-  res.status(201).json({ data: event });
+  res.status(201).json({ data: antecedent });
 });
 
-// PATCH /api/patients/:patientId/events/:eventId
-router.patch<EventParams>('/:eventId', async (req, res) => {
-  const { reason, ...input } = EventUpdateSchema.parse(req.body);
+// PATCH /api/patients/:patientId/antecedents/:antecedentId
+router.patch<AntecedentParams>('/:antecedentId', async (req, res) => {
+  const { reason, ...input } = AntecedentUpdateSchema.parse(req.body);
 
-  const result = await patientEventRepo.update(
+  const result = await patientAntecedentRepo.update(
     req.context,
     req.params.patientId,
-    req.params.eventId,
+    req.params.antecedentId,
     input,
     (e, changedFields) => ({
-      action: 'PATIENT_EVENT_UPDATED',
+      action: 'PATIENT_ANTECEDENT_UPDATED',
       patientId: req.params.patientId,
       entityId: e.id,
       params: { kind: e.kind, changedFields, reason },
@@ -84,23 +84,23 @@ router.patch<EventParams>('/:eventId', async (req, res) => {
     res.status(409).json(STALE_EDIT);
     return;
   }
-  res.json({ data: result.event });
+  res.json({ data: result.antecedent });
 });
 
-// POST /api/patients/:patientId/events/:eventId/annul
-// An event entered by mistake is annulled, never deleted
+// POST /api/patients/:patientId/antecedents/:antecedentId/annul
+// An antecedent entered by mistake is annulled, never deleted
 // (SPEC-clinical-revisions.md §8): it stays in the history struck through. The
 // reason is required. There is no restore route yet.
-router.post<EventParams>('/:eventId/annul', async (req, res) => {
+router.post<AntecedentParams>('/:antecedentId/annul', async (req, res) => {
   const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
-  const result = await patientEventRepo.annul(
+  const result = await patientAntecedentRepo.annul(
     req.context,
     req.params.patientId,
-    req.params.eventId,
+    req.params.antecedentId,
     { reasonNote },
     (e) => ({
-      action: 'PATIENT_EVENT_ANNULLED',
+      action: 'PATIENT_ANTECEDENT_ANNULLED',
       patientId: req.params.patientId,
       entityId: e.id,
       params: { kind: e.kind, reason },
@@ -116,6 +116,6 @@ router.post<EventParams>('/:eventId/annul', async (req, res) => {
 });
 
 // Its history (SPEC-clinical-revisions.md §7).
-router.use('/:eventId/revisions', revisionRoutes((p) => ({ aggregate: 'patientEvent', eventId: p.eventId }), 'Antecedente no encontrado'));
+router.use('/:antecedentId/revisions', revisionRoutes((p) => ({ aggregate: 'patientAntecedent', antecedentId: p.antecedentId }), 'Antecedente no encontrado'));
 
 export default router;

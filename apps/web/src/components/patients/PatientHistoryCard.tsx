@@ -24,10 +24,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { todayInClinic } from '@/lib/agendaDates';
-import { PATIENT_EVENT_KIND_LABELS } from '@/lib/labels';
-import { patientEventApi, patientEventKeys } from '@/services/patientEvents';
+import { PATIENT_ANTECEDENT_KIND_LABELS } from '@/lib/labels';
+import { patientAntecedentApi, patientAntecedentKeys } from '@/services/patientAntecedents';
 import { tenantApi, tenantKeys } from '@/services/tenant';
-import { PATIENT_EVENT_KINDS, type PatientEvent, type PatientEventKind } from '@/types/patientEvent';
+import { PATIENT_ANTECEDENT_KINDS, type PatientAntecedent, type PatientAntecedentKind } from '@/types/patientAntecedent';
 import type { AnnulData } from '@/types/patient';
 import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField';
 import { useRevisionReason } from '@/hooks/useRevisionReason';
@@ -36,12 +36,12 @@ import { isStaleEdit } from '@/lib/staleEdit';
 import { ApiError } from '@/lib/api';
 import RevisionHistoryDialog from '@/components/patients/RevisionHistoryDialog';
 import AnnulDialog from '@/components/patients/AnnulDialog';
-import { renderPatientEventSnapshot } from '@/lib/revisionRows';
+import { renderPatientAntecedentSnapshot } from '@/lib/revisionRows';
 import { revisionPaths } from '@/services/revisions';
 
 // The patient's history ("Antecedentes", #238): what she lived, as dated facts.
 // It belongs to the patient, so the same list shows from every episode. An
-// event entered by mistake is annulled, not deleted: it stays, struck through,
+// antecedent entered by mistake is annulled, not deleted: it stays, struck through,
 // with its history (SPEC-clinical-revisions.md §8).
 
 function useClinicToday(): string {
@@ -56,20 +56,20 @@ function describeWhen(occurred: PartialDate | null, today: string): string {
 export function PatientHistoryCard({ patientId }: { patientId: string }) {
   const queryClient = useQueryClient();
   const today = useClinicToday();
-  const [editing, setEditing] = useState<PatientEvent | 'new' | null>(null);
-  const [annulling, setAnnulling] = useState<PatientEvent | null>(null);
-  const [historyOf, setHistoryOf] = useState<PatientEvent | null>(null);
+  const [editing, setEditing] = useState<PatientAntecedent | 'new' | null>(null);
+  const [annulling, setAnnulling] = useState<PatientAntecedent | null>(null);
+  const [historyOf, setHistoryOf] = useState<PatientAntecedent | null>(null);
 
-  const { data: events = [], isLoading, refetch } = useQuery({
-    queryKey: patientEventKeys.list(patientId),
-    queryFn: () => patientEventApi.list(patientId),
+  const { data: antecedents = [], isLoading, refetch } = useQuery({
+    queryKey: patientAntecedentKeys.list(patientId),
+    queryFn: () => patientAntecedentApi.list(patientId),
   });
 
   const annulMutation = useMutation({
     mutationFn: ({ id, reason, reasonNote }: { id: string } & AnnulData) =>
-      patientEventApi.annul(patientId, id, { reason, reasonNote }),
+      patientAntecedentApi.annul(patientId, id, { reason, reasonNote }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
+      queryClient.invalidateQueries({ queryKey: patientAntecedentKeys.list(patientId) });
       toast.success('Antecedente anulado');
       setAnnulling(null);
     },
@@ -78,7 +78,7 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
       // Annulled or gone meanwhile (404): the list shows what it is now, and
       // there is nothing left to annul.
       if (err instanceof ApiError && err.status === 404) {
-        queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
+        queryClient.invalidateQueries({ queryKey: patientAntecedentKeys.list(patientId) });
         setAnnulling(null);
       }
     },
@@ -106,24 +106,24 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
       <CardContent>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando...</p>
-        ) : events.length === 0 ? (
+        ) : antecedents.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sin antecedentes registrados.</p>
         ) : (
           <ul className="divide-y">
-            {events.map((event) => (
-              <li key={event.id} className="flex items-start justify-between gap-3 py-2.5">
-                <div className={`min-w-0 space-y-1 ${event.annulledAt ? 'opacity-60' : ''}`}>
+            {antecedents.map((antecedent) => (
+              <li key={antecedent.id} className="flex items-start justify-between gap-3 py-2.5">
+                <div className={`min-w-0 space-y-1 ${antecedent.annulledAt ? 'opacity-60' : ''}`}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">{PATIENT_EVENT_KIND_LABELS[event.kind]}</Badge>
-                    {event.annulledAt && <Badge variant="destructive">Anulado</Badge>}
-                    <span className="text-xs text-muted-foreground">{describeWhen(event.occurred, today)}</span>
+                    <Badge variant="secondary">{PATIENT_ANTECEDENT_KIND_LABELS[antecedent.kind]}</Badge>
+                    {antecedent.annulledAt && <Badge variant="destructive">Anulado</Badge>}
+                    <span className="text-xs text-muted-foreground">{describeWhen(antecedent.occurred, today)}</span>
                   </div>
-                  {/* An annulled event shows no description here: it may have
+                  {/* An annulled antecedent shows no description here: it may have
                       been entered on the wrong patient. It is in its history. */}
-                  {event.annulledAt ? (
+                  {antecedent.annulledAt ? (
                     <p className="text-sm text-muted-foreground">Anulado: el contenido está en su historial.</p>
                   ) : (
-                    <p className="text-sm">{event.description}</p>
+                    <p className="text-sm">{antecedent.description}</p>
                   )}
                 </div>
                 <div className="flex shrink-0 gap-1">
@@ -134,12 +134,12 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                     className="h-8 w-8"
                     aria-label="Ver historial del antecedente"
                     title="Ver historial"
-                    onClick={() => setHistoryOf(event)}
+                    onClick={() => setHistoryOf(antecedent)}
                   >
                     <History className="h-4 w-4" />
                   </Button>
-                  {/* An annulled event is read, never edited: only its history. */}
-                  {!event.annulledAt && (
+                  {/* An annulled antecedent is read, never edited: only its history. */}
+                  {!antecedent.annulledAt && (
                     <>
                       <Button
                         type="button"
@@ -147,7 +147,7 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                         variant="ghost"
                         className="h-8 w-8"
                         aria-label="Editar antecedente"
-                        onClick={() => setEditing(event)}
+                        onClick={() => setEditing(antecedent)}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -158,7 +158,7 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
                         className="h-8 w-8 text-destructive hover:text-destructive"
                         aria-label="Anular antecedente"
                         title="Anular"
-                        onClick={() => setAnnulling(event)}
+                        onClick={() => setAnnulling(antecedent)}
                       >
                         <Ban className="h-4 w-4" />
                       </Button>
@@ -176,19 +176,19 @@ export function PatientHistoryCard({ patientId }: { patientId: string }) {
           open
           onOpenChange={(o) => !o && setHistoryOf(null)}
           patientId={patientId}
-          base={revisionPaths.patientEvent(patientId, historyOf.id)}
+          base={revisionPaths.patientAntecedent(patientId, historyOf.id)}
           title="Historial del antecedente"
-          render={renderPatientEventSnapshot}
+          render={renderPatientAntecedentSnapshot}
         />
       )}
 
       {editing && (
-        // Mounted per event and version, so its state starts from that one,
+        // Mounted per antecedent and version, so its state starts from that one,
         // and a reload after a 409 starts it again from the version just read.
-        <PatientEventDialog
+        <PatientAntecedentDialog
           key={editing === 'new' ? 'new' : `${editing.id}:${editing.version}`}
           patientId={patientId}
-          event={editing === 'new' ? undefined : editing}
+          antecedent={editing === 'new' ? undefined : editing}
           today={today}
           onClose={() => setEditing(null)}
           onReload={async () => {
@@ -277,24 +277,24 @@ function occurredFrom(s: WhenState, today: string): PartialDate | null | undefin
   return /^\d{4}$/.test(s.year) ? { date: `${s.year}-01-01`, precision: 'YEAR', approximate: s.approximate } : undefined;
 }
 
-function PatientEventDialog({
+function PatientAntecedentDialog({
   patientId,
-  event,
+  antecedent,
   today,
   onClose,
   onReload,
 }: {
   patientId: string;
-  event?: PatientEvent;
+  antecedent?: PatientAntecedent;
   today: string;
   onClose: () => void;
-  // Reads the event again after a 409, and opens this dialog on it.
+  // Reads the antecedent again after a 409, and opens this dialog on it.
   onReload: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
-  const [kind, setKind] = useState<PatientEventKind | null>(event?.kind ?? null);
-  const [description, setDescription] = useState(event?.description ?? '');
-  const [whenState, setWhenState] = useState<WhenState>(() => initialWhen(event?.occurred));
+  const [kind, setKind] = useState<PatientAntecedentKind | null>(antecedent?.kind ?? null);
+  const [description, setDescription] = useState(antecedent?.description ?? '');
+  const [whenState, setWhenState] = useState<WhenState>(() => initialWhen(antecedent?.occurred));
   // An edit is a correction: it says why, and names the version it was made
   // over (SPEC-clinical-revisions.md §4, §5).
   const revision = useRevisionReason();
@@ -309,23 +309,23 @@ function PatientEventDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const data = { kind: kind!, description, occurred: occurred ?? null };
-      if (!event) return patientEventApi.create(patientId, data);
+      if (!antecedent) return patientAntecedentApi.create(patientId, data);
       // The button checked it; this keeps a correction from leaving without one.
       if (!revision.reason) throw new Error(MISSING_REASON);
-      return patientEventApi.update(patientId, event.id, {
+      return patientAntecedentApi.update(patientId, antecedent.id, {
         ...data,
-        expectedVersion: event.version,
+        expectedVersion: antecedent.version,
         reason: revision.reason,
         reasonNote: revision.note,
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: patientEventKeys.list(patientId) });
-      toast.success(event ? 'Antecedente actualizado' : 'Antecedente registrado');
+      queryClient.invalidateQueries({ queryKey: patientAntecedentKeys.list(patientId) });
+      toast.success(antecedent ? 'Antecedente actualizado' : 'Antecedente registrado');
       onClose();
     },
     onError: (err: Error) => {
-      if (event && isStaleEdit(err)) {
+      if (antecedent && isStaleEdit(err)) {
         setStaleMessage(err.message);
         return;
       }
@@ -337,24 +337,24 @@ function PatientEventDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{event ? 'Editar antecedente' : 'Nuevo antecedente'}</DialogTitle>
+          <DialogTitle>{antecedent ? 'Editar antecedente' : 'Nuevo antecedente'}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Tipo</Label>
             <Select
-              items={PATIENT_EVENT_KIND_LABELS}
+              items={PATIENT_ANTECEDENT_KIND_LABELS}
               value={kind}
-              onValueChange={(v) => v !== null && setKind(v as PatientEventKind)}
+              onValueChange={(v) => v !== null && setKind(v as PatientAntecedentKind)}
             >
               <SelectTrigger className="w-full" aria-label="Tipo">
                 <SelectValue placeholder="Elegir..." />
               </SelectTrigger>
               <SelectContent>
-                {PATIENT_EVENT_KINDS.map((k) => (
+                {PATIENT_ANTECEDENT_KINDS.map((k) => (
                   <SelectItem key={k} value={k}>
-                    {PATIENT_EVENT_KIND_LABELS[k]}
+                    {PATIENT_ANTECEDENT_KIND_LABELS[k]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -362,9 +362,9 @@ function PatientEventDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="event-description">Descripción</Label>
+            <Label htmlFor="antecedent-description">Descripción</Label>
             <Input
-              id="event-description"
+              id="antecedent-description"
               placeholder="Ej: Fractura de muñeca izquierda, tratada con yeso"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -466,7 +466,7 @@ function PatientEventDialog({
             )}
           </div>
 
-          {event && (
+          {antecedent && (
             <RevisionReasonField {...revision.fieldProps} />
           )}
           {staleMessage && (
@@ -485,7 +485,7 @@ function PatientEventDialog({
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
-          <Button disabled={!canSave || mutation.isPending} onClick={() => (!event || revision.require()) && mutation.mutate()}>
+          <Button disabled={!canSave || mutation.isPending} onClick={() => (!antecedent || revision.require()) && mutation.mutate()}>
             {mutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </DialogFooter>

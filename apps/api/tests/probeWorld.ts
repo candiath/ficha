@@ -10,7 +10,7 @@ export interface ProbeWorld {
   patientId: string;
   episodeId: string;
   encounterId: string;
-  eventId: string;
+  antecedentId: string;
   appointmentId: string;
   packageId: string;
   paymentId: string;
@@ -34,7 +34,7 @@ export async function buildProbeWorld(clinic: TestClinic, lastName: string): Pro
   const episode = await fixture.clinicalEpisode.create({ data: { ...owner, mainComplaint: text('Motivo') } });
   await fixture.initialEvaluation.create({ data: { ...owner, episodeId: episode.id, notes: text('Evaluación') } });
   await fixture.informedConsent.create({ data: { ...owner, signedAt: new Date() } });
-  const event = await fixture.patientEvent.create({ data: { ...owner, kind: 'SURGERY', description: text('Antecedente') } });
+  const antecedent = await fixture.patientAntecedent.create({ data: { ...owner, kind: 'SURGERY', description: text('Antecedente') } });
   const encounter = await createEncounterFixture({
     ...owner,
     userId: user.id,
@@ -59,7 +59,7 @@ export async function buildProbeWorld(clinic: TestClinic, lastName: string): Pro
     patientId: patient.id,
     episodeId: episode.id,
     encounterId: encounter.id,
-    eventId: event.id,
+    antecedentId: antecedent.id,
     appointmentId: appointment.id,
     packageId: pkg.id,
     paymentId: payment.id,
@@ -78,7 +78,7 @@ export function probeParam(world: ProbeWorld, route: string, name: string): stri
     patientId: world.patientId,
     episodeId: world.episodeId,
     encounterId: world.encounterId,
-    eventId: world.eventId,
+    antecedentId: world.antecedentId,
     authSessionId: world.authSessionId,
     version: '1',
   };
@@ -104,7 +104,7 @@ export async function clinicState(tenantId: string): Promise<string> {
     prisma.clinicalEpisode.findMany({ where, orderBy: { id: 'asc' } }),
     prisma.initialEvaluation.findMany({ where, orderBy: { id: 'asc' } }),
     prisma.informedConsent.findMany({ where, orderBy: { id: 'asc' } }),
-    prisma.patientEvent.findMany({ where, orderBy: { id: 'asc' } }),
+    prisma.patientAntecedent.findMany({ where, orderBy: { id: 'asc' } }),
     prisma.encounter.findMany({ where, orderBy: { id: 'asc' } }),
     prisma.encounterBlock.findMany({ where, orderBy: [{ encounterId: 'asc' }, { episodeId: 'asc' }] }),
     prisma.appointment.findMany({ where, orderBy: { id: 'asc' } }),
@@ -144,7 +144,7 @@ export async function deleteProbeWorld(clinic: TestClinic): Promise<void> {
   await prisma.encounter.deleteMany({ where });
   await prisma.informedConsent.deleteMany({ where });
   await prisma.initialEvaluation.deleteMany({ where });
-  await prisma.patientEvent.deleteMany({ where });
+  await prisma.patientAntecedent.deleteMany({ where });
   await prisma.clinicalEpisode.deleteMany({ where });
   await prisma.patient.deleteMany({ where });
   await prisma.passwordResetToken.deleteMany({ where: { user: where } });

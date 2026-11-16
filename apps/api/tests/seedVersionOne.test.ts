@@ -27,7 +27,7 @@ describe('versionUnversioned (the seed’s version 1)', () => {
       await prisma.encounter.deleteMany({ where });
       await prisma.informedConsent.deleteMany({ where });
       await prisma.initialEvaluation.deleteMany({ where });
-      await prisma.patientEvent.deleteMany({ where });
+      await prisma.patientAntecedent.deleteMany({ where });
       await prisma.clinicalEpisode.deleteMany({ where });
       await prisma.patient.deleteMany({ where });
       await c.cleanup();
@@ -43,7 +43,7 @@ describe('versionUnversioned (the seed’s version 1)', () => {
     const second = await prisma.clinicalEpisode.create({ data: { ...owner, mainComplaint: 'Cervicalgia' } });
     const evaluation = await prisma.initialEvaluation.create({ data: { ...owner, episodeId: episode.id } });
     const consent = await prisma.informedConsent.create({ data: { ...owner, signedAt: new Date() } });
-    const event = await prisma.patientEvent.create({ data: { ...owner, kind: 'SURGERY', description: 'Cesárea' } });
+    const antecedent = await prisma.patientAntecedent.create({ data: { ...owner, kind: 'SURGERY', description: 'Cesárea' } });
     const encounter = await prisma.encounter.create({
       data: {
         ...owner,
@@ -81,7 +81,7 @@ describe('versionUnversioned (the seed’s version 1)', () => {
       select: { id: true, entity: true, entityId: true, action: true, params: true, actorType: true },
     });
     expect(new Set(audit.map((a) => a.entityId))).toEqual(
-      new Set([patient.id, episode.id, second.id, evaluation.id, consent.id, event.id, encounter.id, discharge.id]),
+      new Set([patient.id, episode.id, second.id, evaluation.id, consent.id, antecedent.id, encounter.id, discharge.id]),
     );
     for (const row of audit) {
       expect(row.actorType).toBe('SYSTEM');

@@ -12,7 +12,7 @@ import {
 import { fixture } from './fixtures';
 
 // What the database itself guarantees about the versions of the patient, the
-// episode, the evaluation, the consent and the patient event
+// episode, the evaluation, the consent and the patient antecedent
 // (SPEC-clinical-revisions.md §2, §6), written straight to the tables. The
 // encounter's are in encounterRevisionsTable.test.ts.
 describe('the revisions tables of the other five aggregates', () => {
@@ -67,12 +67,12 @@ describe('the revisions tables of the other five aggregates', () => {
       },
     },
     {
-      table: 'patient_event_revisions',
-      parent: 'patient_events',
-      key: 'patient_event_id',
+      table: 'patient_antecedent_revisions',
+      parent: 'patient_antecedents',
+      key: 'patient_antecedent_id',
       create: async (tenantId) => {
         const patient = await newPatient(tenantId);
-        return fixture.patientEvent.create({
+        return fixture.patientAntecedent.create({
           data: { tenantId, patientId: patient.id, kind: 'SURGERY', description: 'Cirugía de rodilla' },
         });
       },
@@ -88,7 +88,7 @@ describe('the revisions tables of the other five aggregates', () => {
     const tenantIds = [clinic.tenantId, otherClinic.tenantId];
     await deleteAuditRows(tenantIds);
     const where = { where: { tenantId: { in: tenantIds } } };
-    await prisma.patientEvent.deleteMany(where);
+    await prisma.patientAntecedent.deleteMany(where);
     await prisma.informedConsent.deleteMany(where);
     await prisma.initialEvaluation.deleteMany(where);
     await prisma.clinicalEpisode.deleteMany(where);

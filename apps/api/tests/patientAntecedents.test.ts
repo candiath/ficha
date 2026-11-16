@@ -19,7 +19,7 @@ describe('The patient history', () => {
   let otherPatient: { id: string };
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
-  const url = (patientId = patient.id) => `/api/patients/${patientId}/events`;
+  const url = (patientId = patient.id) => `/api/patients/${patientId}/antecedents`;
   const post = (body: Record<string, unknown>, patientId = patient.id) =>
     auth(request(app).post(url(patientId))).send(body);
   const annul = (id: string) => auth(request(app).post(`${url()}/${id}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
@@ -49,13 +49,13 @@ describe('The patient history', () => {
     await sleep(300);
     const tenantIds = [clinic.tenantId, clinicB.tenantId];
     await deleteAuditRows(tenantIds);
-    await prisma.patientEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.patientAntecedent.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await clinic.cleanup();
     await clinicB.cleanup();
   });
 
-  it('records an event with a partial date and returns it as written', async () => {
+  it('records an antecedent with a partial date and returns it as written', async () => {
     const res = await post(fracture);
 
     expect(res.status).toBe(201);
@@ -72,14 +72,14 @@ describe('The patient history', () => {
     });
   });
 
-  it('records an event with no date when the patient does not know when', async () => {
+  it('records an antecedent with no date when the patient does not know when', async () => {
     const res = await post({ kind: 'TRAUMA', description: 'Accidente de auto', occurred: null });
 
     expect(res.status).toBe(201);
     expect(res.body.data.occurred).toBeNull();
   });
 
-  it('lists dated events newest first and undated ones last', async () => {
+  it('lists dated antecedents newest first and undated ones last', async () => {
     const own = await fixture.patient.create({
       data: { tenantId: clinic.tenantId, firstName: 'Orden', lastName: 'Test' },
       select: { id: true },
@@ -113,23 +113,23 @@ describe('The patient history', () => {
     }
   });
 
-  it('refuses an event without a description or with an unknown kind', async () => {
+  it('refuses an antecedent without a description or with an unknown kind', async () => {
     expect((await post({ ...fracture, description: '   ' })).status).toBe(400);
     expect((await post({ ...fracture, kind: 'POSTURE' })).status).toBe(400);
   });
 
   // The CHECKs behind the API: a write that skips it still cannot store a
-  // month as the 15th or an approximate event without a date.
+  // month as the 15th or an approximate antecedent without a date.
   it('is checked by the database too', async () => {
     const base = { tenantId: clinic.tenantId, patientId: patient.id, kind: 'OTHER' as const, description: 'Directo' };
     await expect(
-      prisma.patientEvent.create({
+      prisma.patientAntecedent.create({
         data: { ...base, occurredOn: new Date('2024-03-15T00:00:00.000Z'), occurredPrecision: 'MONTH' },
       }),
     ).rejects.toThrow();
-    await expect(prisma.patientEvent.create({ data: { ...base, occurredApproximate: true } })).rejects.toThrow();
+    await expect(prisma.patientAntecedent.create({ data: { ...base, occurredApproximate: true } })).rejects.toThrow();
     await expect(
-      prisma.patientEvent.create({ data: { ...base, occurredOn: new Date('2024-03-01T00:00:00.000Z') } }),
+      prisma.patientAntecedent.create({ data: { ...base, occurredOn: new Date('2024-03-01T00:00:00.000Z') } }),
     ).rejects.toThrow();
   });
 
@@ -154,8 +154,8 @@ describe('The patient history', () => {
       select: { action: true, entity: true, params: true },
     });
     expect(rows).toEqual([
-      { action: 'PATIENT_EVENT_RECORDED', entity: 'PATIENT_EVENT', params: { kind: 'FRACTURE' } },
-      { action: 'PATIENT_EVENT_UPDATED', entity: 'PATIENT_EVENT', params: { kind: 'FRACTURE', changedFields: ['occurred'], reason: 'DATA_ENTRY_ERROR' } },
+      { action: 'PATIENT_ANTECEDENT_RECORDED', entity: 'PATIENT_ANTECEDENT', params: { kind: 'FRACTURE' } },
+      { action: 'PATIENT_ANTECEDENT_UPDATED', entity: 'PATIENT_ANTECEDENT', params: { kind: 'FRACTURE', changedFields: ['occurred'], reason: 'DATA_ENTRY_ERROR' } },
     ]);
   });
 
@@ -167,16 +167,16 @@ describe('The patient history', () => {
     const list = await auth(request(app).get(url()));
     const listed = list.body.data.find((e: { id: string }) => e.id === id);
     expect(listed.annulledAt).toEqual(expect.any(String));
-    const row = await prisma.patientEvent.findUniqueOrThrow({ where: { id }, select: { deletedAt: true } });
+    const row = await prisma.patientAntecedent.findUniqueOrThrow({ where: { id }, select: { deletedAt: true } });
     expect(row.deletedAt?.toISOString()).toBe(listed.annulledAt);
     expect((await auth(request(app).patch(`${url()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Tarde' })).status).toBe(404);
     expect((await annul(id)).status).toBe(404);
   });
 
-  it('answers 404 for another patient’s event, another clinic’s patient and an unknown id', async () => {
-    const othersEvent = (await post(fracture, otherPatient.id)).body.data.id;
-    expect((await auth(request(app).patch(`${url()}/${othersEvent}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Ajeno' })).status).toBe(404);
-    expect((await annul(othersEvent)).status).toBe(404);
+  it('answers 404 for another patient’s antecedent, another clinic’s patient and an unknown id', async () => {
+    const othersAntecedent = (await post(fracture, otherPatient.id)).body.data.id;
+    expect((await auth(request(app).patch(`${url()}/${othersAntecedent}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Ajeno' })).status).toBe(404);
+    expect((await annul(othersAntecedent)).status).toBe(404);
 
     const patientB = await fixture.patient.create({
       data: { tenantId: clinicB.tenantId, firstName: 'De otra', lastName: 'clínica' },

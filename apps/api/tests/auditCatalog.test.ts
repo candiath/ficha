@@ -3,7 +3,7 @@ import {
   AuditEntity,
   AppointmentStatus,
   EpisodeStatus,
-  PatientEventKind,
+  PatientAntecedentKind,
   PaymentStatus,
   PlatformAction,
   PlatformAuditEntity,
@@ -18,8 +18,8 @@ import {
   AUDIT_EPISODE_FIELDS,
   AUDIT_EPISODE_STATUSES,
   AUDIT_EVALUATION_FIELDS,
-  AUDIT_PATIENT_EVENT_FIELDS,
-  AUDIT_PATIENT_EVENT_KINDS,
+  AUDIT_PATIENT_ANTECEDENT_FIELDS,
+  AUDIT_PATIENT_ANTECEDENT_KINDS,
   AUDIT_PATIENT_FIELDS,
   AUDIT_PAYMENT_FIELDS,
   AUDIT_PAYMENT_STATUSES,
@@ -79,7 +79,7 @@ describe('the audit catalog matches the schema', () => {
     ['EncounterType', EncounterType, AUDIT_ENCOUNTER_TYPES],
     ['PaymentStatus', PaymentStatus, AUDIT_PAYMENT_STATUSES],
     ['UserRole', UserRole, AUDIT_ROLES],
-    ['PatientEventKind', PatientEventKind, AUDIT_PATIENT_EVENT_KINDS],
+    ['PatientAntecedentKind', PatientAntecedentKind, AUDIT_PATIENT_ANTECEDENT_KINDS],
     ['AppointmentStatus', AppointmentStatus, AUDIT_APPOINTMENT_STATUSES],
   ] as const)('every %s value has a label in the catalog', (_name, prismaEnum, labels) => {
     for (const value of Object.values(prismaEnum)) expect(Object.keys(labels)).toContain(value);
@@ -98,7 +98,7 @@ describe('the audit catalog matches the schema', () => {
       AUDIT_EVALUATION_FIELDS,
       AUDIT_ENCOUNTER_FIELDS,
       AUDIT_PAYMENT_FIELDS,
-      AUDIT_PATIENT_EVENT_FIELDS,
+      AUDIT_PATIENT_ANTECEDENT_FIELDS,
       AUDIT_EPISODE_FIELDS,
       AUDIT_APPOINTMENT_FIELDS,
     ]) {
@@ -111,7 +111,7 @@ describe('the audit catalog matches the schema', () => {
       AUDIT_ENCOUNTER_TYPES,
       AUDIT_PAYMENT_STATUSES,
       AUDIT_ROLES,
-      AUDIT_PATIENT_EVENT_KINDS,
+      AUDIT_PATIENT_ANTECEDENT_KINDS,
       AUDIT_EPISODE_STATUSES,
       AUDIT_APPOINTMENT_STATUSES,
       AUDIT_REVISION_REASONS,
@@ -126,7 +126,7 @@ describe('the audit catalog matches the schema', () => {
 
 describe('writing is strict', () => {
   it('accepts an action with its parameters', () => {
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE' })).toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'FRACTURE' })).toBeNull();
     expect(
       auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['phone'], reason: 'DATA_ENTRY_ERROR' }),
     ).toBeNull();
@@ -159,15 +159,15 @@ describe('writing is strict', () => {
   });
 
   it('refuses free text, unknown keys, unknown values and an empty change list', () => {
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'Fractura de tibia' })).not.toBeNull();
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE', year: 2024 })).not.toBeNull();
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', {})).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'Fractura de tibia' })).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'FRACTURE', year: 2024 })).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', {})).not.toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: [] })).not.toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['password'] })).not.toBeNull();
   });
 
   it('never repeats the value it refused', () => {
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'juan@x.com' })).not.toContain('juan');
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'juan@x.com' })).not.toContain('juan');
   });
 });
 

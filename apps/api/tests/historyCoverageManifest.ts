@@ -21,7 +21,7 @@ export const HISTORY_COVERAGE: Record<string, HistoryCoverage> = {
   'prismaEvaluationRepository.upsert': versions,
   'prismaConsentRepository.sign': versions,
   'prismaConsentRepository.revoke': versions,
-  'prismaPatientEventRepository.create': versions,
-  'prismaPatientEventRepository.update': versions,
-  'prismaPatientEventRepository.annul': versions,
+  'prismaPatientAntecedentRepository.create': versions,
+  'prismaPatientAntecedentRepository.update': versions,
+  'prismaPatientAntecedentRepository.annul': versions,
 };

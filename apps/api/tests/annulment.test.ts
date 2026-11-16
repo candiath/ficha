@@ -8,7 +8,7 @@ import { episodeRepo } from '../src/repositories';
 import { createTestClinic, createTestContext, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
-// Annulment (SPEC-clinical-revisions.md §8): an encounter or a patient event
+// Annulment (SPEC-clinical-revisions.md §8): an encounter or a patient antecedent
 // entered by mistake is annulled with a reason, never deleted. It stays in the
 // patient's record, marked, with its content in its history, and leaves every
 // other reader. tests/encounterAnnul.test.ts covers what an encounter's annulment
@@ -22,9 +22,9 @@ describe('annulment', () => {
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
   const encountersUrl = () => `/api/patients/${patientId}/encounters`;
-  const eventsUrl = () => `/api/patients/${patientId}/events`;
+  const antecedentsUrl = () => `/api/patients/${patientId}/antecedents`;
   const annulEncounter = (id: string, body: object) => auth(request(app).post(`${encountersUrl()}/${id}/annul`)).send(body);
-  const annulEvent = (id: string, body: object) => auth(request(app).post(`${eventsUrl()}/${id}/annul`)).send(body);
+  const annulAntecedent = (id: string, body: object) => auth(request(app).post(`${antecedentsUrl()}/${id}/annul`)).send(body);
 
   const newEncounter = async (body: object = {}): Promise<string> => {
     const res = await auth(request(app).post(encountersUrl())).send({
@@ -35,8 +35,8 @@ describe('annulment', () => {
     expect(res.status).toBe(201);
     return res.body.data.id as string;
   };
-  const newEvent = async (): Promise<string> => {
-    const res = await auth(request(app).post(eventsUrl())).send({ kind: 'FRACTURE', description: 'Fractura de muñeca', occurred: null });
+  const newAntecedent = async (): Promise<string> => {
+    const res = await auth(request(app).post(antecedentsUrl())).send({ kind: 'FRACTURE', description: 'Fractura de muñeca', occurred: null });
     expect(res.status).toBe(201);
     return res.body.data.id as string;
   };
@@ -64,7 +64,7 @@ describe('annulment', () => {
     await prisma.payment.deleteMany({ where });
     await prisma.encounterBlock.deleteMany({ where });
     await prisma.encounter.deleteMany({ where });
-    await prisma.patientEvent.deleteMany({ where });
+    await prisma.patientAntecedent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
@@ -187,50 +187,50 @@ describe('annulment', () => {
     });
   });
 
-  describe('a patient event', () => {
+  describe('a patient antecedent', () => {
     it('records the action with its reason, and a final version with the note', async () => {
-      const id = await newEvent();
+      const id = await newAntecedent();
 
-      const res = await annulEvent(id, { reason: 'DATA_ENTRY_ERROR', reasonNote: '   ' });
+      const res = await annulAntecedent(id, { reason: 'DATA_ENTRY_ERROR', reasonNote: '   ' });
       expect(res.status).toBe(204);
 
       const rows = await auditRows(id);
-      expect(rows.map((r) => r.action)).toEqual(['PATIENT_EVENT_RECORDED', 'PATIENT_EVENT_ANNULLED']);
+      expect(rows.map((r) => r.action)).toEqual(['PATIENT_ANTECEDENT_RECORDED', 'PATIENT_ANTECEDENT_ANNULLED']);
       expect(rows[1].params).toEqual({ kind: 'FRACTURE', reason: 'DATA_ENTRY_ERROR' });
-      const [first, last] = await prisma.patientEventRevision.findMany({ where: { patientEventId: id }, orderBy: { version: 'asc' } });
+      const [first, last] = await prisma.patientAntecedentRevision.findMany({ where: { patientAntecedentId: id }, orderBy: { version: 'asc' } });
       // A blank note is no note (single empty).
       expect(last).toMatchObject({ version: 2, auditLogId: rows[1].id, reasonNote: null });
       expect(last.snapshot).toEqual(first.snapshot);
     });
 
     it('answers 400 without a reason and writes nothing', async () => {
-      const id = await newEvent();
+      const id = await newAntecedent();
 
-      expect((await annulEvent(id, {})).status).toBe(400);
+      expect((await annulAntecedent(id, {})).status).toBe(400);
 
-      expect((await prisma.patientEvent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      expect((await prisma.patientAntecedent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
       expect(await auditRows(id)).toHaveLength(1);
     });
 
     it('stays in the record marked, cannot be edited, and keeps its history', async () => {
-      const id = await newEvent();
-      expect((await annulEvent(id, { reason: 'OTHER' })).status).toBe(204);
+      const id = await newAntecedent();
+      expect((await annulAntecedent(id, { reason: 'OTHER' })).status).toBe(204);
 
-      const list = (await auth(request(app).get(eventsUrl()))).body.data as { id: string; annulledAt: string | null }[];
+      const list = (await auth(request(app).get(antecedentsUrl()))).body.data as { id: string; annulledAt: string | null }[];
       expect(list.find((e) => e.id === id)?.annulledAt).toEqual(expect.any(String));
 
-      const edit = await auth(request(app).patch(`${eventsUrl()}/${id}`)).send({ reason: 'OTHER', description: 'Tarde' });
+      const edit = await auth(request(app).patch(`${antecedentsUrl()}/${id}`)).send({ reason: 'OTHER', description: 'Tarde' });
       expect(edit.status).toBe(404);
-      expect((await annulEvent(id, { reason: 'OTHER' })).status).toBe(404);
+      expect((await annulAntecedent(id, { reason: 'OTHER' })).status).toBe(404);
 
-      const history = await auth(request(app).get(`${eventsUrl()}/${id}/revisions`));
-      expect(history.body.data.map((r: { action: string }) => r.action)).toContain('PATIENT_EVENT_ANNULLED');
+      const history = await auth(request(app).get(`${antecedentsUrl()}/${id}/revisions`));
+      expect(history.body.data.map((r: { action: string }) => r.action)).toContain('PATIENT_ANTECEDENT_ANNULLED');
     });
 
     it('cannot be deleted any more', async () => {
-      const id = await newEvent();
-      expect((await auth(request(app).delete(`${eventsUrl()}/${id}`))).status).toBe(404);
-      expect((await prisma.patientEvent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      const id = await newAntecedent();
+      expect((await auth(request(app).delete(`${antecedentsUrl()}/${id}`))).status).toBe(404);
+      expect((await prisma.patientAntecedent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
     });
   });
 });

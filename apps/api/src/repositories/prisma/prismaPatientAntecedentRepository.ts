@@ -1,27 +1,27 @@
 import { Prisma } from '@prisma/client';
-import { AUDIT_PATIENT_EVENT_FIELDS, type PartialDate } from '@ficha/shared';
+import { AUDIT_PATIENT_ANTECEDENT_FIELDS, type PartialDate } from '@ficha/shared';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type { AuditBuilder, AuditUpdateBuilder } from '../auditLogRepository';
 import type {
-  PatientEventAuditField,
-  PatientEventDTO,
-  PatientEventEditMeta,
-  PatientEventInput,
-  PatientEventUpdateResult,
-  PatientEventRepository,
-} from '../patientEventRepository';
+  PatientAntecedentAuditField,
+  PatientAntecedentDTO,
+  PatientAntecedentEditMeta,
+  PatientAntecedentInput,
+  PatientAntecedentUpdateResult,
+  PatientAntecedentRepository,
+} from '../patientAntecedentRepository';
 import { changedFields, lockRow, nonEmpty } from './changedFields';
 import { recordAudit } from './recordAudit';
 import { recordRevision, Rollback, unlessRolledBack } from './recordRevision';
-import { patientEventSnapshot } from './clinicalSnapshots';
+import { patientAntecedentSnapshot } from './clinicalSnapshots';
 
-// Every method works on current events: an annulled one is not edited, and
+// Every method works on current antecedents: an annulled one is not edited, and
 // only the patient's record (listByPatient) lists it, struck through, as with
 // encounters (SPEC-clinical-revisions.md §8). deletedAt is the annulment's date.
 const CURRENT = { deletedAt: null } as const;
 
-const eventSelect = {
+const antecedentSelect = {
   id: true,
   patientId: true,
   kind: true,
@@ -36,11 +36,11 @@ const eventSelect = {
   revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
 } as const;
 
-type EventRow = Prisma.PatientEventGetPayload<{ select: typeof eventSelect }>;
+type AntecedentRow = Prisma.PatientAntecedentGetPayload<{ select: typeof antecedentSelect }>;
 
-const AUDIT_FIELDS = Object.keys(AUDIT_PATIENT_EVENT_FIELDS) as PatientEventAuditField[];
+const AUDIT_FIELDS = Object.keys(AUDIT_PATIENT_ANTECEDENT_FIELDS) as PatientAntecedentAuditField[];
 
-function toDTO({ occurredOn, occurredPrecision, occurredApproximate, revisions, deletedAt, ...row }: EventRow): PatientEventDTO {
+function toDTO({ occurredOn, occurredPrecision, occurredApproximate, revisions, deletedAt, ...row }: AntecedentRow): PatientAntecedentDTO {
   return {
     ...row,
     version: revisions[0]?.version ?? 0,
@@ -66,7 +66,7 @@ function occurredColumns(occurred: PartialDate | null) {
     : { occurredOn: null, occurredPrecision: null, occurredApproximate: false };
 }
 
-function eventData(input: Partial<PatientEventInput>) {
+function antecedentData(input: Partial<PatientAntecedentInput>) {
   return {
     ...(input.kind !== undefined && { kind: input.kind }),
     ...(input.description !== undefined && { description: input.description }),
@@ -74,15 +74,15 @@ function eventData(input: Partial<PatientEventInput>) {
   };
 }
 
-export const prismaPatientEventRepository: PatientEventRepository = {
-  async listByPatient(ctx: TenantContext, patientId: string): Promise<PatientEventDTO[]> {
+export const prismaPatientAntecedentRepository: PatientAntecedentRepository = {
+  async listByPatient(ctx: TenantContext, patientId: string): Promise<PatientAntecedentDTO[]> {
     const db = forTenant(ctx);
-    const rows = await db.patientEvent.findMany({
+    const rows = await db.patientAntecedent.findMany({
       // Annulled ones included: the record shows them, struck through.
       where: { patientId },
       // What she lived, newest first; what she cannot date, at the end.
       orderBy: [{ occurredOn: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
-      select: eventSelect,
+      select: antecedentSelect,
     });
     return rows.map(toDTO);
   },
@@ -90,26 +90,26 @@ export const prismaPatientEventRepository: PatientEventRepository = {
   async create(
     ctx: TenantContext,
     patientId: string,
-    input: PatientEventInput,
-    audit: AuditBuilder<PatientEventDTO>,
-  ): Promise<PatientEventDTO> {
+    input: PatientAntecedentInput,
+    audit: AuditBuilder<PatientAntecedentDTO>,
+  ): Promise<PatientAntecedentDTO> {
     const db = forTenant(ctx);
     // The audit row goes in the same transaction as the write (#188).
     return db.$transaction(async (tx) => {
-      const row = await tx.patientEvent.create({
-        data: { ...eventData(input), kind: input.kind, description: input.description, tenantId: ctx.tenantId, patientId },
-        select: eventSelect,
+      const row = await tx.patientAntecedent.create({
+        data: { ...antecedentData(input), kind: input.kind, description: input.description, tenantId: ctx.tenantId, patientId },
+        select: antecedentSelect,
       });
-      const event = { ...toDTO(row), version: 1 };
-      const auditLogId = await recordAudit(tx, ctx, audit(event));
-      await recordRevision(tx, ctx, 'patient_event_revisions', {
+      const antecedent = { ...toDTO(row), version: 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(antecedent));
+      await recordRevision(tx, ctx, 'patient_antecedent_revisions', {
         aggregateId: row.id,
         patientId,
         version: 1,
         auditLogId,
-        snapshot: patientEventSnapshot(row),
+        snapshot: patientAntecedentSnapshot(row),
       });
-      return event;
+      return antecedent;
     });
   },
 
@@ -117,20 +117,20 @@ export const prismaPatientEventRepository: PatientEventRepository = {
     ctx: TenantContext,
     patientId: string,
     id: string,
-    { expectedVersion, reasonNote, ...input }: Partial<PatientEventInput> & PatientEventEditMeta,
-    audit: AuditUpdateBuilder<PatientEventDTO, PatientEventAuditField>,
-  ): Promise<PatientEventUpdateResult> {
+    { expectedVersion, reasonNote, ...input }: Partial<PatientAntecedentInput> & PatientAntecedentEditMeta,
+    audit: AuditUpdateBuilder<PatientAntecedentDTO, PatientAntecedentAuditField>,
+  ): Promise<PatientAntecedentUpdateResult> {
     const db = forTenant(ctx);
     const notFound = { ok: false, reason: 'not_found' } as const;
     try {
       return await unlessRolledBack(
-        db.$transaction(async (tx): Promise<PatientEventUpdateResult> => {
+        db.$transaction(async (tx): Promise<PatientAntecedentUpdateResult> => {
           // Locked and read first: a concurrent edit waits for this one, and
           // then reads the version this one wrote.
-          await lockRow(tx, 'patient_events', id, ctx.tenantId);
-          const beforeRow = await tx.patientEvent.findFirst({
+          await lockRow(tx, 'patient_antecedents', id, ctx.tenantId);
+          const beforeRow = await tx.patientAntecedent.findFirst({
             where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
-            select: eventSelect,
+            select: antecedentSelect,
           });
           if (!beforeRow) return notFound;
           const before = toDTO(beforeRow);
@@ -138,26 +138,26 @@ export const prismaPatientEventRepository: PatientEventRepository = {
 
           // Patient, tenant and validity in the where of the write itself: P2025
           // when it no longer matches, which becomes not_found below.
-          const row = await tx.patientEvent.update({
+          const row = await tx.patientAntecedent.update({
             where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
-            data: eventData(input),
-            select: eventSelect,
+            data: antecedentData(input),
+            select: antecedentSelect,
           });
-          const event = { ...toDTO(row), version: before.version + 1 };
+          const antecedent = { ...toDTO(row), version: before.version + 1 };
           // Compared after the write, with the same select: a save that changed
           // nothing is rolled back whole.
-          const changed = nonEmpty(changedFields(before, event, AUDIT_FIELDS));
-          if (!changed) throw new Rollback<PatientEventUpdateResult>({ ok: true, event: before });
-          const auditLogId = await recordAudit(tx, ctx, audit(event, changed));
-          await recordRevision(tx, ctx, 'patient_event_revisions', {
+          const changed = nonEmpty(changedFields(before, antecedent, AUDIT_FIELDS));
+          if (!changed) throw new Rollback<PatientAntecedentUpdateResult>({ ok: true, antecedent: before });
+          const auditLogId = await recordAudit(tx, ctx, audit(antecedent, changed));
+          await recordRevision(tx, ctx, 'patient_antecedent_revisions', {
             aggregateId: id,
             patientId,
-            version: event.version,
+            version: antecedent.version,
             auditLogId,
-            snapshot: patientEventSnapshot(row),
+            snapshot: patientAntecedentSnapshot(row),
             reasonNote,
           });
-          return { ok: true, event };
+          return { ok: true, antecedent };
         }),
       );
     } catch (e) {
@@ -171,34 +171,34 @@ export const prismaPatientEventRepository: PatientEventRepository = {
     patientId: string,
     id: string,
     input: { reasonNote?: string | null },
-    audit: AuditBuilder<PatientEventDTO>,
+    audit: AuditBuilder<PatientAntecedentDTO>,
   ): Promise<'annulled' | 'not_found'> {
     const db = forTenant(ctx);
     return db.$transaction(async (tx) => {
       // Locked first: this write takes a version, so it waits for a concurrent
       // edit and then reads the version that edit wrote.
-      await lockRow(tx, 'patient_events', id, ctx.tenantId);
-      // The condition travels in the write: an annulled event, or another
+      await lockRow(tx, 'patient_antecedents', id, ctx.tenantId);
+      // The condition travels in the write: an annulled antecedent, or another
       // patient's, matches nothing.
-      const { count } = await tx.patientEvent.updateMany({
+      const { count } = await tx.patientAntecedent.updateMany({
         where: { ...CURRENT, id, patientId, tenantId: ctx.tenantId },
         data: { deletedAt: new Date() },
       });
       if (count === 0) return 'not_found';
       // The final version, of unchanged content: the annulment is what its
       // audit row says, and the note goes only into the revision.
-      const row = await tx.patientEvent.findUniqueOrThrow({
+      const row = await tx.patientAntecedent.findUniqueOrThrow({
         where: { id, tenantId: ctx.tenantId },
-        select: eventSelect,
+        select: antecedentSelect,
       });
-      const event = { ...toDTO(row), version: (row.revisions[0]?.version ?? 0) + 1 };
-      const auditLogId = await recordAudit(tx, ctx, audit(event));
-      await recordRevision(tx, ctx, 'patient_event_revisions', {
+      const antecedent = { ...toDTO(row), version: (row.revisions[0]?.version ?? 0) + 1 };
+      const auditLogId = await recordAudit(tx, ctx, audit(antecedent));
+      await recordRevision(tx, ctx, 'patient_antecedent_revisions', {
         aggregateId: id,
         patientId,
-        version: event.version,
+        version: antecedent.version,
         auditLogId,
-        snapshot: patientEventSnapshot(row),
+        snapshot: patientAntecedentSnapshot(row),
         reasonNote: input.reasonNote,
       });
       return 'annulled';

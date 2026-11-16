@@ -5,7 +5,7 @@ import {
   renderConsentSnapshot,
   renderEpisodeSnapshot,
   renderEvaluationSnapshot,
-  renderPatientEventSnapshot,
+  renderPatientAntecedentSnapshot,
   renderPatientSnapshot,
   renderEncounterSnapshot,
   type SnapshotRow,
@@ -114,14 +114,14 @@ describe('snapshot renderers', () => {
     expect(revoked.Firmado).toMatch(/05\/01\/2026|5\/1\/26/);
   });
 
-  it('the patient event: kind, description and its date as she remembers it', () => {
-    const rows = renderPatientEventSnapshot(
+  it('the patient antecedent: kind, description and its date as she remembers it', () => {
+    const rows = renderPatientAntecedentSnapshot(
       { kind: 'SURGERY', description: 'Rodilla', occurredOn: '2019-05-01', occurredPrecision: 'MONTH', occurredApproximate: true },
       1,
       {},
     );
     expect(view(rows)).toEqual({ Tipo: 'Cirugía', Descripción: 'Rodilla', Fecha: '~mayo de 2019' });
-    const undated = renderPatientEventSnapshot(
+    const undated = renderPatientAntecedentSnapshot(
       { kind: 'OTHER', description: 'Algo', occurredOn: null, occurredPrecision: null, occurredApproximate: false },
       1,
       {},
@@ -158,7 +158,7 @@ describe('snapshot renderers', () => {
     ['episode', renderEpisodeSnapshot],
     ['evaluation', renderEvaluationSnapshot],
     ['consent', renderConsentSnapshot],
-    ['patient event', renderPatientEventSnapshot],
+    ['patient antecedent', renderPatientAntecedentSnapshot],
     ['encounter', renderEncounterSnapshot],
   ] as const)('the %s: a schema version it does not know, or a snapshot that does not parse, renders as null', (_, render) => {
     expect(render({}, 1, {})).toBeNull();

@@ -1,14 +1,14 @@
 import type { PartialDate } from '@ficha/shared';
 
-export const PATIENT_EVENT_KINDS = ['FRACTURE', 'SURGERY', 'TRAUMA', 'DIAGNOSIS', 'PAIN_ONSET', 'OTHER'] as const;
-export type PatientEventKind = (typeof PATIENT_EVENT_KINDS)[number];
+export const PATIENT_ANTECEDENT_KINDS = ['FRACTURE', 'SURGERY', 'TRAUMA', 'DIAGNOSIS', 'PAIN_ONSET', 'OTHER'] as const;
+export type PatientAntecedentKind = (typeof PATIENT_ANTECEDENT_KINDS)[number];
 
 // Something the patient lived (#238): an entry of her history ("Antecedentes").
 // `occurred` is null when she does not know when.
-export interface PatientEvent {
+export interface PatientAntecedent {
   id: string;
   patientId: string;
-  kind: PatientEventKind;
+  kind: PatientAntecedentKind;
   description: string;
   occurred: PartialDate | null;
   createdAt: string;
@@ -19,8 +19,8 @@ export interface PatientEvent {
   annulledAt: string | null;
 }
 
-export interface PatientEventInput {
-  kind: PatientEventKind;
+export interface PatientAntecedentInput {
+  kind: PatientAntecedentKind;
   description: string;
   occurred: PartialDate | null;
 }

@@ -7,9 +7,9 @@ import {
   EVALUATION_SNAPSHOTS,
   EpisodeSnapshotV1,
   EvaluationSnapshotV1,
-  PATIENT_EVENT_SNAPSHOTS,
+  PATIENT_ANTECEDENT_SNAPSHOTS,
   PATIENT_SNAPSHOTS,
-  PatientEventSnapshotV1,
+  PatientAntecedentSnapshotV1,
   PatientSnapshotV1,
   PatientSnapshotV2,
   ENCOUNTER_SNAPSHOTS,
@@ -21,7 +21,7 @@ import {
   consentSnapshot,
   episodeSnapshot,
   evaluationSnapshot,
-  patientEventSnapshot,
+  patientAntecedentSnapshot,
   patientSnapshot,
 } from '../src/repositories/prisma/clinicalSnapshots';
 
@@ -88,8 +88,8 @@ const COVERAGE: Record<string, { projected: string[]; excluded: Record<string, s
     projected: fieldsOf(ConsentSnapshotV1),
     excluded: { id: IDENTITY, tenantId: IDENTITY, patientId: IDENTITY, createdAt: TIMESTAMP, updatedAt: TIMESTAMP },
   },
-  PatientEvent: {
-    projected: fieldsOf(PatientEventSnapshotV1),
+  PatientAntecedent: {
+    projected: fieldsOf(PatientAntecedentSnapshotV1),
     excluded: {
       id: IDENTITY,
       tenantId: IDENTITY,
@@ -217,12 +217,12 @@ const STORED: Stored[] = [
     stored: { signedAt: '2026-10-01T12:00:00.000Z', revokedAt: null },
   },
   {
-    name: 'patient event',
+    name: 'patient antecedent',
     version: 1,
-    schema: PatientEventSnapshotV1,
-    history: PATIENT_EVENT_SNAPSHOTS,
+    schema: PatientAntecedentSnapshotV1,
+    history: PATIENT_ANTECEDENT_SNAPSHOTS,
     build: () =>
-      patientEventSnapshot({
+      patientAntecedentSnapshot({
         kind: 'FRACTURE',
         description: 'Fractura de muñeca',
         occurredOn: new Date('2019-05-01T00:00:00.000Z'),
@@ -290,7 +290,7 @@ describe('history projections', () => {
       EPISODE_SNAPSHOTS,
       EVALUATION_SNAPSHOTS,
       CONSENT_SNAPSHOTS,
-      PATIENT_EVENT_SNAPSHOTS,
+      PATIENT_ANTECEDENT_SNAPSHOTS,
     ];
     for (const history of histories) {
       const versions = STORED.filter((s) => s.history === history).map((s) => s.version);

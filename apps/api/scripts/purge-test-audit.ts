@@ -53,7 +53,7 @@ async function main() {
     await tx.episodeRevision.deleteMany(clinicsOf);
     await tx.evaluationRevision.deleteMany(clinicsOf);
     await tx.consentRevision.deleteMany(clinicsOf);
-    await tx.patientEventRevision.deleteMany(clinicsOf);
+    await tx.patientAntecedentRevision.deleteMany(clinicsOf);
     const clinicalRows = await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     const platformRows = await tx.platformAuditLog.deleteMany({
       where: {

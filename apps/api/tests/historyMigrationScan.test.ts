@@ -14,7 +14,9 @@ const MIGRATIONS = path.join(__dirname, '..', 'prisma', 'migrations');
 const VERSIONED_TABLES = [
   'encounters',
   'encounter_blocks',
-  // The names before 20261118120000_rename_session_to_encounter.
+  'patient_antecedents',
+  // The names before 20261118120000_rename_session_to_encounter and
+  // 20261118130000_rename_patient_event_to_antecedent.
   'sessions',
   'session_episodes',
   'patients',
