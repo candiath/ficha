@@ -127,7 +127,7 @@ describe('GET /api/encounters: el listado global de la clínica', () => {
     const res = await auth(request(app).get('/api/encounters'));
     const item = res.body.data.find((s: { id: string }) => s.id === encounterConEpisodio);
 
-    expect(Object.keys(item).sort()).toEqual(['createdAt', 'id', 'patient', 'encounterDate', 'encounterType', 'updatedAt']);
+    expect(Object.keys(item).sort()).toEqual(['createdAt', 'encounterDate', 'encounterType', 'id', 'patient', 'updatedAt']);
     expect(item.patient).toEqual({ id: patient.id, fullName: 'Paciente Global' });
     expect(res.text).not.toMatch(/MKobs|MKresp|Dorsalgia/);
   });

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 // The audit maintenance switch stays out of the app (#186,
 // docs/specs/SPEC-audit-hardening.md §1). Its name may appear only in the
-// files listed below, and nowhere may it be set at encounter level or to
+// files listed below, and nowhere may it be set at session level or to
 // anything but the current transaction's id: a value that outlives its
 // transaction (through the pooler, to another request) must never match.
 
@@ -59,11 +59,11 @@ describe('the audit maintenance switch', () => {
     expect(found.filter((file) => !ALLOWED_FILES.has(file))).toEqual([]);
   });
 
-  it('is never set at encounter level, nor to anything but the transaction id', () => {
+  it('is never set at session level, nor to anything but the transaction id', () => {
     const misuses: string[] = [];
     for (const file of files) {
       const source = readFileSync(file, 'utf8');
-      if (ENCOUNTER_SET.test(source)) misuses.push(`${relative(file)}: SET`);
+      if (SESSION_SET.test(source)) misuses.push(`${relative(file)}: SET`);
       for (const [call, value, local] of source.matchAll(SET_CONFIG)) {
         if (value !== 'pg_current_xact_id()::text' || local.toLowerCase() !== 'true') {
           misuses.push(`${relative(file)}: ${call}`);
@@ -76,8 +76,8 @@ describe('the audit maintenance switch', () => {
   it('the scan sees what it must', () => {
     expect(files.map(relative)).toContain('apps/api/tests/helpers.ts');
     expect(files.map(relative)).toContain('.github/workflows/test.yml');
-    expect(ENCOUNTER_SET.test(`SET ${SWITCH} = 'x'`)).toBe(true);
-    expect(ENCOUNTER_SET.test(`RESET ${SWITCH}`)).toBe(false);
+    expect(SESSION_SET.test(`SET ${SWITCH} = 'x'`)).toBe(true);
+    expect(SESSION_SET.test(`RESET ${SWITCH}`)).toBe(false);
     const bad = `set_config('${SWITCH}', pg_current_xact_id()::text, false)`;
     expect([...bad.matchAll(SET_CONFIG)][0][2]).toBe('false');
   });

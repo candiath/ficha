@@ -166,7 +166,7 @@ describe('aislamiento de tenant en sesiones, pagos y alertas', () => {
     const res = await request(app)
       .post('/api/payments')
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ encounterId: session.body.data.id, packageId: packageB.id, baseAmountCents: 100 });
+      .send({ encounterId: encounter.body.data.id, packageId: packageB.id, baseAmountCents: 100 });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Paquete no encontrado' });
