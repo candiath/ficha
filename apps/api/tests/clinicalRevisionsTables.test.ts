@@ -15,6 +15,13 @@ import { fixture } from './fixtures';
 // episode, the evaluation, the consent and the patient antecedent
 // (SPEC-clinical-revisions.md §2, §6), written straight to the tables. The
 // encounter's are in encounterRevisionsTable.test.ts.
+// The name of a revision's key to its audit row. Prisma cuts a name longer
+// than Postgres' 63 bytes to 58 and adds "_fkey" (patient_antecedent_revisions).
+function auditLogKey(table: string): string {
+  const name = `${table}_tenant_id_patient_id_audit_log_id`;
+  return `${name.length > 58 ? name.slice(0, 58) : name}_fkey`;
+}
+
 describe('the revisions tables of the other five aggregates', () => {
   let clinic: TestClinic;
   let otherClinic: TestClinic;
@@ -167,7 +174,7 @@ describe('the revisions tables of the other five aggregates', () => {
       );
       await expectRestrictedDelete(
         inAuditMaintenance((tx) => tx.auditLog.delete({ where: { id: audit_log_id } })),
-        `${table}_tenant_id_patient_id_audit_log_id_fkey`,
+        auditLogKey(table),
       );
     });
 
@@ -178,7 +185,7 @@ describe('the revisions tables of the other five aggregates', () => {
       const ofOtherPatient = (await firstRevision(aggregate, other.id)).audit_log_id;
       const ofOtherClinic = (await firstRevision(aggregate, foreign.id)).audit_log_id;
 
-      const keyViolation = new RegExp(`${table}_tenant_id_patient_id_audit_log_id_fkey`);
+      const keyViolation = new RegExp(auditLogKey(table));
       await expect(insertRevision(aggregate, row, ofOtherPatient)).rejects.toThrow(keyViolation);
       await expect(insertRevision(aggregate, row, ofOtherClinic)).rejects.toThrow(keyViolation);
     });
