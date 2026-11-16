@@ -184,15 +184,15 @@ export default function EncounterFormModalWide({
   onOpenChange,
   patientId,
   episodeId,
-  encounter: loadedSession,
+  encounter: loadedEncounter,
   encounterType = 'SESSION',
   onSuccess,
   appointment,
 }: EncounterFormModalWideProps) {
   const queryClient = useQueryClient()
   // A 409 offers to reload: the version read then replaces the one that was opened.
-  const [reloadedSession, setReloadedSession] = useState<Encounter>()
-  const encounter = reloadedSession ?? loadedSession
+  const [reloadedEncounter, setReloadedEncounter] = useState<Encounter>()
+  const encounter = reloadedEncounter ?? loadedEncounter
   const isEditing = !!encounter
   const revision = useRevisionReason()
   // The API's message when someone else saved first; what was typed stays.
@@ -280,7 +280,7 @@ export default function EncounterFormModalWide({
 
   useEffect(() => {
     if (open) return
-    setReloadedSession(undefined)
+    setReloadedEncounter(undefined)
     setStaleMessage(null)
     revision.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on close only
@@ -424,7 +424,7 @@ export default function EncounterFormModalWide({
   const reloadMutation = useMutation({
     mutationFn: () => encounterApi.get(patientId, encounter!.id),
     onSuccess: (fresh) => {
-      setReloadedSession(fresh)
+      setReloadedEncounter(fresh)
       setStaleMessage(null)
       queryClient.invalidateQueries({ queryKey: encounterKeys.list(patientId) })
     },
