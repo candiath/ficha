@@ -5,7 +5,7 @@ export type PaymentMethod = 'CASH' | 'TRANSFER';
 export interface Payment {
   id: string;
   patientId: string;
-  sessionId: string;
+  encounterId: string;
   packageId: string | null;
   baseAmountCents: number;
   discountCents: number;
@@ -17,7 +17,7 @@ export interface Payment {
   createdAt: string;
   updatedAt: string;
   patient: { id: string; fullName: string };
-  session: { id: string; sessionDate: string; sessionType: string };
+  encounter: { id: string; encounterDate: string; encounterType: string };
   package: { id: string; name: string } | null;
 }
 

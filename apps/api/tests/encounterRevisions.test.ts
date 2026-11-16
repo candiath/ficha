@@ -6,8 +6,8 @@ import { prisma } from '../src/lib/prisma';
 import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
-// The write path of a session's versions (SPEC-clinical-revisions.md §5).
-describe('session revisions', () => {
+// The write path of an encounter's versions (SPEC-clinical-revisions.md §5).
+describe('encounter revisions', () => {
   let clinic: TestClinic;
   let user: User;
   let token: string;
@@ -19,20 +19,20 @@ describe('session revisions', () => {
   const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
-  const url = (id = '') => `/api/patients/${patientId}/sessions${id && `/${id}`}`;
+  const url = (id = '') => `/api/patients/${patientId}/encounters${id && `/${id}`}`;
   const post = (body: object) => auth(request(app).post(url())).send(body);
   const patch = (id: string, body: object) => auth(request(app).patch(url(id))).send({ ...REASON, ...body });
   const annul = (id: string) => auth(request(app).post(`${url(id)}/annul`)).send(REASON);
   const get = async (id: string) => (await auth(request(app).get(url(id)))).body.data;
 
-  const newSession = async (body: object = {}): Promise<string> => {
-    const res = await post({ sessionDate: new Date().toISOString(), episodes: [{ episodeId: episodeA, treatment: 'Inicial' }], ...body });
+  const newEncounter = async (body: object = {}): Promise<string> => {
+    const res = await post({ encounterDate: new Date().toISOString(), episodes: [{ episodeId: episodeA, treatment: 'Inicial' }], ...body });
     expect(res.status).toBe(201);
     return res.body.data.id as string;
   };
 
-  const revisions = (sessionId: string) =>
-    prisma.sessionRevision.findMany({ where: { sessionId }, orderBy: { version: 'asc' } });
+  const revisions = (encounterId: string) =>
+    prisma.encounterRevision.findMany({ where: { encounterId }, orderBy: { version: 'asc' } });
   const auditRows = (entityId: string) => prisma.auditLog.findMany({ where: { entityId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
 
   beforeAll(async () => {
@@ -59,18 +59,18 @@ describe('session revisions', () => {
     const where = { tenantId: clinic.tenantId };
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where });
-    await prisma.sessionEpisode.deleteMany({ where });
-    await prisma.session.deleteMany({ where });
+    await prisma.encounterBlock.deleteMany({ where });
+    await prisma.encounter.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
   });
 
   describe('creating', () => {
-    it('writes version 1 with the whole session, under its audit row', async () => {
-      const sessionDate = new Date().toISOString();
+    it('writes version 1 with the whole encounter, under its audit row', async () => {
+      const encounterDate = new Date().toISOString();
       const res = await post({
-        sessionDate,
+        encounterDate,
         episodes: [{ episodeId: episodeA, treatment: 'Cadena posterior', painScaleBefore: 7 }],
       });
 
@@ -88,13 +88,13 @@ describe('session revisions', () => {
         reasonNote: null,
         snapshot: {
           userId: user.id,
-          sessionType: 'SESSION',
-          sessionDate,
+          encounterType: 'SESSION',
+          encounterDate,
           observations: null,
           episodes: [
             {
               episodeId: episodeA,
-              preSessionState: null,
+              preEncounterState: null,
               treatment: 'Cadena posterior',
               painScaleBefore: 7,
               painScaleAfter: null,
@@ -104,11 +104,11 @@ describe('session revisions', () => {
           ],
         },
       });
-      expect(audit.action).toBe('SESSION_RECORDED');
+      expect(audit.action).toBe('ENCOUNTER_RECORDED');
     });
 
     it('links a note and a discharge to their own actions', async () => {
-      const note = await newSession({ sessionType: 'NOTE', episodes: [], observations: 'Llamó por teléfono' });
+      const note = await newEncounter({ encounterType: 'NOTE', episodes: [], observations: 'Llamó por teléfono' });
       expect((await auditRows(note))[0].action).toBe('NOTE_RECORDED');
       expect((await revisions(note))[0].snapshot).toMatchObject({ observations: 'Llamó por teléfono', episodes: [] });
     });
@@ -116,7 +116,7 @@ describe('session revisions', () => {
 
   describe('editing', () => {
     it('writes the next version with the new state, its audit row and its note', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
 
       const res = await patch(id, {
         reason: 'LATE_INFORMATION',
@@ -136,17 +136,17 @@ describe('session revisions', () => {
         reasonNote: 'Lo aclaró la paciente',
         snapshot: { episodes: [{ episodeId: episodeA, treatment: 'Corregido' }] },
       });
-      expect(audit.params).toEqual({ sessionType: 'SESSION', changedFields: ['treatment'], reason: 'LATE_INFORMATION' });
+      expect(audit.params).toEqual({ encounterType: 'SESSION', changedFields: ['treatment'], reason: 'LATE_INFORMATION' });
     });
 
     it('treats an empty note as none', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
       await patch(id, { reasonNote: '   ', episodes: [{ episodeId: episodeA, treatment: 'Otro' }] });
       expect((await revisions(id))[1].reasonNote).toBeNull();
     });
 
     it('shows a removed block in the next snapshot, and keeps it in the previous one', async () => {
-      const id = await newSession({
+      const id = await newEncounter({
         episodes: [
           { episodeId: episodeA, treatment: 'Espalda' },
           { episodeId: episodeB, treatment: 'Tobillo' },
@@ -162,13 +162,13 @@ describe('session revisions', () => {
     });
 
     it('keeps the blocks in episode order, however they were sent', async () => {
-      const id = await newSession({ episodes: [{ episodeId: episodeB }, { episodeId: episodeA }] });
+      const id = await newEncounter({ episodes: [{ episodeId: episodeB }, { episodeId: episodeA }] });
       const [first] = await revisions(id);
       expect((first.snapshot as { episodes: { episodeId: string }[] }).episodes.map((b) => b.episodeId)).toEqual([episodeA, episodeB]);
     });
 
     it('rejects a missing or unknown reason, and a malformed version', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
 
       const missing = await auth(request(app).patch(url(id))).send({ observations: 'x' });
       expect(missing.status).toBe(400);
@@ -183,11 +183,11 @@ describe('session revisions', () => {
 
   describe('a save that changes nothing', () => {
     it('answers 200 and writes no row, no audit row and no revision', async () => {
-      const id = await newSession({ observations: 'Igual' });
+      const id = await newEncounter({ observations: 'Igual' });
       const before = await get(id);
 
       const res = await patch(id, {
-        sessionDate: before.sessionDate,
+        encounterDate: before.encounterDate,
         observations: 'Igual',
         episodes: before.episodes,
       });
@@ -200,7 +200,7 @@ describe('session revisions', () => {
     });
 
     it('sees through the block order and an empty text', async () => {
-      const id = await newSession({
+      const id = await newEncounter({
         episodes: [
           { episodeId: episodeA, treatment: 'Uno' },
           { episodeId: episodeB, treatment: 'Dos' },
@@ -209,7 +209,7 @@ describe('session revisions', () => {
       const before = await get(id);
 
       const res = await patch(id, {
-        sessionDate: before.sessionDate,
+        encounterDate: before.encounterDate,
         observations: '   ',
         episodes: [...before.episodes].reverse(),
       });
@@ -219,7 +219,7 @@ describe('session revisions', () => {
     });
 
     it('matches a block sent with its episode id in uppercase, and keeps the fields it left out', async () => {
-      const id = await newSession({ episodes: [{ episodeId: episodeA, treatment: 'Igual', painScaleBefore: 6 }] });
+      const id = await newEncounter({ episodes: [{ episodeId: episodeA, treatment: 'Igual', painScaleBefore: 6 }] });
 
       const res = await patch(id, { episodes: [{ episodeId: episodeA.toUpperCase(), treatment: 'Igual' }] });
 
@@ -229,7 +229,7 @@ describe('session revisions', () => {
     });
 
     it('counts a real change after one, once', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
       await patch(id, {});
       await patch(id, { observations: 'Ahora sí' });
       await patch(id, { observations: 'Ahora sí' });
@@ -237,10 +237,10 @@ describe('session revisions', () => {
     });
   });
 
-  describe('a session from before revisions (version 0)', () => {
+  describe('an encounter from before revisions (version 0)', () => {
     it('is version 0 until its first edit, which writes version 1', async () => {
-      const { id } = await prisma.session.create({
-        data: { tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: new Date(), observations: 'Antigua', sessionType: 'NOTE' },
+      const { id } = await prisma.encounter.create({
+        data: { tenantId: clinic.tenantId, patientId, userId: user.id, encounterDate: new Date(), observations: 'Antigua', encounterType: 'NOTE' },
         select: { id: true },
       });
       expect((await get(id)).version).toBe(0);
@@ -256,8 +256,8 @@ describe('session revisions', () => {
   });
 
   describe('annulling', () => {
-    it('writes a version with the same content, under SESSION_ANNULLED', async () => {
-      const id = await newSession();
+    it('writes a version with the same content, under ENCOUNTER_ANNULLED', async () => {
+      const id = await newEncounter();
 
       expect((await annul(id)).status).toBe(204);
 
@@ -265,17 +265,17 @@ describe('session revisions', () => {
       const rows = await auditRows(id);
       expect(second).toMatchObject({ version: 2, auditLogId: rows[1].id });
       expect(second.snapshot).toEqual(first.snapshot);
-      expect(rows[1].action).toBe('SESSION_ANNULLED');
+      expect(rows[1].action).toBe('ENCOUNTER_ANNULLED');
     });
 
-    it('writes nothing for a session that was not annulled', async () => {
-      const id = await newSession({ payment: { baseAmountCents: 100 } });
-      await prisma.payment.updateMany({ where: { sessionId: id }, data: { status: 'PAID', paidAt: new Date(), method: 'CASH' } });
+    it('writes nothing for an encounter that was not annulled', async () => {
+      const id = await newEncounter({ payment: { baseAmountCents: 100 } });
+      await prisma.payment.updateMany({ where: { encounterId: id }, data: { status: 'PAID', paidAt: new Date(), method: 'CASH' } });
 
       expect((await annul(id)).status).toBe(409);
       expect(await revisions(id)).toHaveLength(1);
 
-      await prisma.payment.deleteMany({ where: { sessionId: id } });
+      await prisma.payment.deleteMany({ where: { encounterId: id } });
     });
   });
 
@@ -283,20 +283,20 @@ describe('session revisions', () => {
     // Postgres puts the failing row in the detail of a CHECK violation, which is
     // what a log must never repeat. NOT VALID: it only refuses new rows.
     it('rolls the edit back, and logs code, table and id with no clinical text', async () => {
-      const id = await newSession({ observations: 'Antes' });
+      const id = await newEncounter({ observations: 'Antes' });
       const logged = [vi.spyOn(console, 'error'), vi.spyOn(console, 'warn'), vi.spyOn(console, 'log')].map((spy) =>
         spy.mockImplementation(() => undefined),
       );
 
       await prisma.$executeRawUnsafe(
-        'ALTER TABLE session_revisions ADD CONSTRAINT test_refuses_every_revision CHECK (false) NOT VALID',
+        'ALTER TABLE encounter_revisions ADD CONSTRAINT test_refuses_every_revision CHECK (false) NOT VALID',
       );
       try {
         const res = await patch(id, { observations: 'MARCADOR-CLINICO', reasonNote: 'NOTA-CLINICA' });
         expect(res.status).toBe(500);
         expect(JSON.stringify(res.body)).not.toContain('MARCADOR');
       } finally {
-        await prisma.$executeRawUnsafe('ALTER TABLE session_revisions DROP CONSTRAINT test_refuses_every_revision');
+        await prisma.$executeRawUnsafe('ALTER TABLE encounter_revisions DROP CONSTRAINT test_refuses_every_revision');
       }
 
       expect((await get(id)).observations).toBe('Antes');
@@ -304,7 +304,7 @@ describe('session revisions', () => {
       expect(await revisions(id)).toHaveLength(1);
 
       const output = logged.flatMap((spy) => spy.mock.calls).map((call) => call.map(String).join(' ')).join('\n');
-      expect(output).toContain(`code=23514 table=session_revisions id=${id}`);
+      expect(output).toContain(`code=23514 table=encounter_revisions id=${id}`);
       expect(output).not.toContain('MARCADOR-CLINICO');
       expect(output).not.toContain('NOTA-CLINICA');
     });
@@ -312,7 +312,7 @@ describe('session revisions', () => {
 
   describe('stale edits', () => {
     it('answers 409 to a version that is not the latest, and writes nothing', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
       expect((await patch(id, { observations: 'Primera', expectedVersion: 1 })).status).toBe(200);
 
       const res = await patch(id, { observations: 'Pisada', expectedVersion: 1 });
@@ -325,13 +325,13 @@ describe('session revisions', () => {
     });
 
     it('answers 409 to a stale save even if it changes nothing', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
       await patch(id, { observations: 'Primera' });
       expect((await patch(id, { observations: 'Primera', expectedVersion: 1 })).status).toBe(409);
     });
 
     it('lets one of two concurrent edits of the same version through', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
 
       const results = await Promise.all([
         patch(id, { observations: 'Una', expectedVersion: 1 }),
@@ -346,7 +346,7 @@ describe('session revisions', () => {
     });
 
     it('without a version, makes consecutive versions of two concurrent edits: none is lost', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
 
       const results = await Promise.all([patch(id, { observations: 'Una' }), patch(id, { observations: 'Otra' })]);
 
@@ -357,8 +357,8 @@ describe('session revisions', () => {
       expect(texts.sort()).toEqual(['Otra', 'Una']);
     });
 
-    it('a concurrent edit and annulment take consecutive versions, or the edit finds no session', async () => {
-      const id = await newSession();
+    it('a concurrent edit and annulment take consecutive versions, or the edit finds no encounter', async () => {
+      const id = await newEncounter();
 
       const [edit, removal] = await Promise.all([
         patch(id, { observations: 'Editada' }),
@@ -372,7 +372,7 @@ describe('session revisions', () => {
   });
 
   it("carries the version in the patient's list", async () => {
-    const id = await newSession();
+    const id = await newEncounter();
     await patch(id, { observations: 'Editada' });
 
     const list = await auth(request(app).get(url()));

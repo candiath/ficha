@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge';
-import { SESSION_TYPE_CLASS, SESSION_TYPE_LABELS } from '@/lib/labels';
+import { ENCOUNTER_TYPE_CLASS, ENCOUNTER_TYPE_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
-import type { SessionType } from '@/types/session';
+import type { EncounterType } from '@/types/encounter';
 
 /**
  * Etiqueta de tipo de sesión — y nada cuando el tipo es el común.
@@ -11,17 +11,17 @@ import type { SessionType } from '@/types/session';
  * badge que aparece en el 95% de las filas no distingue nada, así que se
  * reserva para la excepción — una nota rápida o un alta.
  */
-export function SessionTypeBadge({
+export function EncounterTypeBadge({
   type,
   className,
 }: {
-  type: SessionType;
+  type: EncounterType;
   className?: string;
 }) {
   if (type === 'SESSION') return null;
   return (
-    <Badge variant="outline" className={cn(SESSION_TYPE_CLASS[type], className)}>
-      {SESSION_TYPE_LABELS[type]}
+    <Badge variant="outline" className={cn(ENCOUNTER_TYPE_CLASS[type], className)}>
+      {ENCOUNTER_TYPE_LABELS[type]}
     </Badge>
   );
 }

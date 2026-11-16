@@ -6,7 +6,7 @@ import type { Revision, RevisionSummary } from '@/types/revision';
 // `/revisions`; every query key hangs from the patient.
 export const revisionPaths = {
   patient: (patientId: string) => `/api/patients/${patientId}/revisions`,
-  session: (patientId: string, sessionId: string) => `/api/patients/${patientId}/sessions/${sessionId}/revisions`,
+  encounter: (patientId: string, encounterId: string) => `/api/patients/${patientId}/encounters/${encounterId}/revisions`,
   episode: (patientId: string, episodeId: string) => `/api/patients/${patientId}/episodes/${episodeId}/revisions`,
   evaluation: (patientId: string, episodeId: string) =>
     `/api/patients/${patientId}/episodes/${episodeId}/evaluation/revisions`,

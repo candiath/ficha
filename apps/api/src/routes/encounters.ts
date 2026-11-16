@@ -3,42 +3,42 @@ import { z } from 'zod';
 import { revisionReasonFields, revisionReasonSchema } from '@ficha/shared';
 import { ExpectedVersionSchema, STALE_EDIT } from '../lib/staleEdit';
 import { CentsSchema, IdSchema, OptionalIdSchema, OptionalTextSchema } from '../lib/validation';
-import { sessionDateField } from '../lib/clinicalDate';
+import { encounterDateField } from '../lib/clinicalDate';
 import {
   appointmentRepo,
   episodeRepo,
   packageRepo,
-  sessionRepo,
+  encounterRepo,
 } from '../repositories';
 import { idParam } from '../middlewares/idParam';
 import { revisionRoutes } from './revisions';
 
 type ParentParams = { patientId: string };
-type SessionParams = { patientId: string; sessionId: string };
+type EncounterParams = { patientId: string; encounterId: string };
 
-// Montado en /api/patients/:patientId/sessions
-// Las queries (incluida la transacción del POST) viven en sessionRepo; acá
+// Montado en /api/patients/:patientId/encounters
+// Las queries (incluida la transacción del POST) viven en encounterRepo; acá
 // queda el HTTP: validar el body, exigir que paciente, episodios y paquete
 // sean del tenant, y registrar auditoría.
 const router = Router({ mergeParams: true });
-router.param('sessionId', idParam('Sesión no encontrada'));
+router.param('encounterId', idParam('Sesión no encontrada'));
 
 // Base SIN defaults: es el que se deriva para el PATCH.
 //
 // Un .default() acá sobrevive al .partial() de abajo (Zod no lo anula), y en un
 // update deja de significar "valor inicial si no lo mandás" para significar
-// "pisá lo que había": un PATCH sin sessionType convertía un alta en sesión
+// "pisá lo que había": un PATCH sin encounterType convertía un alta en sesión
 // común, y uno sin episodios los desvinculaba todos (issue #97). Los defaults
-// son del alta, así que viven solo en SessionCreateSchema.
+// son del alta, así que viven solo en EncounterCreateSchema.
 
 const painField = z.number().int().min(0).max(10).optional().nullable();
 
-// A session can treat several episodes, one block each with everything
-// clinical about that problem (#238). Which episodes a session may have (at
+// An encounter can treat several episodes, one block each with everything
+// clinical about that problem (#238). Which episodes an encounter may have (at
 // least one; a discharge, exactly one) is the repository's rule.
 const EpisodeBlockSchema = z.strictObject({
   episodeId: IdSchema,
-  preSessionState: OptionalTextSchema,
+  preEncounterState: OptionalTextSchema,
   treatment: OptionalTextSchema,
   painScaleBefore: painField,
   painScaleAfter: painField,
@@ -52,12 +52,12 @@ const episodesField = z
     error: 'Un episodio aparece una sola vez en la sesión',
   });
 
-// Strict: a field that is not the session's is a 400, not dropped in silence.
+// Strict: a field that is not the encounter's is a 400, not dropped in silence.
 // A client still sending the pain at the top level, as before the blocks,
 // would otherwise lose it without noticing.
-const SessionFieldsSchema = z.strictObject({
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
-  sessionDate: sessionDateField,
+const EncounterFieldsSchema = z.strictObject({
+  encounterType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
+  encounterDate: encounterDateField,
   episodes: episodesField,
   // The text of a note, which may belong to no episode.
   observations: OptionalTextSchema,
@@ -66,10 +66,10 @@ const SessionFieldsSchema = z.strictObject({
 // El POST acepta además el cobro de la sesión para crear todo en una sola
 // transacción. Antes el frontend encadenaba varios requests y un fallo
 // intermedio dejaba sesiones sin pago (invisibles en Cobros).
-const SessionCreateSchema = SessionFieldsSchema.extend({
+const EncounterCreateSchema = EncounterFieldsSchema.extend({
   // Los defaults del alta: una sesión sin tipo es SESSION, y sin episodios
   // no aborda ninguno (válido solo para una nota).
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
+  encounterType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']).default('SESSION'),
   episodes: episodesField.optional().default([]),
   // El turno del que sale esta sesión, cuando se registra desde la agenda.
   // Va acá y no en un endpoint aparte para que sesión, cobro y vínculo se
@@ -99,7 +99,7 @@ const SessionCreateSchema = SessionFieldsSchema.extend({
 //
 // An edit is a correction of the record: it says why (SPEC-clinical-revisions.md
 // §4), and which version it was made over, so a stale form gets a 409.
-const SessionUpdateSchema = SessionFieldsSchema.partial()
+const EncounterUpdateSchema = EncounterFieldsSchema.partial()
   .extend({
     payment: z.unknown().optional(),
     expectedVersion: ExpectedVersionSchema,
@@ -107,53 +107,53 @@ const SessionUpdateSchema = SessionFieldsSchema.partial()
   })
   .transform(({ payment: _payment, ...fields }) => fields);
 
-// A session, a clinical note and a discharge are three facts for the clinic,
+// An encounter, a clinical note and a discharge are three facts for the clinic,
 // so three audit actions (SPEC-audit-structured-entries.md §1).
 const RECORDED_ACTION = {
-  SESSION: 'SESSION_RECORDED',
+  SESSION: 'ENCOUNTER_RECORDED',
   NOTE: 'NOTE_RECORDED',
   DISCHARGE: 'DISCHARGE_RECORDED',
 } as const;
 
-const SessionFiltersSchema = z.object({ episodeId: IdSchema.optional() });
+const EncounterFiltersSchema = z.object({ episodeId: IdSchema.optional() });
 
-// The repository's rule on which episodes a session may have, in words.
+// The repository's rule on which episodes an encounter may have, in words.
 const EPISODE_RULE_ERROR = {
   needs_episode: 'Una sesión aborda al menos un episodio',
   discharge_needs_one_episode: 'Un alta cierra exactamente un episodio',
 } as const;
 
-// GET /api/patients/:patientId/sessions
+// GET /api/patients/:patientId/encounters
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
-  const { episodeId } = SessionFiltersSchema.parse(req.query);
+  const { episodeId } = EncounterFiltersSchema.parse(req.query);
 
-  const sessions = await sessionRepo.listByPatient(req.context, req.params.patientId, {
+  const encounters = await encounterRepo.listByPatient(req.context, req.params.patientId, {
     episodeId,
   });
 
-  res.json({ data: sessions });
+  res.json({ data: encounters });
 });
 
-// GET /api/patients/:patientId/sessions/:sessionId
-router.get<SessionParams>('/:sessionId', async (req, res) => {
-  const session = await sessionRepo.getById(
+// GET /api/patients/:patientId/encounters/:encounterId
+router.get<EncounterParams>('/:encounterId', async (req, res) => {
+  const encounter = await encounterRepo.getById(
     req.context,
     req.params.patientId,
-    req.params.sessionId,
+    req.params.encounterId,
   );
 
-  if (!session) {
+  if (!encounter) {
     res.status(404).json({ error: 'Sesión no encontrada' });
     return;
   }
 
-  res.json({ data: session });
+  res.json({ data: encounter });
 });
 
-// POST /api/patients/:patientId/sessions
+// POST /api/patients/:patientId/encounters
 router.post<ParentParams>('/', async (req, res) => {
-  const { episodes, payment, appointmentId, ...rest } = SessionCreateSchema.parse(req.body);
+  const { episodes, payment, appointmentId, ...rest } = EncounterCreateSchema.parse(req.body);
 
   // Los episodios vienen del body: sin esta verificación, una sesión podría
   // abordar episodios de otro paciente o de otro tenant. La base además lo
@@ -188,18 +188,18 @@ router.post<ParentParams>('/', async (req, res) => {
   // Sesión, cobro, cierre de episodios y vínculo con el turno se crean en una
   // sola transacción dentro del repo: si algo falla no queda una sesión a
   // medias.
-  const result = await sessionRepo.create(
+  const result = await encounterRepo.create(
     req.context,
     req.params.patientId,
     {
       ...rest,
-      sessionDate: new Date(rest.sessionDate),
+      encounterDate: new Date(rest.encounterDate),
       episodes,
       payment,
       appointmentId,
     },
     (s) => ({
-      action: RECORDED_ACTION[s.sessionType],
+      action: RECORDED_ACTION[s.encounterType],
       patientId: req.params.patientId,
       entityId: s.id,
       params: {},
@@ -221,12 +221,12 @@ router.post<ParentParams>('/', async (req, res) => {
     return;
   }
 
-  res.status(201).json({ data: result.session });
+  res.status(201).json({ data: result.encounter });
 });
 
-// PATCH /api/patients/:patientId/sessions/:sessionId
-router.patch<SessionParams>('/:sessionId', async (req, res) => {
-  const { episodes, sessionDate, reason, ...rest } = SessionUpdateSchema.parse(req.body);
+// PATCH /api/patients/:patientId/encounters/:encounterId
+router.patch<EncounterParams>('/:encounterId', async (req, res) => {
+  const { episodes, encounterDate, reason, ...rest } = EncounterUpdateSchema.parse(req.body);
 
   // !== undefined y no truthy: [] es un valor (una nota sin episodios) y hay
   // que distinguirlo de "el campo no vino".
@@ -242,20 +242,20 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     return;
   }
 
-  const result = await sessionRepo.update(
+  const result = await encounterRepo.update(
     req.context,
     req.params.patientId,
-    req.params.sessionId,
+    req.params.encounterId,
     {
       ...rest,
-      ...(sessionDate ? { sessionDate: new Date(sessionDate) } : {}),
+      ...(encounterDate ? { encounterDate: new Date(encounterDate) } : {}),
       episodes,
     },
     (s, changedFields) => ({
-      action: 'SESSION_UPDATED',
+      action: 'ENCOUNTER_UPDATED',
       patientId: req.params.patientId,
       entityId: s.id,
-      params: { sessionType: s.sessionType, changedFields, reason },
+      params: { encounterType: s.encounterType, changedFields, reason },
     }),
   );
 
@@ -273,28 +273,28 @@ router.patch<SessionParams>('/:sessionId', async (req, res) => {
     return;
   }
 
-  res.json({ data: result.session });
+  res.json({ data: result.encounter });
 });
 
-// POST /api/patients/:patientId/sessions/:sessionId/annul
-// A session entered by mistake is annulled, never deleted
+// POST /api/patients/:patientId/encounters/:encounterId/annul
+// An encounter entered by mistake is annulled, never deleted
 // (SPEC-clinical-revisions.md §8): it stays in the record struck through, with
 // its content in its history, and leaves the lists and the metrics. The reason
 // is required, like every correction's. There is no restore route yet.
-router.post<SessionParams>('/:sessionId/annul', async (req, res) => {
+router.post<EncounterParams>('/:encounterId/annul', async (req, res) => {
   const { reason, reasonNote } = revisionReasonSchema.parse(req.body);
 
-  const result = await sessionRepo.annul(
+  const result = await encounterRepo.annul(
     req.context,
     req.params.patientId,
-    req.params.sessionId,
+    req.params.encounterId,
     { reasonNote },
     (s, removedPayment) => ({
-      action: 'SESSION_ANNULLED',
+      action: 'ENCOUNTER_ANNULLED',
       patientId: req.params.patientId,
       entityId: s.id,
       params: {
-        sessionType: s.sessionType,
+        encounterType: s.encounterType,
         reason,
         payment: removedPayment === null ? 'NONE' : `${removedPayment}_DELETED`,
       },
@@ -321,6 +321,6 @@ router.post<SessionParams>('/:sessionId/annul', async (req, res) => {
 });
 
 // Its history (SPEC-clinical-revisions.md §7).
-router.use('/:sessionId/revisions', revisionRoutes((p) => ({ aggregate: 'session', sessionId: p.sessionId }), 'Sesión no encontrada'));
+router.use('/:encounterId/revisions', revisionRoutes((p) => ({ aggregate: 'encounter', encounterId: p.encounterId }), 'Sesión no encontrada'));
 
 export default router;

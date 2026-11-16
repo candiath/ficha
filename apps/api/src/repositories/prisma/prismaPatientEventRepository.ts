@@ -18,7 +18,7 @@ import { patientEventSnapshot } from './clinicalSnapshots';
 
 // Every method works on current events: an annulled one is not edited, and
 // only the patient's record (listByPatient) lists it, struck through, as with
-// sessions (SPEC-clinical-revisions.md §8). deletedAt is the annulment's date.
+// encounters (SPEC-clinical-revisions.md §8). deletedAt is the annulment's date.
 const CURRENT = { deletedAt: null } as const;
 
 const eventSelect = {

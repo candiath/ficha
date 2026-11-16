@@ -12,6 +12,9 @@ import { describe, expect, it } from 'vitest';
 const MIGRATIONS = path.join(__dirname, '..', 'prisma', 'migrations');
 
 const VERSIONED_TABLES = [
+  'encounters',
+  'encounter_blocks',
+  // The names before 20261118120000_rename_session_to_encounter.
   'sessions',
   'session_episodes',
   'patients',

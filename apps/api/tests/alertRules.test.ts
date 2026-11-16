@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AlertType, User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
+import { createEncounterFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic, splitName } from './helpers';
 import { fixture } from './fixtures';
 
 // El motor de alertas corre al LEER las alertas, no por un cron: el plan free
@@ -28,9 +28,9 @@ describe('motor de alertas', () => {
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -64,11 +64,11 @@ describe('motor de alertas', () => {
       select: { id: true },
     });
     if (diasAtras !== null) {
-      await createSessionFixture({
+      await createEncounterFixture({
         tenantId: clinic.tenantId,
         patientId,
         userId: user.id,
-        sessionDate: haceDias(diasAtras),
+        encounterDate: haceDias(diasAtras),
         blocks: [{ episodeId: episodio.id }],
       });
     }
@@ -137,17 +137,17 @@ describe('motor de alertas', () => {
 
   /** Una sesión con su cobro pendiente, fechada `diasAtras`. */
   async function crearCobroPendiente(patientId: string, diasAtras: number, monto: number) {
-    const sesion = await createSessionFixture({
+    const sesion = await createEncounterFixture({
       tenantId: clinic.tenantId,
       patientId,
       userId: user.id,
-      sessionDate: haceDias(diasAtras),
+      encounterDate: haceDias(diasAtras),
     });
     await prisma.payment.create({
       data: {
         tenantId: clinic.tenantId,
         patientId,
-        sessionId: sesion.id,
+        encounterId: sesion.id,
         baseAmountCents: monto,
         discountCents: 0,
         finalAmountCents: monto,

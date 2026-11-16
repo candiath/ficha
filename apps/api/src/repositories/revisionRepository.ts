@@ -12,7 +12,7 @@ import type { TenantContext } from './types';
 // most one.
 export type RevisionTarget =
   | { aggregate: 'patient' }
-  | { aggregate: 'session'; sessionId: string }
+  | { aggregate: 'encounter'; encounterId: string }
   | { aggregate: 'episode'; episodeId: string }
   | { aggregate: 'evaluation'; episodeId: string }
   | { aggregate: 'consent' }
@@ -53,7 +53,7 @@ export interface RevisionDTO extends RevisionSummaryDTO {
 // ─── Port ────────────────────────────────────────────────────────────────────
 
 // Both read only aggregates of a patient of the clinic that exists and is not
-// deleted. A soft-deleted session or event keeps its history readable: its
+// deleted. A soft-deleted encounter or event keeps its history readable: its
 // deletion is one of its versions.
 export interface RevisionRepository {
   // Newest first. null: no such aggregate under this patient (or the patient is

@@ -24,13 +24,13 @@ describe('validación de fecha de sesión en la API', () => {
   let patient: { id: string };
   let episode: { id: string };
 
-  const url = () => `/api/patients/${patient.id}/sessions`;
+  const url = () => `/api/patients/${patient.id}/encounters`;
 
-  function postWithDate(sessionDate: unknown) {
+  function postWithDate(encounterDate: unknown) {
     return request(app)
       .post(url())
       .set('Authorization', `Bearer ${token}`)
-      .send({ sessionDate, episodes: [{ episodeId: episode.id }] });
+      .send({ encounterDate, episodes: [{ episodeId: episode.id }] });
   }
 
   beforeAll(async () => {
@@ -41,7 +41,7 @@ describe('validación de fecha de sesión en la API', () => {
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Fecha' },
       select: { id: true },
     });
-    // Every session treats an episode (#238).
+    // Every encounter treats an episode (#238).
     episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
@@ -51,9 +51,9 @@ describe('validación de fecha de sesión en la API', () => {
   afterAll(async () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -65,7 +65,7 @@ describe('validación de fecha de sesión en la API', () => {
     const res = await postWithDate('');
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Datos inválidos');
-    expect(res.body.details.sessionDate).toBeDefined();
+    expect(res.body.details.encounterDate).toBeDefined();
   });
 
   it('rechaza un string ilegible', async () => {
@@ -92,7 +92,7 @@ describe('validación de fecha de sesión en la API', () => {
     const res = await postWithDate(farFuture);
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Datos inválidos');
-    expect(res.body.details.sessionDate).toBeDefined();
+    expect(res.body.details.encounterDate).toBeDefined();
   });
 
   // --- Piso de pasado: lo viejo es válido, lo imposible no ---
@@ -110,7 +110,7 @@ describe('validación de fecha de sesión en la API', () => {
     const res = await postWithDate('1025-07-19T10:00:00.000Z');
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Datos inválidos');
-    expect(res.body.details.sessionDate).toBeDefined();
+    expect(res.body.details.encounterDate).toBeDefined();
   });
 });
 

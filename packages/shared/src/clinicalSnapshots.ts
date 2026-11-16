@@ -78,9 +78,9 @@ export function snapshotHistory<Current>(steps: readonly [SnapshotStep, ...Snaps
 const text = z.string().nullable();
 const pain = z.number().int().nullable();
 
-const SessionBlockSnapshotV1 = z.strictObject({
+const EncounterBlockSnapshotV1 = z.strictObject({
   episodeId: z.string(),
-  preSessionState: text,
+  preEncounterState: text,
   treatment: text,
   painScaleBefore: pain,
   painScaleAfter: pain,
@@ -90,18 +90,18 @@ const SessionBlockSnapshotV1 = z.strictObject({
 
 // The attending therapist, the type, the date (ISO), the text of a note, and
 // the blocks ordered by episode.
-export const SessionSnapshotV1 = z.strictObject({
+export const EncounterSnapshotV1 = z.strictObject({
   userId: z.string(),
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
-  sessionDate: z.string(),
+  encounterType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
+  encounterDate: z.string(),
   observations: text,
-  episodes: z.array(SessionBlockSnapshotV1),
+  episodes: z.array(EncounterBlockSnapshotV1),
 });
 
-export type SessionSnapshotV1 = z.infer<typeof SessionSnapshotV1>;
+export type EncounterSnapshotV1 = z.infer<typeof EncounterSnapshotV1>;
 
-export const SESSION_SNAPSHOTS = snapshotHistory<SessionSnapshotV1>([{ schema: SessionSnapshotV1 }]);
-export const SESSION_SNAPSHOT_VERSION = SESSION_SNAPSHOTS.version;
+export const ENCOUNTER_SNAPSHOTS = snapshotHistory<EncounterSnapshotV1>([{ schema: EncounterSnapshotV1 }]);
+export const ENCOUNTER_SNAPSHOT_VERSION = ENCOUNTER_SNAPSHOTS.version;
 
 // ─── Patient ────────────────────────────────────────────────────────────────
 

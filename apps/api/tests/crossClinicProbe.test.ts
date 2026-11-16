@@ -30,12 +30,12 @@ const BODY_FIRST: Record<string, string> = {
 // runs: each must then answer 404.
 const VALID_BODY: Record<string, object> = {
   'PATCH /api/users/:id': { isActive: true },
-  'PATCH /api/patients/:patientId/sessions/:sessionId': {
+  'PATCH /api/patients/:patientId/encounters/:encounterId': {
     expectedVersion: 1,
     reason: 'DATA_ENTRY_ERROR',
     observations: 'Sonda',
   },
-  'POST /api/patients/:patientId/sessions/:sessionId/annul': { reason: 'DATA_ENTRY_ERROR' },
+  'POST /api/patients/:patientId/encounters/:encounterId/annul': { reason: 'DATA_ENTRY_ERROR' },
   'PATCH /api/patients/:patientId/events/:eventId': {
     expectedVersion: 1,
     reason: 'DATA_ENTRY_ERROR',

@@ -103,7 +103,7 @@ describe('errorHandler fallback', () => {
     new Prisma.PrismaClientKnownRequestError(`Failing row contains (${MARKER})`, {
       code: 'P2004',
       clientVersion,
-      meta: { modelName: 'SessionEpisode', database_error: MARKER },
+      meta: { modelName: 'EncounterBlock', database_error: MARKER },
     }),
     new Prisma.PrismaClientUnknownRequestError(`new row violates check constraint: (${MARKER})`, { clientVersion }),
     new Prisma.PrismaClientValidationError(`Invalid invocation: { observations: "${MARKER}" }`, { clientVersion }),
@@ -114,7 +114,7 @@ describe('errorHandler fallback', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const json = vi.fn();
     const res = { status: vi.fn(() => ({ json })) } as unknown as Response;
-    const req = { method: 'PATCH', baseUrl: '/api/patients/:patientId/sessions', route: { path: '/:id' } } as unknown as Request;
+    const req = { method: 'PATCH', baseUrl: '/api/patients/:patientId/encounters', route: { path: '/:id' } } as unknown as Request;
 
     errorHandler(err, req, res, vi.fn() as NextFunction);
 
@@ -122,7 +122,7 @@ describe('errorHandler fallback', () => {
     const logged = JSON.stringify(consoleError.mock.calls[0]);
     expect(logged).not.toContain(MARKER);
     expect(logged).toContain(err.name);
-    expect(logged).toContain('PATCH /api/patients/:patientId/sessions/:id');
+    expect(logged).toContain('PATCH /api/patients/:patientId/encounters/:id');
     expect(JSON.stringify(json.mock.calls)).not.toContain(MARKER);
   });
 });

@@ -36,7 +36,7 @@ const ENTITY_CONFIG: Record<
       'bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400',
     label: 'Evaluación',
   },
-  SESSION: {
+  ENCOUNTER: {
     icon: Stethoscope,
     color:
       'bg-teal-100 text-teal-600 dark:bg-teal-950 dark:text-teal-400',

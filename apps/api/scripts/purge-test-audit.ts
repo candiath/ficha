@@ -48,7 +48,7 @@ async function main() {
 
     // Revisions first: each one restricts deleting the audit row it names.
     const clinicsOf = { where: { tenantId: { in: tenantIds } } };
-    await tx.sessionRevision.deleteMany(clinicsOf);
+    await tx.encounterRevision.deleteMany(clinicsOf);
     await tx.patientRevision.deleteMany(clinicsOf);
     await tx.episodeRevision.deleteMany(clinicsOf);
     await tx.evaluationRevision.deleteMany(clinicsOf);

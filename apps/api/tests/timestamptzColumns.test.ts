@@ -71,9 +71,9 @@ describe('every DateTime is a timestamptz(3), or a calendar date', () => {
   });
 });
 
-// What the type changes: SQL that is not Prisma's, in a session whose zone is
+// What the type changes: SQL that is not Prisma's, in an encounter whose zone is
 // not UTC (Neon's and the test container's are UTC, which hides the problem).
-describe('a timestamp means the same instant in every session', () => {
+describe('a timestamp means the same instant in every encounter', () => {
   const key = `timestamptz-test:${randomUUID()}`;
 
   afterAll(async () => {

@@ -22,8 +22,8 @@ const auditSelect = {
 const summarySelect = { version: true, auditLog: { select: auditSelect } } as const;
 const fullSelect = { ...summarySelect, schemaVersion: true, snapshot: true, reasonNote: true } as const;
 
-type SummaryRow = Prisma.SessionRevisionGetPayload<{ select: typeof summarySelect }>;
-type FullRow = Prisma.SessionRevisionGetPayload<{ select: typeof fullSelect }>;
+type SummaryRow = Prisma.EncounterRevisionGetPayload<{ select: typeof summarySelect }>;
+type FullRow = Prisma.EncounterRevisionGetPayload<{ select: typeof fullSelect }>;
 
 // The patient must exist and not be deleted, and the aggregate must be hers:
 // one query each, with the condition in the where (CLAUDE.md, repositories).
@@ -34,9 +34,9 @@ async function aggregateExists(db: Db, patientId: string, target: RevisionTarget
   switch (target.aggregate) {
     case 'patient':
       return (await db.patient.findFirst({ where: { id: patientId, ...livePatient }, select })) !== null;
-    case 'session':
+    case 'encounter':
       return (
-        (await db.session.findFirst({ where: { id: target.sessionId, patientId, patient: livePatient }, select })) !==
+        (await db.encounter.findFirst({ where: { id: target.encounterId, patientId, patient: livePatient }, select })) !==
         null
       );
     case 'episode':
@@ -76,8 +76,8 @@ function revisions(db: Db, patientId: string, target: RevisionTarget): { delegat
   switch (target.aggregate) {
     case 'patient':
       return of(db.patientRevision, {});
-    case 'session':
-      return of(db.sessionRevision, { sessionId: target.sessionId });
+    case 'encounter':
+      return of(db.encounterRevision, { encounterId: target.encounterId });
     case 'episode':
       return of(db.episodeRevision, { episodeId: target.episodeId });
     case 'evaluation':

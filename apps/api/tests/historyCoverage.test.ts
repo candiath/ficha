@@ -12,13 +12,13 @@ import { HISTORY_COVERAGE } from './historyCoverageManifest';
 const REPOSITORIES = path.join(__dirname, '..', 'src', 'repositories', 'prisma');
 
 const VERB = '(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)';
-const DELEGATES = '(?:session|sessionEpisode|patient|clinicalEpisode|initialEvaluation|informedConsent|patientEvent)';
-const RELATIONS = '(?:sessions?|episodes|patients?|clinicalEpisodes?|initialEvaluations?|informedConsent|events)';
-const TABLES = '(?:sessions|session_episodes|patients|clinical_episodes|initial_evaluations|informed_consents|patient_events)';
+const DELEGATES = '(?:encounter|encounterBlock|patient|clinicalEpisode|initialEvaluation|informedConsent|patientEvent)';
+const RELATIONS = '(?:encounters?|episodes|patients?|clinicalEpisodes?|initialEvaluations?|informedConsent|events)';
+const TABLES = '(?:encounters|encounter_blocks|patients|clinical_episodes|initial_evaluations|informed_consents|patient_events)';
 const WRITES = [
-  // A delegate call: tx.session.update(…), db.patientEvent.updateMany(…).
+  // A delegate call: tx.encounter.update(…), db.patientEvent.updateMany(…).
   new RegExp(String.raw`\.${DELEGATES}\s*\.\s*${VERB}\b`),
-  // A nested write through a relation: sessions: { update: … }, episodes: { create: … }.
+  // A nested write through a relation: encounters: { update: … }, episodes: { create: … }.
   new RegExp(String.raw`\b${RELATIONS}:\s*\{\s*${VERB}\b`),
   // Raw SQL.
   new RegExp(String.raw`\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?${TABLES}\b`, 'i'),
@@ -69,16 +69,16 @@ describe('history coverage', () => {
   it('would notice a new write method', () => {
     const source = `export const repo = {
   async read(ctx) {
-    return db.session.findMany();
+    return db.encounter.findMany();
   },
   async sneak(ctx) {
-    await tx.sessionEpisode.deleteMany({ where });
+    await tx.encounterBlock.deleteMany({ where });
   },
   async nested(ctx) {
-    await tx.patient.update({ data: { sessions: { update: {} } } });
+    await tx.patient.update({ data: { encounters: { update: {} } } });
   },
   async raw(ctx) {
-    await tx.$executeRaw\`UPDATE sessions SET observations = null\`;
+    await tx.$executeRaw\`UPDATE encounters SET observations = null\`;
   },
   async event(ctx) {
     await db.patientEvent.updateMany({ where, data });

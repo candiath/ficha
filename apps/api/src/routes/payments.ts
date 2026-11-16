@@ -21,7 +21,7 @@ router.param('id', idParam('Pago no encontrado'));
 // que incluye patient.fullName, exponía el nombre ajeno).
 const PaymentCreateSchema = z
   .object({
-    sessionId: IdSchema,
+    encounterId: IdSchema,
     packageId: OptionalIdSchema,
     baseAmountCents: CentsSchema,
     discountCents: CentsSchema.default(0),
@@ -82,7 +82,7 @@ router.post('/', async (req, res) => {
 
   if (!result.ok) {
     switch (result.reason) {
-      case 'session_not_found':
+      case 'encounter_not_found':
         res.status(404).json({ error: 'Sesión no encontrada' });
         return;
       case 'package_not_found':

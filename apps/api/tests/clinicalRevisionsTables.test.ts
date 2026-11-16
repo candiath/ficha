@@ -14,13 +14,13 @@ import { fixture } from './fixtures';
 // What the database itself guarantees about the versions of the patient, the
 // episode, the evaluation, the consent and the patient event
 // (SPEC-clinical-revisions.md §2, §6), written straight to the tables. The
-// session's are in sessionRevisionsTable.test.ts.
+// encounter's are in encounterRevisionsTable.test.ts.
 describe('the revisions tables of the other five aggregates', () => {
   let clinic: TestClinic;
   let otherClinic: TestClinic;
 
   interface Aggregate {
-    table: Exclude<RevisionTable, 'session_revisions'>;
+    table: Exclude<RevisionTable, 'encounter_revisions'>;
     // The aggregate's own table, and the revision's column naming it.
     parent: string;
     key: string;

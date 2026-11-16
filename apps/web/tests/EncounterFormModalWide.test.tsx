@@ -3,19 +3,19 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import SessionFormModalWide from '@/components/sessions/SessionFormModalWide';
+import EncounterFormModalWide from '@/components/encounters/EncounterFormModalWide';
 import { episodeApi } from '@/services/episodes';
 import { ApiError } from '@/lib/api';
-import { sessionApi } from '@/services/sessions';
+import { encounterApi } from '@/services/encounters';
 import type { ClinicalEpisode } from '@/types/episode';
-import type { Session } from '@/types/session';
+import type { Encounter } from '@/types/encounter';
 import { chooseReason } from './revisionReason';
 
 // A visit can treat several problems (#238): the form lets the therapist tick
 // every open episode, each with its own block, and sends the whole set.
-vi.mock('@/services/sessions', () => ({
-  sessionKeys: { list: (patientId: string) => ['patients', patientId, 'sessions'] },
-  sessionApi: { create: vi.fn(), update: vi.fn(), annul: vi.fn(), get: vi.fn() },
+vi.mock('@/services/encounters', () => ({
+  encounterKeys: { list: (patientId: string) => ['patients', patientId, 'encounters'] },
+  encounterApi: { create: vi.fn(), update: vi.fn(), annul: vi.fn(), get: vi.fn() },
 }));
 
 vi.mock('@/services/episodes', () => ({
@@ -32,9 +32,9 @@ vi.mock('@/services/payments', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const create = vi.mocked(sessionApi.create);
-const update = vi.mocked(sessionApi.update);
-const annul = vi.mocked(sessionApi.annul);
+const create = vi.mocked(encounterApi.create);
+const update = vi.mocked(encounterApi.update);
+const annul = vi.mocked(encounterApi.annul);
 
 const episode = (id: string, mainComplaint: string, status: ClinicalEpisode['status'] = 'ACTIVE'): ClinicalEpisode => ({
   id,
@@ -51,12 +51,12 @@ const BACK = episode('e-back', 'Lumbalgia');
 const ANKLE = episode('e-ankle', 'Esguince de tobillo');
 const SHOULDER = episode('e-shoulder', 'Tendinitis de hombro', 'DISCHARGED');
 
-function renderForm(props: Partial<Parameters<typeof SessionFormModalWide>[0]> = {}) {
+function renderForm(props: Partial<Parameters<typeof EncounterFormModalWide>[0]> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <SessionFormModalWide open onOpenChange={() => {}} patientId="p1" {...props} />
+        <EncounterFormModalWide open onOpenChange={() => {}} patientId="p1" {...props} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -67,12 +67,12 @@ beforeEach(() => {
   vi.mocked(episodeApi.list).mockResolvedValue([BACK, ANKLE, SHOULDER]);
 });
 
-const session: Session = {
+const encounter: Encounter = {
   id: 's1',
   version: 3,
   patientId: 'p1',
-  sessionType: 'SESSION',
-  sessionDate: '2026-02-24T13:00:00.000Z',
+  encounterType: 'SESSION',
+  encounterDate: '2026-02-24T13:00:00.000Z',
   observations: null,
   createdAt: '2026-02-24T13:00:00.000Z',
   updatedAt: '2026-02-24T13:00:00.000Z',
@@ -80,7 +80,7 @@ const session: Session = {
   episodes: [
     {
       episodeId: BACK.id,
-      preSessionState: null,
+      preEncounterState: null,
       treatment: 'Rana en el suelo',
       painScaleBefore: 5,
       painScaleAfter: 2,
@@ -89,7 +89,7 @@ const session: Session = {
     },
     {
       episodeId: ANKLE.id,
-      preSessionState: 'Llega rengueando',
+      preEncounterState: 'Llega rengueando',
       treatment: 'Drenaje',
       painScaleBefore: 6,
       painScaleAfter: 4,
@@ -99,11 +99,11 @@ const session: Session = {
   ],
 };
 
-describe('SessionFormModalWide: revisions', () => {
+describe('EncounterFormModalWide: revisions', () => {
   const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
 
   async function editAndSave() {
-    renderForm({ session });
+    renderForm({ encounter });
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
     await chooseReason(undefined, dialog);
@@ -112,8 +112,8 @@ describe('SessionFormModalWide: revisions', () => {
   }
 
   it('an edit sends the version it loaded, the chosen reason and the note', async () => {
-    update.mockResolvedValue(session);
-    renderForm({ session });
+    update.mockResolvedValue(encounter);
+    renderForm({ encounter });
     const dialog = await screen.findByRole('dialog');
 
     expect(within(dialog).getByRole('combobox', { name: 'Motivo del cambio' })).toHaveTextContent('Elegí un motivo');
@@ -131,16 +131,16 @@ describe('SessionFormModalWide: revisions', () => {
   });
 
   it('an untouched field still sends the loaded value', async () => {
-    update.mockResolvedValue(session);
+    update.mockResolvedValue(encounter);
     await editAndSave();
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
-    expect(update.mock.calls[0][2].sessionDate).toBe(session.sessionDate);
+    expect(update.mock.calls[0][2].encounterDate).toBe(encounter.encounterDate);
     expect(update.mock.calls[0][2].episodes?.[0]).toMatchObject({ treatment: 'Rana en el suelo', painScaleBefore: 5 });
   });
 
-  it('a new session asks for no reason and sends neither', async () => {
-    create.mockResolvedValue({} as Session);
+  it('a new encounter asks for no reason and sends neither', async () => {
+    create.mockResolvedValue({} as Encounter);
     renderForm({ episodeId: BACK.id });
     const dialog = await screen.findByRole('dialog');
 
@@ -155,10 +155,10 @@ describe('SessionFormModalWide: revisions', () => {
 
   it('a 409 shows the message, keeps what was typed, and reloads on request', async () => {
     update.mockRejectedValue(new ApiError(STALE, 409, { error: STALE }));
-    vi.mocked(sessionApi.get).mockResolvedValue({
-      ...session,
+    vi.mocked(encounterApi.get).mockResolvedValue({
+      ...encounter,
       version: 4,
-      episodes: [{ ...session.episodes[1], treatment: 'Lo que guardó la otra persona' }],
+      episodes: [{ ...encounter.episodes[1], treatment: 'Lo que guardó la otra persona' }],
     });
     const dialog = await editAndSave();
 
@@ -171,7 +171,7 @@ describe('SessionFormModalWide: revisions', () => {
     expect(await within(dialog).findByDisplayValue('Lo que guardó la otra persona')).toBeInTheDocument();
     expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
 
-    update.mockResolvedValue(session);
+    update.mockResolvedValue(encounter);
     await userEvent.type(within(dialog).getByDisplayValue('Lo que guardó la otra persona'), ' y más');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar sesión' }));
     await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
@@ -179,9 +179,9 @@ describe('SessionFormModalWide: revisions', () => {
   });
 });
 
-describe('SessionFormModalWide: annulling', () => {
+describe('EncounterFormModalWide: annulling', () => {
   async function openAnnul() {
-    renderForm({ session });
+    renderForm({ encounter });
     const form = await screen.findByRole('dialog');
     expect(within(form).queryByRole('button', { name: 'Eliminar' })).toBeNull();
     await userEvent.click(within(form).getByRole('button', { name: 'Anular' }));
@@ -205,7 +205,7 @@ describe('SessionFormModalWide: annulling', () => {
     expect(annul).toHaveBeenCalledWith('p1', 's1', { reason: 'DATA_ENTRY_ERROR', reasonNote: 'Cargada en la paciente equivocada' });
   });
 
-  it("shows the API's message when the session is paid", async () => {
+  it("shows the API's message when the encounter is paid", async () => {
     const { toast } = await import('sonner');
     const PAID = 'La sesión tiene un cobro ya pagado. Revertí el cobro antes de anularla.';
     annul.mockRejectedValue(new ApiError(PAID, 409, { error: PAID }));
@@ -217,9 +217,9 @@ describe('SessionFormModalWide: annulling', () => {
   });
 });
 
-describe('SessionFormModalWide: several motives', () => {
+describe('EncounterFormModalWide: several motives', () => {
   it('offers every open episode, not the closed ones, and sends one block per ticked motive', async () => {
-    create.mockResolvedValue({} as Session);
+    create.mockResolvedValue({} as Encounter);
     renderForm({ episodeId: BACK.id });
     const dialog = await screen.findByRole('dialog');
 
@@ -236,7 +236,7 @@ describe('SessionFormModalWide: several motives', () => {
     expect(create.mock.calls[0][1].episodes.map((b) => b.episodeId)).toEqual([BACK.id, ANKLE.id]);
   });
 
-  it('refuses a session without a motive', async () => {
+  it('refuses an encounter without a motive', async () => {
     renderForm({ episodeId: BACK.id });
     const dialog = await screen.findByRole('dialog');
 
@@ -249,8 +249,8 @@ describe('SessionFormModalWide: several motives', () => {
   });
 
   it('an edit keeps the other block as it was loaded', async () => {
-    update.mockResolvedValue(session);
-    renderForm({ session });
+    update.mockResolvedValue(encounter);
+    renderForm({ encounter });
     const dialog = await screen.findByRole('dialog');
 
     await userEvent.type(within(dialog).getByDisplayValue('Drenaje'), ' y movilidad');
@@ -262,7 +262,7 @@ describe('SessionFormModalWide: several motives', () => {
     expect(update.mock.calls[0][2].episodes).toEqual([
       {
         episodeId: BACK.id,
-        preSessionState: '',
+        preEncounterState: '',
         treatment: 'Rana en el suelo',
         painScaleBefore: 5,
         painScaleAfter: 2,
@@ -271,7 +271,7 @@ describe('SessionFormModalWide: several motives', () => {
       },
       {
         episodeId: ANKLE.id,
-        preSessionState: 'Llega rengueando',
+        preEncounterState: 'Llega rengueando',
         treatment: 'Drenaje y movilidad',
         painScaleBefore: 6,
         painScaleAfter: 4,

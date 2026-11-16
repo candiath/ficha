@@ -7,7 +7,7 @@ import {
   PaymentStatus,
   PlatformAction,
   PlatformAuditEntity,
-  SessionType,
+  EncounterType,
   UserRole,
 } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
@@ -25,8 +25,8 @@ import {
   AUDIT_PAYMENT_STATUSES,
   AUDIT_REVISION_REASONS,
   AUDIT_ROLES,
-  AUDIT_SESSION_FIELDS,
-  AUDIT_SESSION_TYPES,
+  AUDIT_ENCOUNTER_FIELDS,
+  AUDIT_ENCOUNTER_TYPES,
   type AuditActionDef,
   auditActionLabel,
   auditEntryProblem,
@@ -76,7 +76,7 @@ describe('the audit catalog matches the schema', () => {
   // The catalog's lists may hold more (a value the domain dropped keeps its
   // label for the rows that name it), never fewer.
   it.each([
-    ['SessionType', SessionType, AUDIT_SESSION_TYPES],
+    ['EncounterType', EncounterType, AUDIT_ENCOUNTER_TYPES],
     ['PaymentStatus', PaymentStatus, AUDIT_PAYMENT_STATUSES],
     ['UserRole', UserRole, AUDIT_ROLES],
     ['PatientEventKind', PatientEventKind, AUDIT_PATIENT_EVENT_KINDS],
@@ -96,7 +96,7 @@ describe('the audit catalog matches the schema', () => {
     for (const fields of [
       AUDIT_PATIENT_FIELDS,
       AUDIT_EVALUATION_FIELDS,
-      AUDIT_SESSION_FIELDS,
+      AUDIT_ENCOUNTER_FIELDS,
       AUDIT_PAYMENT_FIELDS,
       AUDIT_PATIENT_EVENT_FIELDS,
       AUDIT_EPISODE_FIELDS,
@@ -108,7 +108,7 @@ describe('the audit catalog matches the schema', () => {
 
   it('every code value is upper case, with no three digits in a row', () => {
     for (const values of [
-      AUDIT_SESSION_TYPES,
+      AUDIT_ENCOUNTER_TYPES,
       AUDIT_PAYMENT_STATUSES,
       AUDIT_ROLES,
       AUDIT_PATIENT_EVENT_KINDS,
@@ -174,8 +174,8 @@ describe('writing is strict', () => {
 describe('reading is lenient', () => {
   it('drops what it does not know, parameter by parameter', () => {
     expect(
-      readAuditParams('audit_logs', 'SESSION_UPDATED', {
-        sessionType: 'FUTURE_TYPE',
+      readAuditParams('audit_logs', 'ENCOUNTER_UPDATED', {
+        encounterType: 'FUTURE_TYPE',
         changedFields: ['painScaleAfter', 'futureField'],
         extra: 'x',
       }),
@@ -183,7 +183,7 @@ describe('reading is lenient', () => {
   });
 
   it('reads anything that is not an object as no parameters', () => {
-    for (const raw of [null, 'x', 3, ['a']]) expect(readAuditParams('audit_logs', 'SESSION_UPDATED', raw)).toEqual({});
+    for (const raw of [null, 'x', 3, ['a']]) expect(readAuditParams('audit_logs', 'ENCOUNTER_UPDATED', raw)).toEqual({});
   });
 
   it('every action has a sentence with none of its parameters', () => {

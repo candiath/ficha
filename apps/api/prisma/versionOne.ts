@@ -16,7 +16,7 @@ import {
   EVALUATION_SNAPSHOT_VERSION,
   PATIENT_EVENT_SNAPSHOT_VERSION,
   PATIENT_SNAPSHOT_VERSION,
-  SESSION_SNAPSHOT_VERSION,
+  ENCOUNTER_SNAPSHOT_VERSION,
 } from '@ficha/shared';
 import {
   consentSnapshot,
@@ -25,7 +25,7 @@ import {
   patientEventSnapshot,
   patientSnapshot,
 } from '../src/repositories/prisma/clinicalSnapshots';
-import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
+import { encounterSnapshot } from '../src/repositories/prisma/encounterSnapshot';
 
 // Version 1 of a clinical aggregate written straight to the database, by the
 // seed and the test fixtures (tests/fixtures.ts): a SYSTEM audit row of its
@@ -130,26 +130,26 @@ export async function patientEventVersionOne(tx: Tx, row: PatientEvent): Promise
   });
 }
 
-// The columns a session's snapshot is built from, blocks included.
-export const sessionSnapshotSelect = {
+// The columns an encounter's snapshot is built from, blocks included.
+export const encounterSnapshotSelect = {
   id: true,
   tenantId: true,
   patientId: true,
   userId: true,
-  sessionType: true,
-  sessionDate: true,
+  encounterType: true,
+  encounterDate: true,
   observations: true,
   episodes: { orderBy: { episodeId: 'asc' } },
-} as const satisfies Prisma.SessionSelect;
+} as const satisfies Prisma.EncounterSelect;
 
-type SessionRows = Prisma.SessionGetPayload<{ select: typeof sessionSnapshotSelect }>;
+type EncounterRows = Prisma.EncounterGetPayload<{ select: typeof encounterSnapshotSelect }>;
 
-const SESSION_CREATED = { SESSION: 'SESSION_RECORDED', NOTE: 'NOTE_RECORDED', DISCHARGE: 'DISCHARGE_RECORDED' } as const;
+const ENCOUNTER_CREATED = { SESSION: 'ENCOUNTER_RECORDED', NOTE: 'NOTE_RECORDED', DISCHARGE: 'DISCHARGE_RECORDED' } as const;
 
-export async function sessionVersionOne(tx: Tx, row: SessionRows): Promise<void> {
-  const auditLogId = await creationRow(tx, row, SESSION_CREATED[row.sessionType], {});
-  await tx.sessionRevision.create({
-    data: { ...revisionFields(row, auditLogId, SESSION_SNAPSHOT_VERSION, sessionSnapshot(row)), sessionId: row.id },
+export async function encounterVersionOne(tx: Tx, row: EncounterRows): Promise<void> {
+  const auditLogId = await creationRow(tx, row, ENCOUNTER_CREATED[row.encounterType], {});
+  await tx.encounterRevision.create({
+    data: { ...revisionFields(row, auditLogId, ENCOUNTER_SNAPSHOT_VERSION, encounterSnapshot(row)), encounterId: row.id },
   });
 }
 
@@ -184,9 +184,9 @@ export async function versionUnversioned(prisma: PrismaClient, tenantId: string)
       async (tx, id) => patientEventVersionOne(tx, await tx.patientEvent.findUniqueOrThrow({ where: { id } })),
     ],
     [
-      await prisma.session.findMany({ where: unversioned, ...pick }),
+      await prisma.encounter.findMany({ where: unversioned, ...pick }),
       async (tx, id) =>
-        sessionVersionOne(tx, await tx.session.findUniqueOrThrow({ where: { id }, select: sessionSnapshotSelect })),
+        encounterVersionOne(tx, await tx.encounter.findUniqueOrThrow({ where: { id }, select: encounterSnapshotSelect })),
     ],
   ];
 

@@ -104,20 +104,20 @@ describe('audit rows are append-only', () => {
     }
   });
 
-  it("stamps the database's current time, whatever the caller sent or the session's time zone", async () => {
-    // In a session whose time zone is not UTC (Neon's default is UTC, which
-    // would hide a stamp that followed the session's zone).
+  it("stamps the database's current time, whatever the caller sent or the encounter's time zone", async () => {
+    // In an encounter whose time zone is not UTC (Neon's default is UTC, which
+    // would hide a stamp that followed the encounter's zone).
     const { id } = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SET LOCAL TimeZone = 'America/Argentina/Buenos_Aires'`;
       return tx.auditLog.create({ data: row({ createdAt: new Date('2020-01-01T00:00:00Z') }), select: { id: true } });
     });
 
-    // Two instants (created_at is timestamptz): no session's zone enters.
+    // Two instants (created_at is timestamptz): no encounter's zone enters.
     const [stored] = await prisma.$queryRaw<{ age: number }[]>`
       SELECT extract(epoch FROM now() - created_at)::float8 AS age
       FROM audit_logs WHERE id = ${id}::uuid`;
     // now() is the start of this query's transaction, a moment after the
-    // insert: the age is small. A stamp that followed the session's zone would
+    // insert: the age is small. A stamp that followed the encounter's zone would
     // be three hours off, and the caller's date six years.
     expect(Math.abs(stored.age)).toBeLessThan(60);
   });
@@ -200,7 +200,7 @@ describe('maintenance needs the flag and a switch tied to the transaction', () =
     ).rejects.toThrow(APPEND_ONLY);
   });
 
-  it('ignores a switch set at session level', async () => {
+  it('ignores a switch set at encounter level', async () => {
     await refill();
     // The value is the id of this statement's own transaction: right for it,
     // wrong for every later one.
@@ -243,11 +243,11 @@ describe('maintenance needs the flag and a switch tied to the transaction', () =
   });
 });
 
-// A session on an audit row is a real session of its author when the row is
-// written (spec §1 and §3). A null session still passes: the code that
+// An encounter on an audit row is a real encounter of its author when the row is
+// written (spec §1 and §3). A null encounter still passes: the code that
 // predates #186 writes none.
-describe("the session on an audit row is its author's", () => {
-  const NOT_HERS = /audit row names a session that is not its author's/;
+describe("the encounter on an audit row is its author's", () => {
+  const NOT_HERS = /audit row names an encounter that is not its author's/;
   let clinic: TestClinic;
   let author: User;
   let colleague: User;
@@ -262,7 +262,7 @@ describe("the session on an audit row is its author's", () => {
     ({ authSessionId: authorSession } = await createTestAuthSession(author));
     ({ authSessionId: colleagueSession } = await createTestAuthSession(colleague));
     ({ id: patientId } = await fixture.patient.create({
-      data: { tenantId: clinic.tenantId, firstName: 'Session Checked', lastName: 'Patient' },
+      data: { tenantId: clinic.tenantId, firstName: 'Encounter Checked', lastName: 'Patient' },
       select: { id: true },
     }));
   });
@@ -284,18 +284,18 @@ describe("the session on an audit row is its author's", () => {
     action: 'PATIENT_DELETED' as const,
   });
 
-  it("accepts the author's own session, or none", async () => {
+  it("accepts the author's own encounter, or none", async () => {
     await expect(prisma.auditLog.create({ data: row(author.id, authorSession) })).resolves.toBeTruthy();
     await expect(prisma.auditLog.create({ data: row(author.id, null) })).resolves.toBeTruthy();
   });
 
-  it("rejects a colleague's session", async () => {
+  it("rejects a colleague's encounter", async () => {
     await expect(prisma.auditLog.create({ data: row(author.id, colleagueSession) })).rejects.toThrow(
       NOT_HERS,
     );
   });
 
-  it('rejects a session that does not exist, or one with no author', async () => {
+  it('rejects an encounter that does not exist, or one with no author', async () => {
     await expect(prisma.auditLog.create({ data: row(author.id, randomUUID()) })).rejects.toThrow(NOT_HERS);
     await expect(prisma.auditLog.create({ data: row(null, authorSession) })).rejects.toThrow(NOT_HERS);
   });
@@ -454,7 +454,7 @@ describe('audit-guards.sql', () => {
     const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
     // No created_at, so no stamp trigger.
     const REVISION_TABLES = [
-      'session_revisions',
+      'encounter_revisions',
       'patient_revisions',
       'episode_revisions',
       'evaluation_revisions',
@@ -534,18 +534,18 @@ describe('audit-guards.sql', () => {
     });
 
     it('notices a disabled trigger on a revisions table', async () => {
-      await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions DISABLE TRIGGER session_revisions_append_only');
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.encounter_revisions DISABLE TRIGGER encounter_revisions_append_only');
       try {
-        expect(await failure()).toMatch(/trigger session_revisions_append_only on session_revisions is not enabled/);
+        expect(await failure()).toMatch(/trigger encounter_revisions_append_only on encounter_revisions is not enabled/);
       } finally {
-        await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions ENABLE TRIGGER session_revisions_append_only');
+        await db.$executeRawUnsafe('ALTER TABLE pg_temp.encounter_revisions ENABLE TRIGGER encounter_revisions_append_only');
       }
     });
 
     it('notices a revisions table that lost its keys', async () => {
       // LIKE copies no foreign keys.
       expect(await failure()).toMatch(
-        /foreign key session_revisions_tenant_id_patient_id_audit_log_id_fkey on session_revisions is missing or changed/,
+        /foreign key encounter_revisions_tenant_id_patient_id_audit_log_id_fkey on encounter_revisions is missing or changed/,
       );
     });
 

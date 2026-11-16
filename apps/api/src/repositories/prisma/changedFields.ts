@@ -15,7 +15,7 @@ import { Prisma } from '@prisma/client';
 // A closed list: the name goes into raw SQL.
 const LOCKABLE = {
   patients: 'id',
-  sessions: 'id',
+  encounters: 'id',
   payments: 'id',
   initial_evaluations: 'episode_id',
   clinical_episodes: 'id',

@@ -89,8 +89,8 @@ export const prismaUserRepository: UserRepository = {
           ...(input.isActive !== undefined && { isActive: input.isActive }),
         },
       });
-      // Deactivating closes the user's sessions in the same transaction, so
-      // reactivating her later does not bring old sessions back. Only after
+      // Deactivating closes the user's encounters in the same transaction, so
+      // reactivating her later does not bring old encounters back. Only after
       // the scoped write succeeded: that is what proves the user is in this
       // clinic (auth_sessions has no tenantId of its own to scope by).
       if (count > 0 && input.isActive === false) {

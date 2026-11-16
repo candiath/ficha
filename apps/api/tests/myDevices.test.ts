@@ -13,7 +13,7 @@ import { hashOpaqueToken } from '../src/lib/opaqueToken';
 import { createTestClinic, createTestToken, TEST_PASSWORD, type TestClinic } from './helpers';
 
 // Session lifetime and the session list (docs/specs/SPEC-my-sessions.md).
-// Sessions are placed on the timeline directly in the DB (lastUsedAt, ttlMs)
+// Encounters are placed on the timeline directly in the DB (lastUsedAt, ttlMs)
 // instead of waiting for real time to pass.
 
 const MINUTE = 60 * 1000;

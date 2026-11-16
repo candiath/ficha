@@ -16,7 +16,7 @@ export const prisma =
     // Interactive transactions ($transaction(async (tx) => ...)) are closed by
     // Prisma after 5 s by default, and the commit then fails with P2028. Each
     // query inside one is a round-trip to Neon, so a multi-step write (a
-    // session with its payment, episodes, appointment and audit row) crossed
+    // encounter with its payment, episodes, appointment and audit row) crossed
     // 5 s from a CI runner with high latency. 10 s leaves room for that
     // without letting a stuck transaction hold its connection for long.
     // Applies to every interactive transaction, including those made through

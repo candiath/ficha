@@ -31,7 +31,7 @@ describe('cobros: montos coherentes', () => {
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Cobros' },
       select: { id: true },
     });
-    // Every session treats an episode (#238).
+    // Every encounter treats an episode (#238).
     episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
@@ -42,9 +42,9 @@ describe('cobros: montos coherentes', () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -53,9 +53,9 @@ describe('cobros: montos coherentes', () => {
   /** Crea una sesión con su cobro y devuelve el cobro. */
   async function crearCobro(baseAmountCents: number, discountCents = 0) {
     const sesion = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       payment: { baseAmountCents, discountCents },
     });
@@ -63,7 +63,7 @@ describe('cobros: montos coherentes', () => {
 
     const cobros = await auth(request(app).get(`/api/payments?patientId=${patient.id}`));
     return cobros.body.data.find(
-      (p: { sessionId: string }) => p.sessionId === sesion.body.data.id,
+      (p: { encounterId: string }) => p.encounterId === sesion.body.data.id,
     );
   }
 
@@ -71,9 +71,9 @@ describe('cobros: montos coherentes', () => {
   // still sends pesos, and is refused instead of rounded.
   it('refuses an amount that is not a whole number of cents', async () => {
     const sesion = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       payment: { baseAmountCents: 1234.5 },
     });
@@ -89,9 +89,9 @@ describe('cobros: montos coherentes', () => {
 
   it('rechaza al crear un cobro con descuento mayor al monto base', async () => {
     const sesion = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       payment: { baseAmountCents: 10000, discountCents: 15000 },
     });

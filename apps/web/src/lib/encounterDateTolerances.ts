@@ -3,11 +3,11 @@
  *
  * Hoy son valores fijos. El día que exista persistencia y un modelo de
  * preferencias por usuario, esto se reemplaza por algo tipo
- * `useSessionDateTolerances()` que lea el perfil del médico y caiga a
- * DEFAULT_SESSION_DATE_TOLERANCES cuando falte. Los consumidores no cambian:
- * `getSessionDateWarnings(value, tolerances)` recibe el objeto ya resuelto.
+ * `useEncounterDateTolerances()` que lea el perfil del médico y caiga a
+ * DEFAULT_ENCOUNTER_DATE_TOLERANCES cuando falte. Los consumidores no cambian:
+ * `getEncounterDateWarnings(value, tolerances)` recibe el objeto ya resuelto.
  */
-export interface SessionDateTolerances {
+export interface EncounterDateTolerances {
   /** Margen a futuro permitido SIN advertir, en ms. Ej: registrar 16:00 siendo 15:55. */
   futureToleranceMs: number
   /** A partir de cuánto en el pasado se advierte un registro tardío, en ms. */
@@ -22,7 +22,7 @@ const DAY_MS = 24 * 60 * MINUTE_MS
 //   estando 15:55, sin advertir por un adelanto normal.
 // - 1 día para avisar de registro tardío: el médico puede cargar sesiones
 //   horas después de atender sin molestias; recién pasado un día se avisa.
-export const DEFAULT_SESSION_DATE_TOLERANCES: SessionDateTolerances = {
+export const DEFAULT_ENCOUNTER_DATE_TOLERANCES: EncounterDateTolerances = {
   futureToleranceMs: 15 * MINUTE_MS,
   pastWarnThresholdMs: 1 * DAY_MS,
 }
@@ -32,14 +32,14 @@ export const DEFAULT_SESSION_DATE_TOLERANCES: SessionDateTolerances = {
  *
  * Hoy devuelve los valores fijos. Cuando exista el modelo de preferencias, acá
  * adentro se lee el perfil del médico (AuthContext / react-query) y se hace
- * merge sobre DEFAULT_SESSION_DATE_TOLERANCES para los campos que falten.
+ * merge sobre DEFAULT_ENCOUNTER_DATE_TOLERANCES para los campos que falten.
  * La firma no cambia, así que ningún consumidor se entera.
  *
  * Es un hook (y no una función común) a propósito: la implementación futura
  * necesita leer contexto/queries, y eso sólo puede hacerse desde un hook.
  */
-export function useSessionDateTolerances(): SessionDateTolerances {
-  return DEFAULT_SESSION_DATE_TOLERANCES
+export function useEncounterDateTolerances(): EncounterDateTolerances {
+  return DEFAULT_ENCOUNTER_DATE_TOLERANCES
 }
 
 /**
@@ -47,9 +47,9 @@ export function useSessionDateTolerances(): SessionDateTolerances {
  * Función pura: recibe las tolerancias ya resueltas (hoy una constante, mañana
  * la preferencia del usuario) y devuelve mensajes (vacío = todo ok).
  */
-export function getSessionDateWarnings(
+export function getEncounterDateWarnings(
   value: string,
-  tolerances: SessionDateTolerances,
+  tolerances: EncounterDateTolerances,
 ): string[] {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return []

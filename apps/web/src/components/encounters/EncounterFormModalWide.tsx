@@ -44,42 +44,42 @@ import type { AppointmentListItem } from '@ficha/shared'
 import { appointmentKeys } from '@/services/appointments'
 import { centsToInput, parsePesos } from '@/lib/money'
 import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
-import { sessionApi, sessionKeys } from '@/services/sessions'
+import { encounterApi, encounterKeys } from '@/services/encounters'
 import { episodeApi, episodeKeys } from '@/services/episodes'
-import { globalSessionKeys } from '@/services/globalSessions'
-import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge'
+import { globalEncounterKeys } from '@/services/globalEncounters'
+import { EncounterTypeBadge } from '@/components/encounters/EncounterTypeBadge'
 import {
-  getSessionDateWarnings,
-  useSessionDateTolerances,
-} from '@/lib/sessionDateTolerances'
+  getEncounterDateWarnings,
+  useEncounterDateTolerances,
+} from '@/lib/encounterDateTolerances'
 import { toLocalDateTimeInput } from '@/lib/utils'
-import type { Session, SessionEpisodeBlock, SessionType } from '@/types/session'
+import type { Encounter, EncounterBlock, EncounterType } from '@/types/encounter'
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog'
 import AnnulDialog from '@/components/patients/AnnulDialog'
 import { ApiError } from '@/lib/api'
 import type { AnnulData } from '@/types/patient'
-import { renderSessionSnapshot } from '@/lib/revisionRows'
+import { renderEncounterSnapshot } from '@/lib/revisionRows'
 import { revisionPaths } from '@/services/revisions'
 
 const schema = z.object({
-  sessionDate: z
+  encounterDate: z
     .string()
     .min(1, 'La fecha es requerida')
     .superRefine((value, ctx) => {
       // Sólo error DURO: la fecha debe ser parseable. Lo demás (futuro,
-      // pasado lejano) son advertencias blandas -> ver getSessionDateWarnings.
+      // pasado lejano) son advertencias blandas -> ver getEncounterDateWarnings.
       if (Number.isNaN(new Date(value).getTime())) {
         ctx.addIssue({ code: 'custom', message: 'La fecha no es válida' })
       }
     }),
   // The text of a note: everything clinical about a problem is in its block.
   observations: z.string(),
-  // One block per problem the session treats (#238): everything clinical about
+  // One block per problem the encounter treats (#238): everything clinical about
   // that problem. The form edits the whole set; the API stores it as sent.
   blocks: z.array(
     z.object({
       episodeId: z.string(),
-      preSessionState: z.string(),
+      preEncounterState: z.string(),
       treatment: z.string(),
       painScaleBefore: z.number().min(0).max(10).nullable(),
       painScaleAfter: z.number().min(0).max(10).nullable(),
@@ -99,7 +99,7 @@ type BlockValues = FormValues['blocks'][number]
 function emptyBlock(episodeId: string): BlockValues {
   return {
     episodeId,
-    preSessionState: '',
+    preEncounterState: '',
     treatment: '',
     painScaleBefore: null,
     painScaleAfter: null,
@@ -108,10 +108,10 @@ function emptyBlock(episodeId: string): BlockValues {
   }
 }
 
-function blockValues(block: SessionEpisodeBlock): BlockValues {
+function blockValues(block: EncounterBlock): BlockValues {
   return {
     episodeId: block.episodeId,
-    preSessionState: block.preSessionState ?? '',
+    preEncounterState: block.preEncounterState ?? '',
     treatment: block.treatment ?? '',
     painScaleBefore: block.painScaleBefore,
     painScaleAfter: block.painScaleAfter,
@@ -120,16 +120,16 @@ function blockValues(block: SessionEpisodeBlock): BlockValues {
   }
 }
 
-interface SessionFormModalWideProps {
+interface EncounterFormModalWideProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   patientId: string
   episodeId?: string
-  session?: Session
+  encounter?: Encounter
   /** Tipo de la sesión a crear. No se elige en el modal: lo fija quien lo abre
    *  ('DISCHARGE' desde "Registrar alta"). Al editar se ignora: el PATCH no
-   *  manda sessionType, así una sesión conserva el tipo con el que nació. */
-  sessionType?: SessionType
+   *  manda encounterType, así una sesión conserva el tipo con el que nació. */
+  encounterType?: EncounterType
   /** Se invoca tras guardar con éxito. Útil, p. ej., para resetear la paginación
    *  cuando se crea una sesión nueva (queda en la página 1). */
   onSuccess?: () => void
@@ -179,25 +179,25 @@ function DirtyFieldItem({
   )
 }
 
-export default function SessionFormModalWide({
+export default function EncounterFormModalWide({
   open,
   onOpenChange,
   patientId,
   episodeId,
-  session: loadedSession,
-  sessionType = 'SESSION',
+  encounter: loadedSession,
+  encounterType = 'SESSION',
   onSuccess,
   appointment,
-}: SessionFormModalWideProps) {
+}: EncounterFormModalWideProps) {
   const queryClient = useQueryClient()
   // A 409 offers to reload: the version read then replaces the one that was opened.
-  const [reloadedSession, setReloadedSession] = useState<Session>()
-  const session = reloadedSession ?? loadedSession
-  const isEditing = !!session
+  const [reloadedSession, setReloadedSession] = useState<Encounter>()
+  const encounter = reloadedSession ?? loadedSession
+  const isEditing = !!encounter
   const revision = useRevisionReason()
   // The API's message when someone else saved first; what was typed stays.
   const [staleMessage, setStaleMessage] = useState<string | null>(null)
-  const dateTolerances = useSessionDateTolerances()
+  const dateTolerances = useEncounterDateTolerances()
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [showAnnul, setShowAnnul] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -211,12 +211,12 @@ export default function SessionFormModalWide({
   // crear arranca con el episodio en el que está parado el usuario; al editar,
   // con los que la sesión ya tiene. Se pueden sumar los episodios abiertos del
   // paciente, y los que la sesión ya trataba aunque hoy estén cerrados.
-  const effectiveType = isEditing ? session.sessionType : sessionType
+  const effectiveType = isEditing ? encounter.encounterType : encounterType
   // Un alta cierra el episodio desde el que se abrió: su motivo no se cambia.
   const motivesFixed = effectiveType === 'DISCHARGE'
   const initialEpisodeIds = useMemo(
-    () => new Set(isEditing ? session.episodes.map((b) => b.episodeId) : episodeId ? [episodeId] : []),
-    [isEditing, session, episodeId],
+    () => new Set(isEditing ? encounter.episodes.map((b) => b.episodeId) : episodeId ? [episodeId] : []),
+    [isEditing, encounter, episodeId],
   )
   const selectableEpisodes = episodes.filter(
     (ep) => ep.status === 'ACTIVE' || initialEpisodeIds.has(ep.id),
@@ -250,7 +250,7 @@ export default function SessionFormModalWide({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      sessionDate: toLocalDateTimeInput(new Date()),
+      encounterDate: toLocalDateTimeInput(new Date()),
       observations: '',
       blocks: [],
       baseAmount: '',
@@ -291,11 +291,11 @@ export default function SessionFormModalWide({
     removedBlocks.current.clear()
     if (isEditing) {
       form.reset({
-        sessionDate: session.sessionDate
-          ? toLocalDateTimeInput(new Date(session.sessionDate))
+        encounterDate: encounter.encounterDate
+          ? toLocalDateTimeInput(new Date(encounter.encounterDate))
           : toLocalDateTimeInput(new Date()),
-        observations: session.observations ?? '',
-        blocks: session.episodes.map(blockValues),
+        observations: encounter.observations ?? '',
+        blocks: encounter.episodes.map(blockValues),
         baseAmount: '',
         discount: '',
         packageId: '',
@@ -305,7 +305,7 @@ export default function SessionFormModalWide({
       form.reset({
         // Desde la agenda, la fecha y hora salen del turno: es exactamente el
         // dato que el turno ya tenía y que no hay que volver a cargar.
-        sessionDate: toLocalDateTimeInput(
+        encounterDate: toLocalDateTimeInput(
           appointment ? new Date(appointment.startsAt) : new Date(),
         ),
         observations: '',
@@ -316,7 +316,7 @@ export default function SessionFormModalWide({
         paymentNotes: '',
       })
     }
-  }, [open, session, episodeId, isEditing, appointment, form])
+  }, [open, encounter, episodeId, isEditing, appointment, form])
 
   // El último precio llega de una query async y puede resolver DESPUÉS de abrir el
   // modal. Lo aplicamos cuando llega, pero solo si el usuario todavía no tocó el
@@ -340,12 +340,12 @@ export default function SessionFormModalWide({
     mutationFn: async (values: FormValues) => {
       // Los bloques viajan completos: la API toma el conjunto como lo que la
       // sesión trata ahora (un motivo que falta se desvincula).
-      const sessionData = {
-        sessionDate: new Date(values.sessionDate).toISOString(),
+      const encounterData = {
+        encounterDate: new Date(values.encounterDate).toISOString(),
         observations: values.observations,
         episodes: values.blocks.map((b) => ({
           episodeId: b.episodeId,
-          preSessionState: b.preSessionState,
+          preEncounterState: b.preEncounterState,
           treatment: b.treatment,
           painScaleBefore: b.painScaleBefore,
           painScaleAfter: b.painScaleAfter,
@@ -354,15 +354,15 @@ export default function SessionFormModalWide({
         })),
       }
 
-      // El PATCH no lleva sessionType: el schema de la API es partial, así que
+      // El PATCH no lleva encounterType: el schema de la API es partial, así que
       // omitirlo deja intacto el tipo con el que se registró la sesión (una
       // nota rápida o un alta no se convierten en sesión común al editarlas).
       if (isEditing) {
         // The submit checked it; this keeps a correction from leaving without one.
         if (!revision.reason) throw new Error(MISSING_REASON)
-        return sessionApi.update(patientId, session.id, {
-          ...sessionData,
-          expectedVersion: session.version,
+        return encounterApi.update(patientId, encounter.id, {
+          ...encounterData,
+          expectedVersion: encounter.version,
           reason: revision.reason,
           reasonNote: revision.note,
         })
@@ -371,9 +371,9 @@ export default function SessionFormModalWide({
       // Un solo request: la API crea sesión + pago en una transacción, así un
       // fallo de red o validación no deja una sesión sin pago (invisible en
       // Cobros) ni duplicados al reintentar.
-      return sessionApi.create(patientId, {
-        ...sessionData,
-        sessionType,
+      return encounterApi.create(patientId, {
+        ...encounterData,
+        encounterType,
         // Va en el mismo request: la API crea la sesión y vincula el turno en
         // una transacción, así no puede quedar una sesión registrada con el
         // turno todavía pidiendo que se registre.
@@ -396,10 +396,10 @@ export default function SessionFormModalWide({
           Array.isArray(q.queryKey) &&
           q.queryKey[0] === 'patients' &&
           q.queryKey[1] === patientId &&
-          q.queryKey.includes('sessions'),
+          q.queryKey.includes('encounters'),
       })
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
-      queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
+      queryClient.invalidateQueries({ queryKey: globalEncounterKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
       // El turno pasó a "atendido": la agenda tiene que reflejarlo.
       if (appointment) {
@@ -422,27 +422,27 @@ export default function SessionFormModalWide({
   })
 
   const reloadMutation = useMutation({
-    mutationFn: () => sessionApi.get(patientId, session!.id),
+    mutationFn: () => encounterApi.get(patientId, encounter!.id),
     onSuccess: (fresh) => {
       setReloadedSession(fresh)
       setStaleMessage(null)
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list(patientId) })
+      queryClient.invalidateQueries({ queryKey: encounterKeys.list(patientId) })
     },
     onError: (err: Error) => {
       toast.error(err.message || 'No se pudo recargar la sesión')
     },
   })
 
-  // Annulling a session entered by mistake (SPEC-clinical-revisions.md §8). It
+  // Annulling an encounter entered by mistake (SPEC-clinical-revisions.md §8). It
   // invalidates what saving does —the patient's lists, episodes, the global
-  // list and payments— because the annulment also takes the session's pending
-  // payment. And the agenda: if the session came from an appointment, the API
+  // list and payments— because the annulment also takes the encounter's pending
+  // payment. And the agenda: if the encounter came from an appointment, the API
   // released it and it offers "registrar la sesión" again. Editing does not
   // know whether there was one, so it is always invalidated.
   const annulMutation = useMutation({
     mutationFn: (data: AnnulData) => {
-      if (!session) throw new Error('No hay sesión que anular')
-      return sessionApi.annul(patientId, session.id, data)
+      if (!encounter) throw new Error('No hay sesión que anular')
+      return encounterApi.annul(patientId, encounter.id, data)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -450,10 +450,10 @@ export default function SessionFormModalWide({
           Array.isArray(q.queryKey) &&
           q.queryKey[0] === 'patients' &&
           q.queryKey[1] === patientId &&
-          q.queryKey.includes('sessions'),
+          q.queryKey.includes('encounters'),
       })
       queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
-      queryClient.invalidateQueries({ queryKey: globalSessionKeys.all })
+      queryClient.invalidateQueries({ queryKey: globalEncounterKeys.all })
       queryClient.invalidateQueries({ queryKey: paymentKeys.all })
       queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
       toast.success('Sesión anulada')
@@ -476,7 +476,7 @@ export default function SessionFormModalWide({
             Array.isArray(q.queryKey) &&
             q.queryKey[0] === 'patients' &&
             q.queryKey[1] === patientId &&
-            q.queryKey.includes('sessions'),
+            q.queryKey.includes('encounters'),
         })
         onOpenChange(false)
       }
@@ -513,19 +513,19 @@ export default function SessionFormModalWide({
             <DialogTitle className="text-xl">
               {isEditing
                 ? 'Sesión registrada'
-                : sessionType === 'DISCHARGE'
+                : encounterType === 'DISCHARGE'
                   ? 'Registrar alta'
                   : 'Nueva sesión'}
             </DialogTitle>
             {/* El tipo ya no se edita, pero sigue distinguiendo una nota rápida
                 o un alta de una sesión común. El badge no aparece para una
                 sesión común: ahí no habría nada que distinguir. */}
-            {isEditing && <SessionTypeBadge type={session.sessionType} className="shrink-0" />}
+            {isEditing && <EncounterTypeBadge type={encounter.encounterType} className="shrink-0" />}
           </div>
           {isEditing && (
             <RevisionHistoryButton className="-ml-2 self-start" onClick={() => setHistoryOpen(true)} />
           )}
-          {!isEditing && sessionType === 'DISCHARGE' && (
+          {!isEditing && encounterType === 'DISCHARGE' && (
             <DialogDescription>
               Al guardar, el motivo queda cerrado con fecha de alta.
             </DialogDescription>
@@ -538,9 +538,9 @@ export default function SessionFormModalWide({
             open={historyOpen}
             onOpenChange={setHistoryOpen}
             patientId={patientId}
-            base={revisionPaths.session(patientId, session.id)}
+            base={revisionPaths.encounter(patientId, encounter.id)}
             title="Historial de la sesión"
-            render={renderSessionSnapshot}
+            render={renderEncounterSnapshot}
             renderContext={{
               episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio',
             }}
@@ -586,14 +586,14 @@ export default function SessionFormModalWide({
                   <CardContent className="space-y-4">
                     <FormField
                       control={form.control}
-                      name="sessionDate"
+                      name="encounterDate"
                       render={({ field }) => {
-                        const dateWarnings = getSessionDateWarnings(
+                        const dateWarnings = getEncounterDateWarnings(
                           field.value,
                           dateTolerances,
                         )
                         return (
-                          <DirtyFieldItem dirty={dirtyFields.sessionDate} label="Fecha y hora">
+                          <DirtyFieldItem dirty={dirtyFields.encounterDate} label="Fecha y hora">
                             <FormControl>
                               <Input type="datetime-local" className="sm:max-w-xs" {...field} />
                             </FormControl>
@@ -839,9 +839,9 @@ export default function SessionFormModalWide({
                         <div className="space-y-4">
                           <FormField
                             control={form.control}
-                            name={`blocks.${index}.preSessionState`}
+                            name={`blocks.${index}.preEncounterState`}
                             render={({ field }) => (
-                              <DirtyFieldItem dirty={blockDirty?.preSessionState} label="Evaluación (estado pre-sesión)">
+                              <DirtyFieldItem dirty={blockDirty?.preEncounterState} label="Evaluación (estado pre-sesión)">
                                 <FormControl>
                                   <Textarea
                                     placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"

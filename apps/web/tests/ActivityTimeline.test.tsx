@@ -38,7 +38,7 @@ describe('ActivityTimeline filter', () => {
   it('shows every row at first, and only the chosen entity after filtering', async () => {
     renderTimeline([
       row('a', 'APPOINTMENT', 'APPOINTMENT_SCHEDULED'),
-      row('b', 'SESSION', 'SESSION_RECORDED'),
+      row('b', 'ENCOUNTER', 'ENCOUNTER_RECORDED'),
     ]);
 
     expect(await screen.findByText('Agendó un turno')).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe('ActivityTimeline filter', () => {
   });
 
   it('offers no filter when every row is of one entity', async () => {
-    renderTimeline([row('a', 'SESSION', 'SESSION_RECORDED')]);
+    renderTimeline([row('a', 'ENCOUNTER', 'ENCOUNTER_RECORDED')]);
 
     expect(await screen.findByText('Registró una sesión')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Todo' })).not.toBeInTheDocument();

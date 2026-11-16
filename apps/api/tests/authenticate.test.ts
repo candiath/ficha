@@ -64,7 +64,7 @@ describe('authenticate middleware', () => {
     expect(res.body).toEqual(INVALID);
   });
 
-  // What a client still holding a pre-sessions token would send: a JWT's
+  // What a client still holding a pre-encounters token would send: a JWT's
   // shape, built by hand since the system no longer signs any.
   it('rejects a JWT', async () => {
     const part = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');

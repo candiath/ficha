@@ -5,14 +5,14 @@ import {
   EVALUATION_SNAPSHOTS,
   PATIENT_EVENT_SNAPSHOTS,
   PATIENT_SNAPSHOTS,
-  SESSION_SNAPSHOTS,
+  ENCOUNTER_SNAPSHOTS,
   formatPartialDate,
   type SnapshotHistory,
 } from '@ficha/shared';
 import {
   EPISODE_STATUS_LABELS,
   PATIENT_EVENT_KIND_LABELS,
-  SESSION_TYPE_LABELS,
+  ENCOUNTER_TYPE_LABELS,
   SEX_LABELS,
 } from '@/lib/labels';
 import { formatDay } from '@/lib/calendarDate';
@@ -28,13 +28,13 @@ export interface SnapshotRow {
   label: string;
   value: string;
   compare?: string;
-  // Rows of one block of a session share a group: the problem it treated,
+  // Rows of one block of an encounter share a group: the problem it treated,
   // by its episode's id and named by its complaint (two may share a name).
   group?: { key: string; label: string };
 }
 
 export interface SnapshotRenderContext {
-  // A session's block names its episode by complaint.
+  // An encounter's block names its episode by complaint.
   episodeName?: (episodeId: string) => string;
 }
 
@@ -79,11 +79,11 @@ function parsed<Current>(
   return current === null ? null : render(current);
 }
 
-export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) =>
-  parsed(SESSION_SNAPSHOTS, version, snapshot, (s) => [
-    { key: 'sessionType', label: 'Tipo', value: SESSION_TYPE_LABELS[s.sessionType] ?? s.sessionType },
-    { key: 'sessionDate', label: 'Fecha', value: dateTime(s.sessionDate) },
-    ...(s.sessionType === 'NOTE' || s.observations ? [{ key: 'observations', label: 'Nota', value: text(s.observations) }] : []),
+export const renderEncounterSnapshot: SnapshotRenderer = (snapshot, version, ctx) =>
+  parsed(ENCOUNTER_SNAPSHOTS, version, snapshot, (s) => [
+    { key: 'encounterType', label: 'Tipo', value: ENCOUNTER_TYPE_LABELS[s.encounterType] ?? s.encounterType },
+    { key: 'encounterDate', label: 'Fecha', value: dateTime(s.encounterDate) },
+    ...(s.encounterType === 'NOTE' || s.observations ? [{ key: 'observations', label: 'Nota', value: text(s.observations) }] : []),
     ...s.episodes.flatMap((b) => {
       const group = { key: b.episodeId, label: `Motivo: ${ctx.episodeName?.(b.episodeId) ?? 'episodio'}` };
       const row = (field: string, label: string, value: string): SnapshotRow => ({
@@ -93,7 +93,7 @@ export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) 
         group,
       });
       return [
-        row('preSessionState', 'Estado previo', text(b.preSessionState)),
+        row('preEncounterState', 'Estado previo', text(b.preEncounterState)),
         row('treatment', 'Tratamiento', text(b.treatment)),
         row('painScaleBefore', 'Dolor al inicio', num(b.painScaleBefore)),
         row('painScaleAfter', 'Dolor al final', num(b.painScaleAfter)),
@@ -166,8 +166,8 @@ export function changedKeys(rows: SnapshotRow[], previous: SnapshotRow[] | null)
 }
 
 // What the version before had and this one does not, by name: a block removed
-// from a session (its group), or a row shown only when it has a value (a
-// session's note, cleared). Without it, a removal would mark nothing.
+// from an encounter (its group), or a row shown only when it has a value (a
+// encounter's note, cleared). Without it, a removal would mark nothing.
 export function removedParts(rows: SnapshotRow[], previous: SnapshotRow[] | null): string[] {
   if (!previous) return [];
   const groups = new Set(rows.map((r) => r.group?.key));

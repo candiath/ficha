@@ -7,11 +7,11 @@ import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestCli
 import { fixture } from './fixtures';
 
 // A visit can treat several problems, the back and an ankle sprain say (#238).
-// The session holds the visit itself; each episode it treated gets a block with
+// The encounter holds the visit itself; each episode it treated gets a block with
 // everything clinical about that problem (how it arrived, the treatment, the
 // pain, the re-evaluation, the exercises), so each episode's history and pain
 // chart show only its own.
-describe('A session treats several episodes, each with its own block', () => {
+describe('An encounter treats several episodes, each with its own block', () => {
   let clinic: TestClinic;
   let user: User;
   let token: string;
@@ -22,7 +22,7 @@ describe('A session treats several episodes, each with its own block', () => {
   let otherPatientsEpisode: string;
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
-  const sessionsUrl = () => `/api/patients/${patient.id}/sessions`;
+  const encountersUrl = () => `/api/patients/${patient.id}/encounters`;
 
   const createEpisode = async (patientId: string, mainComplaint: string) =>
     (
@@ -33,12 +33,12 @@ describe('A session treats several episodes, each with its own block', () => {
     ).id;
 
   const post = (body: Record<string, unknown>) =>
-    auth(request(app).post(sessionsUrl())).send({ sessionDate: new Date().toISOString(), ...body });
+    auth(request(app).post(encountersUrl())).send({ encounterDate: new Date().toISOString(), ...body });
 
   const patch = (id: string, body: Record<string, unknown>) =>
-    auth(request(app).patch(`${sessionsUrl()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', ...body });
+    auth(request(app).patch(`${encountersUrl()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', ...body });
 
-  const get = async (id: string) => (await auth(request(app).get(`${sessionsUrl()}/${id}`))).body.data;
+  const get = async (id: string) => (await auth(request(app).get(`${encountersUrl()}/${id}`))).body.data;
 
   beforeAll(async () => {
     clinic = await createTestClinic();
@@ -61,8 +61,8 @@ describe('A session treats several episodes, each with its own block', () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -72,7 +72,7 @@ describe('A session treats several episodes, each with its own block', () => {
     const res = await post({
       episodes: [
         { episodeId: back, treatment: 'Rana en el suelo', painScaleBefore: 5, painScaleAfter: 2 },
-        { episodeId: ankle, preSessionState: 'Llega rengueando', painScaleBefore: 6, reEvaluationNotes: 'Edema leve' },
+        { episodeId: ankle, preEncounterState: 'Llega rengueando', painScaleBefore: 6, reEvaluationNotes: 'Edema leve' },
       ],
     });
 
@@ -82,7 +82,7 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(res.body.data.episodes).toEqual([
       {
         episodeId: back,
-        preSessionState: null,
+        preEncounterState: null,
         treatment: 'Rana en el suelo',
         painScaleBefore: 5,
         painScaleAfter: 2,
@@ -91,7 +91,7 @@ describe('A session treats several episodes, each with its own block', () => {
       },
       {
         episodeId: ankle,
-        preSessionState: 'Llega rengueando',
+        preEncounterState: 'Llega rengueando',
         treatment: null,
         painScaleBefore: 6,
         painScaleAfter: null,
@@ -101,12 +101,12 @@ describe('A session treats several episodes, each with its own block', () => {
     ]);
   });
 
-  it('lists the shared session in the history of each episode it treated', async () => {
+  it('lists the shared encounter in the history of each episode it treated', async () => {
     const shared = (await post({ episodes: [{ episodeId: back }, { episodeId: ankle }] })).body.data.id;
     const backOnly = (await post({ episodes: [{ episodeId: back }] })).body.data.id;
 
     const idsOf = async (episodeId: string) =>
-      (await auth(request(app).get(`${sessionsUrl()}?episodeId=${episodeId}`))).body.data.map(
+      (await auth(request(app).get(`${encountersUrl()}?episodeId=${episodeId}`))).body.data.map(
         (s: { id: string }) => s.id,
       );
 
@@ -147,7 +147,7 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(res.body.data.episodes).toEqual([
       {
         episodeId: ankle,
-        preSessionState: null,
+        preEncounterState: null,
         treatment: null,
         painScaleBefore: 2,
         painScaleAfter: null,
@@ -155,31 +155,31 @@ describe('A session treats several episodes, each with its own block', () => {
         reEvaluationNotes: null,
       },
     ]);
-    expect(await prisma.sessionEpisode.count({ where: { sessionId: id } })).toBe(1);
+    expect(await prisma.encounterBlock.count({ where: { encounterId: id } })).toBe(1);
   });
 
-  it('a session needs an episode; a note does not', async () => {
-    const session = await post({ sessionType: 'SESSION', episodes: [] });
-    expect(session.status).toBe(400);
-    expect(session.body).toEqual({ error: 'Una sesión aborda al menos un episodio' });
+  it('an encounter needs an episode; a note does not', async () => {
+    const encounter = await post({ encounterType: 'SESSION', episodes: [] });
+    expect(encounter.status).toBe(400);
+    expect(encounter.body).toEqual({ error: 'Una sesión aborda al menos un episodio' });
 
-    const note = await post({ sessionType: 'NOTE', observations: 'Llamó para reprogramar' });
+    const note = await post({ encounterType: 'NOTE', observations: 'Llamó para reprogramar' });
     expect(note.status).toBe(201);
     expect(note.body.data.episodes).toEqual([]);
   });
 
   it('a discharge closes exactly one episode', async () => {
-    const before = await prisma.session.count({ where: { patientId: patient.id } });
+    const before = await prisma.encounter.count({ where: { patientId: patient.id } });
 
-    const both = await post({ sessionType: 'DISCHARGE', episodes: [{ episodeId: back }, { episodeId: ankle }] });
+    const both = await post({ encounterType: 'DISCHARGE', episodes: [{ episodeId: back }, { episodeId: ankle }] });
     expect(both.status).toBe(400);
     expect(both.body).toEqual({ error: 'Un alta cierra exactamente un episodio' });
 
-    const none = await post({ sessionType: 'DISCHARGE', episodes: [] });
+    const none = await post({ encounterType: 'DISCHARGE', episodes: [] });
     expect(none.status).toBe(400);
 
     // Nothing was recorded, and no episode was closed.
-    expect(await prisma.session.count({ where: { patientId: patient.id } })).toBe(before);
+    expect(await prisma.encounter.count({ where: { patientId: patient.id } })).toBe(before);
     const statuses = await prisma.clinicalEpisode.findMany({
       where: { id: { in: [back, ankle] } },
       select: { status: true },
@@ -187,7 +187,7 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(statuses.map((e) => e.status)).toEqual(['ACTIVE', 'ACTIVE']);
   });
 
-  it('refuses an edit that would leave a session without episodes, and changes nothing', async () => {
+  it('refuses an edit that would leave an encounter without episodes, and changes nothing', async () => {
     const id = (await post({ episodes: [{ episodeId: back, painScaleBefore: 6 }] })).body.data.id;
 
     const res = await patch(id, { observations: 'No se guarda', episodes: [] });
@@ -204,9 +204,9 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(res.status).toBe(400);
   });
 
-  // The pain used to be a field of the session. A client still sending it
+  // The pain used to be a field of the encounter. A client still sending it
   // there gets a 400 instead of losing it in silence.
-  it('refuses a block field sent at the session level', async () => {
+  it('refuses a block field sent at the encounter level', async () => {
     const res = await post({ episodes: [{ episodeId: back }], painScaleBefore: 5 });
     expect(res.status).toBe(400);
   });
@@ -216,15 +216,15 @@ describe('A session treats several episodes, each with its own block', () => {
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });
 
-    // The block's keys name the session's clinic and patient: a write that
-    // skips the API still cannot join one patient's session to another's episode.
-    const note = await post({ sessionType: 'NOTE' });
+    // The block's keys name the encounter's clinic and patient: a write that
+    // skips the API still cannot join one patient's encounter to another's episode.
+    const note = await post({ encounterType: 'NOTE' });
     await expect(
-      prisma.sessionEpisode.create({
+      prisma.encounterBlock.create({
         data: {
           tenantId: clinic.tenantId,
           patientId: patient.id,
-          sessionId: note.body.data.id,
+          encounterId: note.body.data.id,
           episodeId: otherPatientsEpisode,
         },
       }),
@@ -243,14 +243,14 @@ describe('A session treats several episodes, each with its own block', () => {
     ).toBe(200);
 
     const rows = await prisma.auditLog.findMany({
-      where: { tenantId: clinic.tenantId, entityId: id, action: 'SESSION_UPDATED' },
+      where: { tenantId: clinic.tenantId, entityId: id, action: 'ENCOUNTER_UPDATED' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { params: true },
     });
     expect(rows.map((r) => r.params)).toEqual([
-      { sessionType: 'SESSION', changedFields: ['painScaleBefore'], reason: 'DATA_ENTRY_ERROR' },
-      { sessionType: 'SESSION', changedFields: ['episodeIds'], reason: 'DATA_ENTRY_ERROR' },
-      { sessionType: 'SESSION', changedFields: ['treatment'], reason: 'DATA_ENTRY_ERROR' },
+      { encounterType: 'SESSION', changedFields: ['painScaleBefore'], reason: 'DATA_ENTRY_ERROR' },
+      { encounterType: 'SESSION', changedFields: ['episodeIds'], reason: 'DATA_ENTRY_ERROR' },
+      { encounterType: 'SESSION', changedFields: ['treatment'], reason: 'DATA_ENTRY_ERROR' },
     ]);
   });
 });

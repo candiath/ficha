@@ -6,7 +6,7 @@ import { prisma } from '../src/lib/prisma';
 import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
-// POST /api/patients/:id/sessions con payment: sesión, cobro y cierre de
+// POST /api/patients/:id/encounters con payment: sesión, cobro y cierre de
 // episodios se crean en una sola transacción. Antes el frontend encadenaba
 // varios requests y un fallo intermedio dejaba sesiones sin pago (invisibles
 // en Cobros).
@@ -19,13 +19,13 @@ describe('creación atómica de sesión con pago', () => {
   let episodeA: { id: string };
   let packageA: { id: string };
 
-  const url = () => `/api/patients/${patientA.id}/sessions`;
+  const url = () => `/api/patients/${patientA.id}/encounters`;
 
-  function postSession(body: Record<string, unknown> = {}) {
+  function postEncounter(body: Record<string, unknown> = {}) {
     return request(app)
       .post(url())
       .set('Authorization', `Bearer ${tokenA}`)
-      .send({ sessionDate: new Date().toISOString(), ...body });
+      .send({ encounterDate: new Date().toISOString(), ...body });
   }
 
   beforeAll(async () => {
@@ -58,9 +58,9 @@ describe('creación atómica de sesión con pago', () => {
     const tenantIds = [clinicA.tenantId];
     await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.encounter.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -68,16 +68,16 @@ describe('creación atómica de sesión con pago', () => {
   });
 
   it('crea sesión + pago en un solo request', async () => {
-    const res = await postSession({
+    const res = await postEncounter({
       episodes: [{ episodeId: episodeA.id }],
       payment: { packageId: packageA.id, baseAmountCents: 100, discountCents: 20, notes: 'seña' },
     });
 
     expect(res.status).toBe(201);
-    const sessionId = res.body.data.id;
+    const encounterId = res.body.data.id;
 
     const payment = await prisma.payment.findUnique({
-      where: { sessionId },
+      where: { encounterId },
       select: { patientId: true, packageId: true, finalAmountCents: true, status: true },
     });
     expect(payment).toMatchObject({
@@ -89,28 +89,28 @@ describe('creación atómica de sesión con pago', () => {
   });
 
   it('si algo falla dentro de la transacción no queda sesión huérfana', async () => {
-    const before = await prisma.session.count({ where: { patientId: patientA.id } });
+    const before = await prisma.encounter.count({ where: { patientId: patientA.id } });
 
-    // The payment's insert fails, with the session already created: the
+    // The payment's insert fails, with the encounter already created: the
     // rollback must take both rows. Amounts in cents no longer overflow their
     // column, so a trigger makes it fail, only for this test's marker (other
     // test files share the database).
     const marker = `fail-${patientA.id}`;
     await prisma.$executeRawUnsafe(`
       CREATE FUNCTION test_fail_payment() RETURNS trigger LANGUAGE plpgsql AS $$
-      BEGIN RAISE EXCEPTION 'forced by sessionAtomicCreate.test.ts'; END $$`);
+      BEGIN RAISE EXCEPTION 'forced by encounterAtomicCreate.test.ts'; END $$`);
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER test_fail_payment BEFORE INSERT ON payments
       FOR EACH ROW WHEN (NEW.notes = '${marker}') EXECUTE FUNCTION test_fail_payment()`);
 
     try {
-      const res = await postSession({
+      const res = await postEncounter({
         episodes: [{ episodeId: episodeA.id }],
         payment: { baseAmountCents: 10_000, notes: marker },
       });
 
       expect(res.status).toBeGreaterThanOrEqual(500);
-      const after = await prisma.session.count({ where: { patientId: patientA.id } });
+      const after = await prisma.encounter.count({ where: { patientId: patientA.id } });
       expect(after).toBe(before);
     } finally {
       await prisma.$executeRawUnsafe('DROP TRIGGER test_fail_payment ON payments');
@@ -119,8 +119,8 @@ describe('creación atómica de sesión con pago', () => {
   });
 
   it('un alta cierra el episodio en el mismo request', async () => {
-    const res = await postSession({
-      sessionType: 'DISCHARGE',
+    const res = await postEncounter({
+      encounterType: 'DISCHARGE',
       episodes: [{ episodeId: episodeA.id }],
     });
 
@@ -141,15 +141,15 @@ describe('creación atómica de sesión con pago', () => {
       data: { tenantId: clinicA.tenantId, patientId: patientA.id, mainComplaint: 'Cervicalgia', openedAt },
       select: { id: true },
     });
-    const sessionsBefore = await prisma.session.count({ where: { patientId: patientA.id } });
+    const encountersBefore = await prisma.encounter.count({ where: { patientId: patientA.id } });
 
-    const res = await postSession({ sessionType: 'DISCHARGE', episodes: [{ episodeId: episode.id }] });
+    const res = await postEncounter({ encounterType: 'DISCHARGE', episodes: [{ episodeId: episode.id }] });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('El episodio abre más adelante: no se puede dar de alta antes de su apertura');
     await expect(
       prisma.clinicalEpisode.findUnique({ where: { id: episode.id }, select: { status: true, closedAt: true } }),
     ).resolves.toEqual({ status: 'ACTIVE', closedAt: null });
-    await expect(prisma.session.count({ where: { patientId: patientA.id } })).resolves.toBe(sessionsBefore);
+    await expect(prisma.encounter.count({ where: { patientId: patientA.id } })).resolves.toBe(encountersBefore);
   });
 });

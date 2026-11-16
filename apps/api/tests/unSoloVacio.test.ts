@@ -31,9 +31,9 @@ describe('un solo vacío: "" entra como null', () => {
     await sleep(300);
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.appointment.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
@@ -163,15 +163,15 @@ describe('un solo vacío: "" entra como null', () => {
       select: { id: true },
     });
 
-    const res = await auth(request(app).post(`/api/patients/${patient.id}/sessions`)).send({
-      sessionDate: new Date().toISOString(),
+    const res = await auth(request(app).post(`/api/patients/${patient.id}/encounters`)).send({
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       payment: { packageId: '', baseAmountCents: 100, notes: '   ' },
     });
 
     expect(res.status).toBe(201);
     const payment = await prisma.payment.findFirst({
-      where: { sessionId: res.body.data.id },
+      where: { encounterId: res.body.data.id },
       select: { packageId: true, notes: true },
     });
     expect(payment).toEqual({ packageId: null, notes: null });

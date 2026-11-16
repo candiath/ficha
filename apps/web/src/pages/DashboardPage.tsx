@@ -74,7 +74,7 @@ export default function DashboardPage() {
     },
     {
       label: 'Sesiones este mes',
-      value: stats?.sessionsThisMonth,
+      value: stats?.encountersThisMonth,
       icon: TrendingUp,
       color: 'text-chart-3',
       bg: 'bg-chart-3/10',
@@ -88,7 +88,7 @@ export default function DashboardPage() {
     },
   ]
 
-  const sessionsByMonth = (stats?.sessionsByMonth ?? []).map(m => ({
+  const encountersByMonth = (stats?.encountersByMonth ?? []).map(m => ({
     ...m,
     label: formatMonthLabel(m.month),
   }))
@@ -194,7 +194,7 @@ export default function DashboardPage() {
 
       {/* Charts */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Sessions by month */}
+        {/* Encounters by month */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Sesiones por mes</CardTitle>
@@ -203,7 +203,7 @@ export default function DashboardPage() {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={sessionsByMonth}
+                  data={encountersByMonth}
                   margin={{ top: 4, right: 4, bottom: 4, left: -20 }}
                 >
                   <CartesianGrid

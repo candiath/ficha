@@ -28,7 +28,7 @@ vi.mock('@/services/episodes', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-// Opening the session form asks for the last price and the packages: answered,
+// Opening the encounter form asks for the last price and the packages: answered,
 // so no request leaves the test.
 vi.mock('@/services/payments', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/payments')>()),
@@ -45,7 +45,7 @@ const ITEM: AppointmentListItem = {
   patientName: 'María García',
   userId: 'u1',
   episodeId: 'e1',
-  sessionId: null,
+  encounterId: null,
   seriesId: null,
   startsAt: '2026-10-12T12:00:00.000Z',
   endsAt: '2026-10-12T13:00:00.000Z',
@@ -115,9 +115,9 @@ describe('AppointmentDetailDialog', () => {
     expect(await within(dialog).findByText(/No se pudo leer el motivo/)).toBeInTheDocument();
   });
 
-  // A cancelled or missed appointment becomes attended when its session is
+  // A cancelled or missed appointment becomes attended when its encounter is
   // registered: asked first, naming the patient (#312).
-  describe('registering the session', () => {
+  describe('registering the encounter', () => {
     const register = () => screen.getByRole('button', { name: /Vino: registrar la sesión/ });
 
     it('asks first on a cancelled appointment, naming the patient, and can be stopped', async () => {

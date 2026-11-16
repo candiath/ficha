@@ -5,7 +5,7 @@ import {
   EVALUATION_SNAPSHOTS,
   PATIENT_EVENT_SNAPSHOTS,
   PATIENT_SNAPSHOTS,
-  SESSION_SNAPSHOTS,
+  ENCOUNTER_SNAPSHOTS,
   type SnapshotHistory,
 } from '@ficha/shared';
 import type { TenantContext } from '../types';
@@ -73,12 +73,12 @@ const latest = { orderBy: { version: 'desc' }, select: { version: true, schemaVe
 // read in the current shape. A patient is its own aggregate, so its revision's
 // patient_id is the aggregate's id.
 const TABLES = {
-  session_revisions: {
-    snapshots: SESSION_SNAPSHOTS,
+  encounter_revisions: {
+    snapshots: ENCOUNTER_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
-      tx.sessionRevision.create({ data: { ...f, tenantId, sessionId: aggregateId }, select: { id: true } }),
+      tx.encounterRevision.create({ data: { ...f, tenantId, encounterId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
-      tx.sessionRevision.findFirst({ where: { tenantId, sessionId: id }, ...latest }),
+      tx.encounterRevision.findFirst({ where: { tenantId, encounterId: id }, ...latest }),
   },
   patient_revisions: {
     snapshots: PATIENT_SNAPSHOTS,

@@ -26,7 +26,7 @@ const LAST_BASE_PRICE_STALENESS_DAYS = 90;
 const paymentSelect = {
   id: true,
   patientId: true,
-  sessionId: true,
+  encounterId: true,
   packageId: true,
   baseAmountCents: true,
   discountCents: true,
@@ -38,14 +38,14 @@ const paymentSelect = {
   createdAt: true,
   updatedAt: true,
   patient: { select: { id: true, ...patientNameSelect } },
-  session: { select: { id: true, sessionDate: true, sessionType: true } },
+  encounter: { select: { id: true, encounterDate: true, encounterType: true } },
   package: { select: { id: true, name: true } },
 } as const;
 
 type PaymentRow = {
   id: string;
   patientId: string;
-  sessionId: string;
+  encounterId: string;
   packageId: string | null;
   baseAmountCents: bigint;
   discountCents: bigint;
@@ -57,7 +57,7 @@ type PaymentRow = {
   createdAt: Date;
   updatedAt: Date;
   patient: { id: string; firstName: string; lastName: string };
-  session: { id: string; sessionDate: Date; sessionType: PaymentDTO['session']['sessionType'] };
+  encounter: { id: string; encounterDate: Date; encounterType: PaymentDTO['encounter']['encounterType'] };
   package: { id: string; name: string } | null;
 };
 
@@ -73,7 +73,7 @@ function toDTO(row: PaymentRow): PaymentDTO {
     paidAt: row.paidAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    session: { ...row.session, sessionDate: row.session.sessionDate.toISOString() },
+    encounter: { ...row.encounter, encounterDate: row.encounter.encounterDate.toISOString() },
   };
 }
 
@@ -122,39 +122,39 @@ export const prismaPaymentRepository: PaymentRepository = {
     // transaction, so it cannot be handled inside the callback.
     try {
       return await db.$transaction(async (tx): Promise<PaymentCreateResult> => {
-        // The session is locked before it is read. Annulling a session locks
+        // The encounter is locked before it is read. Annulling an encounter locks
         // it the same way, deletes its unpaid payment and marks it deleted
         // only if no payment is left. Without this lock the payment insert
         // only takes the foreign key's KEY SHARE, which FOR NO KEY UPDATE does
-        // not block: a payment created while the session was being annulled
-        // landed on the annulled session. With it, one waits for the other —
-        // either the annulment sees the payment, or this read sees the session
+        // not block: a payment created while the encounter was being annulled
+        // landed on the annulled encounter. With it, one waits for the other —
+        // either the annulment sees the payment, or this read sees the encounter
         // annulled.
-        await lockRow(tx, 'sessions', input.sessionId, ctx.tenantId);
+        await lockRow(tx, 'encounters', input.encounterId, ctx.tenantId);
 
         // El paciente se deriva de la sesión: la sesión debe ser del tenant.
-        const session = await tx.session.findFirst({
+        const encounter = await tx.encounter.findFirst({
           // deletedAt: null — no se registra un cobro sobre una sesión borrada.
-          where: { id: input.sessionId, tenantId: ctx.tenantId, deletedAt: null },
+          where: { id: input.encounterId, tenantId: ctx.tenantId, deletedAt: null },
           select: { id: true, patientId: true },
         });
-        if (!session) return { ok: false, reason: 'session_not_found' };
+        if (!encounter) return { ok: false, reason: 'encounter_not_found' };
 
         // El paquete a debitar debe ser del tenant y del MISMO paciente que la
         // sesión: sin esto se podía descontar sesiones del paquete de otro.
         if (input.packageId) {
           const pkg = await tx.sessionPackage.findFirst({
-            where: { id: input.packageId, tenantId: ctx.tenantId, patientId: session.patientId },
+            where: { id: input.packageId, tenantId: ctx.tenantId, patientId: encounter.patientId },
             select: { id: true },
           });
           if (!pkg) return { ok: false, reason: 'package_not_found' };
         }
 
         // Two layers against a duplicate payment: this check, which under the
-        // session lock catches two creates for the same session, and the catch
+        // encounter lock catches two creates for the same encounter, and the catch
         // of P2002 below, for a payment inserted without that lock.
         const existing = await tx.payment.findUnique({
-          where: { sessionId: input.sessionId },
+          where: { encounterId: input.encounterId },
           select: { id: true },
         });
         if (existing) return { ok: false, reason: 'duplicate' };
@@ -166,8 +166,8 @@ export const prismaPaymentRepository: PaymentRepository = {
         const row = await tx.payment.create({
           data: {
             tenantId: ctx.tenantId,
-            patientId: session.patientId,
-            sessionId: input.sessionId,
+            patientId: encounter.patientId,
+            encounterId: input.encounterId,
             packageId: input.packageId ?? null,
             baseAmountCents: input.baseAmountCents,
             discountCents: input.discountCents,

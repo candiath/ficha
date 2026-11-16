@@ -8,7 +8,7 @@ import app from '../src/app';
 import { instantToClinicTime } from '../src/lib/clinicTime';
 import { prisma } from '../src/lib/prisma';
 import { LIST_SCOPE, type Shape } from './listScopeManifest';
-import { createSessionFixture, createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
+import { createEncounterFixture, createTestClinic, createTestToken, deleteAuditRows, sleep, type TestClinic } from './helpers';
 import { fixture as rows } from './fixtures';
 
 // Global lists carry no clinical text (#186, docs/specs/SPEC-list-minimization.md
@@ -37,7 +37,7 @@ const GET_ROUTE = /\b(?:router|app)\.get\s*(?:<[^()]*?>)?\(\s*'([^']*)'/g;
 const MOUNT = /app\.use\(\s*'([^']*)'\s*,(?:[^;]*?,)?\s*(\w+Router)\s*\)/g;
 const IMPORT = /import\s+(\w+)\s+from\s+'\.\/routes\/(\w+)'/g;
 // A router a route file builds from another file's factory and mounts under
-// its own paths: `router.use('/:sessionId/revisions', revisionRoutes(…))`.
+// its own paths: `router.use('/:encounterId/revisions', revisionRoutes(…))`.
 const NESTED_IMPORT = /import\s+\{\s*(\w+)\s*\}\s+from\s+'\.\/(\w+)'/g;
 const NESTED_MOUNT = /router\.use\(\s*'([^']*)'\s*,\s*(\w+)\(/g;
 
@@ -130,9 +130,9 @@ const CLINICAL_MODELS = [
   'PatientEvent',
   'ClinicalEpisode',
   'InitialEvaluation',
-  'Session',
-  'SessionEpisode',
-  'SessionRevision',
+  'Encounter',
+  'EncounterBlock',
+  'EncounterRevision',
   'InformedConsent',
   // Snapshots of clinical records, and the notes of their corrections.
   'PatientRevision',
@@ -154,7 +154,7 @@ const NOT_CLINICAL: Record<string, string> = {
 const ALSO_MARKED: Record<string, string[]> = { Appointment: ['notes'] };
 
 const models = Prisma.dmmf.datamodel.models;
-const CLINICAL_RELATIONS = new Set<string>(['Session', 'InitialEvaluation', 'ClinicalEpisode']);
+const CLINICAL_RELATIONS = new Set<string>(['Encounter', 'InitialEvaluation', 'ClinicalEpisode']);
 
 describe('every model that holds patient data is classified', () => {
   it('as clinical, or not with its reason', () => {
@@ -203,7 +203,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 interface Fixture {
   patientId: string;
   deletedPatientId: string;
-  sessionId: string;
+  encounterId: string;
   appointmentId: string;
   paymentId: string;
   complaint: string;
@@ -319,21 +319,21 @@ describe('global lists carry no clinical text', () => {
     });
     createdClinicalModels.add('PatientEvent');
 
-    // Old enough for the engine: the episode has had no session for 40 days,
-    // and the session's payment is overdue.
-    const session = await createSessionFixture({
+    // Old enough for the engine: the episode has had no encounter for 40 days,
+    // and the encounter's payment is overdue.
+    const encounter = await createEncounterFixture({
       tenantId,
       patientId,
       userId: user.id,
-      sessionDate: new Date(Date.now() - 40 * DAY_MS),
-      // A session's clinical text is in its blocks (#238): marked too.
-      blocks: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('SessionEpisode') }],
-      ...marked('Session'),
+      encounterDate: new Date(Date.now() - 40 * DAY_MS),
+      // An encounter's clinical text is in its blocks (#238): marked too.
+      blocks: [{ episodeId: episode.id, painScaleBefore: 7, painScaleAfter: 3, ...marked('EncounterBlock') }],
+      ...marked('Encounter'),
     });
-    createdClinicalModels.add('Session');
-    createdClinicalModels.add('SessionEpisode');
-    // Its snapshot holds the session's markers; reason_note gets its own below.
-    createdClinicalModels.add('SessionRevision');
+    createdClinicalModels.add('Encounter');
+    createdClinicalModels.add('EncounterBlock');
+    // Its snapshot holds the encounter's markers; reason_note gets its own below.
+    createdClinicalModels.add('EncounterRevision');
     // The fixtures above wrote version 1 of each, with the markers of its row.
     for (const model of ['PatientRevision', 'EpisodeRevision', 'EvaluationRevision', 'PatientEventRevision'] as const) {
       createdClinicalModels.add(model);
@@ -355,7 +355,7 @@ describe('global lists carry no clinical text', () => {
       await delegate.create({ data: { ...first, version: Number(first.version) + 1, reasonNote: marker() } });
     };
     for (const delegate of [
-      prisma.sessionRevision,
+      prisma.encounterRevision,
       prisma.patientRevision,
       prisma.episodeRevision,
       prisma.evaluationRevision,
@@ -373,7 +373,7 @@ describe('global lists carry no clinical text', () => {
       data: {
         tenantId,
         patientId,
-        sessionId: session.id,
+        encounterId: encounter.id,
         packageId: pkg.id,
         baseAmountCents: 100,
         finalAmountCents: 100,
@@ -399,7 +399,7 @@ describe('global lists carry no clinical text', () => {
     fixture = {
       patientId,
       deletedPatientId: deletedPatient.id,
-      sessionId: session.id,
+      encounterId: encounter.id,
       appointmentId: appointment.id,
       paymentId: payment.id,
       complaint: episodeData.mainComplaint as string,
@@ -414,9 +414,9 @@ describe('global lists carry no clinical text', () => {
     await prisma.clinicalAlert.deleteMany({ where });
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where });
-    await prisma.session.deleteMany({ where });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where });
+    await prisma.encounter.deleteMany({ where });
     await prisma.initialEvaluation.deleteMany({ where });
     await prisma.informedConsent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
@@ -434,9 +434,9 @@ describe('global lists carry no clinical text', () => {
 
   // How to call each probed route, and the fixture rows it must return.
   const PROBES: Record<string, { url: () => string; controls: (data: unknown) => boolean }> = {
-    'GET /api/sessions': {
-      url: () => '/api/sessions',
-      controls: (data) => (data as { id: string }[]).some((s) => s.id === fixture.sessionId),
+    'GET /api/encounters': {
+      url: () => '/api/encounters',
+      controls: (data) => (data as { id: string }[]).some((s) => s.id === fixture.encounterId),
     },
     'GET /api/appointments': {
       url: () => `/api/appointments?from=${today}&to=${today}`,

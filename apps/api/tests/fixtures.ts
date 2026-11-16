@@ -27,7 +27,7 @@ import {
 // is written by prisma/versionOne.ts, which the seed uses too.
 //
 // A test that expects an insert to fail keeps calling Prisma: no row, no version.
-// Sessions have their own, createSessionFixture in tests/helpers.ts.
+// Encounters have their own, createEncounterFixture in tests/helpers.ts.
 
 type Tx = Prisma.TransactionClient;
 

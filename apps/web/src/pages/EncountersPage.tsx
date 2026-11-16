@@ -18,23 +18,23 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
-import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
-import { globalSessionApi, globalSessionKeys } from '@/services/globalSessions';
-import { sessionApi, sessionKeys } from '@/services/sessions';
-import type { SessionIndexItem } from '@/types/globalSession';
+import EncounterFormDialog from '@/components/encounters/EncounterFormModalWide';
+import { EncounterTypeBadge } from '@/components/encounters/EncounterTypeBadge';
+import { globalEncounterApi, globalEncounterKeys } from '@/services/globalEncounters';
+import { encounterApi, encounterKeys } from '@/services/encounters';
+import type { EncounterIndexItem } from '@/types/globalEncounter';
 
-// Every session of the clinic, as an index: who and when (#186,
+// Every encounter of the clinic, as an index: who and when (#186,
 // SPEC-list-minimization.md §1). The list carries no clinical text, so a
-// single request cannot take the whole clinic's notes; each session is read
+// single request cannot take the whole clinic's notes; each encounter is read
 // from its patient's route when it is opened.
-export default function SessionsPage() {
+export default function EncountersPage() {
   useEffect(() => { document.title = 'Sesiones'; }, []);
-  const [selected, setSelected] = useState<SessionIndexItem | null>(null);
+  const [selected, setSelected] = useState<EncounterIndexItem | null>(null);
 
-  const { data: sessions = [], isLoading } = useQuery({
-    queryKey: globalSessionKeys.all,
-    queryFn: globalSessionApi.list,
+  const { data: encounters = [], isLoading } = useQuery({
+    queryKey: globalEncounterKeys.all,
+    queryFn: globalEncounterApi.list,
   });
 
   return (
@@ -49,7 +49,7 @@ export default function SessionsPage() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando...</p>
-      ) : sessions.length === 0 ? (
+      ) : encounters.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center border rounded-lg">
           <CalendarDays className="h-10 w-10 mb-3 text-muted-foreground/30" />
           <p className="font-medium">Sin sesiones registradas</p>
@@ -69,8 +69,8 @@ export default function SessionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sessions.map((s) => {
-                const date = new Date(s.sessionDate);
+              {encounters.map((s) => {
+                const date = new Date(s.encounterDate);
                 const formattedDate = date.toLocaleDateString('es-AR', {
                   day: '2-digit',
                   month: '2-digit',
@@ -91,7 +91,7 @@ export default function SessionsPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <SessionTypeBadge type={s.sessionType} />
+                      <EncounterTypeBadge type={s.encounterType} />
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" variant="outline" onClick={() => setSelected(s)}>
@@ -107,25 +107,25 @@ export default function SessionsPage() {
       )}
 
       {selected && (
-        <SessionDetail key={selected.id} item={selected} onClose={() => setSelected(null)} />
+        <EncounterDetail key={selected.id} item={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );
 }
 
-// The session behind an index entry, read from its patient's route. Viewing
+// The encounter behind an index entry, read from its patient's route. Viewing
 // and editing are the same form that created it, and that form renders only
-// once the full session has arrived: fed the index entry, or nothing, it would
-// open empty (or as a new session) and save every field it lacks as erased.
-function SessionDetail({ item, onClose }: { item: SessionIndexItem; onClose: () => void }) {
-  const { data: session, isError } = useQuery({
-    queryKey: sessionKeys.detail(item.patient.id, item.id),
-    queryFn: () => sessionApi.get(item.patient.id, item.id),
+// once the full encounter has arrived: fed the index entry, or nothing, it would
+// open empty (or as a new encounter) and save every field it lacks as erased.
+function EncounterDetail({ item, onClose }: { item: EncounterIndexItem; onClose: () => void }) {
+  const { data: encounter, isError } = useQuery({
+    queryKey: encounterKeys.detail(item.patient.id, item.id),
+    queryFn: () => encounterApi.get(item.patient.id, item.id),
     retry: false,
   });
 
   if (isError) {
-    // The index keeps naming a deleted patient's sessions (history, #72), but
+    // The index keeps naming a deleted patient's encounters (history, #72), but
     // the record is gone.
     return (
       <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -140,14 +140,14 @@ function SessionDetail({ item, onClose }: { item: SessionIndexItem; onClose: () 
       </Dialog>
     );
   }
-  if (!session) return null;
+  if (!encounter) return null;
 
   return (
-    <SessionFormDialog
+    <EncounterFormDialog
       open
       onOpenChange={(o) => !o && onClose()}
       patientId={item.patient.id}
-      session={session}
+      encounter={encounter}
     />
   );
 }

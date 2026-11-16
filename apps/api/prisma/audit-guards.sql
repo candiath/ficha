@@ -11,7 +11,7 @@
 -- The audit tables are audit_logs, platform_audit_logs, and since
 -- sysadmin-alerts (docs/specs/SPEC-sysadmin-alerts.md) sysadmin_alerts and
 -- sysadmin_alert_deliveries. The clinical revisions tables get the same checks
--- (docs/specs/SPEC-clinical-revisions.md §6): session_revisions, patient_revisions,
+-- (docs/specs/SPEC-clinical-revisions.md §6): encounter_revisions, patient_revisions,
 -- episode_revisions, evaluation_revisions, consent_revisions and
 -- patient_event_revisions.
 DO $guards$
@@ -23,7 +23,7 @@ DECLARE
   platform regclass := to_regclass('public.platform_audit_logs');
   alerts regclass := to_regclass('public.sysadmin_alerts');
   deliveries regclass := to_regclass('public.sysadmin_alert_deliveries');
-  session_revs regclass := to_regclass('public.session_revisions');
+  encounter_revs regclass := to_regclass('public.encounter_revisions');
   patient_revs regclass := to_regclass('public.patient_revisions');
   episode_revs regclass := to_regclass('public.episode_revisions');
   evaluation_revs regclass := to_regclass('public.evaluation_revisions');
@@ -40,7 +40,7 @@ BEGIN
   IF platform IS NULL THEN problems := problems || 'table platform_audit_logs is missing'::text; END IF;
   IF alerts IS NULL THEN problems := problems || 'table sysadmin_alerts is missing'::text; END IF;
   IF deliveries IS NULL THEN problems := problems || 'table sysadmin_alert_deliveries is missing'::text; END IF;
-  IF session_revs IS NULL THEN problems := problems || 'table session_revisions is missing'::text; END IF;
+  IF encounter_revs IS NULL THEN problems := problems || 'table encounter_revisions is missing'::text; END IF;
   IF patient_revs IS NULL THEN problems := problems || 'table patient_revisions is missing'::text; END IF;
   IF episode_revs IS NULL THEN problems := problems || 'table episode_revisions is missing'::text; END IF;
   IF evaluation_revs IS NULL THEN problems := problems || 'table evaluation_revisions is missing'::text; END IF;
@@ -70,9 +70,9 @@ BEGIN
      'sysadmin_alert_deliveries_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alert_deliveries_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alert_deliveries_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
-    (session_revs,
-     'session_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'session_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (encounter_revs,
+     'encounter_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'encounter_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (patient_revs,
      'patient_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'patient_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
@@ -149,9 +149,9 @@ BEGIN
       (platform, 'platform_audit_logs_tenant_id_target_user_id_fkey', 'tenant_id,target_user_id', 'public.users'::regclass, 'tenant_id,id'),
       (alerts, 'sysadmin_alerts_operator_id_fkey', 'operator_id', 'public.platform_operators'::regclass, 'id'),
       (deliveries, 'sysadmin_alert_deliveries_alert_id_fkey', 'alert_id', alerts, 'id'),
-      (session_revs, 'session_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
-      (session_revs, 'session_revisions_tenant_id_patient_id_session_id_fkey', 'tenant_id,patient_id,session_id', 'public.sessions'::regclass, 'tenant_id,patient_id,id'),
-      (session_revs, 'session_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (encounter_revs, 'encounter_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (encounter_revs, 'encounter_revisions_tenant_id_patient_id_encounter_id_fkey', 'tenant_id,patient_id,encounter_id', 'public.encounters'::regclass, 'tenant_id,patient_id,id'),
+      (encounter_revs, 'encounter_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
       (patient_revs, 'patient_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
       (patient_revs, 'patient_revisions_tenant_id_patient_id_fkey', 'tenant_id,patient_id', 'public.patients'::regclass, 'tenant_id,id'),
       (patient_revs, 'patient_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
@@ -206,7 +206,7 @@ BEGIN
        $$CHECK (((actor_type <> 'OPERATOR'::"AuditActorType") AND ((actor_type = 'USER'::"AuditActorType") = (user_id IS NOT NULL))))$$),
       (platform, 'platform_audit_logs_actor_is_operator', $$CHECK ((actor_type = 'OPERATOR'::"AuditActorType"))$$),
       (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$),
-      (session_revs, 'session_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      (encounter_revs, 'encounter_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (patient_revs, 'patient_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (episode_revs, 'episode_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (evaluation_revs, 'evaluation_revisions_version_positive', $$CHECK ((version >= 1))$$),
@@ -234,13 +234,13 @@ BEGIN
       (alerts, 'kind'),
       (deliveries, 'alert_id'),
       (deliveries, 'outcome'),
-      (session_revs, 'tenant_id'),
-      (session_revs, 'patient_id'),
-      (session_revs, 'session_id'),
-      (session_revs, 'version'),
-      (session_revs, 'audit_log_id'),
-      (session_revs, 'snapshot'),
-      (session_revs, 'schema_version'),
+      (encounter_revs, 'tenant_id'),
+      (encounter_revs, 'patient_id'),
+      (encounter_revs, 'encounter_id'),
+      (encounter_revs, 'version'),
+      (encounter_revs, 'audit_log_id'),
+      (encounter_revs, 'snapshot'),
+      (encounter_revs, 'schema_version'),
       (patient_revs, 'tenant_id'),
       (patient_revs, 'patient_id'),
       (patient_revs, 'version'),
@@ -312,8 +312,8 @@ BEGIN
        'CREATE UNIQUE INDEX platform_audit_logs_action_entity_key ON public.platform_audit_logs USING btree (action, entity, entity_id) WHERE (entity IS NOT NULL)'),
       (clinical, 'audit_logs_tenant_id_patient_id_id_key',
        'CREATE UNIQUE INDEX audit_logs_tenant_id_patient_id_id_key ON public.audit_logs USING btree (tenant_id, patient_id, id)'),
-      (session_revs, 'session_revisions_session_id_version_key',
-       'CREATE UNIQUE INDEX session_revisions_session_id_version_key ON public.session_revisions USING btree (session_id, version)'),
+      (encounter_revs, 'encounter_revisions_encounter_id_version_key',
+       'CREATE UNIQUE INDEX encounter_revisions_encounter_id_version_key ON public.encounter_revisions USING btree (encounter_id, version)'),
       (patient_revs, 'patient_revisions_patient_id_version_key',
        'CREATE UNIQUE INDEX patient_revisions_patient_id_version_key ON public.patient_revisions USING btree (patient_id, version)'),
       (episode_revs, 'episode_revisions_episode_id_version_key',

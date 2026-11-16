@@ -3,28 +3,28 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import SessionsPage from '@/pages/SessionsPage';
-import { globalSessionApi } from '@/services/globalSessions';
-import { sessionApi } from '@/services/sessions';
-import type { SessionIndexItem } from '@/types/globalSession';
-import type { Session } from '@/types/session';
+import EncountersPage from '@/pages/EncountersPage';
+import { globalEncounterApi } from '@/services/globalEncounters';
+import { encounterApi } from '@/services/encounters';
+import type { EncounterIndexItem } from '@/types/globalEncounter';
+import type { Encounter } from '@/types/encounter';
 import { chooseReason } from './revisionReason';
 
-// Sesiones lists every session of the clinic as an index, with no clinical
-// text (#186, SPEC-list-minimization.md §1). The session itself is read from
+// Sesiones lists every encounter of the clinic as an index, with no clinical
+// text (#186, SPEC-list-minimization.md §1). The encounter itself is read from
 // the patient's route, and the edit form renders only from that full record:
 // a partial object in an edit form is saved as erased fields.
-vi.mock('@/services/globalSessions', () => ({
-  globalSessionKeys: { all: ['sessions'] },
-  globalSessionApi: { list: vi.fn() },
+vi.mock('@/services/globalEncounters', () => ({
+  globalEncounterKeys: { all: ['encounters'] },
+  globalEncounterApi: { list: vi.fn() },
 }));
 
-vi.mock('@/services/sessions', () => ({
-  sessionKeys: {
-    list: (patientId: string) => ['patients', patientId, 'sessions'],
-    detail: (patientId: string, sessionId: string) => ['patients', patientId, 'sessions', sessionId],
+vi.mock('@/services/encounters', () => ({
+  encounterKeys: {
+    list: (patientId: string) => ['patients', patientId, 'encounters'],
+    detail: (patientId: string, encounterId: string) => ['patients', patientId, 'encounters', encounterId],
   },
-  sessionApi: { get: vi.fn(), update: vi.fn(), annul: vi.fn(), list: vi.fn(), create: vi.fn() },
+  encounterApi: { get: vi.fn(), update: vi.fn(), annul: vi.fn(), list: vi.fn(), create: vi.fn() },
 }));
 
 vi.mock('@/services/episodes', () => ({
@@ -41,29 +41,29 @@ vi.mock('@/services/payments', () => ({
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const list = vi.mocked(globalSessionApi.list);
-const get = vi.mocked(sessionApi.get);
-const update = vi.mocked(sessionApi.update);
+const list = vi.mocked(globalEncounterApi.list);
+const get = vi.mocked(encounterApi.get);
+const update = vi.mocked(encounterApi.update);
 
-const ITEM: SessionIndexItem = {
+const ITEM: EncounterIndexItem = {
   id: 's1',
-  sessionType: 'SESSION',
-  sessionDate: '2026-10-01T13:00:00.000Z',
+  encounterType: 'SESSION',
+  encounterDate: '2026-10-01T13:00:00.000Z',
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
   patient: { id: 'p1', fullName: 'María García' },
 };
 
-const SESSION: Session = {
+const SESSION: Encounter = {
   id: 's1',
   patientId: 'p1',
-  sessionType: 'SESSION',
-  sessionDate: '2026-10-01T13:00:00.000Z',
+  encounterType: 'SESSION',
+  encounterDate: '2026-10-01T13:00:00.000Z',
   observations: null,
   episodes: [
     {
       episodeId: 'e1',
-      preSessionState: 'Llegó con dolor lumbar',
+      preEncounterState: 'Llegó con dolor lumbar',
       treatment: 'Trabajo de cadena posterior',
       reEvaluationNotes: null,
       patientExercises: 'Rana en el suelo 10 minutos',
@@ -80,7 +80,7 @@ function renderPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <SessionsPage />
+        <EncountersPage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -91,7 +91,7 @@ beforeEach(() => {
   list.mockResolvedValue([ITEM]);
 });
 
-describe('SessionsPage', () => {
+describe('EncountersPage', () => {
   it('shows who and when, with no clinical column', async () => {
     renderPage();
 
@@ -102,8 +102,8 @@ describe('SessionsPage', () => {
     expect(headers.join(' ')).not.toMatch(/Dolor|Observaciones|Episodio/);
   });
 
-  it('opens a session only with the full record, loaded from the patient\'s route', async () => {
-    let resolve: (s: Session) => void = () => {};
+  it('opens an encounter only with the full record, loaded from the patient\'s route', async () => {
+    let resolve: (s: Encounter) => void = () => {};
     get.mockReturnValue(new Promise((r) => (resolve = r)));
     renderPage();
 
@@ -136,7 +136,7 @@ describe('SessionsPage', () => {
       episodes: [
         {
           episodeId: 'e1',
-          preSessionState: 'Llegó con dolor lumbar',
+          preEncounterState: 'Llegó con dolor lumbar',
           treatment: 'Trabajo de cadena posterior y diafragma',
           patientExercises: 'Rana en el suelo 10 minutos',
           painScaleBefore: 7,

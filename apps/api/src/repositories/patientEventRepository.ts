@@ -41,7 +41,7 @@ export type PatientEventAuditField = keyof typeof AUDIT_PATIENT_EVENT_FIELDS;
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
-// Like sessions: an event of another patient counts as nonexistent, and an
+// Like encounters: an event of another patient counts as nonexistent, and an
 // annulled one is listed by the record only. The patient's existence is the route's
 // (patientRepo.exists).
 export interface PatientEventRepository {

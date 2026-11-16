@@ -11,7 +11,7 @@ import type {
 // evaluation, the informed consent and the patient event
 // (SPEC-clinical-revisions.md §3): the one mapping from each row to its
 // snapshot, used to write a version and to decide whether a write changed
-// anything. The session's is in sessionSnapshot.ts.
+// anything. The encounter's is in encounterSnapshot.ts.
 // tests/historyProjectionCoverage.test.ts holds every other column to a decision.
 
 const iso = (d: Date) => d.toISOString();

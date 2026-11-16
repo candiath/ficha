@@ -12,11 +12,11 @@ import {
   PatientEventSnapshotV1,
   PatientSnapshotV1,
   PatientSnapshotV2,
-  SESSION_SNAPSHOTS,
-  SessionSnapshotV1,
+  ENCOUNTER_SNAPSHOTS,
+  EncounterSnapshotV1,
   type SnapshotHistory,
 } from '@ficha/shared';
-import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
+import { encounterSnapshot } from '../src/repositories/prisma/encounterSnapshot';
 import {
   consentSnapshot,
   episodeSnapshot,
@@ -37,12 +37,12 @@ const NOT_VERSIONED =
   'Versioning them later is a schema bump.';
 
 const fieldsOf = (schema: { shape: object }) => Object.keys(schema.shape);
-const sessionFields = fieldsOf(SessionSnapshotV1).filter((field) => field !== 'episodes');
-const blockFields = Object.keys(SessionSnapshotV1.shape.episodes.element.shape);
+const encounterFields = fieldsOf(EncounterSnapshotV1).filter((field) => field !== 'episodes');
+const blockFields = Object.keys(EncounterSnapshotV1.shape.episodes.element.shape);
 
 const COVERAGE: Record<string, { projected: string[]; excluded: Record<string, string> }> = {
-  Session: {
-    projected: sessionFields,
+  Encounter: {
+    projected: encounterFields,
     excluded: {
       id: IDENTITY,
       tenantId: IDENTITY,
@@ -52,9 +52,9 @@ const COVERAGE: Record<string, { projected: string[]; excluded: Record<string, s
       deletedAt: DELETION,
     },
   },
-  SessionEpisode: {
+  EncounterBlock: {
     projected: blockFields,
-    excluded: { tenantId: IDENTITY, patientId: IDENTITY, sessionId: IDENTITY },
+    excluded: { tenantId: IDENTITY, patientId: IDENTITY, encounterId: IDENTITY },
   },
   Patient: {
     projected: fieldsOf(PatientSnapshotV2),
@@ -129,11 +129,11 @@ const PATIENT_V1 = {
 
 const STORED: Stored[] = [
   {
-    name: 'session',
+    name: 'encounter',
     version: 1,
-    schema: SessionSnapshotV1,
-    history: SESSION_SNAPSHOTS,
-    build: () => sessionSnapshot({ ...SESSION, sessionType: 'SESSION', sessionDate: new Date(SESSION.sessionDate) }),
+    schema: EncounterSnapshotV1,
+    history: ENCOUNTER_SNAPSHOTS,
+    build: () => encounterSnapshot({ ...SESSION, encounterType: 'SESSION', encounterDate: new Date(SESSION.encounterDate) }),
     stored: undefined,
   },
   {
@@ -241,13 +241,13 @@ const STORED: Stored[] = [
 
 const SESSION = {
   userId: ID_1,
-  sessionType: 'SESSION',
-  sessionDate: '2026-11-06T12:00:00.000Z',
+  encounterType: 'SESSION',
+  encounterDate: '2026-11-06T12:00:00.000Z',
   observations: null,
   episodes: [
     {
       episodeId: ID_2,
-      preSessionState: 'Llegó con dolor',
+      preEncounterState: 'Llegó con dolor',
       treatment: null,
       painScaleBefore: 7,
       painScaleAfter: null,
@@ -285,7 +285,7 @@ describe('history projections', () => {
 
   it('has a fixture for every version of every aggregate', () => {
     const histories = [
-      SESSION_SNAPSHOTS,
+      ENCOUNTER_SNAPSHOTS,
       PATIENT_SNAPSHOTS,
       EPISODE_SNAPSHOTS,
       EVALUATION_SNAPSHOTS,

@@ -44,9 +44,9 @@ afterAll(async () => {
   // Los hijos no deberían existir (el test de sub-rutas verifica justamente
   // que no se creen), pero si ese test falla las FKs bloquearían el borrado
   // del paciente y el fallo se disfrazaría de error de limpieza.
-  // A session's blocks (#238) restrict its deletion: they go first.
-  await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
-  await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  // An encounter's blocks (#238) restrict its deletion: they go first.
+  await prisma.encounterBlock.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  await prisma.encounter.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -267,11 +267,11 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
     // cosmético al lado de que un POST cuelgue una fila de un paciente que ya
     // no existe — esa fila queda huérfana, sin pantalla que la muestre.
     const subRutas: Array<[string, request.Test]> = [
-      ['GET sesiones', request(app).get(`${base}/sessions`)],
+      ['GET sesiones', request(app).get(`${base}/encounters`)],
       ['GET episodios', request(app).get(`${base}/episodes`)],
       [
         'POST sesión',
-        request(app).post(`${base}/sessions`).send({ sessionDate: new Date().toISOString() }),
+        request(app).post(`${base}/encounters`).send({ encounterDate: new Date().toISOString() }),
       ],
       [
         'POST episodio',
@@ -300,7 +300,7 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
 
     // Contracara de los 404: ninguna escritura rechazada dejó una fila colgada.
     const [sesiones, episodios, paquetes] = await Promise.all([
-      prisma.session.count({ where: { patientId: patient.id } }),
+      prisma.encounter.count({ where: { patientId: patient.id } }),
       prisma.clinicalEpisode.count({ where: { patientId: patient.id } }),
       prisma.sessionPackage.count({ where: { patientId: patient.id } }),
     ]);

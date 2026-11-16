@@ -10,30 +10,30 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingDown } from 'lucide-react';
-import { blockFor, type Session } from '@/types/session';
+import { blockFor, type Encounter } from '@/types/encounter';
 
 interface Props {
-  sessions: Session[];
-  /** The episode whose pain is charted: a session that treated several
+  encounters: Encounter[];
+  /** The episode whose pain is charted: an encounter that treated several
    *  problems has a pain per problem, and only this one's is drawn. */
   episodeId: string;
 }
 
-export default function PainEvolutionChart({ sessions, episodeId }: Props) {
-  // An annulled session is struck through in the list and charts nothing
+export default function PainEvolutionChart({ encounters, episodeId }: Props) {
+  // An annulled encounter is struck through in the list and charts nothing
   // (SPEC-clinical-revisions.md §8).
-  const data = sessions
+  const data = encounters
     .filter((s) => !s.annulledAt)
-    .map((s) => ({ sessionDate: s.sessionDate, block: blockFor(s, episodeId) }))
+    .map((s) => ({ encounterDate: s.encounterDate, block: blockFor(s, episodeId) }))
     .filter(({ block }) => block && (block.painScaleBefore !== null || block.painScaleAfter !== null))
-    .sort((a, b) => new Date(a.sessionDate).getTime() - new Date(b.sessionDate).getTime())
-    .map(({ sessionDate, block }, i) => ({
-      name: new Date(sessionDate).toLocaleDateString('es-AR', {
+    .sort((a, b) => new Date(a.encounterDate).getTime() - new Date(b.encounterDate).getTime())
+    .map(({ encounterDate, block }, i) => ({
+      name: new Date(encounterDate).toLocaleDateString('es-AR', {
         day: '2-digit',
         month: 'short',
         timeZone: 'UTC',
       }),
-      session: i + 1,
+      encounter: i + 1,
       antes: block?.painScaleBefore ?? null,
       despues: block?.painScaleAfter ?? null,
     }));

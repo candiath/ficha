@@ -7,12 +7,12 @@ import PatientDetailPage from '@/pages/PatientDetailPage';
 import { episodeApi } from '@/services/episodes';
 import { patientApi } from '@/services/patients';
 import { revisionApi } from '@/services/revisions';
-import { sessionApi } from '@/services/sessions';
+import { encounterApi } from '@/services/encounters';
 import type { ClinicalEpisode } from '@/types/episode';
 import type { Patient } from '@/types/patient';
-import type { Session } from '@/types/session';
+import type { Encounter } from '@/types/encounter';
 
-// The record lists an annulled session struck through (SPEC-clinical-revisions.md
+// The record lists an annulled encounter struck through (SPEC-clinical-revisions.md
 // §8): it counts in nothing, and opens its history instead of the form.
 vi.mock('@/services/patients', () => ({
   patientKeys: { all: ['patients'], detail: (id: string) => ['patients', id] },
@@ -24,12 +24,12 @@ vi.mock('@/services/episodes', () => ({
   episodeApi: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 }));
 
-vi.mock('@/services/sessions', () => ({
-  sessionKeys: {
+vi.mock('@/services/encounters', () => ({
+  encounterKeys: {
     list: (patientId: string, episodeId?: string) =>
-      episodeId ? ['patients', patientId, 'episodes', episodeId, 'sessions'] : ['patients', patientId, 'sessions'],
+      episodeId ? ['patients', patientId, 'episodes', episodeId, 'encounters'] : ['patients', patientId, 'encounters'],
   },
-  sessionApi: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), annul: vi.fn() },
+  encounterApi: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), annul: vi.fn() },
 }));
 
 vi.mock('@/services/revisions', async (importOriginal) => ({
@@ -75,19 +75,19 @@ const EPISODE: ClinicalEpisode = {
   version: 1,
 };
 
-const session = (
+const encounter = (
   id: string,
   day: string,
   treatment: string,
   annulledAt: string | null = null,
   pain: [number, number] = [6, 3],
-  sessionType: Session['sessionType'] = 'SESSION',
-): Session => ({
+  encounterType: Encounter['encounterType'] = 'SESSION',
+): Encounter => ({
   id,
   version: annulledAt ? 2 : 1,
   patientId: 'p1',
-  sessionType,
-  sessionDate: `2026-10-${day}T13:00:00.000Z`,
+  encounterType,
+  encounterDate: `2026-10-${day}T13:00:00.000Z`,
   observations: null,
   createdAt: `2026-10-${day}T13:00:00.000Z`,
   updatedAt: `2026-10-${day}T13:00:00.000Z`,
@@ -95,7 +95,7 @@ const session = (
   episodes: [
     {
       episodeId: 'e1',
-      preSessionState: null,
+      preEncounterState: null,
       treatment,
       painScaleBefore: pain[0],
       painScaleAfter: pain[1],
@@ -122,16 +122,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(patientApi.get).mockResolvedValue(PATIENT);
   vi.mocked(episodeApi.list).mockResolvedValue([EPISODE]);
-  vi.mocked(sessionApi.list).mockResolvedValue([
-    session('s3', '20', 'Movilidad lumbar'),
+  vi.mocked(encounterApi.list).mockResolvedValue([
+    encounter('s3', '20', 'Movilidad lumbar'),
     // Its pain would move the average from 3.0 to 5.0.
-    session('s2', '15', 'Cargada por error', '2026-10-16T10:00:00.000Z', [9, 0]),
-    session('s1', '10', 'Evaluación'),
+    encounter('s2', '15', 'Cargada por error', '2026-10-16T10:00:00.000Z', [9, 0]),
+    encounter('s1', '10', 'Evaluación'),
   ]);
 });
 
-describe('PatientDetailPage: annulled sessions', () => {
-  it('lists an annulled session struck through, outside the count and the numbering', async () => {
+describe('PatientDetailPage: annulled encounters', () => {
+  it('lists an annulled encounter struck through, outside the count and the numbering', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('tab', { name: 'Sesiones' }));
 
@@ -154,15 +154,15 @@ describe('PatientDetailPage: annulled sessions', () => {
     vi.mocked(revisionApi.list).mockResolvedValue([
       {
         version: 2,
-        action: 'SESSION_ANNULLED',
-        params: { sessionType: 'SESSION', reason: 'DATA_ENTRY_ERROR' },
+        action: 'ENCOUNTER_ANNULLED',
+        params: { encounterType: 'SESSION', reason: 'DATA_ENTRY_ERROR' },
         actorType: 'USER',
         author: { id: 'u1', name: 'Ana Pérez' },
         createdAt: '2026-10-16T10:00:00.000Z',
       },
       {
         version: 1,
-        action: 'SESSION_RECORDED',
+        action: 'ENCOUNTER_RECORDED',
         params: {},
         actorType: 'USER',
         author: { id: 'u1', name: 'Ana Pérez' },
@@ -171,7 +171,7 @@ describe('PatientDetailPage: annulled sessions', () => {
     ]);
     vi.mocked(revisionApi.get).mockImplementation(async (_base, version) => ({
       version,
-      action: version === 2 ? 'SESSION_ANNULLED' : 'SESSION_RECORDED',
+      action: version === 2 ? 'ENCOUNTER_ANNULLED' : 'ENCOUNTER_RECORDED',
       params: {},
       actorType: 'USER',
       author: { id: 'u1', name: 'Ana Pérez' },
@@ -180,10 +180,10 @@ describe('PatientDetailPage: annulled sessions', () => {
       reasonNote: version === 2 ? 'Era de otra paciente' : null,
       snapshot: {
         userId: 'u1',
-        sessionType: 'SESSION',
-        sessionDate: '2026-10-15T13:00:00.000Z',
+        encounterType: 'SESSION',
+        encounterDate: '2026-10-15T13:00:00.000Z',
         observations: null,
-        episodes: [session('s2', '15', 'Cargada por error').episodes[0]],
+        episodes: [encounter('s2', '15', 'Cargada por error').episodes[0]],
       },
     }));
     renderPage();
@@ -193,15 +193,15 @@ describe('PatientDetailPage: annulled sessions', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Historial de la sesión anulada' });
     expect(await within(dialog).findByText('Versión 2 · Sesión anulada')).toBeInTheDocument();
-    expect(sessionApi.get).not.toHaveBeenCalled();
+    expect(encounterApi.get).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Guardar sesión' })).toBeNull();
   });
 
   it("does not take an annulled discharge as the episode's discharge", async () => {
     vi.mocked(episodeApi.list).mockResolvedValue([{ ...EPISODE, status: 'DISCHARGED', closedAt: '2026-10-21T13:00:00.000Z' }]);
-    vi.mocked(sessionApi.list).mockResolvedValue([
-      session('s4', '21', 'Alta cargada por error', '2026-10-22T10:00:00.000Z', [3, 1], 'DISCHARGE'),
-      session('s1', '10', 'Evaluación'),
+    vi.mocked(encounterApi.list).mockResolvedValue([
+      encounter('s4', '21', 'Alta cargada por error', '2026-10-22T10:00:00.000Z', [3, 1], 'DISCHARGE'),
+      encounter('s1', '10', 'Evaluación'),
     ]);
     renderPage();
     await userEvent.click(await screen.findByRole('tab', { name: 'Sesiones' }));

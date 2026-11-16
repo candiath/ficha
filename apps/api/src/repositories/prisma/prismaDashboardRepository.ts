@@ -1,4 +1,4 @@
-import { SessionType } from '@prisma/client';
+import { EncounterType } from '@prisma/client';
 import { forTenant } from '../../lib/tenantScope';
 import type { TenantContext } from '../types';
 import type {
@@ -7,11 +7,11 @@ import type {
   DashboardStatsParams,
 } from '../dashboardRepository';
 
-// Las notas rápidas (sessionType NOTE) no son sesiones clínicas: quedan fuera
+// Las notas rápidas (encounterType NOTE) no son sesiones clínicas: quedan fuera
 // de todos los conteos. SESSION y DISCHARGE sí cuentan. Las borradas tampoco
 // cuentan: si no se listan en ningún lado, no pueden inflar las métricas.
-const CLINICAL_SESSION_WHERE = {
-  sessionType: { not: SessionType.NOTE },
+const CLINICAL_ENCOUNTER_WHERE = {
+  encounterType: { not: EncounterType.NOTE },
   deletedAt: null,
 };
 
@@ -26,20 +26,20 @@ export const prismaDashboardRepository: DashboardRepository = {
     const [
       activePatients,
       totalSessions,
-      sessionsThisMonth,
+      encountersThisMonth,
       pendingPayments,
       pathologyGroups,
-      chartSessions,
+      chartEncounters,
     ] = await Promise.all([
       // "Activo" = paciente vigente con al menos un episodio clínico abierto.
       db.patient.count({
         where: { deletedAt: null, clinicalEpisodes: { some: { status: 'ACTIVE' } } },
       }),
-      db.session.count({ where: CLINICAL_SESSION_WHERE }),
-      db.session.count({
+      db.encounter.count({ where: CLINICAL_ENCOUNTER_WHERE }),
+      db.encounter.count({
         where: {
-          ...CLINICAL_SESSION_WHERE,
-          sessionDate: { gte: params.monthStart, lt: params.nextMonthStart },
+          ...CLINICAL_ENCOUNTER_WHERE,
+          encounterDate: { gte: params.monthStart, lt: params.nextMonthStart },
         },
       }),
       db.payment.count({ where: { status: 'PENDING' } }),
@@ -57,23 +57,23 @@ export const prismaDashboardRepository: DashboardRepository = {
       // unipersonal) hace que traer solo las fechas sea barato.
       // Contexto completo (y qué hacer si algún día el volumen molesta):
       // https://github.com/candiath/ficha/issues/64
-      db.session.findMany({
-        where: { ...CLINICAL_SESSION_WHERE, sessionDate: { gte: params.chartWindowStart } },
-        select: { sessionDate: true },
+      db.encounter.findMany({
+        where: { ...CLINICAL_ENCOUNTER_WHERE, encounterDate: { gte: params.chartWindowStart } },
+        select: { encounterDate: true },
       }),
     ]);
 
     return {
       activePatients,
       totalSessions,
-      sessionsThisMonth,
+      encountersThisMonth,
       pendingPayments,
       pathologies: pathologyGroups.map((g) => ({
         // El where ya excluye null/vacío; el fallback es solo para el tipo.
         name: g.mainComplaint ?? '',
         count: g._count.mainComplaint,
       })),
-      sessionDates: chartSessions.map((s) => s.sessionDate),
+      encounterDates: chartEncounters.map((s) => s.encounterDate),
     };
   },
 };

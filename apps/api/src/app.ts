@@ -17,14 +17,14 @@ import consentRouter from './routes/consent';
 import dashboardRouter from './routes/dashboard';
 import episodesRouter from './routes/episodes';
 import evaluationRouter from './routes/evaluations';
-import globalSessionsRouter from './routes/globalSessions';
+import globalEncountersRouter from './routes/globalEncounters';
 import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
 import platformRouter from './routes/platform';
 import platformAlertsRouter from './routes/platformAlerts';
 import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
-import sessionsRouter from './routes/sessions';
+import encountersRouter from './routes/encounters';
 import tenantRouter from './routes/tenant';
 import patientEventsRouter from './routes/patientEvents';
 import usersRouter from './routes/users';
@@ -144,12 +144,12 @@ app.use('/api/patients/:patientId/episodes', requireLivePatient, episodesRouter)
 // The episodes mount above matches this path by prefix and runs the guard
 // too; this one stays, so the evaluation does not depend on mount order.
 app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', requireLivePatient, evaluationRouter);
-app.use('/api/patients/:patientId/sessions', requireLivePatient, sessionsRouter);
+app.use('/api/patients/:patientId/encounters', requireLivePatient, encountersRouter);
 // No requireLivePatient: a deleted patient's history stays readable.
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', requireLivePatient, consentRouter);
 app.use('/api/patients/:patientId/events', requireLivePatient, patientEventsRouter);
-app.use('/api/sessions', globalSessionsRouter);
+app.use('/api/encounters', globalEncountersRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);
