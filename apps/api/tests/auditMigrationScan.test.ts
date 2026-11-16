@@ -61,7 +61,7 @@ const FROZEN = new Set([
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
   '20261118130000_rename_patient_event_to_antecedent': {
     reason:
-      'PatientEvent becomes PatientAntecedent (the record\x27s "Antecedentes") before the relaunch, while no ' +
+      'PatientEvent becomes PatientAntecedent ("Antecedentes" in the record) before the relaunch, while no ' +
       'deployed database holds clinical rows (#238). Only names change, as in the Encounter rename above: ' +
       'the revisions table, its column, constraints and triggers keep their definitions (audit-guards.sql ' +
       'pins the new names), and the audit codes PATIENT_EVENT* are renamed in place.',
