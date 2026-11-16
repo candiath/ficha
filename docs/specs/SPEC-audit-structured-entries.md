@@ -25,7 +25,7 @@ Part of the meaning lives only in the Spanish text, so dropping `description` as
 | Fact | Row today | Where the difference is |
 |---|---|---|
 | Consent revoked | `CONSENT` + `UPDATED` | only in "revocado" |
-| Session, clinical note or discharge | `SESSION` + `CREATED` | only in the text |
+| Encounter, clinical note or discharge | `SESSION` + `CREATED` | only in the text |
 | Functional scale applied | `EVALUATION` + `CREATED` | only in the text, with the raw enum inside (`Escala OSWESTRY aplicada`) |
 | User deactivated or reactivated | `USER_ACTIVE_CHANGED` | only in "Desactivó" / "Reactivó" (the clinic uses two actions: inconsistent) |
 | Role changed | `USER_ROLE_CHANGED` | the new role only in the text |
@@ -51,7 +51,7 @@ The rule every later module follows, and the reason for most of what is below:
 - **The same holds for parameter values.** The catalog keeps its own list of the values each parameter accepts (`AUDIT_SCALE_TYPES`…), separate from the domain enums and from request validation, and that list only grows: a scale type the clinic stops offering still renders in the rows that name it, and dropping it from the domain does not let anyone create one again.
 - **Parameters are additive, and optional for readers.** A new parameter may be required when writing, but every reader treats it as possibly missing: the rows written before it exist. Changing the meaning or type of an existing parameter is a new action.
 - **Every code that was ever written renders**, with whatever parameters its row has.
-- **The wording is presentation, the code is the record.** Rewording an action or a label changes how every past row reads, on purpose: the record never said "Sesión registrada", it said `SESSION_RECORDED`.
+- **The wording is presentation, the code is the record.** Rewording an action or a label changes how every past row reads, on purpose: the record never said "Sesión registrada", it said `ENCOUNTER_RECORDED`.
 
 Stripe solves the same problem with a version stamped on every event (`api_version`). Additive-only makes that column unnecessary here; if a breaking change is ever unavoidable, a version column is the escape hatch, not a rewrite.
 
@@ -127,7 +127,7 @@ It stops amounts, document numbers, emails, ids, dates, sentences and anything i
 
 **Deprecated codes are refused by the catalog, not by the database.** A `CHECK (action NOT IN (…))` would repeat the list of deprecated codes in a third place (catalog, check, guard), and every later deprecation would have to drop and re-add it. The only writers are `recordAudit` and `recordPlatformAudit` (§4), plus the seed and the test helpers, which validate with the catalog too. *(Trade-off: a writer that bypasses all of them could write a deprecated code; the row would still render.)*
 
-The `CHECK (description !~ '[0-9@$]')` planned in [`SPEC-audit-hardening.md`](SPEC-audit-hardening.md) (Rollout step 4) is **dropped**: there is no description left to check. The other check of that step (the session required with an author) is unchanged.
+The `CHECK (description !~ '[0-9@$]')` planned in [`SPEC-audit-hardening.md`](SPEC-audit-hardening.md) (Rollout step 4) is **dropped**: there is no description left to check. The other check of that step (the encounter required with an author) is unchanged.
 
 ### 3. The catalog (`packages/shared/src/auditActions.ts`)
 
@@ -159,7 +159,7 @@ export const AUDIT_ACTIONS = {
 - **Writing is strict**: the parameters form a `strictObject`, every one required, each an enum from the catalog's own lists or a list of field names from an allowlist, never `z.string()`. Unknown keys fail.
 - **Reading is lenient and per parameter** (`readAuditParams(table, action, json)`): each parameter is parsed on its own, so one value this version does not know (from a newer API) drops only that parameter; unknown keys are ignored; anything that is not an object reads as `{}`. `describe` receives only what parsed, and every wording handles each parameter missing.
 - **Wordings say what was done, not who did it.** The screen adds the actor when it shows one.
-- **The labels the wordings need** are the catalog's own (`AUDIT_SCALE_TYPES`, `AUDIT_SESSION_TYPES`, `AUDIT_PAYMENT_STATUSES`, `AUDIT_ROLES`, and the field names of each entity), not the web's: they are the append-only lists of §1, and renaming a chip in the UI must not reword the history.
+- **The labels the wordings need** are the catalog's own (`AUDIT_SCALE_TYPES`, `AUDIT_ENCOUNTER_TYPES`, `AUDIT_PAYMENT_STATUSES`, `AUDIT_ROLES`, and the field names of each entity), not the web's: they are the append-only lists of §1, and renaming a chip in the UI must not reword the history.
 - **Deprecated codes** have `deprecated: true`, a generic wording and no parameters; writing one fails.
 - **An unknown action** renders as "Acción registrada", and **an unknown entity** with a neutral badge, never the raw code or another entity's badge (today a `SCALE` would show as "Paciente").
 - **The `PlatformAction` union in `packages/shared/src/index.ts`** is derived from the catalog instead of written by hand, and the web's `AuditLog` type follows the DTO.
@@ -176,17 +176,17 @@ export const AUDIT_ACTIONS = {
 | `EVALUATION_CREATED` ✱ | `EVALUATION` | — | initial evaluation, `CREATED` |
 | `EVALUATION_UPDATED` ✱ | `EVALUATION` | `changedFields` | initial evaluation, `UPDATED` |
 | `SCALE_APPLIED` ✱ | `SCALE` ✱ | `scaleType` | `EVALUATION` + `CREATED` + "Escala X aplicada" |
-| `SESSION_RECORDED` ✱ | `SESSION` | — | `SESSION` + `CREATED` + "Sesión registrada" |
+| `ENCOUNTER_RECORDED` ✱ | `ENCOUNTER` | — | `SESSION` + `CREATED` + "Sesión registrada" |
 | `NOTE_RECORDED` ✱ | `SESSION` | — | `SESSION` + `CREATED` + "Nota clínica registrada" |
 | `DISCHARGE_RECORDED` ✱ | `SESSION` | — | `SESSION` + `CREATED` + "Alta registrada" |
-| `SESSION_UPDATED` ✱ | `SESSION` | `sessionType` (after the update), `changedFields` | `SESSION` + `UPDATED` |
+| `ENCOUNTER_UPDATED` ✱ | `ENCOUNTER` | `encounterType` (after the update), `changedFields` | `SESSION` + `UPDATED` |
 | `SESSION_DELETED` ✱ | `SESSION` | — | `SESSION` + `DELETED` |
 | `PAYMENT_CREATED` ✱ | `PAYMENT` | `status` | `PAYMENT` + `CREATED` |
 | `PAYMENT_UPDATED` ✱ | `PAYMENT` | `status` (after the update), `changedFields` | `PAYMENT` + `UPDATED` |
 | `CONSENT_SIGNED` ✱ | `CONSENT` | — | `CONSENT` + `CREATED` |
 | `CONSENT_REVOKED` ✱ | `CONSENT` | — | `CONSENT` + `UPDATED` |
 
-The type and status *after* an update come from the write's own result, so a session turned into a discharge by editing it, or a payment marked paid, is findable (`params->>'sessionType' = 'DISCHARGE'`). `changedFields` names the fields the update changed (§4).
+The type and status *after* an update come from the write's own result, so an encounter turned into a discharge by editing it, or a payment marked paid, is findable (`params->>'encounterType' = 'DISCHARGE'`). `changedFields` names the fields the update changed (§4).
 
 `platform_audit_logs`: as today, except `USER_ROLE_CHANGED` takes `{ role }` (old rows have none and read "Cambió el rol") and `USER_ACTIVE_CHANGED` splits into `USER_DEACTIVATED` ✱ and `USER_REACTIVATED` ✱.
 
@@ -198,7 +198,7 @@ Later modules add their sections and actions to the same catalog.
 - **`recordAudit` validates before inserting**: the action is in the `audit_logs` section, is not deprecated, and its `params` pass the strict schema. It fills `entity` from the catalog.
 - **A validation failure is a server bug, not bad input.** `recordAudit` uses `safeParse` and throws a plain `AuditEntryError` — never a `ZodError`, which `errorHandler` would answer as a `400 Datos inválidos` with the parameter's details. It reaches `errorHandler` as an unknown error: logged, `500`, and the transaction rolls back with the action — the same guarantee as today when the audit insert fails.
 - **`changedFields`** on the `*_UPDATED` actions: the names of the fields whose value changed, never the values. The repository locks the row (`SELECT … FOR UPDATE`, raw SQL inside the transaction), reads it, writes the update and compares the two; a concurrent edit waits for the lock, so the list is exact. `clinical-revisions` will reuse the same read to store the previous version.
-  - The names are the API's field names, from an append-only allowlist per entity in the catalog, each with a Spanish label. A JSON column (the posture grid) is one name, compared deeply; a relation set (a session's episodes) is one name.
+  - The names are the API's field names, from an append-only allowlist per entity in the catalog, each with a Spanish label. A JSON column (the posture grid) is one name, compared deeply; a relation set (an encounter's episodes) is one name.
   - An update that changes nothing writes no audit row, as the operator's role and status changes already do: a field that arrived with the value it had is not a fact. The route answers as today.
 - **`recordPlatformAudit(tx, op, entry)`** (new, `repositories/prisma/`) does the same for `platform_audit_logs`; the operator's repositories and `prismaSysadminAlertRepository` use it instead of `tx.platformAuditLog.create`.
 - **The seed and `tests/helpers.ts`** (`insertAuditRowsAt`) write rows directly; they validate with the catalog too, so a fixture cannot drift from it.
@@ -221,7 +221,7 @@ Later modules add their sections and actions to the same catalog.
 - **`tests/auditCatalog.test.ts`** (new) compares the catalog with `schema.prisma`, as `tenantScopeCoverage.test.ts` does:
   - every value of each table's action enum is in that table's section (deprecated or not), and the reverse;
   - every `audit_logs` entity exists in `AuditEntity`;
-  - every value of a Prisma enum a parameter mirrors (`ScaleType`, `SessionType`, `PaymentStatus`, `UserRole`) is in the catalog's list for it, with a label — so adding a scale to Prisma without the catalog fails CI, not the clinical write. The catalog's list may hold more (values the domain dropped), never fewer.
+  - every value of a Prisma enum a parameter mirrors (`ScaleType`, `EncounterType`, `PaymentStatus`, `UserRole`) is in the catalog's list for it, with a label — so adding a scale to Prisma without the catalog fails CI, not the clinical write. The catalog's list may hold more (values the domain dropped), never fewer.
 
 ### 7. Docs
 
@@ -268,7 +268,7 @@ As in [`SPEC-sysadmin-alerts.md`](SPEC-sysadmin-alerts.md): `npm test`, `npm tes
 - **Database** (`auditHardening.test.ts` style): each rejected `params` of §2 fails the check on both tables, each accepted one passes.
 - **Catalog**: `auditCatalog.test.ts` (§6); each write schema rejects unknown keys and free strings; the lenient reader accepts `{}`, unknown keys, unknown values and garbage without throwing, and every `describe` handles each parameter missing.
 - **Writing**: `recordAudit` and `recordPlatformAudit` with a deprecated action or bad params answer `500`, log, and roll the action back (extends `auditTransactional.test.ts`).
-- **Each route** records its new action and params: replaces the wording assertions of `auditDescriptions.test.ts` and `platformAuditDescriptions.test.ts` (a session with pain values records `SESSION_RECORDED` with `{}`; an edit records exactly the fields it changed; a payment with an amount records `{ status }` and nothing else), and the exact-text assertions in the `sessionsCrud`, `disconnectDevices`, `passwordReset` and `platform` tests.
+- **Each route** records its new action and params: replaces the wording assertions of `auditDescriptions.test.ts` and `platformAuditDescriptions.test.ts` (a session with pain values records `ENCOUNTER_RECORDED` with `{}`; an edit records exactly the fields it changed; a payment with an amount records `{ status }` and nothing else), and the exact-text assertions in the `encountersCrud`, `disconnectDevices`, `passwordReset` and `platform` tests.
 - **Web**: `ActivityTimeline` and the platform list render the wording of each action, a deprecated one, a row with missing params, a row with only a `description` (old API), and the fallbacks for an unknown action and entity.
 
 ## Boundaries
@@ -295,7 +295,7 @@ Two fresh-context adversarial reviews. What changed because of them:
 - The catalog keeps its own append-only lists of parameter values; a test checks them against the Prisma enums.
 - The `params` check is a function, not a regex over the printed `jsonb`; codes are upper case, with no three digits in a row; the function is in the migration scan.
 - Catalog failures are `500` and logged, not `400`.
-- `SESSION_UPDATED` and `PAYMENT_UPDATED` carry the type and status after the update.
+- `ENCOUNTER_UPDATED` and `PAYMENT_UPDATED` carry the type and status after the update.
 - Deprecated codes are refused by the catalog, not by a `NOT VALID` check (which the guard cannot pin today, and which would need dropping at each deprecation).
 
 ## Open Questions
@@ -306,5 +306,5 @@ None.
 
 - `actor_type` is added here, not with the first system writer: no row is ever written without it.
 - Old rows in `staging` losing their sentence from release 1 is accepted; `staging` can be wiped too.
-- A session, a clinical note and a discharge are three actions (`SESSION_RECORDED`, `NOTE_RECORDED`, `DISCHARGE_RECORDED`), not one with a type parameter.
+- An encounter, a clinical note and a discharge are three actions (`ENCOUNTER_RECORDED`, `NOTE_RECORDED`, `DISCHARGE_RECORDED`), not one with a type parameter.
 - `changedFields` is recorded here, not in `clinical-revisions`: no update is ever written without it.

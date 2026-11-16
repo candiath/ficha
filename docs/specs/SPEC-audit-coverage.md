@@ -66,7 +66,7 @@ Each module that closes debt deletes its entries; the type unions make a typo a 
 
 Derived from `audit-map.md` "Where we stand" and the code as of 2026-10-11 (44 write routes).
 
-- **audited (`audit_logs`)**: patients `POST`, `PATCH`, `DELETE`; sessions `POST`, `PATCH`, `DELETE`; evaluation `PUT`; consent `POST`, `DELETE`; scales `POST`; payments `POST`, `PATCH`.
+- **audited (`audit_logs`)**: patients `POST`, `PATCH`, `DELETE`; encounters `POST`, `PATCH`, `DELETE`; evaluation `PUT`; consent `POST`, `DELETE`; scales `POST`; payments `POST`, `PATCH`.
 - **audited (`platform_audit_logs`)**: all six `/api/platform/*` writes except the login and password change.
 - **audited (`login_events`)**: `POST /api/auth/login`, `POST /api/platform/auth/login`. Partial: the success is fire-and-forget and throttled attempts are not recorded; `security-events` closes that.
 - **exempt**: `POST /api/auth/password-reset/check` (validates a token, writes nothing).

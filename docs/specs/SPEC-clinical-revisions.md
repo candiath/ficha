@@ -6,12 +6,12 @@ This module is the first of two stages. Stage 2, `clinical-revisions-enforcement
 
 ## Objective
 
-Today a `PATCH` on a clinical record overwrites the row, and the audit row records only the names of the changed fields. Some edits physically delete rows (a session's blocks in `session_episodes`). The previous clinical content is lost on every edit.
+Today a `PATCH` on a clinical record overwrites the row, and the audit row records only the names of the changed fields. Some edits physically delete rows (an encounter's blocks in `encounter_blocks`). The previous clinical content is lost on every edit.
 
 Ley 26.529 asks for a computerized clinical record that guarantees integrity, authenticity, inalterability, perdurability and recoverability, kept at least ten years. After this module:
 
 - **Every version of a clinical record is recoverable**, from its creation on, with who wrote it, when, and why it changed.
-- **A version is a snapshot of the whole aggregate** (a session with all its blocks), so removing a block, or any change spread over several rows, is captured.
+- **A version is a snapshot of the whole aggregate** (an encounter with all its blocks), so removing a block, or any change spread over several rows, is captured.
 - **The current tables do not change.** The app keeps reading and writing them as today.
 - **No clinical content enters the audit log**, which keeps holding codes only.
 - **Two concurrent edits no longer overwrite each other silently**: the second one gets a `409`.
@@ -29,7 +29,7 @@ Real clinical data starts at the relaunch (#238), so this module ships before it
 
 Each one survived the review cycles; the reason is kept so it is not reopened by accident.
 
-1. **Versioning lives in the repositories, not in a database trigger that writes the history.** A trigger sees only the old and the new row: it cannot learn the editor (a session variable can leak through Neon's pooler), it does not see a block deleted by another statement, and it cannot group the session and its blocks into one version. The repository already has the `ctx`, the transaction and the audit row.
+1. **Versioning lives in the repositories, not in a database trigger that writes the history.** A trigger sees only the old and the new row: it cannot learn the editor (a session variable can leak through Neon's pooler), it does not see a block deleted by another statement, and it cannot group the encounter and its blocks into one version. The repository already has the `ctx`, the transaction and the audit row.
 2. **A revision stores the NEW state, creation included** (the model of Hibernate Envers and django-simple-history, not PaperTrail's previous state). Each row reads as "version N, with this content", the history is self-contained, and the invariant *current row = latest snapshot* makes a forgotten write path detectable (§9). The cost is one extra copy of the current state: estimated at ~4 MB per therapist per year with typical notes.
 3. **One revisions table per aggregate**, not one polymorphic table: a polymorphic `entity_id` cannot carry a foreign key, and every row of this schema points at its patient's rows with composite keys.
 4. **Who, when and what live only in `audit_logs`.** A revision points at its audit row; it does not repeat author or time. An audit row may own several revisions (a discharge closes episodes in the same action).
@@ -47,31 +47,31 @@ Express 5, Prisma 5, **Postgres 18** on Neon (pooled runtime URL, direct URL for
 | Aggregate | Current tables | Revisions table |
 |---|---|---|
 | Patient | `patients` | `patient_revisions` |
-| Session | `sessions` + its `session_episodes` | `session_revisions` |
+| Encounter | `encounters` + its `encounter_blocks` | `encounter_revisions` |
 | Episode | `clinical_episodes` | `episode_revisions` |
 | Initial evaluation | `initial_evaluations` | `evaluation_revisions` |
 | Informed consent | `informed_consents` | `consent_revisions` |
-| Patient event | `patient_events` | `patient_event_revisions` |
+| Patient antecedent | `patient_antecedents` | `patient_antecedent_revisions` |
 
 **Patient fields.** Versioned: identification (`firstName`, `lastName`, `birthDate`, `sex`, and the document fields when they land) and clinical context (`occupation`, `referringDoctor`). Not versioned: contact (`phone`) and coverage (`insuranceName`, `insuranceNumber`, `insurancePlan`); their changes are still recorded as `changedFields` in the audit row, and still take a version, of unchanged content, so `expectedVersion` sees every write (decided in step 3's review). Versioning coverage later is a schema bump (§3). The patient's soft delete and restore are versions (events), not a field of the snapshot.
 
-**Not versioned:** payments (billing, not clinical record; if the coverage a session was billed under matters, the payment stores it), appointments, clinical alerts.
+**Not versioned:** payments (billing, not clinical record; if the coverage an encounter was billed under matters, the payment stores it), appointments, clinical alerts.
 
 ### 2. Revisions tables
 
-Session example; the others follow the same shape with their own parent key.
+Encounter example; the others follow the same shape with their own parent key.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | `uuid` | UUIDv7 generated by the app, like every other PK |
-| `tenant_id`, `patient_id`, `session_id` | `uuid` | Composite FK `(tenant_id, patient_id, session_id) → sessions (tenant_id, patient_id, id)`, `RESTRICT` |
-| `version` | `int` | `UNIQUE (session_id, version)`, `CHECK (version >= 1)` |
+| `tenant_id`, `patient_id`, `encounter_id` | `uuid` | Composite FK `(tenant_id, patient_id, encounter_id) → encounters (tenant_id, patient_id, id)`, `RESTRICT` |
+| `version` | `int` | `UNIQUE (encounter_id, version)`, `CHECK (version >= 1)` |
 | `audit_log_id` | `uuid` | Composite FK `(tenant_id, patient_id, audit_log_id) → audit_logs (tenant_id, patient_id, id)`, `RESTRICT`, `NOT NULL`, not unique |
 | `snapshot` | `jsonb` | §3 |
 | `schema_version` | `int` | §3 |
 | `reason_note` | `text` | Optional, normalized with `optionalText` (single-empty rule). Clinical content |
 
-Prerequisite constraints, in their own migration: `@@unique([tenantId, patientId, id])` on `audit_logs`, `initial_evaluations`, `informed_consents` and `patient_events`. The `audit_logs` change is DDL on an audit table: an entry in `tests/auditMigrationScan.test.ts` and new expected values in `audit-guards.sql`.
+Prerequisite constraints, in their own migration: `@@unique([tenantId, patientId, id])` on `audit_logs`, `initial_evaluations`, `informed_consents` and `patient_antecedents`. The `audit_logs` change is DDL on an audit table: an entry in `tests/auditMigrationScan.test.ts` and new expected values in `audit-guards.sql`.
 
 Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScopeCoverage.test.ts`).
 
@@ -93,9 +93,9 @@ Every revisions model is classified in `TENANT_SCOPED_MODELS` (`tests/tenantScop
 
 `recordRevision(tx, ctx, …)` lives next to `recordAudit`. In the same transaction as the clinical write:
 
-1. **Lock** the aggregate's root row (`SELECT … FOR NO KEY UPDATE`: writers of the row wait for each other, but a foreign key pointing at it does not wait). For a creation that has no row yet (first evaluation of an episode, first consent), lock the parent row (episode, patient). A multi-aggregate write (the discharge) locks what it writes, its episodes by id, before anything else, and not the patient, which it does not write (decided in step 3; with `FOR UPDATE`, holding the patient also deadlocked with an episode edit, whose audit row takes a share lock on it). `LOCKABLE` in `changedFields.ts` gains `clinical_episodes`, `informed_consents` and `patient_events`.
+1. **Lock** the aggregate's root row (`SELECT … FOR NO KEY UPDATE`: writers of the row wait for each other, but a foreign key pointing at it does not wait). For a creation that has no row yet (first evaluation of an episode, first consent), lock the parent row (episode, patient). A multi-aggregate write (the discharge) locks what it writes, its episodes by id, before anything else, and not the patient, which it does not write (decided in step 3; with `FOR UPDATE`, holding the patient also deadlocked with an episode edit, whose audit row takes a share lock on it). `LOCKABLE` in `changedFields.ts` gains `clinical_episodes`, `informed_consents` and `patient_antecedents`.
 2. **Read the latest revision.** If the request carries `expectedVersion` and it is not the latest, return `{ ok: false, reason: 'stale' }`; the route answers `409` ("Otra persona editó este registro. Recargá para ver los cambios."). Edit forms send the version they loaded; record DTOs carry `version`.
-3. **Build the new state's projection** from the current state plus the input, and compare it with the latest snapshot. If equal, **write nothing**: no update, no audit row, no revision. A save that changes something rewrites only the blocks that changed; the session's forced `updatedAt` stays for it, because an edit of a block alone writes no column of the session.
+3. **Build the new state's projection** from the current state plus the input, and compare it with the latest snapshot. If equal, **write nothing**: no update, no audit row, no revision. A save that changes something rewrites only the blocks that changed; the encounter's forced `updatedAt` stays for it, because an edit of a block alone writes no column of the encounter.
 4. **Write** the clinical rows, then the audit row, then one revision per changed aggregate with `version = latest + 1`.
 
 Creation writes version 1. A revisions insert that fails rolls the whole action back.
@@ -107,15 +107,15 @@ Revisions tables reuse the audit functions: `*_append_only` (`BEFORE UPDATE OR D
 ### 7. Reading
 
 - `GET /api/patients/:patientId/<entity>/:id/revisions`: the list of versions (version, action, reason, author, time, from the audit row), and `GET …/revisions/:version` for one snapshot.
-- The repository filters by `(tenant, patient_id, aggregate_id)` in the `where`, and requires the patient to exist and not be deleted. A test asks for patient B's session through patient A's path and gets `404`.
+- The repository filters by `(tenant, patient_id, aggregate_id)` in the `where`, and requires the patient to exist and not be deleted. A test asks for patient B's encounter through patient A's path and gets `404`.
 - Revision routes are inside the record: classified in `idParamCoverage`; no global route returns `snapshot` or `reason_note`, and the list-minimization probe seeds markers in both.
 - **Who may read past versions:** every user of the clinic, as with the current record (decided 2026-11-01). Finer rules come later, with roles and `record-access-log`.
 
 ### 8. Annulment
 
-Sessions and patient events have a soft delete today. It becomes `POST …/annul` with a required reason code and optional note in the body (the web client's `DELETE` sends no body), writes a final version, and the record shows the entry struck through; lists and metrics keep filtering it. **Patients can be restored** (`POST /api/patients/:id/restore`, decided 2026-11-11): a `PATIENT_RESTORED` version of unchanged content, like the deletion's. Sessions and patient events have no restore route yet: one will be added later, and it will write another version. Episodes and evaluations have no delete today and get none in this module. Consent keeps its sign/revoke actions, each one a version.
+Encounters and patient antecedents have a soft delete today. It becomes `POST …/annul` with a required reason code and optional note in the body (the web client's `DELETE` sends no body), writes a final version, and the record shows the entry struck through; lists and metrics keep filtering it. **Patients can be restored** (`POST /api/patients/:id/restore`, decided 2026-11-11): a `PATIENT_RESTORED` version of unchanged content, like the deletion's. Encounters and patient antecedents have no restore route yet: one will be added later, and it will write another version. Episodes and evaluations have no delete today and get none in this module. Consent keeps its sign/revoke actions, each one a version.
 
-**Deleting a patient stays a `DELETE`**, with an event version and no reason (decided 2026-11-01). **It needs analysis later**: it hides the whole record, so it may deserve to become an annulment with a reason, like sessions and events.
+**Deleting a patient stays a `DELETE`**, with an event version and no reason (decided 2026-11-01). **It needs analysis later**: it hides the whole record, so it may deserve to become an annulment with a reason, like encounters and events.
 
 ### 9. Detecting a write that skipped versioning
 
@@ -134,7 +134,7 @@ Revision code paths and triggers never put row values in an error message. A fai
 
 ## Testing Strategy
 
-Vitest + supertest against the throwaway Postgres (`npm test`), repository tests with `createTestContext`. Per aggregate: creation writes version 1; an edit writes N+1 with the right snapshot, author and reason; a no-op save writes nothing and answers `200`; a stale `expectedVersion` answers `409` and writes nothing; two concurrent edits produce consecutive versions or a `409`, never a lost write. Sessions: removing a block is visible in the next snapshot; a discharge writes the session and episode revisions under one audit row. Plus: append-only and truncate rejection, the IDOR test, the projection coverage test, the repository manifest, the invariant helper, the migration scan, old schema fixtures, and the log test.
+Vitest + supertest against the throwaway Postgres (`npm test`), repository tests with `createTestContext`. Per aggregate: creation writes version 1; an edit writes N+1 with the right snapshot, author and reason; a no-op save writes nothing and answers `200`; a stale `expectedVersion` answers `409` and writes nothing; two concurrent edits produce consecutive versions or a `409`, never a lost write. Encounters: removing a block is visible in the next snapshot; a discharge writes the encounter and episode revisions under one audit row. Plus: append-only and truncate rejection, the IDOR test, the projection coverage test, the repository manifest, the invariant helper, the migration scan, old schema fixtures, and the log test.
 
 **Test cleanup.** Revisions reference clinical rows and audit rows with `RESTRICT`, so cleanup deletes revisions first: `deleteAuditRows` does it for the clinics it is given, in its maintenance transaction, and test files that delete clinical rows after it need no change. `deleteRevisions(table, ids)` is for deleting one aggregate in the middle of a file.
 
@@ -144,7 +144,7 @@ Each step is a PR against `dev`, in order:
 
 0. **Postgres 18**: a new Neon project, with its branches moved by dump and restore (`production` included, before the relaunch), the test container in `docker-compose.yml`, CI, and `docs/infra.md`. Rehearsed on a throwaway branch first.
 1. Prerequisites: composite unique keys, `recordAudit` returns its id, `LOCKABLE` additions, catalog changes (`EPISODE`, episode actions, the list of reason codes), episode writes in a transaction with audit.
-2. `session_revisions` + `recordRevision` + the session write path, `expectedVersion`, the `reason` parameter of `SESSION_UPDATED`, no-op skip, test helpers and cleanup, coverage tests. Each later step attaches `reason` to the aggregates it versions: the catalog validates strictly, so a parameter is required from the commit that adds it.
+2. `encounter_revisions` + `recordRevision` + the encounter write path, `expectedVersion`, the `reason` parameter of `ENCOUNTER_UPDATED`, no-op skip, test helpers and cleanup, coverage tests. Each later step attaches `reason` to the aggregates it versions: the catalog validates strictly, so a parameter is required from the commit that adds it.
 3. The other five aggregates.
 4. Reading routes and the history view in the record.
 5. Annulment as an action with reason.
@@ -189,4 +189,4 @@ Settled 2026-10-31 and 2026-11-01:
 4. **Postgres 18:** now, as rollout step 0, in a new Neon project. Every branch moves by dump and restore, `production` included, before the relaunch rather than at its wipe (*Tech Stack*, *Rollout*).
 5. **No reason on state transitions:** the episode's closing and reopening get their own actions; consent sign and revoke take no reason either (§4).
 6. **Deleting a patient:** stays a `DELETE` with no reason, **pending a later analysis** of whether it becomes an annulment (§8).
-7. **Restoring:** patients, since 2026-11-11 (§8); sessions and patient events later.
+7. **Restoring:** patients, since 2026-11-11 (§8); encounters and patient antecedents later.
