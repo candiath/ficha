@@ -65,7 +65,7 @@ router.get('/stats', async (req, res) => {
 
   const stats: DashboardStats = {
     activePatients: counts.activePatients,
-    totalSessions: counts.totalSessions,
+    totalEncounters: counts.totalEncounters,
     encountersThisMonth: counts.encountersThisMonth,
     pendingPayments: counts.pendingPayments,
     pathologies: counts.pathologies,

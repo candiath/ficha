@@ -18,7 +18,7 @@ export interface DashboardStatsParams {
 export interface DashboardCounts {
   /** Pacientes vigentes con al menos un episodio clínico abierto. */
   activePatients: number;
-  totalSessions: number;
+  totalEncounters: number;
   encountersThisMonth: number;
   pendingPayments: number;
   /** Motivos de consulta más frecuentes, ya ordenados y recortados. */

@@ -29,7 +29,7 @@ describe('GET /api/dashboard/stats', () => {
   let tokenA: string;
   let body: {
     activePatients: number;
-    totalSessions: number;
+    totalEncounters: number;
     encountersThisMonth: number;
     pendingPayments: number;
     pathologies: { name: string; count: number }[];
@@ -258,7 +258,7 @@ describe('GET /api/dashboard/stats', () => {
 
   it('excluye las notas rápidas del total de sesiones', () => {
     // 6 filas en encounters, pero una es NOTE y otra está anulada.
-    expect(body.totalSessions).toBe(4);
+    expect(body.totalEncounters).toBe(4);
   });
 
   it('cuenta las sesiones del mes calendario actual', () => {
@@ -303,7 +303,7 @@ describe('GET /api/dashboard/stats', () => {
 
     expect(resB.status).toBe(200);
     expect(resB.body.data.activePatients).toBe(1);
-    expect(resB.body.data.totalSessions).toBe(1);
+    expect(resB.body.data.totalEncounters).toBe(1);
     expect(resB.body.data.pathologies).toEqual([
       { name: 'Escoliosis de otra clínica', count: 1 },
     ]);

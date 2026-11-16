@@ -188,7 +188,7 @@ export interface MonthEncounterCount {
 // no cuentan como sesiones; "activo" = paciente con algún episodio ACTIVE.
 export interface DashboardStats {
   activePatients: number;
-  totalSessions: number;
+  totalEncounters: number;
   encountersThisMonth: number;
   pendingPayments: number;
   pathologies: PathologyCount[];

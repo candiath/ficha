@@ -67,7 +67,7 @@ export default function DashboardPage() {
     },
     {
       label: 'Sesiones totales',
-      value: stats?.totalSessions,
+      value: stats?.totalEncounters,
       icon: CalendarDays,
       color: 'text-chart-2',
       bg: 'bg-chart-2/10',

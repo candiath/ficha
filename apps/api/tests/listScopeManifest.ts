@@ -112,7 +112,7 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/dashboard/stats': probed(
     {
       activePatients: true,
-      totalSessions: true,
+      totalEncounters: true,
       encountersThisMonth: true,
       pendingPayments: true,
       pathologies: [{ name: true, count: true }],

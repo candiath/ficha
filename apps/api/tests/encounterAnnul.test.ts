@@ -193,15 +193,15 @@ describe('annulling an encounter', () => {
 
   it('stops counting in the dashboard metrics', async () => {
     const before = await auth(request(app).get('/api/dashboard/stats'));
-    const totalBefore = before.body.data.totalSessions as number;
+    const totalBefore = before.body.data.totalEncounters as number;
 
     const id = await createEncounter();
     const withIt = await auth(request(app).get('/api/dashboard/stats'));
-    expect(withIt.body.data.totalSessions).toBe(totalBefore + 1);
+    expect(withIt.body.data.totalEncounters).toBe(totalBefore + 1);
 
     expect((await annul(id)).status).toBe(204);
 
     const after = await auth(request(app).get('/api/dashboard/stats'));
-    expect(after.body.data.totalSessions).toBe(totalBefore);
+    expect(after.body.data.totalEncounters).toBe(totalBefore);
   });
 });

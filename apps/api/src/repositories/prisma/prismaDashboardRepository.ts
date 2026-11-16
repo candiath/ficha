@@ -25,7 +25,7 @@ export const prismaDashboardRepository: DashboardRepository = {
     // tenantId también en count/groupBy, así que acá no se filtra a mano.
     const [
       activePatients,
-      totalSessions,
+      totalEncounters,
       encountersThisMonth,
       pendingPayments,
       pathologyGroups,
@@ -65,7 +65,7 @@ export const prismaDashboardRepository: DashboardRepository = {
 
     return {
       activePatients,
-      totalSessions,
+      totalEncounters,
       encountersThisMonth,
       pendingPayments,
       pathologies: pathologyGroups.map((g) => ({
