@@ -265,23 +265,35 @@ model PlatformOperator {
 // populations never share a query, a row, or a code path (isolation of #153).
 // No tenantId, so no guard classification.
 model PlatformOperatorSession {
-  id         String    @id @default(uuid(7)) @db.Uuid
-  operatorId String    @map("operator_id") @db.Uuid
-  tokenHash  Bytes     @unique @map("token_hash") // sha256(token)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3) // absolute timeout
+  id               String                           @id @default(uuid(7)) @db.Uuid
+  operatorId       String                           @map("operator_id") @db.Uuid
+  tokenHash        Bytes                            @unique @map("token_hash") // sha256(token)
+  createdAt        DateTime                         @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt        DateTime                         @map("expires_at") @db.Timestamptz(3) // absolute timeout
   // Refreshed by authenticateOperator at most once every few minutes; drives
   // idle expiry.
-  lastUsedAt DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  lastUsedAt       DateTime                         @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  revokedAt        DateTime?                        @map("revoked_at") @db.Timestamptz(3)
+  // Why it ended, set in the same write as revokedAt: both or neither (a
+  // CHECK in the migration).
+  revocationReason OperatorSessionRevocationReason? @map("revocation_reason")
   // Captured at login: they cannot be backfilled later.
-  ip         String?
-  userAgent  String?   @map("user_agent")
+  ip               String?
+  userAgent        String?                          @map("user_agent")
 
   operator PlatformOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@index([operatorId])
   @@map("platform_operator_sessions")
+}
+
+// Why an operator session was revoked. OPERATOR_DEACTIVATED is written by hand, in the
+// SQL that deactivates an operator (CLAUDE.md, "Operador de plataforma").
+enum OperatorSessionRevocationReason {
+  LOGOUT // POST /api/platform/auth/logout
+  PASSWORD_CHANGED // she changed her password: her other sessions
+  PASSWORD_RESET // npm run reset:operator-password: all of them
+  OPERATOR_DEACTIVATED
 }
 
 // The object a platform_audit_logs row acted on (SPEC-audit-structured-entries.md).
@@ -323,24 +335,29 @@ enum PlatformAction {
 // (TEST_ALERT_SENT), and a row with a target always names its clinic: two
 // CHECKs in the migration, pinned by prisma/audit-guards.sql.
 model PlatformAuditLog {
-  id           String               @id @default(uuid(7)) @db.Uuid
-  operatorId   String               @map("operator_id") @db.Uuid
-  tenantId     String?              @map("tenant_id") @db.Uuid
-  targetUserId String?              @map("target_user_id") @db.Uuid
-  action       PlatformAction
+  id                String               @id @default(uuid(7)) @db.Uuid
+  operatorId        String               @map("operator_id") @db.Uuid
+  tenantId          String?              @map("tenant_id") @db.Uuid
+  targetUserId      String?              @map("target_user_id") @db.Uuid
+  action            PlatformAction
   // Codes only, as in audit_logs (SPEC-audit-structured-entries.md).
-  params       Json                 @default("{}")
+  params            Json                 @default("{}")
   // Always OPERATOR for now (a CHECK in the migration).
-  actorType    AuditActorType       @default(OPERATOR) @map("actor_type")
+  actorType         AuditActorType       @default(OPERATOR) @map("actor_type")
   // The object the action was on, when it is neither the clinic nor a user
   // (they have columns of their own): the reset link generated, the test
   // alert sent. Set from the catalog by recordPlatformAudit; no foreign key,
   // since it points at a different table by type. Both or neither (a CHECK).
-  entity       PlatformAuditEntity?
-  entityId     String?              @map("entity_id") @db.Uuid
+  entity            PlatformAuditEntity?
+  entityId          String?              @map("entity_id") @db.Uuid
+  // The operator session the action came from, as audit_logs.auth_session_id
+  // for clinic users. A trigger checks on insert that it is a session of this
+  // operator; no foreign key, since the row outlives the session. Null only
+  // on rows written before it existed.
+  operatorSessionId String?              @map("operator_session_id") @db.Uuid
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
-  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
 
   // Restrict everywhere (#186): an audit row can never change, so it cannot
   // lose its operator or target, and nobody it names can be deleted. The

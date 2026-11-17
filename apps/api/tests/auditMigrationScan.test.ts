@@ -59,6 +59,16 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261119120000_operator_session_revocation_and_audit': {
+    reason:
+      'Platform audit rows record the operator session they came from (SPEC-audit-hardening.md, decision 2). ' +
+      'A new BEFORE INSERT trigger checks it is a session of the row\'s operator, as audit_logs_check_session ' +
+      'does for clinic users; it only refuses rows, never changes one, and audit-guards.sql pins it and its ' +
+      'function.',
+    violations: [
+      'CREATE TRIGGER: CREATE TRIGGER platform_audit_logs_check_session BEFORE INSERT ON public.platform_audit_logs FOR EACH ROW EXECUTE FUNCTI',
+    ],
+  },
   '20261118130000_rename_patient_event_to_antecedent': {
     reason:
       'PatientEvent becomes PatientAntecedent ("Antecedentes" in the record) before the relaunch, while no ' +

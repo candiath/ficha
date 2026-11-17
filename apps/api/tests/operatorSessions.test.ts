@@ -68,6 +68,7 @@ describe('operator sessions', () => {
     expect((await me(b.token)).status).toBe(200);
     const row = await prisma.platformOperatorSession.findUnique({ where: { id: a.operatorSessionId } });
     expect(row?.revokedAt).not.toBeNull();
+    expect(row?.revocationReason).toBe('LOGOUT');
 
     // A second logout with the dead token is the usual 401.
     expect((await request(app).post(`${AUTH}/logout`).set('Authorization', `Bearer ${a.token}`)).status).toBe(401);
@@ -90,6 +91,14 @@ describe('operator sessions', () => {
       expect((await me(current.token)).status).toBe(200);
       expect((await me(other.token)).status).toBe(401);
       expect((await me(target.token)).status).toBe(401);
+      const reasons = await prisma.platformOperatorSession.findMany({
+        where: { id: { in: [current.operatorSessionId, other.operatorSessionId] } },
+        select: { id: true, revocationReason: true },
+      });
+      expect(Object.fromEntries(reasons.map((r) => [r.id, r.revocationReason]))).toEqual({
+        [current.operatorSessionId]: null,
+        [other.operatorSessionId]: 'PASSWORD_CHANGED',
+      });
 
       const login = (password: string) =>
         request(app).post(`${AUTH}/login`).set('X-Forwarded-For', from()).send({ email: target.operator.email, password });

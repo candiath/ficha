@@ -492,6 +492,8 @@ describe('audit-guards.sql', () => {
       }
       await db.$executeRawUnsafe(`CREATE TRIGGER audit_logs_check_session BEFORE INSERT ON pg_temp.audit_logs
         FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session()`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER platform_audit_logs_check_session BEFORE INSERT ON pg_temp.platform_audit_logs
+        FOR EACH ROW EXECUTE FUNCTION public.platform_audit_logs_check_session()`);
       for (const table of REVISION_TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE ON pg_temp.${table}
