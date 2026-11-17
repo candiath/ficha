@@ -60,6 +60,7 @@ BEGIN
      'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
     (platform,
      'platform_audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'platform_audit_logs_check_session 7 public.platform_audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
     (alerts,
@@ -293,6 +294,8 @@ BEGIN
       -- Since 20261116120000_timestamptz: clock_timestamp() into a timestamptz.
       ('public.audit_rows_stamp_created_at()', '0005a6f9a83ea5bfae363642c491ed28'),
       ('public.audit_logs_check_session()', 'd6f9e9aa7014b9600e7c11f516f02af6'),
+      -- Since 20261119120000_operator_session_revocation_and_audit.
+      ('public.platform_audit_logs_check_session()', '989bc29d29b7fbce61f9e4b0f690957c'),
       ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d')
     ) AS f(signature, hash)
   LOOP

@@ -194,7 +194,7 @@ export const prismaPlatformRepository: PlatformRepository = {
   async revokeOperatorSession(operatorSessionId: string): Promise<boolean> {
     const { count } = await prisma.platformOperatorSession.updateMany({
       where: { id: operatorSessionId, revokedAt: null },
-      data: { revokedAt: new Date() },
+      data: { revokedAt: new Date(), revocationReason: 'LOGOUT' },
     });
     return count > 0;
   },
@@ -207,7 +207,7 @@ export const prismaPlatformRepository: PlatformRepository = {
       prisma.platformOperator.update({ where: { id: operatorId }, data: { passwordHash } }),
       prisma.platformOperatorSession.updateMany({
         where: { operatorId, id: { not: keepSessionId }, revokedAt: null },
-        data: { revokedAt: new Date() },
+        data: { revokedAt: new Date(), revocationReason: 'PASSWORD_CHANGED' },
       }),
     ]);
   },

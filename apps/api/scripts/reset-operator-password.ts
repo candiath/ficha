@@ -46,7 +46,7 @@ async function main() {
     prisma.platformOperator.updateMany({ where: { email }, data: { passwordHash } }),
     prisma.platformOperatorSession.updateMany({
       where: { operator: { email }, revokedAt: null },
-      data: { revokedAt: new Date() },
+      data: { revokedAt: new Date(), revocationReason: 'PASSWORD_RESET' },
     }),
   ]);
 

@@ -1,4 +1,4 @@
-import type { OperatorRequestContext, TenantContext } from '../repositories/types';
+import type { OperatorContext, TenantContext } from '../repositories/types';
 
 // Extiende el Request de Express con el contexto que setea el middleware
 // authenticate. Se tipa como no-opcional para que los handlers usen
@@ -17,7 +17,7 @@ declare global {
   namespace Express {
     interface Request {
       context: TenantContext;
-      operator: OperatorRequestContext;
+      operator: OperatorContext;
     }
   }
 }

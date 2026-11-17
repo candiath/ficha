@@ -44,6 +44,7 @@ export async function recordPlatformAudit(
   await tx.platformAuditLog.create({
     data: {
       operatorId: op.operatorId,
+      operatorSessionId: op.operatorSessionId,
       tenantId: entry.tenantId,
       targetUserId: entry.targetUserId,
       action: entry.action,
