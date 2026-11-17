@@ -24,7 +24,7 @@ import { paymentApi, paymentKeys } from '@/services/payments';
 import { centsToInput, formatCents, parsePesos } from '@/lib/money';
 import type { Payment, PaymentMethod, PaymentStatus } from '@/types/payment';
 
-function formatSessionDate(iso: string) {
+function formatEncounterDate(iso: string) {
   return new Date(iso).toLocaleDateString('es-AR', {
     day: '2-digit',
     month: '2-digit',
@@ -116,7 +116,7 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
       <DialogHeader>
         <DialogTitle>Corregir cobro</DialogTitle>
         <DialogDescription>
-          Sesión del {formatSessionDate(payment.session.sessionDate)} de{' '}
+          Sesión del {formatEncounterDate(payment.encounter.encounterDate)} de{' '}
           <span className="font-medium text-foreground">{payment.patient.fullName}</span>.
         </DialogDescription>
       </DialogHeader>

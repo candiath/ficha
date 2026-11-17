@@ -3,7 +3,7 @@ import type {
   InformedConsent,
   InitialEvaluation,
   Patient,
-  PatientEvent,
+  PatientAntecedent,
   Prisma,
 } from '@prisma/client';
 import { EPISODE_SNAPSHOT_VERSION } from '@ficha/shared';
@@ -13,7 +13,7 @@ import {
   consentVersionOne,
   episodeVersionOne,
   evaluationVersionOne,
-  patientEventVersionOne,
+  patientAntecedentVersionOne,
   patientVersionOne,
   revisionFields,
 } from '../prisma/versionOne';
@@ -27,7 +27,7 @@ import {
 // is written by prisma/versionOne.ts, which the seed uses too.
 //
 // A test that expects an insert to fail keeps calling Prisma: no row, no version.
-// Sessions have their own, createSessionFixture in tests/helpers.ts.
+// Encounters have their own, createEncounterFixture in tests/helpers.ts.
 
 type Tx = Prisma.TransactionClient;
 
@@ -130,9 +130,9 @@ async function createConsent(tx: Tx, data: Prisma.InformedConsentUncheckedCreate
   return row;
 }
 
-async function createPatientEvent(tx: Tx, data: Prisma.PatientEventUncheckedCreateInput): Promise<PatientEvent> {
-  const row = await tx.patientEvent.create({ data });
-  await patientEventVersionOne(tx, row);
+async function createPatientAntecedent(tx: Tx, data: Prisma.PatientAntecedentUncheckedCreateInput): Promise<PatientAntecedent> {
+  const row = await tx.patientAntecedent.create({ data });
+  await patientAntecedentVersionOne(tx, row);
   return row;
 }
 
@@ -161,5 +161,5 @@ export const fixture = {
   },
   initialEvaluation: delegate(createEvaluation),
   informedConsent: delegate(createConsent),
-  patientEvent: delegate(createPatientEvent),
+  patientAntecedent: delegate(createPatientAntecedent),
 };

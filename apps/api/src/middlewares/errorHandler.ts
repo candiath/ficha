@@ -86,7 +86,7 @@ export function errorHandler(
 // A Prisma error's message is not safe to log: a validation error prints the
 // call's arguments, and a request error carries Postgres's detail, which for a
 // constraint violation is the failing row. Either can hold clinical text (a
-// session's observations, a revision's note). So a Prisma error is logged by
+// encounter's observations, a revision's note). So a Prisma error is logged by
 // its kind, code, model and route only (SPEC-clinical-revisions.md §11).
 function isPrismaError(err: unknown): err is Error {
   return (

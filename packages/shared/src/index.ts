@@ -4,7 +4,7 @@
 //
 // A medida que construyas la app, agregá los tipos acá. Ejemplo:
 // export type { Patient } from './types/patient';
-// export type { Session } from './types/session';
+// export type { Encounter } from './types/encounter';
 
 import type { PlatformAction } from './auditActions';
 
@@ -179,20 +179,20 @@ export interface PathologyCount {
 
 // Sesiones de un mes calendario. `month` viene como "YYYY-MM"; el label
 // localizado (p. ej. "feb") lo arma el cliente, la API es agnóstica de locale.
-export interface MonthSessionCount {
+export interface MonthEncounterCount {
   month: string;
   count: number;
 }
 
-// Respuesta de GET /api/dashboard/stats. Las notas rápidas (sessionType NOTE)
+// Respuesta de GET /api/dashboard/stats. Las notas rápidas (encounterType NOTE)
 // no cuentan como sesiones; "activo" = paciente con algún episodio ACTIVE.
 export interface DashboardStats {
   activePatients: number;
-  totalSessions: number;
-  sessionsThisMonth: number;
+  totalEncounters: number;
+  encountersThisMonth: number;
   pendingPayments: number;
   pathologies: PathologyCount[];
-  sessionsByMonth: MonthSessionCount[];
+  encountersByMonth: MonthEncounterCount[];
 }
 
 // ── Turnos ───────────────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ export interface AppointmentListItem {
   userId: string;
   episodeId: string | null;
   /** La sesión que salió de este turno, si el paciente vino y se registró. */
-  sessionId: string | null;
+  encounterId: string | null;
   /** Compartido por los turnos de una misma serie recurrente. */
   seriesId: string | null;
   startsAt: string;

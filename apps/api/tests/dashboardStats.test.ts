@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
-import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
+import { createEncounterFixture, deleteAuditRows, createTestClinic, createTestToken, type TestClinic, splitName } from './helpers';
 import { fixture } from './fixtures';
 
 // Stats del dashboard: además de los conteos, lo que se prueba es que las
@@ -29,11 +29,11 @@ describe('GET /api/dashboard/stats', () => {
   let tokenA: string;
   let body: {
     activePatients: number;
-    totalSessions: number;
-    sessionsThisMonth: number;
+    totalEncounters: number;
+    encountersThisMonth: number;
     pendingPayments: number;
     pathologies: { name: string; count: number }[];
-    sessionsByMonth: { month: string; count: number }[];
+    encountersByMonth: { month: string; count: number }[];
   };
 
   // Clínica A (la que se mide):
@@ -110,58 +110,58 @@ describe('GET /api/dashboard/stats', () => {
 
     // Sesiones de A: 2 este mes + 1 hace 3 meses. La nota rápida y la sesión
     // vieja (fuera de la ventana de 6 meses) no deben aparecer en el gráfico.
-    for (const session of [
+    for (const encounter of [
       {
         tenantId: clinicA.tenantId,
         patientId: patientActive.id,
         userId: userA.id,
-        sessionType: 'SESSION' as const,
-        sessionDate: midMonthUtc(0),
+        encounterType: 'SESSION' as const,
+        encounterDate: midMonthUtc(0),
       },
       {
         tenantId: clinicA.tenantId,
         patientId: patientActive.id,
         userId: userA.id,
-        sessionType: 'DISCHARGE' as const,
-        sessionDate: midMonthUtc(0),
+        encounterType: 'DISCHARGE' as const,
+        encounterDate: midMonthUtc(0),
       },
       {
         tenantId: clinicA.tenantId,
         patientId: patientActive.id,
         userId: userA.id,
-        sessionType: 'SESSION' as const,
-        sessionDate: midMonthUtc(3),
+        encounterType: 'SESSION' as const,
+        encounterDate: midMonthUtc(3),
       },
       {
         tenantId: clinicA.tenantId,
         patientId: patientActive.id,
         userId: userA.id,
-        sessionType: 'NOTE' as const,
-        sessionDate: midMonthUtc(0),
+        encounterType: 'NOTE' as const,
+        encounterDate: midMonthUtc(0),
       },
       {
         tenantId: clinicA.tenantId,
         patientId: patientActive.id,
         userId: userA.id,
-        sessionType: 'SESSION' as const,
-        sessionDate: midMonthUtc(10),
+        encounterType: 'SESSION' as const,
+        encounterDate: midMonthUtc(10),
       },
     ]) {
-      await createSessionFixture(session);
+      await createEncounterFixture(encounter);
     }
 
     // Un pago PENDING y uno PAID: solo el primero cuenta.
-    const sessionsA = await prisma.session.findMany({
-      where: { tenantId: clinicA.tenantId, sessionType: 'SESSION' },
+    const encountersA = await prisma.encounter.findMany({
+      where: { tenantId: clinicA.tenantId, encounterType: 'SESSION' },
       select: { id: true },
-      orderBy: { sessionDate: 'desc' },
+      orderBy: { encounterDate: 'desc' },
     });
     await prisma.payment.createMany({
       data: [
         {
           tenantId: clinicA.tenantId,
           patientId: patientActive.id,
-          sessionId: sessionsA[0].id,
+          encounterId: encountersA[0].id,
           baseAmountCents: 100,
           finalAmountCents: 100,
           status: 'PENDING',
@@ -169,7 +169,7 @@ describe('GET /api/dashboard/stats', () => {
         {
           tenantId: clinicA.tenantId,
           patientId: patientActive.id,
-          sessionId: sessionsA[1].id,
+          encounterId: encountersA[1].id,
           baseAmountCents: 100,
           finalAmountCents: 100,
           status: 'PAID',
@@ -179,17 +179,17 @@ describe('GET /api/dashboard/stats', () => {
       ],
     });
 
-    // An annulled session of this month (SPEC-clinical-revisions.md §8): it
+    // An annulled encounter of this month (SPEC-clinical-revisions.md §8): it
     // stays in the record, struck through, and counts in no metric.
-    const annulled = await createSessionFixture({
+    const annulled = await createEncounterFixture({
       tenantId: clinicA.tenantId,
       patientId: patientActive.id,
       userId: userA.id,
-      sessionType: 'SESSION',
-      sessionDate: midMonthUtc(0),
+      encounterType: 'SESSION',
+      encounterDate: midMonthUtc(0),
     });
     const annul = await request(app)
-      .post(`/api/patients/${patientActive.id}/sessions/${annulled.id}/annul`)
+      .post(`/api/patients/${patientActive.id}/encounters/${annulled.id}/annul`)
       .set('Authorization', `Bearer ${tokenA}`)
       .send({ reason: 'DATA_ENTRY_ERROR' });
     expect(annul.status).toBe(204);
@@ -205,18 +205,18 @@ describe('GET /api/dashboard/stats', () => {
         mainComplaint: 'Escoliosis de otra clínica',
       },
     });
-    const sessionB = await createSessionFixture({
+    const encounterB = await createEncounterFixture({
       tenantId: clinicB.tenantId,
       patientId: patientB.id,
       userId: userB.id,
-      sessionType: 'SESSION',
-      sessionDate: midMonthUtc(0),
+      encounterType: 'SESSION',
+      encounterDate: midMonthUtc(0),
     });
     await prisma.payment.create({
       data: {
         tenantId: clinicB.tenantId,
         patientId: patientB.id,
-        sessionId: sessionB.id,
+        encounterId: encounterB.id,
         baseAmountCents: 100,
         finalAmountCents: 100,
         status: 'PENDING',
@@ -234,9 +234,9 @@ describe('GET /api/dashboard/stats', () => {
     const tenantIds = [clinicA.tenantId, clinicB.tenantId];
     await deleteAuditRows(tenantIds);
     await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.encounter.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await clinicA.cleanup();
@@ -257,13 +257,13 @@ describe('GET /api/dashboard/stats', () => {
   });
 
   it('excluye las notas rápidas del total de sesiones', () => {
-    // 6 filas en sessions, pero una es NOTE y otra está anulada.
-    expect(body.totalSessions).toBe(4);
+    // 6 filas en encounters, pero una es NOTE y otra está anulada.
+    expect(body.totalEncounters).toBe(4);
   });
 
   it('cuenta las sesiones del mes calendario actual', () => {
     // SESSION + DISCHARGE de este mes; la NOTE y la anulada del mismo mes no cuentan.
-    expect(body.sessionsThisMonth).toBe(2);
+    expect(body.encountersThisMonth).toBe(2);
   });
 
   it('cuenta solo los pagos pendientes', () => {
@@ -278,8 +278,8 @@ describe('GET /api/dashboard/stats', () => {
   });
 
   it('devuelve los últimos 6 meses en orden cronológico, con ceros', () => {
-    expect(body.sessionsByMonth).toHaveLength(6);
-    expect(body.sessionsByMonth.map((m) => m.month)).toEqual([
+    expect(body.encountersByMonth).toHaveLength(6);
+    expect(body.encountersByMonth.map((m) => m.month)).toEqual([
       monthKey(5),
       monthKey(4),
       monthKey(3),
@@ -289,7 +289,7 @@ describe('GET /api/dashboard/stats', () => {
     ]);
     // Las sesiones de A caen en el mes actual (2) y hace 3 meses (1); la de
     // hace 10 meses queda fuera de la ventana, y la anulada no cuenta.
-    expect(body.sessionsByMonth.map((m) => m.count)).toEqual([0, 0, 1, 0, 0, 2]);
+    expect(body.encountersByMonth.map((m) => m.count)).toEqual([0, 0, 1, 0, 0, 2]);
   });
 
   it('no mezcla datos de otra clínica en ninguna métrica', async () => {
@@ -303,7 +303,7 @@ describe('GET /api/dashboard/stats', () => {
 
     expect(resB.status).toBe(200);
     expect(resB.body.data.activePatients).toBe(1);
-    expect(resB.body.data.totalSessions).toBe(1);
+    expect(resB.body.data.totalEncounters).toBe(1);
     expect(resB.body.data.pathologies).toEqual([
       { name: 'Escoliosis de otra clínica', count: 1 },
     ]);

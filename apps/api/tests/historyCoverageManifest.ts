@@ -9,9 +9,9 @@ const versions: HistoryCoverage = { kind: 'versions' };
 
 export const HISTORY_COVERAGE: Record<string, HistoryCoverage> = {
   // A discharge (create) also versions the episodes it closes.
-  'prismaSessionRepository.create': versions,
-  'prismaSessionRepository.update': versions,
-  'prismaSessionRepository.annul': versions,
+  'prismaEncounterRepository.create': versions,
+  'prismaEncounterRepository.update': versions,
+  'prismaEncounterRepository.annul': versions,
   'prismaPatientRepository.create': versions,
   'prismaPatientRepository.update': versions,
   'prismaPatientRepository.softDelete': versions,
@@ -21,7 +21,7 @@ export const HISTORY_COVERAGE: Record<string, HistoryCoverage> = {
   'prismaEvaluationRepository.upsert': versions,
   'prismaConsentRepository.sign': versions,
   'prismaConsentRepository.revoke': versions,
-  'prismaPatientEventRepository.create': versions,
-  'prismaPatientEventRepository.update': versions,
-  'prismaPatientEventRepository.annul': versions,
+  'prismaPatientAntecedentRepository.create': versions,
+  'prismaPatientAntecedentRepository.update': versions,
+  'prismaPatientAntecedentRepository.annul': versions,
 };

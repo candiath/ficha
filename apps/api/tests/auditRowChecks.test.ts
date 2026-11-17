@@ -26,7 +26,7 @@ const ACCEPTED: Prisma.InputJsonObject[] = [
   { role: 'ADMIN' },
   { scaleType: 'SF36' },
   { changedFields: ['email', 'phone'] },
-  { sessionType: 'DISCHARGE', changedFields: ['painScaleAfter'] },
+  { encounterType: 'DISCHARGE', changedFields: ['painScaleAfter'] },
 ];
 const REFUSED: Prisma.InputJsonValue[] = [
   { amount: 15000 },

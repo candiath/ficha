@@ -12,15 +12,22 @@ import {
 import { fixture } from './fixtures';
 
 // What the database itself guarantees about the versions of the patient, the
-// episode, the evaluation, the consent and the patient event
+// episode, the evaluation, the consent and the patient antecedent
 // (SPEC-clinical-revisions.md §2, §6), written straight to the tables. The
-// session's are in sessionRevisionsTable.test.ts.
+// encounter's are in encounterRevisionsTable.test.ts.
+// The name of a revision's key to its audit row. Prisma cuts a name longer
+// than Postgres' 63 bytes to 58 and adds "_fkey" (patient_antecedent_revisions).
+function auditLogKey(table: string): string {
+  const name = `${table}_tenant_id_patient_id_audit_log_id`;
+  return `${name.length > 58 ? name.slice(0, 58) : name}_fkey`;
+}
+
 describe('the revisions tables of the other five aggregates', () => {
   let clinic: TestClinic;
   let otherClinic: TestClinic;
 
   interface Aggregate {
-    table: Exclude<RevisionTable, 'session_revisions'>;
+    table: Exclude<RevisionTable, 'encounter_revisions'>;
     // The aggregate's own table, and the revision's column naming it.
     parent: string;
     key: string;
@@ -67,12 +74,12 @@ describe('the revisions tables of the other five aggregates', () => {
       },
     },
     {
-      table: 'patient_event_revisions',
-      parent: 'patient_events',
-      key: 'patient_event_id',
+      table: 'patient_antecedent_revisions',
+      parent: 'patient_antecedents',
+      key: 'patient_antecedent_id',
       create: async (tenantId) => {
         const patient = await newPatient(tenantId);
-        return fixture.patientEvent.create({
+        return fixture.patientAntecedent.create({
           data: { tenantId, patientId: patient.id, kind: 'SURGERY', description: 'Cirugía de rodilla' },
         });
       },
@@ -88,7 +95,7 @@ describe('the revisions tables of the other five aggregates', () => {
     const tenantIds = [clinic.tenantId, otherClinic.tenantId];
     await deleteAuditRows(tenantIds);
     const where = { where: { tenantId: { in: tenantIds } } };
-    await prisma.patientEvent.deleteMany(where);
+    await prisma.patientAntecedent.deleteMany(where);
     await prisma.informedConsent.deleteMany(where);
     await prisma.initialEvaluation.deleteMany(where);
     await prisma.clinicalEpisode.deleteMany(where);
@@ -167,7 +174,7 @@ describe('the revisions tables of the other five aggregates', () => {
       );
       await expectRestrictedDelete(
         inAuditMaintenance((tx) => tx.auditLog.delete({ where: { id: audit_log_id } })),
-        `${table}_tenant_id_patient_id_audit_log_id_fkey`,
+        auditLogKey(table),
       );
     });
 
@@ -178,7 +185,7 @@ describe('the revisions tables of the other five aggregates', () => {
       const ofOtherPatient = (await firstRevision(aggregate, other.id)).audit_log_id;
       const ofOtherClinic = (await firstRevision(aggregate, foreign.id)).audit_log_id;
 
-      const keyViolation = new RegExp(`${table}_tenant_id_patient_id_audit_log_id_fkey`);
+      const keyViolation = new RegExp(auditLogKey(table));
       await expect(insertRevision(aggregate, row, ofOtherPatient)).rejects.toThrow(keyViolation);
       await expect(insertRevision(aggregate, row, ofOtherClinic)).rejects.toThrow(keyViolation);
     });

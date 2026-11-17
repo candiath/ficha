@@ -33,9 +33,9 @@ vi.mock('@/services/evaluation', () => ({
   evaluationApi: { get: vi.fn(), upsert: vi.fn() },
 }));
 
-vi.mock('@/services/patientEvents', () => ({
-  patientEventKeys: { list: (patientId: string) => ['patients', patientId, 'events'] },
-  patientEventApi: { list: vi.fn().mockResolvedValue([]) },
+vi.mock('@/services/patientAntecedents', () => ({
+  patientAntecedentKeys: { list: (patientId: string) => ['patients', patientId, 'antecedents'] },
+  patientAntecedentApi: { list: vi.fn().mockResolvedValue([]) },
 }));
 
 // The page mounts the discharge form, which asks for the last price, the

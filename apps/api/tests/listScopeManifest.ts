@@ -30,10 +30,10 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /health': exempt('Database ping and build marker: no data.'),
 
   // ── Clinic-wide lists: no clinical text ──────────────────────────────────
-  'GET /api/sessions': probed({
+  'GET /api/encounters': probed({
     id: true,
-    sessionType: true,
-    sessionDate: true,
+    encounterType: true,
+    encounterDate: true,
     createdAt: true,
     updatedAt: true,
     patient: PATIENT_REF,
@@ -44,7 +44,7 @@ export const LIST_SCOPE: Record<string, ListScope> = {
     patientName: true,
     userId: true,
     episodeId: true,
-    sessionId: true,
+    encounterId: true,
     seriesId: true,
     startsAt: true,
     endsAt: true,
@@ -69,7 +69,7 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/payments': probed({
     id: true,
     patientId: true,
-    sessionId: true,
+    encounterId: true,
     packageId: true,
     baseAmountCents: true,
     discountCents: true,
@@ -82,7 +82,7 @@ export const LIST_SCOPE: Record<string, ListScope> = {
     createdAt: true,
     updatedAt: true,
     patient: PATIENT_REF,
-    session: { id: true, sessionDate: true, sessionType: true },
+    encounter: { id: true, encounterDate: true, encounterType: true },
     package: { id: true, name: true },
   }),
   'GET /api/patients': probed(
@@ -112,11 +112,11 @@ export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /api/dashboard/stats': probed(
     {
       activePatients: true,
-      totalSessions: true,
-      sessionsThisMonth: true,
+      totalEncounters: true,
+      encountersThisMonth: true,
       pendingPayments: true,
       pathologies: [{ name: true, count: true }],
-      sessionsByMonth: [{ month: true, count: true }],
+      encountersByMonth: [{ month: true, count: true }],
     },
     // An aggregate that names no patient (Decision 1).
     ['pathologies[].name'],

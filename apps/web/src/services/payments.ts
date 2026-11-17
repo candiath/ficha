@@ -31,7 +31,7 @@ export const paymentApi = {
   lastBasePrice: () => api.get<LastBasePrice | null>('/api/payments/last-base-price'),
 
   // El alta de pagos no tiene método propio: el cobro se crea junto con la
-  // sesión en POST /sessions (transaccional, ver SessionCreateData.payment).
+  // sesión en POST /encounters (transaccional, ver EncounterCreateData.payment).
 
   update: (id: string, data: PaymentUpdateData) =>
     api.patch<Payment>(`/api/payments/${id}`, data),

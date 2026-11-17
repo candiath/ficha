@@ -1,0 +1,1046 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useFieldArray, useForm } from 'react-hook-form'
+import { z } from 'zod'
+import { toast } from 'sonner'
+import { useUnsavedChanges } from '@/lib/unsavedChanges'
+import { Ban, Calendar, Check, CreditCard, FileText, ListChecks, Plus } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import RevisionReasonField, { MISSING_REASON } from '@/components/patients/RevisionReasonField'
+import { useRevisionReason } from '@/hooks/useRevisionReason'
+import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
+import { isStaleEdit } from '@/lib/staleEdit'
+import { Button } from '@/components/ui/button'
+import { DirtyLabel } from '@/components/ui/dirty-label'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Slider } from '@/components/ui/slider'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type { AppointmentListItem } from '@ficha/shared'
+import { appointmentKeys } from '@/services/appointments'
+import { centsToInput, parsePesos } from '@/lib/money'
+import { packageApi, packageKeys, paymentApi, paymentKeys } from '@/services/payments'
+import { encounterApi, encounterKeys } from '@/services/encounters'
+import { episodeApi, episodeKeys } from '@/services/episodes'
+import { globalEncounterKeys } from '@/services/globalEncounters'
+import { EncounterTypeBadge } from '@/components/encounters/EncounterTypeBadge'
+import {
+  getEncounterDateWarnings,
+  useEncounterDateTolerances,
+} from '@/lib/encounterDateTolerances'
+import { toLocalDateTimeInput } from '@/lib/utils'
+import type { Encounter, EncounterBlock, EncounterType } from '@/types/encounter'
+import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog'
+import AnnulDialog from '@/components/patients/AnnulDialog'
+import { ApiError } from '@/lib/api'
+import type { AnnulData } from '@/types/patient'
+import { renderEncounterSnapshot } from '@/lib/revisionRows'
+import { revisionPaths } from '@/services/revisions'
+
+const schema = z.object({
+  encounterDate: z
+    .string()
+    .min(1, 'La fecha es requerida')
+    .superRefine((value, ctx) => {
+      // Sólo error DURO: la fecha debe ser parseable. Lo demás (futuro,
+      // pasado lejano) son advertencias blandas -> ver getEncounterDateWarnings.
+      if (Number.isNaN(new Date(value).getTime())) {
+        ctx.addIssue({ code: 'custom', message: 'La fecha no es válida' })
+      }
+    }),
+  // The text of a note: everything clinical about a problem is in its block.
+  observations: z.string(),
+  // One block per problem the encounter treats (#238): everything clinical about
+  // that problem. The form edits the whole set; the API stores it as sent.
+  blocks: z.array(
+    z.object({
+      episodeId: z.string(),
+      preEncounterState: z.string(),
+      treatment: z.string(),
+      painScaleBefore: z.number().min(0).max(10).nullable(),
+      painScaleAfter: z.number().min(0).max(10).nullable(),
+      reEvaluationNotes: z.string(),
+      patientExercises: z.string(),
+    }),
+  ),
+  baseAmount: z.string().optional().or(z.literal('')),
+  discount: z.string().optional().or(z.literal('')),
+  packageId: z.string().optional().or(z.literal('')),
+  paymentNotes: z.string().optional().or(z.literal('')),
+})
+
+type FormValues = z.infer<typeof schema>
+type BlockValues = FormValues['blocks'][number]
+
+function emptyBlock(episodeId: string): BlockValues {
+  return {
+    episodeId,
+    preEncounterState: '',
+    treatment: '',
+    painScaleBefore: null,
+    painScaleAfter: null,
+    reEvaluationNotes: '',
+    patientExercises: '',
+  }
+}
+
+function blockValues(block: EncounterBlock): BlockValues {
+  return {
+    episodeId: block.episodeId,
+    preEncounterState: block.preEncounterState ?? '',
+    treatment: block.treatment ?? '',
+    painScaleBefore: block.painScaleBefore,
+    painScaleAfter: block.painScaleAfter,
+    reEvaluationNotes: block.reEvaluationNotes ?? '',
+    patientExercises: block.patientExercises ?? '',
+  }
+}
+
+interface EncounterFormModalWideProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  patientId: string
+  episodeId?: string
+  encounter?: Encounter
+  /** Tipo de la sesión a crear. No se elige en el modal: lo fija quien lo abre
+   *  ('DISCHARGE' desde "Registrar alta"). Al editar se ignora: el PATCH no
+   *  manda encounterType, así una sesión conserva el tipo con el que nació. */
+  encounterType?: EncounterType
+  /** Se invoca tras guardar con éxito. Útil, p. ej., para resetear la paginación
+   *  cuando se crea una sesión nueva (queda en la página 1). */
+  onSuccess?: () => void
+  /** El turno del que sale esta sesión, si se abre desde la agenda. Precarga
+   *  la fecha y hora, y al guardar deja el turno marcado como atendido. */
+  appointment?: AppointmentListItem
+}
+
+function getPainColor(value: number | null) {
+  if (value === null) return 'text-muted-foreground'
+  if (value <= 3) return 'text-emerald-600 dark:text-emerald-400'
+  if (value <= 6) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
+/**
+ * Campo del formulario con marca de "modificado sin guardar": el chip
+ * DirtyLabel que ya usa la evaluación inicial, más una barra ámbar a la
+ * izquierda del control para poder escanear la columna de un vistazo.
+ *
+ * El borde existe siempre (transparente cuando está limpio) y el margen
+ * negativo mete la barra en el padding de la tarjeta: así aparecer la marca no
+ * corre ni un pixel del contenido.
+ */
+function DirtyFieldItem({
+  dirty,
+  label,
+  children,
+}: {
+  dirty?: boolean
+  /** Sin label, el llamador arma su propia cabecera (los sliders de dolor
+   *  necesitan el valor grande alineado a la derecha). */
+  label?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <FormItem
+      className={`-ml-3 border-l-2 pl-3 ${dirty ? 'border-amber-500' : 'border-transparent'}`}
+    >
+      {label !== undefined && (
+        <FormLabel>
+          <DirtyLabel label={label} dirty={dirty} />
+        </FormLabel>
+      )}
+      {children}
+    </FormItem>
+  )
+}
+
+export default function EncounterFormModalWide({
+  open,
+  onOpenChange,
+  patientId,
+  episodeId,
+  encounter: loadedEncounter,
+  encounterType = 'SESSION',
+  onSuccess,
+  appointment,
+}: EncounterFormModalWideProps) {
+  const queryClient = useQueryClient()
+  // A 409 offers to reload: the version read then replaces the one that was opened.
+  const [reloadedEncounter, setReloadedEncounter] = useState<Encounter>()
+  const encounter = reloadedEncounter ?? loadedEncounter
+  const isEditing = !!encounter
+  const revision = useRevisionReason()
+  // The API's message when someone else saved first; what was typed stays.
+  const [staleMessage, setStaleMessage] = useState<string | null>(null)
+  const dateTolerances = useEncounterDateTolerances()
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
+  const [showAnnul, setShowAnnul] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const { data: episodes = [] } = useQuery({
+    queryKey: episodeKeys.list(patientId),
+    queryFn: () => episodeApi.list(patientId),
+  })
+
+  // Una sesión puede tratar varios motivos (#238), cada uno con su bloque. Al
+  // crear arranca con el episodio en el que está parado el usuario; al editar,
+  // con los que la sesión ya tiene. Se pueden sumar los episodios abiertos del
+  // paciente, y los que la sesión ya trataba aunque hoy estén cerrados.
+  const effectiveType = isEditing ? encounter.encounterType : encounterType
+  // Un alta cierra el episodio desde el que se abrió: su motivo no se cambia.
+  const motivesFixed = effectiveType === 'DISCHARGE'
+  const initialEpisodeIds = useMemo(
+    () => new Set(isEditing ? encounter.episodes.map((b) => b.episodeId) : episodeId ? [episodeId] : []),
+    [isEditing, encounter, episodeId],
+  )
+  const selectableEpisodes = episodes.filter(
+    (ep) => ep.status === 'ACTIVE' || initialEpisodeIds.has(ep.id),
+  )
+  // Un episodio cerrado no recibe sesiones nuevas: se dice, para que no
+  // parezca que falta.
+  const hidesClosedEpisodes = episodes.some(
+    (ep) => ep.status !== 'ACTIVE' && !initialEpisodeIds.has(ep.id),
+  )
+  // Al lado de la sesión van el cobro (solo al crearla) y el texto de una nota.
+  const hasSideColumn = !isEditing || effectiveType === 'NOTE'
+  const complaintOf = (id: string) =>
+    episodes.find((ep) => ep.id === id)?.mainComplaint || 'Sin motivo'
+
+  const { data: lastPriceData } = useQuery({
+    queryKey: paymentKeys.lastBasePrice,
+    queryFn: paymentApi.lastBasePrice,
+    enabled: !isEditing,
+  })
+
+  const { data: packages = [] } = useQuery({
+    queryKey: packageKeys.byPatient(patientId),
+    queryFn: () => packageApi.list(patientId),
+  })
+
+  const activePackages = useMemo(
+    () => packages.filter((pkg) => pkg.remainingSessions > 0),
+    [packages],
+  )
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      encounterDate: toLocalDateTimeInput(new Date()),
+      observations: '',
+      blocks: [],
+      baseAmount: '',
+      discount: '',
+      packageId: '',
+      paymentNotes: '',
+    },
+  })
+
+  const { fields: blockFields, append, remove } = useFieldArray({ control: form.control, name: 'blocks' })
+  const watchedBlocks = form.watch('blocks')
+  const selectedEpisodeIds = new Set(watchedBlocks.map((b) => b.episodeId))
+  // Lo cargado en un motivo que se destilda vuelve si se lo tilda de nuevo
+  // antes de guardar: destildar por error no borra lo escrito.
+  const removedBlocks = useRef(new Map<string, BlockValues>())
+
+  function toggleEpisode(id: string) {
+    const index = form.getValues('blocks').findIndex((b) => b.episodeId === id)
+    if (index >= 0) {
+      removedBlocks.current.set(id, form.getValues(`blocks.${index}`))
+      remove(index)
+    } else {
+      append(removedBlocks.current.get(id) ?? emptyBlock(id))
+    }
+    form.clearErrors('blocks')
+  }
+
+  useEffect(() => {
+    if (open) return
+    setReloadedEncounter(undefined)
+    setStaleMessage(null)
+    revision.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on close only
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    removedBlocks.current.clear()
+    if (isEditing) {
+      form.reset({
+        encounterDate: encounter.encounterDate
+          ? toLocalDateTimeInput(new Date(encounter.encounterDate))
+          : toLocalDateTimeInput(new Date()),
+        observations: encounter.observations ?? '',
+        blocks: encounter.episodes.map(blockValues),
+        baseAmount: '',
+        discount: '',
+        packageId: '',
+        paymentNotes: '',
+      })
+    } else {
+      form.reset({
+        // Desde la agenda, la fecha y hora salen del turno: es exactamente el
+        // dato que el turno ya tenía y que no hay que volver a cargar.
+        encounterDate: toLocalDateTimeInput(
+          appointment ? new Date(appointment.startsAt) : new Date(),
+        ),
+        observations: '',
+        blocks: episodeId ? [emptyBlock(episodeId)] : [],
+        baseAmount: '',
+        discount: '',
+        packageId: '',
+        paymentNotes: '',
+      })
+    }
+  }, [open, encounter, episodeId, isEditing, appointment, form])
+
+  // El último precio llega de una query async y puede resolver DESPUÉS de abrir el
+  // modal. Lo aplicamos cuando llega, pero solo si el usuario todavía no tocó el
+  // campo, para no pisar lo que haya escrito. (Antes esto vivía en el reset de
+  // arriba, lo que descartaba toda edición previa al cargar el precio.)
+  useEffect(() => {
+    if (!open || isEditing) return
+    if (lastPriceData?.amountCents == null) return
+    if (form.getFieldState('baseAmount').isDirty) return
+    form.setValue('baseAmount', centsToInput(lastPriceData.amountCents))
+  }, [open, isEditing, lastPriceData, form])
+
+  const selectedPackageId = form.watch('packageId')
+  useEffect(() => {
+    if (!selectedPackageId) return
+    const pkg = activePackages.find((p) => p.id === selectedPackageId)
+    if (pkg) form.setValue('baseAmount', centsToInput(pkg.pricePerSessionCents))
+  }, [selectedPackageId, activePackages, form])
+
+  const mutation = useMutation({
+    mutationFn: async (values: FormValues) => {
+      // Los bloques viajan completos: la API toma el conjunto como lo que la
+      // sesión trata ahora (un motivo que falta se desvincula).
+      const encounterData = {
+        encounterDate: new Date(values.encounterDate).toISOString(),
+        observations: values.observations,
+        episodes: values.blocks.map((b) => ({
+          episodeId: b.episodeId,
+          preEncounterState: b.preEncounterState,
+          treatment: b.treatment,
+          painScaleBefore: b.painScaleBefore,
+          painScaleAfter: b.painScaleAfter,
+          reEvaluationNotes: b.reEvaluationNotes,
+          patientExercises: b.patientExercises,
+        })),
+      }
+
+      // El PATCH no lleva encounterType: el schema de la API es partial, así que
+      // omitirlo deja intacto el tipo con el que se registró la sesión (una
+      // nota rápida o un alta no se convierten en sesión común al editarlas).
+      if (isEditing) {
+        // The submit checked it; this keeps a correction from leaving without one.
+        if (!revision.reason) throw new Error(MISSING_REASON)
+        return encounterApi.update(patientId, encounter.id, {
+          ...encounterData,
+          expectedVersion: encounter.version,
+          reason: revision.reason,
+          reasonNote: revision.note,
+        })
+      }
+
+      // Un solo request: la API crea sesión + pago en una transacción, así un
+      // fallo de red o validación no deja una sesión sin pago (invisible en
+      // Cobros) ni duplicados al reintentar.
+      return encounterApi.create(patientId, {
+        ...encounterData,
+        encounterType,
+        // Va en el mismo request: la API crea la sesión y vincula el turno en
+        // una transacción, así no puede quedar una sesión registrada con el
+        // turno todavía pidiendo que se registre.
+        ...(appointment ? { appointmentId: appointment.id } : {}),
+        payment: {
+          packageId: values.packageId,
+          // The form holds pesos as typed; the API takes cents. Checked on
+          // submit, so both parse here.
+          baseAmountCents: parsePesos(values.baseAmount ?? '') ?? 0,
+          discountCents: values.discount?.trim() ? (parsePesos(values.discount) ?? 0) : 0,
+          notes: values.paymentNotes,
+        },
+      })
+    },
+    onSuccess: () => {
+      // La sesión puede estar vinculada a varios episodios: invalidamos toda lista
+      // de sesiones del paciente (con o sin episodio en la key), no solo una.
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'patients' &&
+          q.queryKey[1] === patientId &&
+          q.queryKey.includes('encounters'),
+      })
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
+      queryClient.invalidateQueries({ queryKey: globalEncounterKeys.all })
+      queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      // El turno pasó a "atendido": la agenda tiene que reflejarlo.
+      if (appointment) {
+        queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
+      }
+      toast.success(isEditing ? 'Sesión actualizada' : 'Sesión registrada')
+      onOpenChange(false)
+      form.reset()
+      onSuccess?.()
+    },
+    // The API's message says what to fix (an episode that opens later, an
+    // appointment already recorded).
+    onError: (err: Error) => {
+      if (isStaleEdit(err) && isEditing) {
+        setStaleMessage(err.message)
+        return
+      }
+      toast.error(err.message || 'Error al guardar la sesión')
+    },
+  })
+
+  const reloadMutation = useMutation({
+    mutationFn: () => encounterApi.get(patientId, encounter!.id),
+    onSuccess: (fresh) => {
+      setReloadedEncounter(fresh)
+      setStaleMessage(null)
+      queryClient.invalidateQueries({ queryKey: encounterKeys.list(patientId) })
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'No se pudo recargar la sesión')
+    },
+  })
+
+  // Annulling an encounter entered by mistake (SPEC-clinical-revisions.md §8). It
+  // invalidates what saving does —the patient's lists, episodes, the global
+  // list and payments— because the annulment also takes the encounter's pending
+  // payment. And the agenda: if the encounter came from an appointment, the API
+  // released it and it offers "registrar la sesión" again. Editing does not
+  // know whether there was one, so it is always invalidated.
+  const annulMutation = useMutation({
+    mutationFn: (data: AnnulData) => {
+      if (!encounter) throw new Error('No hay sesión que anular')
+      return encounterApi.annul(patientId, encounter.id, data)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'patients' &&
+          q.queryKey[1] === patientId &&
+          q.queryKey.includes('encounters'),
+      })
+      queryClient.invalidateQueries({ queryKey: episodeKeys.list(patientId) })
+      queryClient.invalidateQueries({ queryKey: globalEncounterKeys.all })
+      queryClient.invalidateQueries({ queryKey: paymentKeys.all })
+      queryClient.invalidateQueries({ queryKey: appointmentKeys.all })
+      toast.success('Sesión anulada')
+      setShowAnnul(false)
+      onOpenChange(false)
+      form.reset()
+      onSuccess?.()
+    },
+    onError: (err: Error) => {
+      // El 409 de "ya está cobrada" trae un mensaje que le sirve al usuario
+      // (dice qué hacer antes), así que se muestra tal cual en vez de un
+      // genérico. api.ts ya lo trae en err.message.
+      toast.error(err.message || 'Error al anular la sesión')
+      setShowAnnul(false)
+      // Annulled or gone meanwhile (404): the lists show what it is now, and
+      // the form has nothing left to edit.
+      if (err instanceof ApiError && err.status === 404) {
+        queryClient.invalidateQueries({
+          predicate: (q) =>
+            Array.isArray(q.queryKey) &&
+            q.queryKey[0] === 'patients' &&
+            q.queryKey[1] === patientId &&
+            q.queryKey.includes('encounters'),
+        })
+        onOpenChange(false)
+      }
+    },
+  })
+
+  const hasUnsavedChanges = form.formState.isDirty
+  // Qué campos cambiaron respecto de los valores con que se abrió el modal:
+  // alimenta la marca ámbar de cada campo. RHF los compara contra el último
+  // reset, así que volver un campo a su valor original lo saca de acá.
+  const { dirtyFields } = form.formState
+
+  // Advertir al cerrar/recargar el navegador con cambios sin guardar (igual que la
+  // evaluación inicial). El interceptor de abajo solo cubre el cierre del modal.
+  // También le avisa al aviso de versión nueva (lib/unsavedChanges.ts).
+  useUnsavedChanges(open && hasUnsavedChanges)
+
+  // Interceptamos el cierre del modal (Escape, click fuera, botón X o "Cancelar"):
+  // si hay cambios sin guardar, pedimos confirmación antes de descartar.
+  function handleOpenChange(next: boolean) {
+    if (!next && hasUnsavedChanges) {
+      setShowDiscardConfirm(true)
+      return
+    }
+    onOpenChange(next)
+  }
+
+  return (
+    <>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl max-h-[90vh] overflow-y-auto p-0">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b bg-muted/30">
+          <div className="flex items-start justify-between gap-4">
+            <DialogTitle className="text-xl">
+              {isEditing
+                ? 'Sesión registrada'
+                : encounterType === 'DISCHARGE'
+                  ? 'Registrar alta'
+                  : 'Nueva sesión'}
+            </DialogTitle>
+            {/* El tipo ya no se edita, pero sigue distinguiendo una nota rápida
+                o un alta de una sesión común. El badge no aparece para una
+                sesión común: ahí no habría nada que distinguir. */}
+            {isEditing && <EncounterTypeBadge type={encounter.encounterType} className="shrink-0" />}
+          </div>
+          {isEditing && (
+            <RevisionHistoryButton className="-ml-2 self-start" onClick={() => setHistoryOpen(true)} />
+          )}
+          {!isEditing && encounterType === 'DISCHARGE' && (
+            <DialogDescription>
+              Al guardar, el motivo queda cerrado con fecha de alta.
+            </DialogDescription>
+          )}
+        </DialogHeader>
+
+        {/* Nested in this dialog, so a click in it is not outside this one. */}
+        {isEditing && (
+          <RevisionHistoryDialog
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            patientId={patientId}
+            base={revisionPaths.encounter(patientId, encounter.id)}
+            title="Historial de la sesión"
+            render={renderEncounterSnapshot}
+            renderContext={{
+              episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio',
+            }}
+          />
+        )}
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((v) => {
+              if (!isEditing && !v.baseAmount?.trim()) {
+                form.setError('baseAmount', { message: 'El monto base es requerido' })
+                return
+              }
+              if (!isEditing && parsePesos(v.baseAmount ?? '') === null) {
+                form.setError('baseAmount', { message: 'Un monto en pesos, con hasta dos decimales' })
+                return
+              }
+              if (!isEditing && v.discount?.trim() && parsePesos(v.discount) === null) {
+                form.setError('discount', { message: 'Un monto en pesos, con hasta dos decimales' })
+                return
+              }
+              // Solo una nota puede no tratar ningún motivo (la API lo exige igual).
+              if (effectiveType !== 'NOTE' && v.blocks.length === 0) {
+                form.setError('blocks', { message: 'Elegí al menos un motivo' })
+                return
+              }
+              if (isEditing && !revision.require()) return
+              mutation.mutate(v)
+            })}
+            className="p-4 sm:p-6"
+          >
+            <div className={`grid grid-cols-1 gap-6 ${hasSideColumn ? 'lg:grid-cols-2' : ''}`}>
+              {/* Columna izquierda */}
+              <div className="space-y-6">
+                {/* Información básica */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      Información de la sesión
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="encounterDate"
+                      render={({ field }) => {
+                        const dateWarnings = getEncounterDateWarnings(
+                          field.value,
+                          dateTolerances,
+                        )
+                        return (
+                          <DirtyFieldItem dirty={dirtyFields.encounterDate} label="Fecha y hora">
+                            <FormControl>
+                              <Input type="datetime-local" className="sm:max-w-xs" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                            {dateWarnings.map((warning) => (
+                              <p key={warning} className="text-sm text-amber-600 dark:text-amber-500">
+                                {warning}
+                              </p>
+                            ))}
+                          </DirtyFieldItem>
+                        )
+                      }}
+                    />
+                    {/* Los motivos que la sesión trata: cada uno suma su bloque
+                        abajo. Un alta cierra el motivo desde el que se abrió,
+                        así que ahí no se elige. */}
+                    <div className="space-y-2">
+                      <Label>{motivesFixed ? 'Motivo' : 'Motivos'}</Label>
+                      {motivesFixed ? (
+                        <div className="flex h-9 items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3">
+                          <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {blockFields[0] ? complaintOf(blockFields[0].episodeId) : 'Sin motivo asociado'}
+                          </span>
+                        </div>
+                      ) : selectableEpisodes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          El paciente no tiene episodios abiertos. Abrí uno para registrar la sesión.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {selectableEpisodes.map((ep) => {
+                            const selected = selectedEpisodeIds.has(ep.id)
+                            return (
+                              <Button
+                                key={ep.id}
+                                type="button"
+                                size="sm"
+                                variant={selected ? 'default' : 'outline'}
+                                aria-pressed={selected}
+                                onClick={() => toggleEpisode(ep.id)}
+                              >
+                                {selected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                                {ep.mainComplaint || 'Sin motivo'}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {!motivesFixed && hidesClosedEpisodes && (
+                        <p className="text-xs text-muted-foreground">
+                          Los episodios cerrados no aparecen: para sumar uno, reabrilo primero.
+                        </p>
+                      )}
+                      {form.formState.errors.blocks?.message && (
+                        <p className="text-sm text-destructive">{form.formState.errors.blocks.message}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+              </div>
+
+              {/* Columna derecha: el cobro al crear, y el texto de una nota */}
+              {hasSideColumn && (
+                <div className="space-y-6">
+                  {/* Cobro (solo en creación) */}
+                  {!isEditing && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          Cobro de sesión
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {activePackages.length > 0 && (
+                          <FormField
+                            control={form.control}
+                            name="packageId"
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={dirtyFields.packageId} label="Paquete">
+                                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Sin paquete (precio individual)" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="">Sin paquete</SelectItem>
+                                    {activePackages.map((pkg) => (
+                                      <SelectItem key={pkg.id} value={pkg.id}>
+                                        {pkg.name} — {pkg.remainingSessions} sesión
+                                        {pkg.remainingSessions !== 1 ? 'es' : ''} restante
+                                        {pkg.remainingSessions !== 1 ? 's' : ''}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="baseAmount"
+                            render={({ field }) => (
+                              <DirtyFieldItem
+                                dirty={dirtyFields.baseAmount}
+                                label={
+                                  <>
+                                    Monto base <span className="text-destructive">*</span>
+                                    {lastPriceData?.isStale === false && (
+                                      <span className="text-muted-foreground font-normal text-xs">
+                                        (último precio)
+                                      </span>
+                                    )}
+                                  </>
+                                }
+                              >
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                      $
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step={0.01}
+                                      placeholder="0.00"
+                                      className="pl-7"
+                                      {...field}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="discount"
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={dirtyFields.discount} label="Descuento">
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                      $
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step={0.01}
+                                      placeholder="0.00"
+                                      className="pl-7"
+                                      {...field}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name="paymentNotes"
+                          render={({ field }) => (
+                            <DirtyFieldItem dirty={dirtyFields.paymentNotes} label="Notas de pago">
+                              <FormControl>
+                                <Input
+                                  placeholder="Ej: pagó mitad hoy, resto próxima semana"
+                                  {...field}
+                                />
+                              </FormControl>
+                              {/* Payment notes travel in the clinic-wide Cobros
+                                  list (#186, SPEC-list-minimization.md, Decision 3). */}
+                              <p className="text-xs text-muted-foreground">
+                                No escribas datos clínicos acá: van en la ficha del paciente.
+                              </p>
+                              <FormMessage />
+                            </DirtyFieldItem>
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Una nota puede no tener motivo: su texto es de la sesión. */}
+                  {effectiveType === 'NOTE' && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          Nota
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <FormField
+                          control={form.control}
+                          name="observations"
+                          render={({ field }) => (
+                            <DirtyFieldItem dirty={dirtyFields.observations}>
+                              <FormControl>
+                                <Textarea rows={4} {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </DirtyFieldItem>
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Un bloque por motivo: todo lo clínico de ese problema (el
+                tratamiento de un pie no tiene nada que ver con el de una mano).
+                En el historial de cada episodio se ve el bloque de ese episodio. */}
+            {blockFields.length > 0 && (
+              <div className="mt-6 space-y-6">
+                {blockFields.map((blockField, index) => {
+                  // Un motivo recién tildado es nuevo entero: la marca de
+                  // "modificado" campo por campo solo dice algo en uno que ya estaba.
+                  const blockDirty = initialEpisodeIds.has(blockField.episodeId)
+                    ? dirtyFields.blocks?.[index]
+                    : undefined
+                  return (
+                    <Card key={blockField.id}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <ListChecks className="h-4 w-4 text-muted-foreground" />
+                          {complaintOf(blockField.episodeId)}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        {/* Cómo llegó y cuánto le dolía */}
+                        <div className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.preEncounterState`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.preEncounterState} label="Evaluación (estado pre-sesión)">
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="¿Cómo llegó el paciente? ¿Cambios desde la última sesión?"
+                                    rows={3}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <div>
+                            <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                              Evaluación del dolor
+                            </Label>
+                            {/* TODO: verificar cómo se maneja la remoción de una evaluación de dolor */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3">
+                              {(['painScaleBefore', 'painScaleAfter'] as const).map((name) => (
+                                <FormField
+                                  key={name}
+                                  control={form.control}
+                                  name={`blocks.${index}.${name}`}
+                                  render={({ field }) => {
+                                    const dirty = blockDirty?.[name]
+                                    return (
+                                      <DirtyFieldItem dirty={dirty}>
+                                        <div className="flex items-center justify-between">
+                                          <DirtyLabel label={name === 'painScaleBefore' ? 'Antes' : 'Después'} dirty={dirty} />
+                                          <span className={`text-2xl font-bold ${getPainColor(field.value)}`}>
+                                            {field.value ?? '?'}
+                                          </span>
+                                        </div>
+                                        <FormControl>
+                                          <Slider
+                                            value={[field.value ?? 0]}
+                                            onValueChange={(v) => field.onChange(Array.isArray(v) ? v[0] : v)}
+                                            max={10}
+                                            step={1}
+                                          />
+                                        </FormControl>
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                          <span>Sin dolor</span>
+                                          <span>Máximo</span>
+                                        </div>
+                                      </DirtyFieldItem>
+                                    )
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Qué se hizo y qué sigue */}
+                        <div className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.treatment`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.treatment} label="Tratamiento">
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Técnicas utilizadas, tiempos, zonas trabajadas..."
+                                    rows={3}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.reEvaluationNotes`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.reEvaluationNotes} label="Re-evaluación">
+                                <FormControl>
+                                  <Textarea placeholder="Evaluación del dolor" rows={3} {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`blocks.${index}.patientExercises`}
+                            render={({ field }) => (
+                              <DirtyFieldItem dirty={blockDirty?.patientExercises} label="Ejercicios">
+                                <FormControl>
+                                  <Textarea placeholder="¿Qué ejercicios debe hacer?" rows={3} {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </DirtyFieldItem>
+                            )}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+
+            {isEditing && (
+              <div className="mt-6 space-y-3">
+                <RevisionReasonField {...revision.fieldProps} />
+                {staleMessage && (
+                  <StaleRecordNotice
+                    message={staleMessage}
+                    reloading={reloadMutation.isPending}
+                    onReload={() => reloadMutation.mutate()}
+                  />
+                )}
+              </div>
+            )}
+
+            <DialogFooter className="mt-6 pt-4 border-t gap-2 flex-col-reverse sm:flex-row">
+              {/* Solo al editar: una sesión que todavía no existe no se anula.
+                  sm:mr-auto lo separa de las acciones de guardado — es una
+                  acción destructiva y no debe quedar pegada a "Guardar". */}
+              {isEditing && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowAnnul(true)}
+                  disabled={annulMutation.isPending}
+                  className="w-full sm:w-auto sm:mr-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Ban className="h-4 w-4" />
+                  Anular
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+                className="w-full sm:w-auto"
+              >
+                Cancelar
+              </Button>
+              {/* Al editar, guardar sin cambios sería un PATCH que no cambia
+                  nada (y una entrada de auditoría de más), así que el botón
+                  espera a que haya algo que guardar. Al crear queda siempre
+                  habilitado: una sesión con los valores por defecto es válida,
+                  y el monto base lo exige el handleSubmit de arriba. */}
+              <Button
+                type="submit"
+                disabled={mutation.isPending || (isEditing && !hasUnsavedChanges)}
+                className="w-full sm:w-auto"
+              >
+                {mutation.isPending ? 'Guardando...' : 'Guardar sesión'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+
+    {/* Annulment, with its reason */}
+    <AnnulDialog
+      open={showAnnul}
+      onOpenChange={setShowAnnul}
+      title="¿Anular esta sesión?"
+      description={
+        <>
+          Queda en la ficha del paciente tachada, con su historial, y deja de contar en el
+          listado de sesiones y en las estadísticas. Si tenía un cobro pendiente, se elimina.
+          {' '}Si la sesión ya está cobrada, primero hay que revertir el cobro.
+        </>
+      }
+      pending={annulMutation.isPending}
+      onConfirm={(reason, reasonNote) => annulMutation.mutate({ reason, reasonNote })}
+    />
+
+    {/* Confirmación al cerrar con cambios sin guardar */}
+    <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>¿Descartar cambios?</DialogTitle>
+          <DialogDescription>
+            Tenés cambios sin guardar en la sesión. Si cerrás ahora, se perderán.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowDiscardConfirm(false)}>
+            Seguir editando
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              setShowDiscardConfirm(false)
+              onOpenChange(false)
+            }}
+          >
+            Descartar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
+  )
+}

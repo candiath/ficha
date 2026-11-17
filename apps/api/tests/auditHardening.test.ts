@@ -454,12 +454,12 @@ describe('audit-guards.sql', () => {
     const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
     // No created_at, so no stamp trigger.
     const REVISION_TABLES = [
-      'session_revisions',
+      'encounter_revisions',
       'patient_revisions',
       'episode_revisions',
       'evaluation_revisions',
       'consent_revisions',
-      'patient_event_revisions',
+      'patient_antecedent_revisions',
     ];
     const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
@@ -534,18 +534,18 @@ describe('audit-guards.sql', () => {
     });
 
     it('notices a disabled trigger on a revisions table', async () => {
-      await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions DISABLE TRIGGER session_revisions_append_only');
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.encounter_revisions DISABLE TRIGGER encounter_revisions_append_only');
       try {
-        expect(await failure()).toMatch(/trigger session_revisions_append_only on session_revisions is not enabled/);
+        expect(await failure()).toMatch(/trigger encounter_revisions_append_only on encounter_revisions is not enabled/);
       } finally {
-        await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions ENABLE TRIGGER session_revisions_append_only');
+        await db.$executeRawUnsafe('ALTER TABLE pg_temp.encounter_revisions ENABLE TRIGGER encounter_revisions_append_only');
       }
     });
 
     it('notices a revisions table that lost its keys', async () => {
       // LIKE copies no foreign keys.
       expect(await failure()).toMatch(
-        /foreign key session_revisions_tenant_id_patient_id_audit_log_id_fkey on session_revisions is missing or changed/,
+        /foreign key encounter_revisions_tenant_id_patient_id_audit_log_id_fkey on encounter_revisions is missing or changed/,
       );
     });
 

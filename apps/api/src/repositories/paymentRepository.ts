@@ -1,4 +1,4 @@
-import type { PaymentMethod, PaymentStatus, SessionType } from '@prisma/client';
+import type { PaymentMethod, PaymentStatus, EncounterType } from '@prisma/client';
 import type { TenantContext } from './types';
 import type { AUDIT_PAYMENT_FIELDS } from '@ficha/shared';
 import type { AuditBuilder, AuditUpdateBuilder } from './auditLogRepository';
@@ -10,7 +10,7 @@ import type { AuditBuilder, AuditUpdateBuilder } from './auditLogRepository';
 export interface PaymentDTO {
   id: string;
   patientId: string;
-  sessionId: string;
+  encounterId: string;
   packageId: string | null;
   baseAmountCents: number;
   discountCents: number;
@@ -22,7 +22,7 @@ export interface PaymentDTO {
   createdAt: string;
   updatedAt: string;
   patient: { id: string; fullName: string };
-  session: { id: string; sessionDate: string; sessionType: SessionType };
+  encounter: { id: string; encounterDate: string; encounterType: EncounterType };
   package: { id: string; name: string } | null;
 }
 
@@ -34,7 +34,7 @@ export interface PaymentListFilters {
 // Sin patientId: el paciente se deriva de la sesión. Aceptarlo del body
 // permitía crear pagos apuntando a pacientes de otro tenant.
 export interface PaymentCreateInput {
-  sessionId: string;
+  encounterId: string;
   packageId?: string | null;
   baseAmountCents: number;
   discountCents: number;
@@ -56,7 +56,7 @@ export interface PaymentUpdateInput {
 
 export type PaymentCreateResult =
   | { ok: true; payment: PaymentDTO }
-  | { ok: false; reason: 'session_not_found' | 'package_not_found' | 'duplicate' };
+  | { ok: false; reason: 'encounter_not_found' | 'package_not_found' | 'duplicate' };
 
 export type PaymentUpdateResult =
   | { ok: true; payment: PaymentDTO }
@@ -95,7 +95,7 @@ export interface PaymentRepository {
   lastBasePrice(ctx: TenantContext): Promise<LastBasePrice | null>;
   /**
    * Deriva el paciente de la sesión, valida el paquete contra ese paciente,
-   * calcula finalAmountCents e impone un pago por sesión (unique de sessionId,
+   * calcula finalAmountCents e impone un pago por sesión (unique de encounterId,
    * con el catch de P2002 adentro para la carrera).
    */
   create(

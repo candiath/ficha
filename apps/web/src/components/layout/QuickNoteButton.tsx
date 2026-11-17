@@ -16,9 +16,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { patientApi, patientKeys } from '@/services/patients';
-import { sessionApi, sessionKeys } from '@/services/sessions';
+import { encounterApi, encounterKeys } from '@/services/encounters';
 import { episodeApi, episodeKeys } from '@/services/episodes';
-import { globalSessionKeys } from '@/services/globalSessions';
+import { globalEncounterKeys } from '@/services/globalEncounters';
 import { toast } from 'sonner';
 import { EPISODE_STATUS_LABELS } from '@/lib/labels';
 import type { ClinicalEpisode } from '@/types/episode';
@@ -84,18 +84,18 @@ export default function QuickNoteButton() {
 
   const mutation = useMutation({
     mutationFn: () =>
-      sessionApi.create(selectedPatient!.id, {
-        sessionType: 'NOTE',
-        sessionDate: new Date().toISOString(),
+      encounterApi.create(selectedPatient!.id, {
+        encounterType: 'NOTE',
+        encounterDate: new Date().toISOString(),
         // A note may belong to no episode (#238).
         episodes: selectedEpisode ? [{ episodeId: selectedEpisode.id }] : [],
         observations: note,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: globalSessionKeys.all });
+      queryClient.invalidateQueries({ queryKey: globalEncounterKeys.all });
       if (selectedPatient && selectedEpisode) {
         queryClient.invalidateQueries({
-          queryKey: sessionKeys.list(selectedPatient.id, selectedEpisode.id),
+          queryKey: encounterKeys.list(selectedPatient.id, selectedEpisode.id),
         });
       }
       toast.success('Nota clínica guardada');

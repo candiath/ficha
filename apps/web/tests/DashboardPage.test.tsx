@@ -25,14 +25,14 @@ const listPatients = vi.mocked(patientApi.list);
 
 const STATS: DashboardStats = {
   activePatients: 7,
-  totalSessions: 42,
-  sessionsThisMonth: 5,
+  totalEncounters: 42,
+  encountersThisMonth: 5,
   pendingPayments: 3,
   pathologies: [
     { name: 'Lumbalgia', count: 4 },
     { name: 'Cervicalgia', count: 2 },
   ],
-  sessionsByMonth: [
+  encountersByMonth: [
     { month: '2026-02', count: 0 },
     { month: '2026-03', count: 3 },
   ],

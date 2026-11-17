@@ -134,14 +134,14 @@ async function cobrosVencidos(ctx: TenantContext): Promise<AlertaPropuesta[]> {
     if (previo) {
       previo.cantidad += 1;
       previo.totalCents += cobro.finalAmountCents;
-      if (cobro.session.sessionDate < previo.masVieja) {
-        previo.masVieja = cobro.session.sessionDate;
+      if (cobro.encounter.encounterDate < previo.masVieja) {
+        previo.masVieja = cobro.encounter.encounterDate;
       }
     } else {
       porPaciente.set(cobro.patientId, {
         cantidad: 1,
         totalCents: cobro.finalAmountCents,
-        masVieja: cobro.session.sessionDate,
+        masVieja: cobro.encounter.encounterDate,
       });
     }
   }

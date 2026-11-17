@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import SessionFormModalWide from '@/components/sessions/SessionFormModalWide';
+import EncounterFormModalWide from '@/components/encounters/EncounterFormModalWide';
 import { formatLongDate } from '@/lib/agendaDates';
 import { APPOINTMENT_STATUS_CLASS, APPOINTMENT_STATUS_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -31,8 +31,8 @@ export default function AppointmentDetailDialog({
 }) {
   const queryClient = useQueryClient();
   const [registrando, setRegistrando] = useState(false);
-  // A cancelled or missed appointment becomes attended when its session is
-  // registered: asked first, naming the patient, so a session about to go on
+  // A cancelled or missed appointment becomes attended when its encounter is
+  // registered: asked first, naming the patient, so an encounter about to go on
   // the wrong appointment can still be stopped (#312).
   const [confirmandoAsistencia, setConfirmandoAsistencia] = useState(false);
   const [verMotivo, setVerMotivo] = useState(false);
@@ -157,7 +157,7 @@ export default function AppointmentDetailDialog({
                 qué motivo, así que registrar la sesión no vuelve a pedir nada
                 de eso. Si ya se registró, el botón desaparece — la API
                 rechaza el segundo intento igual, pero mejor no ofrecerlo. */}
-            {a.sessionId ? (
+            {a.encounterId ? (
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <FileText className="h-4 w-4 shrink-0" />
                 La sesión de este turno ya está registrada.
@@ -263,7 +263,7 @@ export default function AppointmentDetailDialog({
                 cargados desde el turno. Al guardar, la API vincula los dos en
                 una transacción y el turno queda como atendido. */}
             {registrando && (
-              <SessionFormModalWide
+              <EncounterFormModalWide
                 open
                 onOpenChange={(v) => !v && setRegistrando(false)}
                 patientId={a.patientId}

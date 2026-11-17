@@ -66,7 +66,7 @@ describe('historial de auditoría de un paciente', () => {
     userId: string | null = user.id,
   ) {
     // Backdated rows go through the maintenance helper (#186); a row with an
-    // author names her session.
+    // author names her encounter.
     const [row] = await insertAuditRowsAt([
       {
         tenantId,

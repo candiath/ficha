@@ -3,9 +3,9 @@ import {
   CONSENT_SNAPSHOTS,
   EPISODE_SNAPSHOTS,
   EVALUATION_SNAPSHOTS,
-  PATIENT_EVENT_SNAPSHOTS,
+  PATIENT_ANTECEDENT_SNAPSHOTS,
   PATIENT_SNAPSHOTS,
-  SESSION_SNAPSHOTS,
+  ENCOUNTER_SNAPSHOTS,
   type SnapshotHistory,
 } from '@ficha/shared';
 import type { TenantContext } from '../types';
@@ -73,12 +73,12 @@ const latest = { orderBy: { version: 'desc' }, select: { version: true, schemaVe
 // read in the current shape. A patient is its own aggregate, so its revision's
 // patient_id is the aggregate's id.
 const TABLES = {
-  session_revisions: {
-    snapshots: SESSION_SNAPSHOTS,
+  encounter_revisions: {
+    snapshots: ENCOUNTER_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
-      tx.sessionRevision.create({ data: { ...f, tenantId, sessionId: aggregateId }, select: { id: true } }),
+      tx.encounterRevision.create({ data: { ...f, tenantId, encounterId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
-      tx.sessionRevision.findFirst({ where: { tenantId, sessionId: id }, ...latest }),
+      tx.encounterRevision.findFirst({ where: { tenantId, encounterId: id }, ...latest }),
   },
   patient_revisions: {
     snapshots: PATIENT_SNAPSHOTS,
@@ -108,12 +108,12 @@ const TABLES = {
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
       tx.consentRevision.findFirst({ where: { tenantId, consentId: id }, ...latest }),
   },
-  patient_event_revisions: {
-    snapshots: PATIENT_EVENT_SNAPSHOTS,
+  patient_antecedent_revisions: {
+    snapshots: PATIENT_ANTECEDENT_SNAPSHOTS,
     write: (tx: Tx, tenantId: string, { aggregateId, ...f }: RevisionFields) =>
-      tx.patientEventRevision.create({ data: { ...f, tenantId, patientEventId: aggregateId }, select: { id: true } }),
+      tx.patientAntecedentRevision.create({ data: { ...f, tenantId, patientAntecedentId: aggregateId }, select: { id: true } }),
     latest: (tx: Tx, tenantId: string, id: string): Promise<StoredRevision> =>
-      tx.patientEventRevision.findFirst({ where: { tenantId, patientEventId: id }, ...latest }),
+      tx.patientAntecedentRevision.findFirst({ where: { tenantId, patientAntecedentId: id }, ...latest }),
   },
 } as const;
 

@@ -5,9 +5,9 @@ import {
   renderConsentSnapshot,
   renderEpisodeSnapshot,
   renderEvaluationSnapshot,
-  renderPatientEventSnapshot,
+  renderPatientAntecedentSnapshot,
   renderPatientSnapshot,
-  renderSessionSnapshot,
+  renderEncounterSnapshot,
   type SnapshotRow,
 } from '@/lib/revisionRows';
 
@@ -114,14 +114,14 @@ describe('snapshot renderers', () => {
     expect(revoked.Firmado).toMatch(/05\/01\/2026|5\/1\/26/);
   });
 
-  it('the patient event: kind, description and its date as she remembers it', () => {
-    const rows = renderPatientEventSnapshot(
+  it('the patient antecedent: kind, description and its date as she remembers it', () => {
+    const rows = renderPatientAntecedentSnapshot(
       { kind: 'SURGERY', description: 'Rodilla', occurredOn: '2019-05-01', occurredPrecision: 'MONTH', occurredApproximate: true },
       1,
       {},
     );
     expect(view(rows)).toEqual({ Tipo: 'Cirugía', Descripción: 'Rodilla', Fecha: '~mayo de 2019' });
-    const undated = renderPatientEventSnapshot(
+    const undated = renderPatientAntecedentSnapshot(
       { kind: 'OTHER', description: 'Algo', occurredOn: null, occurredPrecision: null, occurredApproximate: false },
       1,
       {},
@@ -129,13 +129,13 @@ describe('snapshot renderers', () => {
     expect(view(undated).Fecha).toBe('Sin fecha');
   });
 
-  it('the session: one group per block, named by its episode', () => {
-    const block = { preSessionState: null, painScaleBefore: 5, painScaleAfter: null, patientExercises: null, reEvaluationNotes: null };
-    const rows = renderSessionSnapshot(
+  it('the encounter: one group per block, named by its episode', () => {
+    const block = { preEncounterState: null, painScaleBefore: 5, painScaleAfter: null, patientExercises: null, reEvaluationNotes: null };
+    const rows = renderEncounterSnapshot(
       {
         userId: 'u1',
-        sessionType: 'SESSION',
-        sessionDate: '2026-11-02T13:00:00.000Z',
+        encounterType: 'SESSION',
+        encounterDate: '2026-11-02T13:00:00.000Z',
         observations: null,
         episodes: [{ episodeId: 'e1', treatment: 'Lumbar', ...block }],
       },
@@ -158,8 +158,8 @@ describe('snapshot renderers', () => {
     ['episode', renderEpisodeSnapshot],
     ['evaluation', renderEvaluationSnapshot],
     ['consent', renderConsentSnapshot],
-    ['patient event', renderPatientEventSnapshot],
-    ['session', renderSessionSnapshot],
+    ['patient antecedent', renderPatientAntecedentSnapshot],
+    ['encounter', renderEncounterSnapshot],
   ] as const)('the %s: a schema version it does not know, or a snapshot that does not parse, renders as null', (_, render) => {
     expect(render({}, 1, {})).toBeNull();
     expect(render({}, 2, {})).toBeNull();
@@ -192,7 +192,7 @@ describe('what a version changed', () => {
   });
 
   it('names a row the version before had and this one does not', () => {
-    // A session's note is shown only when it has one: clearing it drops the row.
+    // An encounter's note is shown only when it has one: clearing it drops the row.
     const before = rows([['observations', 'Llegó tarde'], ['x.a', '1', 'x']]);
     const now = rows([['x.a', '1', 'x']]);
     expect(removedParts(now, before)).toEqual(['observations']);

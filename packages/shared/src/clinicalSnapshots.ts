@@ -78,9 +78,9 @@ export function snapshotHistory<Current>(steps: readonly [SnapshotStep, ...Snaps
 const text = z.string().nullable();
 const pain = z.number().int().nullable();
 
-const SessionBlockSnapshotV1 = z.strictObject({
+const EncounterBlockSnapshotV1 = z.strictObject({
   episodeId: z.string(),
-  preSessionState: text,
+  preEncounterState: text,
   treatment: text,
   painScaleBefore: pain,
   painScaleAfter: pain,
@@ -90,18 +90,18 @@ const SessionBlockSnapshotV1 = z.strictObject({
 
 // The attending therapist, the type, the date (ISO), the text of a note, and
 // the blocks ordered by episode.
-export const SessionSnapshotV1 = z.strictObject({
+export const EncounterSnapshotV1 = z.strictObject({
   userId: z.string(),
-  sessionType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
-  sessionDate: z.string(),
+  encounterType: z.enum(['SESSION', 'NOTE', 'DISCHARGE']),
+  encounterDate: z.string(),
   observations: text,
-  episodes: z.array(SessionBlockSnapshotV1),
+  episodes: z.array(EncounterBlockSnapshotV1),
 });
 
-export type SessionSnapshotV1 = z.infer<typeof SessionSnapshotV1>;
+export type EncounterSnapshotV1 = z.infer<typeof EncounterSnapshotV1>;
 
-export const SESSION_SNAPSHOTS = snapshotHistory<SessionSnapshotV1>([{ schema: SessionSnapshotV1 }]);
-export const SESSION_SNAPSHOT_VERSION = SESSION_SNAPSHOTS.version;
+export const ENCOUNTER_SNAPSHOTS = snapshotHistory<EncounterSnapshotV1>([{ schema: EncounterSnapshotV1 }]);
+export const ENCOUNTER_SNAPSHOT_VERSION = ENCOUNTER_SNAPSHOTS.version;
 
 // ─── Patient ────────────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ export const SESSION_SNAPSHOT_VERSION = SESSION_SNAPSHOTS.version;
 // and coverage are not versioned: their changes are named in the audit row
 // only. In version 1 a date of birth is the ISO string of its UTC midnight
 // (1980-05-03T00:00:00.000Z); from version 2 it is the day (1980-05-03), as a
-// patient event's occurredOn is.
+// patient antecedent's occurredOn is.
 export const PatientSnapshotV1 = z.strictObject({
   firstName: z.string(),
   lastName: z.string(),
@@ -202,11 +202,11 @@ export type ConsentSnapshotV1 = z.infer<typeof ConsentSnapshotV1>;
 export const CONSENT_SNAPSHOTS = snapshotHistory<ConsentSnapshotV1>([{ schema: ConsentSnapshotV1 }]);
 export const CONSENT_SNAPSHOT_VERSION = CONSENT_SNAPSHOTS.version;
 
-// ─── Patient event ──────────────────────────────────────────────────────────
+// ─── Patient antecedent ──────────────────────────────────────────────────────────
 
 // Its three date columns as stored: the day (YYYY-MM-DD) the date is truncated
 // to, its precision and the "approximate" mark; no date when she does not know.
-export const PatientEventSnapshotV1 = z.strictObject({
+export const PatientAntecedentSnapshotV1 = z.strictObject({
   kind: z.enum(['FRACTURE', 'SURGERY', 'TRAUMA', 'DIAGNOSIS', 'PAIN_ONSET', 'OTHER']),
   description: z.string(),
   occurredOn: z.string().nullable(),
@@ -214,7 +214,7 @@ export const PatientEventSnapshotV1 = z.strictObject({
   occurredApproximate: z.boolean(),
 });
 
-export type PatientEventSnapshotV1 = z.infer<typeof PatientEventSnapshotV1>;
+export type PatientAntecedentSnapshotV1 = z.infer<typeof PatientAntecedentSnapshotV1>;
 
-export const PATIENT_EVENT_SNAPSHOTS = snapshotHistory<PatientEventSnapshotV1>([{ schema: PatientEventSnapshotV1 }]);
-export const PATIENT_EVENT_SNAPSHOT_VERSION = PATIENT_EVENT_SNAPSHOTS.version;
+export const PATIENT_ANTECEDENT_SNAPSHOTS = snapshotHistory<PatientAntecedentSnapshotV1>([{ schema: PatientAntecedentSnapshotV1 }]);
+export const PATIENT_ANTECEDENT_SNAPSHOT_VERSION = PATIENT_ANTECEDENT_SNAPSHOTS.version;

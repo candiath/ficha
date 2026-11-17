@@ -82,12 +82,12 @@ describe('filtros de query validados', () => {
     });
 
     const ok = await auth(
-      request(app).get(`/api/patients/${patient.id}/sessions`),
+      request(app).get(`/api/patients/${patient.id}/encounters`),
     );
     expect(ok.status).toBe(200);
 
     const vacio = await auth(
-      request(app).get(`/api/patients/${patient.id}/sessions?episodeId=`),
+      request(app).get(`/api/patients/${patient.id}/encounters?episodeId=`),
     );
     expect(vacio.status).toBe(400);
 

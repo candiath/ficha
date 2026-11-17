@@ -3,16 +3,16 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
-import { patientEventApi } from '@/services/patientEvents';
-import type { PatientEvent } from '@/types/patientEvent';
+import { patientAntecedentApi } from '@/services/patientAntecedents';
+import type { PatientAntecedent } from '@/types/patientAntecedent';
 import { ApiError } from '@/lib/api';
 import { chooseReason } from './revisionReason';
 
 // The patient's history (#238): "hace dos meses" is stored as the month it
 // meant, computed with the clinic's today.
-vi.mock('@/services/patientEvents', () => ({
-  patientEventKeys: { list: (patientId: string) => ['patients', patientId, 'events'] },
-  patientEventApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), annul: vi.fn() },
+vi.mock('@/services/patientAntecedents', () => ({
+  patientAntecedentKeys: { list: (patientId: string) => ['patients', patientId, 'antecedents'] },
+  patientAntecedentApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), annul: vi.fn() },
 }));
 
 vi.mock('@/services/tenant', () => ({
@@ -24,13 +24,13 @@ vi.mock('@/lib/agendaDates', () => ({ todayInClinic: () => '2026-10-14' }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const list = vi.mocked(patientEventApi.list);
-const create = vi.mocked(patientEventApi.create);
-const update = vi.mocked(patientEventApi.update);
-const annul = vi.mocked(patientEventApi.annul);
+const list = vi.mocked(patientAntecedentApi.list);
+const create = vi.mocked(patientAntecedentApi.create);
+const update = vi.mocked(patientAntecedentApi.update);
+const annul = vi.mocked(patientAntecedentApi.annul);
 const STALE = 'Otra persona editó este registro. Recargá para ver los cambios.';
 
-const FRACTURE: PatientEvent = {
+const FRACTURE: PatientAntecedent = {
   id: 'ev1',
   patientId: 'p1',
   kind: 'FRACTURE',
@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 
 describe('PatientHistoryCard', () => {
-  it('shows each event with its date and how long ago, from today', async () => {
+  it('shows each antecedent with its date and how long ago, from today', async () => {
     renderCard();
 
     expect(await screen.findByText('Fractura de muñeca izquierda')).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('PatientHistoryCard', () => {
     });
   });
 
-  it('a new event asks for no reason', async () => {
+  it('a new antecedent asks for no reason', async () => {
     renderCard();
     await userEvent.click(await screen.findByRole('button', { name: 'Agregar' }));
     const dialog = await screen.findByRole('dialog');
@@ -156,7 +156,7 @@ describe('PatientHistoryCard', () => {
     expect(annul).toHaveBeenCalledWith('p1', 'ev1', { reason: 'OTHER', reasonNote: 'Era de otra paciente' });
   });
 
-  it('shows an annulled event struck through, with its history and nothing to edit', async () => {
+  it('shows an annulled antecedent struck through, with its history and nothing to edit', async () => {
     list.mockResolvedValue([{ ...FRACTURE, annulledAt: '2026-10-10T12:00:00.000Z' }]);
     renderCard();
 
@@ -170,7 +170,7 @@ describe('PatientHistoryCard', () => {
 
   it('opens the next annulment with nothing chosen, after one that succeeded', async () => {
     annul.mockResolvedValue(undefined);
-    const SURGERY: PatientEvent = { ...FRACTURE, id: 'ev2', kind: 'SURGERY', description: 'Apendicectomía' };
+    const SURGERY: PatientAntecedent = { ...FRACTURE, id: 'ev2', kind: 'SURGERY', description: 'Apendicectomía' };
     list.mockResolvedValue([FRACTURE, SURGERY]);
     renderCard();
 
@@ -188,7 +188,7 @@ describe('PatientHistoryCard', () => {
     expect(within(dialog).getByLabelText('Nota (opcional)')).toHaveValue('');
   });
 
-  it('closes the annulment and reloads the list when the event was already annulled elsewhere', async () => {
+  it('closes the annulment and reloads the list when the antecedent was already annulled elsewhere', async () => {
     const GONE = 'Antecedente no encontrado';
     annul.mockRejectedValue(new ApiError(GONE, 404, { error: GONE }));
     renderCard();

@@ -39,7 +39,7 @@ export function truncateToPrecision(date: string, precision: DatePrecision): str
 }
 
 // Strict, and already truncated: a month stored as the 15th would read as a
-// day somewhere else. The database checks the same (patient_events CHECKs).
+// day somewhere else. The database checks the same (patient_antecedents CHECKs).
 export const partialDateSchema = z
   .strictObject({
     date: z.string().refine(isRealDate, { error: 'La fecha no es válida' }),

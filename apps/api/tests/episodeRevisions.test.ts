@@ -6,7 +6,7 @@ import { createTestClinic, createTestToken, deleteAuditRows, sleep, type TestCli
 import { fixture } from './fixtures';
 
 // The write path of an episode's versions (SPEC-clinical-revisions.md §4, §5),
-// and the discharge, which versions the session and the episodes it closes
+// and the discharge, which versions the encounter and the episodes it closes
 // under one audit row.
 describe('episode revisions', () => {
   let clinic: TestClinic;
@@ -34,9 +34,9 @@ describe('episode revisions', () => {
   const auditRows = (entityId: string) =>
     prisma.auditLog.findMany({ where: { entityId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
   const discharge = (episodeId: string) =>
-    auth(request(app).post(`/api/patients/${patientId}/sessions`)).send({
-      sessionType: 'DISCHARGE',
-      sessionDate: new Date().toISOString(),
+    auth(request(app).post(`/api/patients/${patientId}/encounters`)).send({
+      encounterType: 'DISCHARGE',
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId }],
     });
 
@@ -56,8 +56,8 @@ describe('episode revisions', () => {
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where });
     await prisma.appointment.deleteMany({ where });
-    await prisma.sessionEpisode.deleteMany({ where });
-    await prisma.session.deleteMany({ where });
+    await prisma.encounterBlock.deleteMany({ where });
+    await prisma.encounter.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
@@ -164,7 +164,7 @@ describe('episode revisions', () => {
   });
 
   describe('a discharge', () => {
-    it('writes the session and the closed episode under its one audit row', async () => {
+    it('writes the encounter and the closed episode under its one audit row', async () => {
       const id = await newEpisode();
       await patch(id, { mainComplaint: 'Lumbalgia crónica', reason: 'DATA_ENTRY_ERROR' });
 
@@ -174,9 +174,9 @@ describe('episode revisions', () => {
       const [audit, ...others] = await auditRows(res.body.data.id);
       expect(others).toEqual([]);
       expect(audit.action).toBe('DISCHARGE_RECORDED');
-      const sessionRevisions = await prisma.sessionRevision.findMany({ where: { auditLogId: audit.id } });
+      const encounterRevisions = await prisma.encounterRevision.findMany({ where: { auditLogId: audit.id } });
       const episodeRevisions = await prisma.episodeRevision.findMany({ where: { auditLogId: audit.id } });
-      expect(sessionRevisions.map((r) => [r.sessionId, r.version])).toEqual([[res.body.data.id, 1]]);
+      expect(encounterRevisions.map((r) => [r.encounterId, r.version])).toEqual([[res.body.data.id, 1]]);
       // Consecutive: after the opening and the correction.
       expect(episodeRevisions.map((r) => [r.episodeId, r.version])).toEqual([[id, 3]]);
       expect(episodeRevisions[0].snapshot).toMatchObject({ status: 'DISCHARGED', mainComplaint: 'Lumbalgia crónica' });
@@ -202,7 +202,7 @@ describe('episode revisions', () => {
     // foreign key check takes a share lock on the episode. If the lock on the
     // episode blocked that share lock (FOR UPDATE does, FOR NO KEY UPDATE does
     // not), each would wait on the other. A transaction holding the patient
-    // stops both where the cycle would form: the discharge at its session's
+    // stops both where the cycle would form: the discharge at its encounter's
     // insert, holding the episode; the edit at its audit row, after the
     // episode's share lock, or at that share lock if it is blocked.
     it('does not deadlock with an edit that points its appointment at the episode', async () => {
@@ -242,10 +242,10 @@ describe('episode revisions', () => {
       );
       await held;
 
-      const closing = auth(request(app).post(`/api/patients/${patientId}/sessions`))
+      const closing = auth(request(app).post(`/api/patients/${patientId}/encounters`))
         .send({
-          sessionType: 'DISCHARGE',
-          sessionDate: new Date().toISOString(),
+          encounterType: 'DISCHARGE',
+          encounterDate: new Date().toISOString(),
           episodes: [{ episodeId: id }],
           appointmentId: appointment.id,
         })
@@ -264,7 +264,7 @@ describe('episode revisions', () => {
       expect([closed.status, edited.status]).toEqual([201, 200]);
       expect(await prisma.appointment.findUniqueOrThrow({ where: { id: appointment.id } })).toMatchObject({
         episodeId: id,
-        sessionId: closed.body.data.id,
+        encounterId: closed.body.data.id,
         status: 'COMPLETED',
       });
     });

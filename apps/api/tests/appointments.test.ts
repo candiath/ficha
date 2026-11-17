@@ -56,9 +56,9 @@ describe('turnos', () => {
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -203,7 +203,7 @@ describe('turnos', () => {
       patientName: 'Paciente Turnos',
       episodeId: episode.id,
       seriesId: null,
-      sessionId: null,
+      encounterId: null,
     });
     // El instante también viaja: 09:00 en Argentina son las 12:00 UTC.
     expect(turno.startsAt).toBe(`${date}T12:00:00.000Z`);
@@ -412,9 +412,9 @@ describe('turnos', () => {
     const turno = creado.body.data[0];
 
     const sesion = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       appointmentId: turno.id,
       observations: 'Trabajo de cadena posterior',
@@ -424,9 +424,9 @@ describe('turnos', () => {
 
     const fila = await prisma.appointment.findUniqueOrThrow({
       where: { id: turno.id },
-      select: { sessionId: true, status: true },
+      select: { encounterId: true, status: true },
     });
-    expect(fila.sessionId).toBe(sesion.body.data.id);
+    expect(fila.encounterId).toBe(sesion.body.data.id);
     expect(fila.status).toBe('COMPLETED');
   });
 
@@ -437,26 +437,26 @@ describe('turnos', () => {
     const turno = creado.body.data[0];
 
     const primera = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       appointmentId: turno.id,
     });
     expect(primera.status).toBe(201);
 
-    const antes = await prisma.session.count({ where: { patientId: patient.id } });
+    const antes = await prisma.encounter.count({ where: { patientId: patient.id } });
 
     const segunda = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       appointmentId: turno.id,
     });
 
     expect(segunda.status).toBe(409);
-    const despues = await prisma.session.count({ where: { patientId: patient.id } });
+    const despues = await prisma.encounter.count({ where: { patientId: patient.id } });
     expect(despues).toBe(antes);
   });
 
@@ -467,8 +467,8 @@ describe('turnos', () => {
     });
     const creado = await agendar({ date: fechaClinica(-3), time: '12:00' });
 
-    const res = await auth(request(app).post(`/api/patients/${otro.id}/sessions`)).send({
-      sessionDate: new Date().toISOString(),
+    const res = await auth(request(app).post(`/api/patients/${otro.id}/encounters`)).send({
+      encounterDate: new Date().toISOString(),
       appointmentId: creado.body.data[0].id,
     });
 

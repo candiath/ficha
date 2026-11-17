@@ -36,7 +36,7 @@ const ENTITY_CONFIG: Record<
       'bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400',
     label: 'Evaluación',
   },
-  SESSION: {
+  ENCOUNTER: {
     icon: Stethoscope,
     color:
       'bg-teal-100 text-teal-600 dark:bg-teal-950 dark:text-teal-400',
@@ -54,7 +54,7 @@ const ENTITY_CONFIG: Record<
       'bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
     label: 'Consentimiento',
   },
-  PATIENT_EVENT: {
+  PATIENT_ANTECEDENT: {
     icon: History,
     color:
       'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300',

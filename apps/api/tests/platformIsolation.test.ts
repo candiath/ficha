@@ -52,7 +52,7 @@ describe('aislamiento operador ↔ clínica', () => {
     }
   });
 
-  // What a browser still holding a pre-sessions operator token sends after the
+  // What a browser still holding a pre-encounters operator token sends after the
   // deploy: a JWT's shape, built by hand since the system signs none. It names
   // no row in either table.
   it('an old operator JWT opens nothing', async () => {

@@ -93,10 +93,10 @@ function buildColumns(
       ),
     },
     {
-      accessorKey: 'session.sessionDate',
-      id: 'sessionDate',
+      accessorKey: 'encounter.encounterDate',
+      id: 'encounterDate',
       header: 'Fecha sesión',
-      cell: ({ row }) => formatDate(row.original.session.sessionDate),
+      cell: ({ row }) => formatDate(row.original.encounter.encounterDate),
     },
     {
       id: 'package',

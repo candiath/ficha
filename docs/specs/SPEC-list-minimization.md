@@ -12,7 +12,7 @@ Clinical detail is read only inside a patient's record, so a single request cann
 
 **Clinical** is every column except keys and timestamps of:
 
-- `Session`, `ClinicalEpisode` and `InitialEvaluation`, including its JSON columns and `painScale`;
+- `Encounter`, `ClinicalEpisode` and `InitialEvaluation`, including its JSON columns and `painScale`;
 - `FunctionalScale`, including its type: an OSWESTRY scale means a lumbar problem (the model was removed on 2026-10-27);
 - `InformedConsent`, whether signed or not.
 
@@ -20,7 +20,7 @@ It also covers anything derived from those columns: the complaint inside an engi
 
 **Not clinical:**
 
-- **Who and when:** a patient's name and demographics, dates, a session's type (`NOTE` and `DISCHARGE` included), an appointment's status (`NO_SHOW` included).
+- **Who and when:** a patient's name and demographics, dates, an encounter's type (`NOTE` and `DISCHARGE` included), an appointment's status (`NO_SHOW` included).
 - **Money:** amounts and payment statuses.
 - **Counts.**
 
@@ -28,7 +28,7 @@ It also covers anything derived from those columns: the complaint inside an engi
 
 | Response that spans patients | Clinical text in it today |
 |---|---|
-| `GET /api/sessions` | Every session of every patient, unpaginated, with all six clinical fields and each episode's complaint. Quick notes too: their whole content is `observations`. |
+| `GET /api/encounters` | Every encounter of every patient, unpaginated, with all six clinical fields and each episode's complaint. Quick notes too: their whole content is `observations`. |
 | `GET /api/appointments?from&to` (up to 62 days) | Each episode's complaint. Also `notes`: free text, up to 500 characters, shown by no list view. |
 | `GET /api/alerts` | Follow-up messages embed the episode's complaint. Custom alerts are free text. |
 | `GET /api/alerts/stats` | Nothing returned, but the engine it triggers reads every stale episode's complaint *(review)*. |
@@ -39,18 +39,18 @@ It also covers anything derived from those columns: the complaint inside an engi
 
 ## Design
 
-### 1. `GET /api/sessions` becomes an index
+### 1. `GET /api/encounters` becomes an index
 
 **The API.**
-- Each item is `{ id, sessionType, sessionDate, createdAt, updatedAt, patient: { id, fullName } }`, with nothing else *(review: no `episodeIds`, no duplicate `patientId`)*.
+- Each item is `{ id, encounterType, encounterDate, createdAt, updatedAt, patient: { id, fullName } }`, with nothing else *(review: no `episodeIds`, no duplicate `patientId`)*.
 - The select itself narrows to these columns, so clinical text never leaves the database for this list.
-- The repository method becomes `listIndexForTenant`, returning `SessionIndexItemDTO`.
+- The repository method becomes `listIndexForTenant`, returning `EncounterIndexItemDTO`.
 
-**The web** *(review, high).* Loading the full session back into an edit form is where a partial object becomes data loss: under "un solo vacío", every empty field is saved as `null`. So:
+**The web** *(review, high).* Loading the full encounter back into an edit form is where a partial object becomes data loss: under "un solo vacío", every empty field is saved as `null`. So:
 
-- `SessionIndexItem` is a type of its own that does **not** extend `Session`, and nothing casts between them.
+- `EncounterIndexItem` is a type of its own that does **not** extend `Encounter`, and nothing casts between them.
 - *Sesiones* shows date, patient (linking to the record's *Sesiones* tab) and type.
-- "Ver detalles" fetches the session from `GET /api/patients/:patientId/sessions/:sessionId`. The dialog renders **only once that data has arrived**, so it can never open in create mode, nor with empty fields.
+- "Ver detalles" fetches the encounter from `GET /api/patients/:patientId/encounters/:encounterId`. The dialog renders **only once that data has arrived**, so it can never open in create mode, nor with empty fields.
 - A `404` (the patient was deleted; the index keeps naming them, as Cobros does) shows "La ficha de este paciente ya no está disponible".
 - Deleting from the dialog clears the selection before invalidating the list.
 
@@ -94,8 +94,8 @@ A new `GET` without an entry fails the test.
 **Probe.**
 - **Fixture.** One clinic where every String and Json column of the clinical models holds a marker. The columns come from Prisma's DMMF, as `tenantScopeCoverage.test.ts` reads it, so a new column cannot be missed. Markers are short ASCII tokens with no separators (`MKa1b2`), searched as substrings.
   - The fixture fills every nullable relation: a payment with a package, an appointment with an episode.
-  - It includes a session older than 21 days, so the engine creates its follow-up alert.
-- **Positive controls.** Each `probed` route must return the fixture's own ids (session, appointment, alert, payment). An empty response cannot pass.
+  - It includes an encounter older than 21 days, so the engine creates its follow-up alert.
+- **Positive controls.** Each `probed` route must return the fixture's own ids (encounter, appointment, alert, payment). An empty response cannot pass.
 - **Assertions.**
   - No marker appears anywhere in the raw body.
   - The exact key set of every item, recursively, on every array element, matches the manifest.
@@ -132,7 +132,7 @@ npm run check              # lint + typecheck
 
 **API**
 - §6.
-- `globalSessions.test.ts` and `appointments.test.ts` move to the new shapes.
+- `globalEncounters.test.ts` and `appointments.test.ts` move to the new shapes.
 - `GET /api/appointments/:appointmentId`: own clinic, another clinic's (`404`), malformed id (`404`).
 - `POST /api/alerts` rejects every type but `CUSTOM`.
 - `GET /api/packages` without `patientId` returns `400`.
@@ -141,7 +141,7 @@ npm run check              # lint + typecheck
 
 **Web**
 - *Sesiones* has no clinical column.
-- "Ver detalles" fetches the session, renders nothing until the data arrives, and saving without touching anything sends back the loaded values.
+- "Ver detalles" fetches the encounter, renders nothing until the data arrives, and saving without touching anything sends back the loaded values.
 - A `404` shows the message.
 - The agenda list shows no complaint and no notes. The dialog shows the notes, and shows the complaint only after "Ver motivo".
 - Logout clears the cache.

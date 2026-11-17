@@ -15,13 +15,13 @@ describe('revision routes', () => {
   let userId: string;
 
   // Patient A has one of each aggregate, written through the API so each has an
-  // author; patient B has a session of her own.
+  // author; patient B has an encounter of her own.
   let patientA: string;
   let patientB: string;
   let episodeId: string;
-  let sessionId: string;
-  let eventId: string;
-  let sessionOfB: string;
+  let encounterId: string;
+  let antecedentId: string;
+  let encounterOfB: string;
 
   const REASON = { reason: 'LATE_INFORMATION' };
   const auth = (r: request.Test, t = token) => r.set('Authorization', `Bearer ${t}`);
@@ -36,11 +36,11 @@ describe('revision routes', () => {
   // Every aggregate's history base, for patient A.
   const bases = () => ({
     patient: `/api/patients/${patientA}/revisions`,
-    session: `/api/patients/${patientA}/sessions/${sessionId}/revisions`,
+    encounter: `/api/patients/${patientA}/encounters/${encounterId}/revisions`,
     episode: `/api/patients/${patientA}/episodes/${episodeId}/revisions`,
     evaluation: `/api/patients/${patientA}/episodes/${episodeId}/evaluation/revisions`,
     consent: `/api/patients/${patientA}/consent/revisions`,
-    patientEvent: `/api/patients/${patientA}/events/${eventId}/revisions`,
+    patientAntecedent: `/api/patients/${patientA}/antecedents/${antecedentId}/revisions`,
   });
 
   beforeAll(async () => {
@@ -62,7 +62,7 @@ describe('revision routes', () => {
     );
     patientB = (await created('/api/patients', { firstName: 'Berta', lastName: 'Otra' })).id;
 
-    // Episode, evaluation, session (with its episode block), consent, event.
+    // Episode, evaluation, encounter (with its episode block), consent, antecedent.
     episodeId = (await created(`/api/patients/${patientA}/episodes`, { mainComplaint: 'Lumbalgia' })).id;
     await expectStatus(
       auth(request(app).put(`/api/patients/${patientA}/episodes/${episodeId}/evaluation`)).send({
@@ -71,14 +71,14 @@ describe('revision routes', () => {
       }),
       200,
     );
-    sessionId = (
-      await created(`/api/patients/${patientA}/sessions`, {
-        sessionDate: new Date().toISOString(),
+    encounterId = (
+      await created(`/api/patients/${patientA}/encounters`, {
+        encounterDate: new Date().toISOString(),
         episodes: [{ episodeId, treatment: 'Inicial' }],
       })
     ).id;
     await expectStatus(
-      auth(request(app).patch(`/api/patients/${patientA}/sessions/${sessionId}`)).send({
+      auth(request(app).patch(`/api/patients/${patientA}/encounters/${encounterId}`)).send({
         ...REASON,
         expectedVersion: 1,
         episodes: [{ episodeId, treatment: 'Corregido' }],
@@ -87,8 +87,8 @@ describe('revision routes', () => {
       200,
     );
     await created(`/api/patients/${patientA}/consent`, { expectedVersion: 0 });
-    eventId = (
-      await created(`/api/patients/${patientA}/events`, {
+    antecedentId = (
+      await created(`/api/patients/${patientA}/antecedents`, {
         kind: 'SURGERY',
         description: 'Rodilla',
         occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
@@ -96,9 +96,9 @@ describe('revision routes', () => {
     ).id;
 
     const episodeB = (await created(`/api/patients/${patientB}/episodes`, { mainComplaint: 'Cervicalgia' })).id;
-    sessionOfB = (
-      await created(`/api/patients/${patientB}/sessions`, {
-        sessionDate: new Date().toISOString(),
+    encounterOfB = (
+      await created(`/api/patients/${patientB}/encounters`, {
+        encounterDate: new Date().toISOString(),
         episodes: [{ episodeId: episodeB, treatment: 'De B' }],
       })
     ).id;
@@ -109,12 +109,12 @@ describe('revision routes', () => {
     for (const c of [clinic, other]) {
       const where = { tenantId: c.tenantId };
       await deleteAuditRows([c.tenantId]);
-      await prisma.sessionEpisode.deleteMany({ where });
-      await prisma.session.deleteMany({ where });
+      await prisma.encounterBlock.deleteMany({ where });
+      await prisma.encounter.deleteMany({ where });
       await prisma.initialEvaluation.deleteMany({ where });
       await prisma.clinicalEpisode.deleteMany({ where });
       await prisma.informedConsent.deleteMany({ where });
-      await prisma.patientEvent.deleteMany({ where });
+      await prisma.patientAntecedent.deleteMany({ where });
       await prisma.patient.deleteMany({ where });
       await c.cleanup();
     }
@@ -122,22 +122,22 @@ describe('revision routes', () => {
 
   describe('the list', () => {
     it('lists the versions newest first, with action, reason, author and time', async () => {
-      const res = await expectStatus(get(bases().session), 200);
+      const res = await expectStatus(get(bases().encounter), 200);
       expect(res.body.data).toEqual([
         {
           version: 2,
-          action: 'SESSION_UPDATED',
-          params: { sessionType: 'SESSION', changedFields: ['treatment'], reason: 'LATE_INFORMATION' },
+          action: 'ENCOUNTER_UPDATED',
+          params: { encounterType: 'SESSION', changedFields: ['treatment'], reason: 'LATE_INFORMATION' },
           actorType: 'USER',
           author: { id: userId, name: 'Laura Revisora' },
           createdAt: expect.any(String),
         },
-        expect.objectContaining({ version: 1, action: 'SESSION_RECORDED', author: { id: userId, name: 'Laura Revisora' } }),
+        expect.objectContaining({ version: 1, action: 'ENCOUNTER_RECORDED', author: { id: userId, name: 'Laura Revisora' } }),
       ]);
     });
 
     it('carries no content: no snapshot and no note', async () => {
-      const res = await expectStatus(get(bases().session), 200);
+      const res = await expectStatus(get(bases().encounter), 200);
       for (const item of res.body.data) {
         expect(item).not.toHaveProperty('snapshot');
         expect(item).not.toHaveProperty('reasonNote');
@@ -149,7 +149,7 @@ describe('revision routes', () => {
       ['episode', ['EPISODE_OPENED']],
       ['evaluation', ['EVALUATION_CREATED']],
       ['consent', ['CONSENT_SIGNED']],
-      ['patientEvent', ['PATIENT_EVENT_RECORDED']],
+      ['patientAntecedent', ['PATIENT_ANTECEDENT_RECORDED']],
     ] as const)('lists the %s’s versions', async (aggregate, actions) => {
       const res = await expectStatus(get(bases()[aggregate]), 200);
       expect(res.body.data.map((r: { action: string }) => r.action)).toEqual(actions);
@@ -180,16 +180,16 @@ describe('revision routes', () => {
 
   describe('one version', () => {
     it('returns its snapshot and its note', async () => {
-      const v1 = await expectStatus(get(`${bases().session}/1`), 200);
+      const v1 = await expectStatus(get(`${bases().encounter}/1`), 200);
       expect(v1.body.data).toMatchObject({
         version: 1,
-        action: 'SESSION_RECORDED',
+        action: 'ENCOUNTER_RECORDED',
         schemaVersion: 1,
         reasonNote: null,
         snapshot: { episodes: [expect.objectContaining({ episodeId, treatment: 'Inicial' })] },
       });
 
-      const v2 = await expectStatus(get(`${bases().session}/2`), 200);
+      const v2 = await expectStatus(get(`${bases().encounter}/2`), 200);
       expect(v2.body.data).toMatchObject({
         version: 2,
         params: expect.objectContaining({ reason: 'LATE_INFORMATION' }),
@@ -199,7 +199,7 @@ describe('revision routes', () => {
       });
     });
 
-    it.each(['patient', 'episode', 'evaluation', 'consent', 'patientEvent'] as const)(
+    it.each(['patient', 'episode', 'evaluation', 'consent', 'patientAntecedent'] as const)(
       'returns version 1 of the %s',
       async (aggregate) => {
         const res = await expectStatus(get(`${bases()[aggregate]}/1`), 200);
@@ -215,19 +215,19 @@ describe('revision routes', () => {
     });
 
     it('answers 404 to a version that does not exist', async () => {
-      const res = await expectStatus(get(`${bases().session}/3`), 404);
+      const res = await expectStatus(get(`${bases().encounter}/3`), 404);
       expect(res.body).toEqual({ error: 'Versión no encontrada' });
     });
 
     it.each(['0', '-1', '1.5', 'abc', '01', '1e3', '9999999999'])('answers 404 to the version %s', async (version) => {
-      const res = await expectStatus(get(`${bases().session}/${version}`), 404);
+      const res = await expectStatus(get(`${bases().encounter}/${version}`), 404);
       expect(res.body).toEqual({ error: 'Versión no encontrada' });
     });
   });
 
   describe('only inside the record', () => {
-    it('answers 404 to patient B’s session through patient A’s path', async () => {
-      const path = `/api/patients/${patientA}/sessions/${sessionOfB}/revisions`;
+    it('answers 404 to patient B’s encounter through patient A’s path', async () => {
+      const path = `/api/patients/${patientA}/encounters/${encounterOfB}/revisions`;
       expect((await expectStatus(get(path), 404)).body).toEqual({ error: 'Sesión no encontrada' });
       await expectStatus(get(`${path}/1`), 404);
     });
@@ -235,14 +235,14 @@ describe('revision routes', () => {
     it('answers 404 to patient A’s episode through patient B’s path, for the episode and its evaluation', async () => {
       await expectStatus(get(`/api/patients/${patientB}/episodes/${episodeId}/revisions`), 404);
       await expectStatus(get(`/api/patients/${patientB}/episodes/${episodeId}/evaluation/revisions/1`), 404);
-      await expectStatus(get(`/api/patients/${patientB}/events/${eventId}/revisions`), 404);
+      await expectStatus(get(`/api/patients/${patientB}/antecedents/${antecedentId}/revisions`), 404);
     });
 
     it('answers 404 to a patient without a consent', async () => {
       await expectStatus(get(`/api/patients/${patientB}/consent/revisions`), 404);
     });
 
-    it.each(['patient', 'session', 'episode', 'evaluation', 'consent', 'patientEvent'] as const)(
+    it.each(['patient', 'encounter', 'episode', 'evaluation', 'consent', 'patientAntecedent'] as const)(
       'answers 404 to another clinic, for the %s',
       async (aggregate) => {
         await expectStatus(get(bases()[aggregate], otherToken), 404);
@@ -255,18 +255,18 @@ describe('revision routes', () => {
     it.each([
       ['/api/patients/no-es-un-id/revisions', 'Paciente no encontrado'],
       ['/api/patients/no-es-un-id/revisions/1', 'Paciente no encontrado'],
-      ['/api/patients/no-es-un-id/sessions/{session}/revisions', 'Paciente no encontrado'],
-      ['/api/patients/{patient}/sessions/no-es-un-id/revisions/1', 'Sesión no encontrada'],
+      ['/api/patients/no-es-un-id/encounters/{encounter}/revisions', 'Paciente no encontrado'],
+      ['/api/patients/{patient}/encounters/no-es-un-id/revisions/1', 'Sesión no encontrada'],
       ['/api/patients/{patient}/episodes/no-es-un-id/revisions', 'Episodio no encontrado'],
       ['/api/patients/{patient}/episodes/no-es-un-id/evaluation/revisions', 'Episodio no encontrado'],
-      ['/api/patients/{patient}/events/no-es-un-id/revisions', 'Antecedente no encontrado'],
+      ['/api/patients/{patient}/antecedents/no-es-un-id/revisions', 'Antecedente no encontrado'],
     ])('answers 404 to a malformed id: %s', async (template, error) => {
-      const path = template.replace('{patient}', patientA).replace('{session}', sessionId);
+      const path = template.replace('{patient}', patientA).replace('{encounter}', encounterId);
       expect((await expectStatus(get(path), 404)).body).toEqual({ error });
     });
 
     it('asks for a login', async () => {
-      expect((await request(app).get(bases().session)).status).toBe(401);
+      expect((await request(app).get(bases().encounter)).status).toBe(401);
     });
   });
 

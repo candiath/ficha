@@ -1,0 +1,189 @@
+import { randomUUID } from 'node:crypto';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { User } from '@prisma/client';
+import app from '../src/app';
+import { prisma } from '../src/lib/prisma';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
+
+// The patient's history ("Antecedentes", #238): what she lived, as dated facts.
+// It belongs to the patient, and its date is partial (a day, a month, a year,
+// maybe approximate), stored truncated so it never ages.
+describe('The patient history', () => {
+  let clinic: TestClinic;
+  let clinicB: TestClinic;
+  let user: User;
+  let token: string;
+  let patient: { id: string };
+  let otherPatient: { id: string };
+
+  const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
+  const url = (patientId = patient.id) => `/api/patients/${patientId}/antecedents`;
+  const post = (body: Record<string, unknown>, patientId = patient.id) =>
+    auth(request(app).post(url(patientId))).send(body);
+  const annul = (id: string) => auth(request(app).post(`${url()}/${id}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
+
+  const fracture = {
+    kind: 'FRACTURE',
+    description: 'Fractura de muñeca izquierda',
+    occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
+  };
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    clinicB = await createTestClinic();
+    user = await clinic.createUser();
+    token = await createTestToken(user);
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Con', lastName: 'antecedentes' },
+      select: { id: true },
+    });
+    otherPatient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro', lastName: 'paciente' },
+      select: { id: true },
+    });
+  });
+
+  afterAll(async () => {
+    await sleep(300);
+    const tenantIds = [clinic.tenantId, clinicB.tenantId];
+    await deleteAuditRows(tenantIds);
+    await prisma.patientAntecedent.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await clinic.cleanup();
+    await clinicB.cleanup();
+  });
+
+  it('records an antecedent with a partial date and returns it as written', async () => {
+    const res = await post(fracture);
+
+    expect(res.status).toBe(201);
+    expect(res.body.data).toEqual({
+      id: expect.any(String),
+      patientId: patient.id,
+      kind: 'FRACTURE',
+      description: 'Fractura de muñeca izquierda',
+      occurred: { date: '2019-01-01', precision: 'YEAR', approximate: false },
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+      version: 1,
+      annulledAt: null,
+    });
+  });
+
+  it('records an antecedent with no date when the patient does not know when', async () => {
+    const res = await post({ kind: 'TRAUMA', description: 'Accidente de auto', occurred: null });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.occurred).toBeNull();
+  });
+
+  it('lists dated antecedents newest first and undated ones last', async () => {
+    const own = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Orden', lastName: 'Test' },
+      select: { id: true },
+    });
+    const old = (await post({ ...fracture, description: 'Vieja' }, own.id)).body.data.id;
+    const undated = (await post({ kind: 'OTHER', description: 'Sin fecha', occurred: null }, own.id)).body.data.id;
+    const recent = (
+      await post(
+        {
+          kind: 'PAIN_ONSET',
+          description: 'Dolor lumbar',
+          occurred: { date: '2025-08-01', precision: 'MONTH', approximate: true },
+        },
+        own.id,
+      )
+    ).body.data.id;
+
+    const res = await auth(request(app).get(url(own.id)));
+    expect(res.body.data.map((e: { id: string }) => e.id)).toEqual([recent, old, undated]);
+  });
+
+  it('refuses a date with more detail than its precision, an impossible date and a future one', async () => {
+    for (const occurred of [
+      { date: '2024-03-15', precision: 'MONTH', approximate: false },
+      { date: '2024-06-01', precision: 'YEAR', approximate: false },
+      { date: '2023-02-30', precision: 'DAY', approximate: false },
+      { date: '2099-01-01', precision: 'YEAR', approximate: false },
+    ]) {
+      const res = await post({ ...fracture, occurred });
+      expect(res.status, JSON.stringify(occurred)).toBe(400);
+    }
+  });
+
+  it('refuses an antecedent without a description or with an unknown kind', async () => {
+    expect((await post({ ...fracture, description: '   ' })).status).toBe(400);
+    expect((await post({ ...fracture, kind: 'POSTURE' })).status).toBe(400);
+  });
+
+  // The CHECKs behind the API: a write that skips it still cannot store a
+  // month as the 15th or an approximate antecedent without a date.
+  it('is checked by the database too', async () => {
+    const base = { tenantId: clinic.tenantId, patientId: patient.id, kind: 'OTHER' as const, description: 'Directo' };
+    await expect(
+      prisma.patientAntecedent.create({
+        data: { ...base, occurredOn: new Date('2024-03-15T00:00:00.000Z'), occurredPrecision: 'MONTH' },
+      }),
+    ).rejects.toThrow();
+    await expect(prisma.patientAntecedent.create({ data: { ...base, occurredApproximate: true } })).rejects.toThrow();
+    await expect(
+      prisma.patientAntecedent.create({ data: { ...base, occurredOn: new Date('2024-03-01T00:00:00.000Z') } }),
+    ).rejects.toThrow();
+  });
+
+  it('edits only what comes, and audits the fields that changed with codes only', async () => {
+    const id = (await post(fracture)).body.data.id;
+
+    const res = await auth(request(app).patch(`${url()}/${id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      occurred: { date: '2019-05-01', precision: 'MONTH', approximate: true },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      kind: 'FRACTURE',
+      description: 'Fractura de muñeca izquierda',
+      occurred: { date: '2019-05-01', precision: 'MONTH', approximate: true },
+    });
+
+    const rows = await prisma.auditLog.findMany({
+      where: { tenantId: clinic.tenantId, entityId: id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { action: true, entity: true, params: true },
+    });
+    expect(rows).toEqual([
+      { action: 'PATIENT_ANTECEDENT_RECORDED', entity: 'PATIENT_ANTECEDENT', params: { kind: 'FRACTURE' } },
+      { action: 'PATIENT_ANTECEDENT_UPDATED', entity: 'PATIENT_ANTECEDENT', params: { kind: 'FRACTURE', changedFields: ['occurred'], reason: 'DATA_ENTRY_ERROR' } },
+    ]);
+  });
+
+  it('annuls: still listed with its date of annulment, the row stays, and it can no longer be edited', async () => {
+    const id = (await post(fracture)).body.data.id;
+
+    expect((await annul(id)).status).toBe(204);
+
+    const list = await auth(request(app).get(url()));
+    const listed = list.body.data.find((e: { id: string }) => e.id === id);
+    expect(listed.annulledAt).toEqual(expect.any(String));
+    const row = await prisma.patientAntecedent.findUniqueOrThrow({ where: { id }, select: { deletedAt: true } });
+    expect(row.deletedAt?.toISOString()).toBe(listed.annulledAt);
+    expect((await auth(request(app).patch(`${url()}/${id}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Tarde' })).status).toBe(404);
+    expect((await annul(id)).status).toBe(404);
+  });
+
+  it('answers 404 for another patient’s antecedent, another clinic’s patient and an unknown id', async () => {
+    const othersAntecedent = (await post(fracture, otherPatient.id)).body.data.id;
+    expect((await auth(request(app).patch(`${url()}/${othersAntecedent}`)).send({ reason: 'DATA_ENTRY_ERROR', description: 'Ajeno' })).status).toBe(404);
+    expect((await annul(othersAntecedent)).status).toBe(404);
+
+    const patientB = await fixture.patient.create({
+      data: { tenantId: clinicB.tenantId, firstName: 'De otra', lastName: 'clínica' },
+      select: { id: true },
+    });
+    expect((await auth(request(app).get(url(patientB.id)))).status).toBe(404);
+    expect((await post(fracture, patientB.id)).status).toBe(404);
+    expect((await annul(randomUUID())).status).toBe(404);
+  });
+});
