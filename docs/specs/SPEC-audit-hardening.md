@@ -355,7 +355,7 @@ Web: the platform audit list renders `targetUser`.
 ## Decisions (2026-10-09)
 
 1. **Checks:** kept in full.
-2. **The operator's session:** `operator-sessions` adds `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key, checked on insert as §1 checks the clinic's, filled from `req.operator`).
+2. **The operator's session:** `operator-sessions` adds `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key, checked on insert as §1 checks the clinic's, filled from `req.operator`). Operator-sessions shipped without it; it was added on 2026-11-17 (SPEC-operator-sessions.md, "Added after the first PR").
 3. **Versioning clinical records:** a module of its own in the map, `clinical-revisions`.
 4. **The role, session type and scale type** stay in descriptions.
 

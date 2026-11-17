@@ -96,6 +96,13 @@ changeOperatorPassword(operatorId: string, passwordHash: string, keepSessionId: 
 
 **Deactivating an operator** has no route today (it is done in SQL); the `isActive` join in `findValidOperatorSession` is what cuts her sessions on the next request. Whoever deactivates one by hand should also revoke her sessions, and the docs say so.
 
+### Added after the first PR (2026-11-17)
+
+Both while the table had not reached production, so no real row needed a guess.
+
+- **Why a session ended.** `platform_operator_sessions.revocation_reason` (`OperatorSessionRevocationReason`: `LOGOUT`, `PASSWORD_CHANGED`, `PASSWORD_RESET`, `OPERATOR_DEACTIVATED`) is set in the same write as `revoked_at`, and a `CHECK` makes them both or neither. Logout writes `LOGOUT`, a password change `PASSWORD_CHANGED` on the other sessions, `reset:operator-password` `PASSWORD_RESET`, and the SQL that deactivates an operator `OPERATOR_DEACTIVATED`. The migration deleted the sessions revoked before it (test logins on staging, development and ci) instead of adding a value for "unknown".
+- **Which session acted.** `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key) is filled by `recordPlatformAudit` from the operator's context, which now carries `operatorSessionId` (the separate `OperatorRequestContext` is gone). A trigger, `platform_audit_logs_check_session`, refuses on insert a session that is not the row's operator's, as `audit_logs_check_session` does for clinic users; `audit-guards.sql` pins it. This closes decision 2 of `SPEC-audit-hardening.md`.
+
 ### Removals
 
 - `lib/platformJwt.ts`, `tests/platformJwt.test.ts`, `tests/jwtAlgorithm.test.ts`, and the `getPlatformJwtSecret()` startup check in `app.ts`.
