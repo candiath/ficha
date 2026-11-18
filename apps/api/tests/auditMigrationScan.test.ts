@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { AUDIT_ENUMS, AUDIT_FUNCTIONS, AUDIT_TABLES, FORMER_AUDIT_TABLE_NAMES } from './auditTables';
 
 // Row triggers do not see DDL. A migration could rewrite audit content with a
 // type change (Prisma turns one into DROP COLUMN + ADD COLUMN), or switch the
@@ -204,8 +205,13 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
   },
 };
 
-const AUDIT_NAMES =
-  /\b(audit_logs|platform_audit_logs|sysadmin_alerts|sysadmin_alert_deliveries|session_revisions|encounter_revisions|patient_revisions|episode_revisions|evaluation_revisions|consent_revisions|patient_event_revisions|patient_antecedent_revisions|audit_maintenance_on|audit_rows_are_append_only|audit_rows_stamp_created_at|audit_logs_check_session|audit_params_are_codes|AuditAction|AuditEntity|AuditActorType|PlatformAction|PlatformAuditEntity|SysadminAlertKind|SysadminAlertOutcome)\b/i;
+// From tests/auditTables.ts, which auditTablesCoverage.test.ts checks against
+// the database: a new audit table, trigger function or enum cannot be left
+// out of the scan.
+const AUDIT_NAMES = new RegExp(
+  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES, ...AUDIT_FUNCTIONS, ...AUDIT_ENUMS].join('|')})\\b`,
+  'i',
+);
 
 const FORBIDDEN: [string, RegExp][] = [
   ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],

@@ -14,6 +14,7 @@ import {
   type TestOperator,
 } from './helpers';
 import { fixture } from './fixtures';
+import { AUDIT_TABLES, REVISION_TABLES, STAMPED_AUDIT_TABLES } from './auditTables';
 
 // What the database itself enforces on audit rows (#186,
 // docs/specs/SPEC-audit-hardening.md): they cannot be changed, only deleted
@@ -451,17 +452,9 @@ describe('audit-guards.sql', () => {
     url.searchParams.set('connection_limit', '1');
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
-    const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
-    // No created_at, so no stamp trigger.
-    const REVISION_TABLES = [
-      'encounter_revisions',
-      'patient_revisions',
-      'episode_revisions',
-      'evaluation_revisions',
-      'consent_revisions',
-      'patient_antecedent_revisions',
-    ];
-    const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
+    // Revision tables have no created_at, so no stamp trigger.
+    const TABLES = STAMPED_AUDIT_TABLES;
+    const onCopies = AUDIT_TABLES.reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
     );
