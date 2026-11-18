@@ -68,6 +68,9 @@ describe('GET /api/dashboard/stats', () => {
 
     // Dos episodios con el mismo mainComplaint para probar el agrupado, y uno
     // con complaint vacío que debe quedar fuera del top de patologías.
+    // A closed one opens and closes at one instant: the database refuses a
+    // closing before the opening (#280), and opened_at defaults to its own now.
+    const now = new Date();
     await fixture.clinicalEpisode.createMany({
       data: [
         {
@@ -80,14 +83,16 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientDischarged.id,
           status: 'DISCHARGED',
-          closedAt: new Date(),
+          openedAt: now,
+          closedAt: now,
           mainComplaint: 'Lumbalgia',
         },
         {
           tenantId: clinicA.tenantId,
           patientId: patientDischarged.id,
           status: 'DISCHARGED',
-          closedAt: new Date(),
+          openedAt: now,
+          closedAt: now,
           mainComplaint: 'Cervicalgia',
         },
         {
@@ -102,7 +107,8 @@ describe('GET /api/dashboard/stats', () => {
           tenantId: clinicA.tenantId,
           patientId: patientDeleted.id,
           status: 'DISCHARGED',
-          closedAt: new Date(),
+          openedAt: now,
+          closedAt: now,
           mainComplaint: 'Hombro de paciente borrado',
         },
       ],

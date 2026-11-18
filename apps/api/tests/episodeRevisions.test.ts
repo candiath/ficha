@@ -269,12 +269,13 @@ describe('episode revisions', () => {
       });
     });
 
-    it('takes consecutive versions when two discharge the same episode at once', async () => {
+    // The second waits for the first's lock, then finds the episode closed (#279).
+    it('lets one of two discharges of the same episode at once close it, and refuses the other', async () => {
       const id = await newEpisode();
       const results = await Promise.all([discharge(id), discharge(id)]);
 
-      expect(results.map((r) => r.status)).toEqual([201, 201]);
-      expect((await revisions(id)).map((r) => r.version)).toEqual([1, 2, 3]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      expect((await revisions(id)).map((r) => r.version)).toEqual([1, 2]);
     });
   });
 });
