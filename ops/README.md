@@ -6,8 +6,9 @@ copied to `/opt/ficha` as is. The host itself (users, SSH, firewall, VPN,
 Docker, the Telegram notifier) is set up from a private runbook, not from here:
 this repository is public.
 
-**Status:** prepared, not live. Render still serves both environments until
-the cutover; `docs/infra.md` changes when it happens.
+**Status:** production has been live here since 2026-11-14, on an AWS Lightsail
+instance (`api.cliniplus.com.ar`). Staging runs here too for now, and may go back
+to Render (`docs/infra.md`, *Production on AWS*).
 
 ## How a change reaches the server
 

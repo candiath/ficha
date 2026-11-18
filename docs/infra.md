@@ -2,14 +2,15 @@
 
 El resumen operativo (las reglas) está en `CLAUDE.md`. Esto es el porqué detrás de cada una y la historia de cómo se llegó acá.
 
-Los recursos se nombran por su nombre, no por su ID: los IDs de Render y Neon no se versionan en este repo, que es público. Para llegar a un recurso, se busca por nombre con los MCPs (`list_services` en Render, `list_projects` / `list_branches` en Neon) o en el dashboard.
+Los recursos se nombran por su nombre, no por su ID: los IDs de Render y Neon no se versionan en este repo, que es público. Para llegar a un recurso, se busca por nombre con los MCPs (`list_services` en Render, `list_projects` / `list_branches` en Neon) o en el dashboard; Lightsail, en la consola de AWS.
 
-Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a los otros. La rama de git es el único pegamento — los tres se disparan solos al detectar un push.
+Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a los otros. La rama de git es el único pegamento — cada capa se dispara sola al detectar un push.
 
-- **GitHub** (`candiath/ficha`, repo **público**) — código, CI y rulesets de protección de ramas.
-- **Render** — la API de Express. Un servicio por entorno, plan free (cold start ~50s).
+- **GitHub** (`candiath/ficha`, repo **público**) — código, CI y rulesets de protección de ramas. It also builds the API's Docker image on every push to `main` and `dev` (`image.yml`) and publishes it to GHCR.
+- **AWS Lightsail** — the production API since 2026-11-14 (*Production on AWS* below): the image runs as a container behind Caddy, which serves `api.cliniplus.com.ar`. The instance pulls new images itself (`ops/`).
+- **Render** — where both APIs ran until then, plan free (cold start ~50s). `Ficha` stays as a backup, with no traffic; staging may go back to `ficha-staging`.
 - **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
-- **Neon** — Postgres 18, one project with a branch per environment. During the move from 16 (*Postgres 18* below) there are two: `ficha-pg18` holds `staging`, `development` and `ci`, and `production` stays in the old `ficha` until it moves.
+- **Neon** — Postgres 18. `production` is in the project `rapid-band-cliniplus-ohio` (us-east-2), next to the Lightsail instance; `staging`, `development` and `ci` are still in `ficha-pg18` (sa-east-1). The Ohio project also has `staging` and `ci` branches, and `ficha-pg18` still has its old `production`: neither is the environment of the same name (*Production on AWS*).
 
 ## Los tres entornos
 
@@ -17,9 +18,9 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 | --- | --- | --- | --- |
 | Rama | `main` | `dev` | working tree local |
 | Quién lo consume | los usuarios | solo Nath | solo Nath |
-| API (servicio de Render) | `Ficha` → ficha-i3t6.onrender.com | `ficha-staging` → ficha-staging.onrender.com | `localhost:3001` |
+| API | api.cliniplus.com.ar (Lightsail) | staging.3-147-5-12.sslip.io (Lightsail, for now) | `localhost:3001` |
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
-| DB (branch de Neon) | `production` | `staging` | `development` |
+| DB (branch de Neon) | `production` (Ohio project) | `staging` | `development` |
 
 Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon**, así que un token de testing no vale en producción (every session, the clinic's and the operator's, is a row in that environment's database: there is no signing secret since operator-sessions) y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
@@ -65,18 +66,18 @@ El entorno de testing solo sirve si se usa: el valor está en la ventana entre m
 
 ## Build version: web and API in step
 
-The web (Netlify) and the API (Render) deploy separately from the same commit, so for a while after each push they can disagree: a tab opened before a release keeps running the old web, and the new web can reach the API before the API's deploy finishes, or after it fails (Render keeps serving the previous build). An old web reading a new API can show data wrong (for example annulled encounters as current), so the web checks on every response and asks the user to reload (`apps/web/src/lib/buildVersion.ts`; the rule is in `CLAUDE.md`).
+The web (Netlify) and the API (Lightsail) deploy separately from the same commit, so for a while after each push they can disagree: a tab opened before a release keeps running the old web, and the new web can reach the API before the API's deploy finishes, or after it fails (the previous version keeps serving). An old web reading a new API can show data wrong (for example annulled encounters as current), so the web checks on every response and asks the user to reload (`apps/web/src/lib/buildVersion.ts`; the rule is in `CLAUDE.md`).
 
 **The version is the commit time** (`git log -1 --format=%ct`, Unix seconds) of the commit a build was made from, so nobody bumps it and the larger one is the newer build. `scripts/build-version.mjs` resolves it, first match wins:
 
 1. `FICHA_BUILD_VERSION`, for a build without a git repository: the API's Docker image (`.git` is not in its build context), whose workflow (`image.yml`) passes the commit time as the `BUILD_VERSION` build arg.
-2. `git log -1 --format=%ct`, which works on a shallow clone: Render's and Netlify's builds clone the repository.
+2. `git log -1 --format=%ct`, which works on a shallow clone: Netlify's build (and Render's) clones the repository.
 3. Nothing: the build carries no version (the build log says so) and the web does no check. It fails open on purpose.
 
 - **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health`, so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
 - **Web**: `vite build` inlines it as `import.meta.env.VITE_BUILD_VERSION`. The dev server inlines nothing.
 
-**It relies on both sides deploying every commit.** Neither Render nor Netlify has a build filter or ignore rule today: if one is added (say, Netlify skipping API-only commits), the side that skipped a commit looks older forever and its users get the notice for nothing. The same goes for a **rollback**: rolling back one side alone makes the other look newer until the rollback is undone, so roll back both, or neither.
+**It relies on both sides deploying every commit.** Neither `image.yml` nor Netlify has a build filter or ignore rule today: if one is added (say, Netlify skipping API-only commits), the side that skipped a commit looks older forever and its users get the notice for nothing. The same goes for a **rollback**: rolling back one side alone makes the other look newer until the rollback is undone, so roll back both, or neither.
 
 **Netlify must not cache `index.html`**, or a reload brings the old web back. Its default for HTML is `cache-control: public,max-age=0,must-revalidate` (checked on 2026-11-09), and the CDN is cleared on every deploy; the assets are content-hashed. If a reload ever does bring back the same old web, the notice notices (it remembers in `sessionStorage` which API version it reloaded for) and says "Estamos actualizando Ficha" instead of asking again.
 
@@ -85,17 +86,17 @@ The web (Netlify) and the API (Render) deploy separately from the same commit, s
 Cada entorno migra su propia base, y el schema viaja por el mismo canal que el código:
 
 1. **Local**: `npm run db:migrate` (`prisma migrate dev`) genera el archivo de migración contra la branch `development`. El archivo se commitea junto al cambio de código que lo necesita.
-2. **Testing y producción**: `npm run migrate:prod` (`prisma migrate deploy`) corre en el Build Command de cada servicio de Render, con el `DATABASE_URL` de ese servicio. Es idempotente: aplica solo lo pendiente.
+2. **Testing y producción**: `npm run migrate:prod` (`prisma migrate deploy`, with the audit checks around it) runs in every deploy, with that environment's `DATABASE_URL`: on Lightsail `ops/deploy.sh` runs it in a one-off container of the new image before starting it; on Render, the Build Command. Es idempotente: aplica solo lo pendiente.
 
 Las migraciones van por **conexión directa**, no por el pooler: el datasource declara `directUrl = env("DIRECT_DATABASE_URL")`, que es el mismo host de Neon sin `-pooler`. `prisma migrate` toma un advisory lock de sesión y PgBouncer en modo transacción no garantiza la misma conexión física entre statements (falla con `P1002`). Cada entorno necesita las dos variables; la app solo usa la pooled.
 
-Si una migración falla, el build falla y Render **mantiene vivo el deploy anterior** — el entorno sigue sirviendo la versión vieja en vez de arrancar con un schema a medias. Prisma envuelve cada migración en una transacción, así que no quedan aplicadas por la mitad.
+Si una migración falla, el deploy se corta y **sigue vivo el anterior** (`deploy.sh` sends a Telegram message; Render keeps its previous build) — el entorno sigue sirviendo la versión vieja en vez de arrancar con un schema a medias. Prisma envuelve cada migración en una transacción, así que no quedan aplicadas por la mitad.
 
 **Migraciones destructivas en dos pasos.** Un `DROP COLUMN` que llega junto al código que deja de usar la columna rompe producción en el intervalo entre que la migración corre y el proceso nuevo toma el tráfico. Se hace en dos releases: primero se agrega lo nuevo y se deja de leer lo viejo; el `DROP` va en un release posterior, cuando ya nada lo referencia.
 
 **A column type change on a table the app reads breaks the pooler for a while** (found in #186, 2026-10-10). Neon's pooler shares prepared statements across clients, and once a column's type changes (even `timestamp(3)` → `timestamp(6)`), every cached statement that reads it fails with `cached plan must not change result type` until the pooler's server connections recycle. With the old code still serving, or the new one starting, that means failed requests right after the deploy. Avoid type changes on hot tables; if one is unavoidable, it is its own release, and the compute is restarted right after the migration (Neon console, or the MCP's `restart_postgres_endpoint`). **`20261116120000_timestamptz` is one, on every table**: every timestamp column becomes `timestamptz(3)`. It goes to `main` in a release of its own, at a quiet moment, since it locks every table it rewrites. Restart each environment's compute right after the migration runs there: `staging`, `production`, and `development` and `ci` when they get it.
 
-**A migration that fails on Render leaves the database blocked.** `_prisma_migrations` keeps the failed row, and every later deploy fails with `P3009` until someone runs `npx prisma migrate resolve --rolled-back <migration>` against that database's direct URL. First confirm that nothing of the migration remains: Prisma sends a migration as one script, which Postgres runs as one implicit transaction, so a failed one normally leaves nothing; a migration with its own `COMMIT` or a non-transactional statement (`CREATE INDEX CONCURRENTLY`) can leave half of it, which has to be undone or finished by hand first. For `production`, that happens where its credential lives, never from a laptop's `.env`.
+**A failed migration leaves the database blocked.** `_prisma_migrations` keeps the failed row, and every later deploy fails with `P3009` until someone runs `npx prisma migrate resolve --rolled-back <migration>` against that database's direct URL. First confirm that nothing of the migration remains: Prisma sends a migration as one script, which Postgres runs as one implicit transaction, so a failed one normally leaves nothing; a migration with its own `COMMIT` or a non-transactional statement (`CREATE INDEX CONCURRENTLY`) can leave half of it, which has to be undone or finished by hand first. For `production`, that happens where its credential lives, never from a laptop's `.env`.
 
 Nunca correr `db:migrate` ni `db:seed` con `DATABASE_URL` apuntando a `production`. **El `.env` local no guarda la URL de producción**, ni siquiera comentada: tenerla a mano invita a copiarla, y una credencial de producción pegada donde no corresponde obliga a rotarla en las cuatro branches. Si hace falta inspeccionar producción con `db:studio`, se saca de la consola de Neon en el momento y se descarta.
 
@@ -141,7 +142,7 @@ CREATE SCHEMA IF NOT EXISTS ficha_ops;
 CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();
 ```
 
-**Never on `staging` or `production`.** There, the Render build refuses to deploy, and the API logs `[audit] no-audit-maintenance.sql: FAILED` at startup.
+**Never on `staging` or `production`.** There, every deploy refuses to go on, and the API logs `[audit] no-audit-maintenance.sql: FAILED` at startup.
 
 ### The checks
 
@@ -149,14 +150,14 @@ CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();
 | --- | --- | --- |
 | What fails it | a trigger or audit function differs from what the migrations deployed, a trigger is disabled, a rule, row-level security, an unlogged table, a missing or non-restricting foreign key | the flag exists |
 | CI (`test.yml`, on `ci`) | after `migrate deploy` | — (`ci` has the flag) |
-| Render build (`migrate:prod`) | after `migrate deploy` | before and after `migrate deploy` |
+| Every deploy (`migrate:prod`) | after `migrate deploy` | before and after `migrate deploy` |
 | API startup (`src/index.ts`) | always, only logs | in production, only logs |
 
 **The flag check failing after `migrate deploy` means a migration created the flag** (`tests/noMaintenanceFlagMigration.test.ts` should have refused it). The migration has already run, and the build stops before the new code serves, but the flag stays in that database: drop it by hand now (`DROP SCHEMA ficha_ops CASCADE`), then fix the migration. Failing before `migrate deploy`, someone created it by hand.
 
-When a Render build fails on a check, the previous deploy keeps serving. Find out what changed the database before anything else: a check failing means a guarantee is gone. When the change is intended, it arrives as a new migration and new expected values in `audit-guards.sql`, in the same PR. That migration also needs an entry in the `ALLOWED` list of `tests/auditMigrationScan.test.ts`, which fails on DDL that alters the audit tables, their functions or their enums.
+When a deploy fails on a check, the previous version keeps serving. Find out what changed the database before anything else: a check failing means a guarantee is gone. When the change is intended, it arrives as a new migration and new expected values in `audit-guards.sql`, in the same PR. That migration also needs an entry in the `ALLOWED` list of `tests/auditMigrationScan.test.ts`, which fails on DDL that alters the audit tables, their functions or their enums.
 
-**Line endings.** Migration SQL is checked out with LF (`.gitattributes`), so a migration applied from a Windows laptop creates the same function bodies as one applied by CI or Render, and the function hashes match.
+**Line endings.** Migration SQL is checked out with LF (`.gitattributes`), so a migration applied from a Windows laptop creates the same function bodies as one applied by CI or a deploy, and the function hashes match.
 
 ### Orphans
 
@@ -171,12 +172,12 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in the Render build). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in every deploy). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
 
 - it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
 - for `production` it first runs the backup and stops if the backup fails;
 - the rehearsal refuses a URL whose endpoint is production's;
-- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Redeploy the API afterwards: new connections, and the startup audit checks run again.
+- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Restart the API afterwards: new connections, and the startup audit checks run again. On Lightsail, `deploy.sh` does nothing while the image is unchanged, so restart the container: `docker compose restart api-prod` in `/opt/ficha`.
 
 It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. The second wipe follows the same steps (checklist in #238). **After the relaunch, with real data, it is never run on production again**, and its `production` target is removed (#233). Never use `migrate reset` with the seed on a deployed database.
 
@@ -251,17 +252,17 @@ The API tells the platform operator by Telegram when something needs her (`docs/
 1. In Telegram, talk to **@BotFather**: `/newbot`, a name (`Ficha staging alerts`) and a username ending in `bot`. It answers with the token.
 2. Open a chat with the new bot and send it any message (a bot cannot write first). Use **a private chat with the bot, or a private group with only the operator**: never a public channel, whose messages anyone can read. The API rejects `@channel` ids for that reason.
 3. Find the chat id: open `https://api.telegram.org/bot<token>/getUpdates` in your own browser and read `result[].message.chat.id` (a number; negative for a group). Do it on your machine, not through any tool that logs URLs: the URL carries the token.
-4. In the Render dashboard, on that environment's service (`ficha-staging` or `Ficha`), add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Saving redeploys.
+4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: on Lightsail its env file (`/opt/ficha/prod.env` or `staging.env`), then `docker compose up -d --force-recreate api-<env>` in `/opt/ficha`; on Render, the service's environment (saving redeploys).
 5. In `/platform`, the *Alertas* card says "Configurado · bot @…". Press **Enviar alerta de prueba**: the message arrives, and the card shows the result.
 
-The label at the start of every message is the service's `RENDER_SERVICE_NAME` (`[Ficha]`, `[ficha-staging]`), which Render sets itself; `[local]` elsewhere.
+The label at the start of every message is `RENDER_SERVICE_NAME` (`[Ficha]`, `[ficha-staging]`): Render sets it itself, and on Lightsail each env file sets it (`ops/README.md`); `[local]` when it is missing.
 
 ### Rules
 
 - **The local `.env` never holds a staging or production token**, just as it never holds the production database URL. Use a third bot of your own, or leave the variables unset (the card says "No configurado"). Agents read `.env` files, and `ts-node-dev` re-runs the startup check, and its alerts, on every save.
 - **Never set `NODE_DEBUG=undici` or `NODE_DEBUG=fetch`** on a deployed service: Node then prints request URLs, token included, to the logs.
 - **Messages never carry links.** A message from the bot with a link was not sent by the app.
-- **Rotating a token** (it leaked, or someone left): `/revoke` in @BotFather, then the new token in Render (redeploys). A leaked token lets someone read the chat and send fake alerts in the bot's name.
+- **Rotating a token** (it leaked, or someone left): `/revoke` in @BotFather, then the new token where the environment keeps it (step 4 above). A leaked token lets someone read the chat and send fake alerts in the bot's name.
 - **The test button** is limited to 50 a minute, shared by every operator: Telegram limits per chat, and a bot over its limit gets a `429` and a wait, during which a real alert is delayed or lost.
 
 ### When an alert does not arrive
@@ -295,6 +296,16 @@ The move from 16 started on 2026-11-01 (rollout step 0 of `docs/specs/PLAN-clini
 - **A new branch starts with its parent's role password.** Every branch of a new project starts with the root's, so a laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. Reset `neondb_owner`'s password on each branch, in the console, right after creating it; the MCP's reset returns the password, so it is not used.
 - **What changed for the app**: a delete refused by an `ON DELETE RESTRICT` key raises `23001` (`restrict_violation`) instead of `23503`, and Prisma 5.22 does not map it to `P2003`. Nothing in `src` depends on that code; the tests use `expectRestrictedDelete` (`tests/helpers.ts`), which accepts both until `production` is on 18. The audit functions print the same on 18, so `audit-guards.sql` did not change.
 - Neon's free plan picks the maintenance window itself: Sunday 05:00–06:00 UTC on the new project.
+
+## Production on AWS (2026-11-14)
+
+The production API moved from Render to an **AWS Lightsail** instance, and its database to a new Neon project in **Ohio** (`rapid-band-cliniplus-ohio`, us-east-2), next to it. The domain is `cliniplus.com.ar`; the production web reads from `api.cliniplus.com.ar` (checked in the published bundle on 2026-11-18).
+
+- **How a change reaches it**: `ops/README.md`. In short: a push to `main` publishes `ghcr.io/candiath/ficha-api:main`; every 5 minutes the instance runs `ops/deploy.sh prod`, which pulls a new image, runs `migrate:prod` with it, starts it and waits for its health check. A failure leaves the previous version serving and sends a Telegram message. Rolling back is pinning `PROD_TAG` to an older `sha-<commit>`.
+- **Render's `Ficha` stays as a backup** (decided 2026-11-18), with no traffic: the web no longer calls it. Before switching back to it, check which database its `DATABASE_URL` names: it must be the Ohio `production`.
+- **Staging is undecided** (2026-11-18): it runs on the same instance for now (`staging.3-147-5-12.sslip.io`, a temporary name), and may go back to Render's `ficha-staging`, so that a staging failure (memory, disk, a bad image) cannot reach production's host. Its name on `cliniplus.com.ar` is not chosen yet.
+- **The Ohio project's `staging` and `ci` branches** were created from its `production`, so they started with its role password (*Postgres 18*). Reset it on each before any URL of theirs is used anywhere.
+- The CSP in `netlify.toml` still lists the Render and `sslip.io` origins; they leave once staging settles (#320 generates the CSP from `VITE_API_URL`).
 
 ## Cómo se llegó acá (2026-08-29)
 
