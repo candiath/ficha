@@ -297,7 +297,10 @@ enum OperatorSessionRevocationReason {
 }
 
 // The object a platform_audit_logs row acted on (SPEC-audit-structured-entries.md).
-// Codes are permanent.
+// Codes are permanent. A new value is either made by its action, and joins
+// the unique index platform_audit_logs_action_entity_key (one row per action
+// on it), or can receive an action more than once, and is listed as such in
+// tests/auditRowChecks.test.ts.
 enum PlatformAuditEntity {
   PASSWORD_RESET_TOKEN
   SYSADMIN_ALERT
@@ -368,8 +371,9 @@ model PlatformAuditLog {
 
   @@index([tenantId])
   @@index([createdAt])
-  // One row per action on an object (a partial unique index in the
-  // migration, WHERE entity IS NOT NULL; Prisma cannot express it).
+  // One row per action on an object its action makes, a reset link or a test
+  // alert (a partial unique index in the migration, listing those entities;
+  // Prisma cannot express it).
   @@map("platform_audit_logs")
 }
 

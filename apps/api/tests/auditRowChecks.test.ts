@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Prisma, User } from '@prisma/client';
+import { PlatformAuditEntity, type Prisma, type User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import {
   createTestClinic,
@@ -46,6 +46,14 @@ const REFUSED: Prisma.InputJsonValue[] = [
   [],
   'X',
 ];
+
+// The values of PlatformAuditEntity that can receive the same action more than
+// once, each with its reason. They stay out of the unique index
+// platform_audit_logs_action_entity_key, which keeps one row per action on an
+// object its action makes; in it, a second row would be a unique violation
+// that rolls the action back. None today: a reset link and a test alert are
+// made by the action that names them.
+const REPEATABLE_PLATFORM_ENTITIES: Readonly<Record<string, string>> = {};
 
 describe('audit rows hold codes, and say who acted', () => {
   let clinic: TestClinic;
@@ -148,6 +156,17 @@ describe('audit rows hold codes, and say who acted', () => {
       await expect(platform(row)).resolves.toBeTruthy();
       await expect(platform(row)).rejects.toThrow(/Unique constraint failed/);
       await expect(platform({ ...row, action: 'USER_DEVICES_DISCONNECTED' })).resolves.toBeTruthy();
+    });
+
+    // A new entity fails here until someone decides which it is.
+    it('is either made by its action, and in the unique index, or listed as repeatable', async () => {
+      const [{ def }] = await prisma.$queryRaw<{ def: string }[]>`
+        SELECT pg_get_indexdef('public.platform_audit_logs_action_entity_key'::regclass) AS def`;
+      const indexed = [...def.matchAll(/'([A-Z_]+)'::"PlatformAuditEntity"/g)].map((m) => m[1]);
+      const repeatable = Object.keys(REPEATABLE_PLATFORM_ENTITIES);
+
+      expect(indexed.filter((e) => repeatable.includes(e))).toEqual([]);
+      expect([...indexed, ...repeatable].sort()).toEqual(Object.values(PlatformAuditEntity).sort());
     });
   });
 });

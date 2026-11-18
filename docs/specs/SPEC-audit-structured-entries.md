@@ -80,7 +80,7 @@ Stripe solves the same problem with a version stamped on every event (`api_versi
 | `entity` (`PlatformAuditEntity`, new) | `PASSWORD_RESET_TOKEN` or `SYSADMIN_ALERT`; null for actions on a clinic or a user, whose object already has a column (`tenant_id`, `target_user_id`) |
 | `entity_id` (new) | The link generated, the alert sent. No foreign key: it points at a different table by type |
 
-- `CHECK ((entity IS NULL) = (entity_id IS NULL))`, and a partial unique index on `(action, entity, entity_id) WHERE entity IS NOT NULL`: one row per action on an object, so a later action on the same object (revoking a link) still fits.
+- `CHECK ((entity IS NULL) = (entity_id IS NULL))`, and a partial unique index on `(action, entity, entity_id) WHERE entity IS NOT NULL`: one row per action on an object, so a later action on the same object (revoking a link) still fits. Since `20261120120000_platform_audit_once_per_entity` the index lists its entities (`WHERE entity IN ('PASSWORD_RESET_TOKEN', 'SYSADMIN_ALERT')`): it holds for objects made by their action, and an object that can receive the same action twice (an operator deactivated, reactivated and deactivated again) stays out of it instead of failing its second row. `tests/auditRowChecks.test.ts` makes every new entity one or the other.
 - The catalog declares which action takes which entity, and `recordPlatformAudit` fills it from there and refuses a mismatch.
 - A row then names exactly which link it generated: generation and use of a link can be tied even when a user had several.
 
