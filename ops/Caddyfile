@@ -1,6 +1,6 @@
-# TLS for both environments. Caddy gets and renews the certificates on its own,
-# as long as each domain's DNS already points at this server and port 80 is open.
-# The domains come from /opt/ficha/.env, through compose.yaml.
+# TLS for the production API. Caddy gets and renews the certificate on its own,
+# as long as the domain's DNS already points at this server and port 80 is open.
+# The domain comes from /opt/ficha/.env, through compose.yaml.
 
 (common) {
 	encode zstd gzip
@@ -13,9 +13,4 @@
 {$PROD_DOMAIN} {
 	import common
 	reverse_proxy api-prod:3001
-}
-
-{$STAGING_DOMAIN} {
-	import common
-	reverse_proxy api-staging:3001
 }
