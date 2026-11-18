@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Deploys one environment if its image tag points at a new image.
-#   deploy.sh prod | deploy.sh staging
-# Run every 5 minutes by ficha-deploy@<env>.timer, and by hand to deploy now
-# or to roll back (set PROD_TAG / STAGING_TAG in .env to sha-<commit> first).
+# Deploys production if its image tag points at a new image.
+#   deploy.sh prod
+# Run every 5 minutes by ficha-deploy@prod.timer, and by hand to deploy now
+# or to roll back (set PROD_TAG in .env to sha-<commit> first). Staging is not
+# on this server: it runs on Render (docs/infra.md).
 #
 # Order matters: the migration runs while the old version keeps serving, and
 # the new version starts only if it succeeded. A failed migration or health
 # check leaves the old version up and sends an alert.
 set -euo pipefail
 
-env_name="${1:?usage: deploy.sh prod|staging}"
+env_name="${1:?usage: deploy.sh prod}"
 case "$env_name" in
-  prod | staging) ;;
+  prod) ;;
   *) echo "unknown environment: $env_name" >&2; exit 2 ;;
 esac
 

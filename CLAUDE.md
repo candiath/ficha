@@ -19,8 +19,8 @@ Monorepo de npm workspaces: `apps/api` (Express 5 + Prisma + Postgres), `apps/we
 El porqué de cada regla de esta sección y la historia del split a tres entornos están en [`docs/infra.md`](docs/infra.md). Los recursos se nombran por nombre: los IDs de Render y Neon no se versionan (el repo es público). Para llegar a uno, buscarlo con los MCPs (`list_services` en Render, `list_projects` / `list_branches` en Neon); Netlify no tiene MCP, se mira en el dashboard; Lightsail, en la consola de AWS.
 
 - **GitHub** (`candiath/ficha`, **público**) — código, CI, rulesets.
-- **AWS Lightsail** — the production API since 2026-11-14: a Docker container behind Caddy, deployed by `ops/deploy.sh` from the image `image.yml` publishes to GHCR ([`ops/README.md`](ops/README.md)). Domain `cliniplus.com.ar`.
-- **Render** — the old home of both APIs, plan free (cold start ~50s). `Ficha` stays as a backup and takes no traffic; `ficha-staging` is where staging may go back (below).
+- **AWS Lightsail** — the production API since 2026-11-14, and only it: a Docker container behind Caddy, deployed by `ops/deploy.sh` from the image `image.yml` publishes to GHCR ([`ops/README.md`](ops/README.md)). Domain `cliniplus.com.ar`.
+- **Render** — staging (`ficha-staging`), plan free (cold start ~50s). `Ficha`, production's old service, stays as a backup and takes no traffic.
 - **Netlify** — la web. Un sitio (`fichita`) con dos contextos de deploy.
 - **Neon** — Postgres 18. `production` is in the project `rapid-band-cliniplus-ohio` (us-east-2, next to Lightsail); `staging`, `development` and `ci` are in `ficha-pg18` (sa-east-1). Both projects also hold branches that are not in use (`docs/infra.md`).
 
@@ -29,11 +29,11 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 | | Producción | Testing | Desarrollo |
 | --- | --- | --- | --- |
 | Rama | `main` | `dev` | working tree local |
-| API | api.cliniplus.com.ar (Lightsail) | staging.3-147-5-12.sslip.io (Lightsail, for now) | `localhost:3001` |
+| API | api.cliniplus.com.ar (Lightsail) | staging-api.cliniplus.com.ar (Render, `ficha-staging`) | `localhost:3001` |
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` | `localhost:5173` |
 | DB (branch de Neon) | `production` (Ohio project) | `staging` | `development` |
 
-**Staging is undecided** (2026-11-18): it runs on the Lightsail instance next to production for now, and may go back to Render, keeping a staging failure away from production's host. Its name on `cliniplus.com.ar` is not chosen yet either.
+Staging went back to Render on 2026-11-18, so that a staging failure (memory, disk, a bad image) cannot reach production's host, and production's secrets are the only ones on it. Its domain is `staging-api.cliniplus.com.ar`, a custom domain of `ficha-staging`.
 
 CI usa una cuarta branch, `ci`, que arrancó **vacía a propósito** (los logs del CI son públicos). **Only release PRs to `main` and manual runs use it**: PRs to `dev` run on a throwaway Postgres in Docker on the runner, so an open PR's migration never reaches another PR's run (it did on 2026-10-24). It persists between runs: `migrate deploy` applies only new migrations, and interrupted runs leave fictitious test rows behind (see `docs/infra.md`). Release PRs to `main` rebuild it from scratch with `migrate reset`, guarded against any database with non-test accounts.
 

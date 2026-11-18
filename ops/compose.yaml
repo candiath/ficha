@@ -1,15 +1,12 @@
-# The API on the VPS: production and staging side by side, behind Caddy.
-# Lives in /opt/ficha on the server; how it works is ops/README.md.
-#
-# Each environment is one image tag, one env file and one Neon branch, exactly
-# as each Render service was: `main` → production, `dev` → staging. Nothing is
-# shared between them except Caddy.
+# The production API on the VPS, behind Caddy. Staging is not here: it runs
+# on Render, so that a staging failure cannot reach production's host
+# (docs/infra.md). Lives in /opt/ficha on the server; how it works is
+# ops/README.md.
 #
 # Variables in ${...} come from /opt/ficha/.env (ops/.env.example), which holds
-# no secrets. The secrets live in prod.env and staging.env (root only, 600).
-# Each env file is optional to Compose, so one environment can be set up
-# before the other; a missing one makes that environment's migration fail,
-# and deploy.sh stops there.
+# no secrets. The secrets live in prod.env (root only, 600). The env file is
+# optional to Compose; a missing one makes the migration fail, and deploy.sh
+# stops there.
 name: ficha-vps
 
 x-api: &api
@@ -40,20 +37,10 @@ services:
     image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
     env_file: [{ path: prod.env, required: false }]
 
-  api-staging:
-    <<: *api
-    image: ghcr.io/candiath/ficha-api:${STAGING_TAG:-dev}
-    env_file: [{ path: staging.env, required: false }]
-
   migrate-prod:
     <<: *migrate
     image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
     env_file: [{ path: prod.env, required: false }]
-
-  migrate-staging:
-    <<: *migrate
-    image: ghcr.io/candiath/ficha-api:${STAGING_TAG:-dev}
-    env_file: [{ path: staging.env, required: false }]
 
   caddy:
     image: caddy:2
@@ -61,7 +48,6 @@ services:
     ports: ["80:80", "443:443"]
     environment:
       PROD_DOMAIN: ${PROD_DOMAIN}
-      STAGING_DOMAIN: ${STAGING_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # The certificates. Deleting this volume makes Caddy ask Let's Encrypt

@@ -7,8 +7,8 @@ Los recursos se nombran por su nombre, no por su ID: los IDs de Render y Neon no
 Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a los otros. La rama de git es el único pegamento — cada capa se dispara sola al detectar un push.
 
 - **GitHub** (`candiath/ficha`, repo **público**) — código, CI y rulesets de protección de ramas. It also builds the API's Docker image on every push to `main` and `dev` (`image.yml`) and publishes it to GHCR.
-- **AWS Lightsail** — the production API since 2026-11-14 (*Production on AWS* below): the image runs as a container behind Caddy, which serves `api.cliniplus.com.ar`. The instance pulls new images itself (`ops/`).
-- **Render** — where both APIs ran until then, plan free (cold start ~50s). `Ficha` stays as a backup, with no traffic; staging may go back to `ficha-staging`.
+- **AWS Lightsail** — the production API since 2026-11-14, and only it (*Production on AWS* below): the image runs as a container behind Caddy, which serves `api.cliniplus.com.ar`. The instance pulls new images itself (`ops/`).
+- **Render** — staging (`ficha-staging`, `staging-api.cliniplus.com.ar`), plan free (cold start ~50s). `Ficha`, production's old service, stays as a backup with no traffic.
 - **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
 - **Neon** — Postgres 18. `production` is in the project `rapid-band-cliniplus-ohio` (us-east-2), next to the Lightsail instance; `staging`, `development` and `ci` are still in `ficha-pg18` (sa-east-1). The Ohio project also has `staging` and `ci` branches, and `ficha-pg18` still has its old `production`: neither is the environment of the same name (*Production on AWS*).
 
@@ -18,7 +18,7 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 | --- | --- | --- | --- |
 | Rama | `main` | `dev` | working tree local |
 | Quién lo consume | los usuarios | solo Nath | solo Nath |
-| API | api.cliniplus.com.ar (Lightsail) | staging.3-147-5-12.sslip.io (Lightsail, for now) | `localhost:3001` |
+| API | api.cliniplus.com.ar (Lightsail) | staging-api.cliniplus.com.ar (Render, `ficha-staging`) | `localhost:3001` |
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
 | DB (branch de Neon) | `production` (Ohio project) | `staging` | `development` |
 
@@ -66,7 +66,7 @@ El entorno de testing solo sirve si se usa: el valor está en la ventana entre m
 
 ## Build version: web and API in step
 
-The web (Netlify) and the API (Lightsail) deploy separately from the same commit, so for a while after each push they can disagree: a tab opened before a release keeps running the old web, and the new web can reach the API before the API's deploy finishes, or after it fails (the previous version keeps serving). An old web reading a new API can show data wrong (for example annulled encounters as current), so the web checks on every response and asks the user to reload (`apps/web/src/lib/buildVersion.ts`; the rule is in `CLAUDE.md`).
+The web (Netlify) and the API (Lightsail, Render for staging) deploy separately from the same commit, so for a while after each push they can disagree: a tab opened before a release keeps running the old web, and the new web can reach the API before the API's deploy finishes, or after it fails (the previous version keeps serving). An old web reading a new API can show data wrong (for example annulled encounters as current), so the web checks on every response and asks the user to reload (`apps/web/src/lib/buildVersion.ts`; the rule is in `CLAUDE.md`).
 
 **The version is the commit time** (`git log -1 --format=%ct`, Unix seconds) of the commit a build was made from, so nobody bumps it and the larger one is the newer build. `scripts/build-version.mjs` resolves it, first match wins:
 
@@ -252,7 +252,7 @@ The API tells the platform operator by Telegram when something needs her (`docs/
 1. In Telegram, talk to **@BotFather**: `/newbot`, a name (`Ficha staging alerts`) and a username ending in `bot`. It answers with the token.
 2. Open a chat with the new bot and send it any message (a bot cannot write first). Use **a private chat with the bot, or a private group with only the operator**: never a public channel, whose messages anyone can read. The API rejects `@channel` ids for that reason.
 3. Find the chat id: open `https://api.telegram.org/bot<token>/getUpdates` in your own browser and read `result[].message.chat.id` (a number; negative for a group). Do it on your machine, not through any tool that logs URLs: the URL carries the token.
-4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: on Lightsail its env file (`/opt/ficha/prod.env` or `staging.env`), then `docker compose up -d --force-recreate api-<env>` in `/opt/ficha`; on Render, the service's environment (saving redeploys).
+4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: for production its env file on Lightsail (`/opt/ficha/prod.env`), then `docker compose up -d --force-recreate api-prod` in `/opt/ficha`; for staging, `ficha-staging`'s environment on Render (saving redeploys).
 5. In `/platform`, the *Alertas* card says "Configurado · bot @…". Press **Enviar alerta de prueba**: the message arrives, and the card shows the result.
 
 The label at the start of every message is `RENDER_SERVICE_NAME` (`[Ficha]`, `[ficha-staging]`): Render sets it itself, and on Lightsail each env file sets it (`ops/README.md`); `[local]` when it is missing.
@@ -303,9 +303,9 @@ The production API moved from Render to an **AWS Lightsail** instance, and its d
 
 - **How a change reaches it**: `ops/README.md`. In short: a push to `main` publishes `ghcr.io/candiath/ficha-api:main`; every 5 minutes the instance runs `ops/deploy.sh prod`, which pulls a new image, runs `migrate:prod` with it, starts it and waits for its health check. A failure leaves the previous version serving and sends a Telegram message. Rolling back is pinning `PROD_TAG` to an older `sha-<commit>`.
 - **Render's `Ficha` stays as a backup** (decided 2026-11-18), with no traffic: the web no longer calls it. Before switching back to it, check which database its `DATABASE_URL` names: it must be the Ohio `production`.
-- **Staging is undecided** (2026-11-18): it runs on the same instance for now (`staging.3-147-5-12.sslip.io`, a temporary name), and may go back to Render's `ficha-staging`, so that a staging failure (memory, disk, a bad image) cannot reach production's host. Its name on `cliniplus.com.ar` is not chosen yet.
+- **Staging went back to Render** (decided 2026-11-18). For a few days it ran on the same instance (`staging.3-147-5-12.sslip.io`); it left so that a staging failure (memory, disk, a bad image) cannot reach production's host, and production's secrets are the only ones there. It is `ficha-staging` again, at `staging-api.cliniplus.com.ar`. What is given up: staging no longer exercises `deploy.sh`, so production's deploy path is first run by each release. `image.yml` still builds the `dev` image, which at least proves the Dockerfile builds before a release.
 - **The Ohio project's `staging` and `ci` branches** were created from its `production`, so they started with its role password (*Postgres 18*). Reset it on each before any URL of theirs is used anywhere.
-- The CSP in `netlify.toml` still lists the Render and `sslip.io` origins; they leave once staging settles (#320 generates the CSP from `VITE_API_URL`).
+- The CSP in `netlify.toml` still lists the `onrender.com` and `sslip.io` origins next to the two `cliniplus.com.ar` ones; they leave once the dev context reads from `staging-api.cliniplus.com.ar` (#320 generates the CSP from `VITE_API_URL`).
 
 ## Cómo se llegó acá (2026-08-29)
 

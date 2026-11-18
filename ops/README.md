@@ -1,28 +1,29 @@
-# ops/ — the API on the VPS
+# ops/ — the production API on the VPS
 
-Production and staging of the API run as Docker containers on one VPS, behind
-Caddy. This folder is everything the server needs from the repository: it is
+The production API runs as a Docker container on one VPS, behind Caddy.
+Staging does not run here: it is on Render (`docs/infra.md`). This folder is
+everything the server needs from the repository: it is
 copied to `/opt/ficha` as is. The host itself (users, SSH, firewall, VPN,
 Docker, the Telegram notifier) is set up from a private runbook, not from here:
 this repository is public.
 
 **Status:** production has been live here since 2026-11-14, on an AWS Lightsail
-instance (`api.cliniplus.com.ar`). Staging runs here too for now, and may go back
-to Render (`docs/infra.md`, *Production on AWS*).
+instance (`api.cliniplus.com.ar`). Staging ran here too until 2026-11-18 and went
+back to Render, so that a staging failure cannot reach production's host
+(`docs/infra.md`, *Production on AWS*).
 
 ## How a change reaches the server
 
 ```
-PR → dev ─push─▶ image.yml ─▶ ghcr.io/candiath/ficha-api:dev  ─▶ api-staging
 PR → main ─push─▶ image.yml ─▶ ghcr.io/candiath/ficha-api:main ─▶ api-prod
 ```
 
-1. A push to `main` or `dev` that touches the API builds the image
-   (`apps/api/Dockerfile`) and publishes it with two tags: the branch and
-   `sha-<commit>`.
-2. On the server, `ficha-deploy@prod.timer` and `ficha-deploy@staging.timer`
-   run `deploy.sh <env>` every 5 minutes. When the tag points at a new image:
-   pull it, run `migrate-<env>` (the same `npm run migrate:prod` Render ran:
+1. Every push to `main` or `dev` builds the image (`apps/api/Dockerfile`)
+   and publishes it with two tags: the branch and `sha-<commit>`. No server
+   pulls `dev`: it proves the Dockerfile still builds before a release.
+2. On the server, `ficha-deploy@prod.timer` runs `deploy.sh prod` every
+   5 minutes. When the tag points at a new image:
+   pull it, run `migrate-prod` (the same `npm run migrate:prod` Render ran:
    audit checks, `migrate deploy`, audit checks), start the new container, and
    wait until it is healthy.
 3. A failed migration or health check leaves the previous version serving and
@@ -36,19 +37,19 @@ it.
 
 | File | On the server | What it is |
 | --- | --- | --- |
-| `compose.yaml` | `/opt/ficha/compose.yaml` | Both APIs, their migrations and Caddy |
-| `Caddyfile` | `/opt/ficha/Caddyfile` | TLS for both domains |
-| `deploy.sh` | `/opt/ficha/deploy.sh` (mode 750) | One deploy of one environment |
-| `.env.example` | `/opt/ficha/.env` | Domains and image tags: no secrets |
-| `app.env.example` | `/opt/ficha/prod.env`, `/opt/ficha/staging.env` (root, 600) | Each environment's secrets |
-| `systemd/ficha-deploy@.*` | `/etc/systemd/system/` | The 5-minute deploy check, one instance per environment |
+| `compose.yaml` | `/opt/ficha/compose.yaml` | The API, its migration and Caddy |
+| `Caddyfile` | `/opt/ficha/Caddyfile` | TLS for the API's domain |
+| `deploy.sh` | `/opt/ficha/deploy.sh` (mode 750) | One deploy |
+| `.env.example` | `/opt/ficha/.env` | Domain and image tag: no secrets |
+| `app.env.example` | `/opt/ficha/prod.env` (root, 600) | Production's secrets |
+| `systemd/ficha-deploy@.*` | `/etc/systemd/system/` | The 5-minute deploy check (instance `prod`) |
 
 ## Rolling back
 
-Set `PROD_TAG` (or `STAGING_TAG`) in `/opt/ficha/.env` to the previous
+Set `PROD_TAG` in `/opt/ficha/.env` to the previous
 commit's tag, `sha-` plus the **full** 40-character SHA
 (`git log --format=%H -n 5 main`), then run `sudo /opt/ficha/deploy.sh prod`.
-While a tag is pinned, new images are ignored; put back `main` / `dev` once
+While a tag is pinned, new images are ignored; put back `main` once
 the fix is merged.
 
 Rolling back the image does not roll back a migration. That is why
@@ -57,7 +58,7 @@ destructive migrations take two releases (`CLAUDE.md`, *Reglas*).
 ## Gotchas
 
 - Docker publishes ports past the host firewall. Only Caddy publishes any
-  (80, 443); the APIs only `expose` theirs.
+  (80, 443); the API only `expose`s its own.
 - `ops/**` is checked out with LF (`.gitattributes`): copied from a Windows
   checkout with CRLF, `deploy.sh` fails with `bash\r`.
 - The app labels alerts with `RENDER_SERVICE_NAME` and reports the commit in

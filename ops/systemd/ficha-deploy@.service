@@ -1,5 +1,5 @@
 # Deploys one environment of the API if its image changed (ops/deploy.sh).
-# Instances: ficha-deploy@prod, ficha-deploy@staging. Started by the timer.
+# Instance: ficha-deploy@prod (staging runs on Render). Started by the timer.
 [Unit]
 Description=Ficha API deploy (%i)
 Wants=network-online.target
