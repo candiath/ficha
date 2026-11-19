@@ -231,10 +231,11 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 // out of the scan.
 // A table's name also matches as the start of a longer one: its indexes,
 // constraints and triggers are named after it (audit_logs_tenant_id_patient_id_id_key),
-// and `_` is a word character, so \b alone would not see them.
+// and `_` is a word character, so \b alone would not see them. An enum's too:
+// Prisma recreates one as <name>_new and drops the old one as <name>_old.
 const AUDIT_NAMES = new RegExp(
-  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES].join('|')})(_\\w+)?\\b` +
-    `|\\b(${[...AUDIT_FUNCTIONS, ...AUDIT_ENUMS].join('|')})\\b`,
+  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES, ...AUDIT_ENUMS].join('|')})(_\\w+)?\\b` +
+    `|\\b(${AUDIT_FUNCTIONS.join('|')})\\b`,
   'i',
 );
 
@@ -401,6 +402,12 @@ describe('migrations leave the audit tables alone', () => {
   it('catches an audit enum dropped', () => {
     expect(auditDdlViolations('DROP TYPE "AuditAction" CASCADE;')).toEqual(['DROP TYPE: DROP TYPE "AuditAction" CASCADE']);
     expect(auditDdlViolations('DROP TYPE "ScaleType";')).toEqual([]);
+    // Prisma recreates an enum under a temporary name: the old type is renamed
+    // to <name>_old and dropped under that name.
+    expect(auditDdlViolations('DROP TYPE "AuditAction_old" CASCADE;')).toEqual([
+      'DROP TYPE: DROP TYPE "AuditAction_old" CASCADE',
+    ]);
+    expect(auditDdlViolations('DROP TYPE "PlatformAuditEntity_old";')).toHaveLength(1);
   });
 
   it('catches dynamic SQL, whatever it names', () => {
