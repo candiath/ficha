@@ -14,6 +14,7 @@ import {
   type TestOperator,
 } from './helpers';
 import { fixture } from './fixtures';
+import { AUDIT_TABLES, REVISION_TABLES, STAMPED_AUDIT_TABLES } from './auditTables';
 
 // What the database itself enforces on audit rows (#186,
 // docs/specs/SPEC-audit-hardening.md): they cannot be changed, only deleted
@@ -451,17 +452,7 @@ describe('audit-guards.sql', () => {
     url.searchParams.set('connection_limit', '1');
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
-    const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
-    // No created_at, so no stamp trigger.
-    const REVISION_TABLES = [
-      'encounter_revisions',
-      'patient_revisions',
-      'episode_revisions',
-      'evaluation_revisions',
-      'consent_revisions',
-      'patient_antecedent_revisions',
-    ];
-    const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
+    const onCopies = AUDIT_TABLES.reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
     );
@@ -481,7 +472,8 @@ describe('audit-guards.sql', () => {
     };
 
     beforeAll(async () => {
-      for (const table of TABLES) {
+      // Revision tables have no created_at, so no stamp trigger.
+      for (const table of STAMPED_AUDIT_TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_created_at BEFORE INSERT ON pg_temp.${table}
           FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);

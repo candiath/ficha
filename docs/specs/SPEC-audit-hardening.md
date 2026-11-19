@@ -153,6 +153,8 @@ Seven triggers, and no others:
   - `ALTER TYPE … RENAME VALUE` on `AuditAction`, `AuditEntity` or `PlatformAction`;
   - `session_replication_role`.
 
+  That was the list at PR 2. The current one (it has grown: `DROP INDEX`, `INHERITS`, `ATTACH PARTITION`, `ENABLE REPLICA/ALWAYS TRIGGER`, and every enum of an audit table) is `FORBIDDEN` in `tests/auditMigrationScan.test.ts`, and the names it looks for come from `tests/auditTables.ts`, which `tests/auditTablesCoverage.test.ts` checks against the database.
+
   Any of these passes only if the migration is on an allowlist, with its reason. Row triggers do not see DDL. This test is what keeps a type change (Prisma's `DROP COLUMN` + `ADD COLUMN`) from silently destroying audit content.
 - **The switch stays out of the app.** A test scans `apps/api`, `.github` and the root `package.json`. It fails when the switch's name appears outside an exact list of files: the migration, `tests/helpers.ts`, `tests/auditHardening.test.ts`, the scan test itself, `prisma/seed.ts` and `scripts/purge-test-audit.ts`. It builds the name by concatenation so as not to find itself. It also fails, anywhere, on a session-level `SET [SESSION] ficha.audit_maintenance`, or on a `set_config` of it whose value is not `pg_current_xact_id()::text` or whose third argument is not `true`.
 
