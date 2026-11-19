@@ -57,15 +57,13 @@ BEGIN
      'audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_check_session 7 public.audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'
-' ||
+     'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_stamp_transaction_id 7 public.audit_rows_stamp_transaction_id() when=- cols= args=0 constraint=f'),
     (platform,
      'platform_audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_check_session 7 public.platform_audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'
-' ||
+     'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_stamp_transaction_id 7 public.audit_rows_stamp_transaction_id() when=- cols= args=0 constraint=f'),
     (alerts,
      'sysadmin_alerts_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
