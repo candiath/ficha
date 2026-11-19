@@ -24,7 +24,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 - **Netlify** — la web. Un sitio (`fichita`) con dos contextos de deploy.
 - **Neon** — Postgres 18. `production` is in the project `rapid-band-cliniplus-ohio` (us-east-2, next to Lightsail); `staging`, `development` and `ci` are in `ficha-pg18` (sa-east-1). Both projects also hold branches that are not in use (`docs/infra.md`).
 
-**Production holds no real clinical data yet, and is handled as if it did.** The launch of 2026-10-12 (the first wipe, #223) was postponed to correct the data model: what production holds since then is the clinic's trial, and it is wiped again before the relaunch (#238). Real clinical data starts at the relaunch. `staging`, `development` and `ci` hold only test data, and no branch is ever created from `production` except a temporary rehearsal branch, deleted when the rehearsal ends (see `docs/infra.md`).
+**Production holds real clinical data since the relaunch of 2026-11-19** (#238). The launch of 2026-10-12 (the first wipe, #223) was postponed to correct the data model; what production held between the two was the clinic's trial, removed by the relaunch's wipe, which was production's last. It holds the clinic and a support clinic with made-up data, for reproducing what a user sees. `staging`, `development` and `ci` hold only test data, and no branch is ever created from `production` except a temporary rehearsal branch, deleted when the rehearsal ends (see `docs/infra.md`).
 
 | | Producción | Testing | Desarrollo |
 | --- | --- | --- | --- |
