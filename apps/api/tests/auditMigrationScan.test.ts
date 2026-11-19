@@ -242,10 +242,15 @@ const AUDIT_NAMES = new RegExp(
 const FORBIDDEN: [string, RegExp][] = [
   // COLUMN is optional in Postgres: `ALTER TABLE audit_logs DROP entity_id`
   // drops it too, and `ALTER "params" TYPE …` rewrites it. Any ALTER or DROP
-  // inside an ALTER TABLE, except the constraint and column-property forms
-  // (DROP NOT NULL, DROP DEFAULT…), which ALTER COLUMN already names.
-  ['ALTER COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+(?!CONSTRAINT\b)/i],
-  ['DROP COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bDROP\s+(?!CONSTRAINT\b|NOT\s+NULL\b|DEFAULT\b|EXPRESSION\b|IDENTITY\b)/i],
+  // inside an ALTER TABLE, except the column-property forms (DROP NOT NULL,
+  // DROP DEFAULT…), which ALTER COLUMN already names, DROP CONSTRAINT, which
+  // has its own entry, and ALTER CONSTRAINT, which no rule names:
+  // audit-guards.sql pins every constraint of the audit tables, and a foreign
+  // key made NOT ENFORCED (Postgres 18) is no longer convalidated.
+  // One \s, and the rest inside the lookahead: a \s+ outside it would give
+  // back a space and let `DROP  CONSTRAINT` through as a column.
+  ['ALTER COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s(?!\s*CONSTRAINT\b)/i],
+  ['DROP COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bDROP\s(?!\s*(?:CONSTRAINT|NOT\s+NULL|DEFAULT|EXPRESSION|IDENTITY)\b)/i],
   ['RENAME', /\bRENAME\b/i],
   ['DROP TABLE', /\bDROP\s+TABLE\b/i],
   ['DROP CONSTRAINT', /\bDROP\s+CONSTRAINT\b/i],
@@ -397,7 +402,16 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TABLE "audit_logs" DROP CONSTRAINT "x";')).toEqual([
       'DROP CONSTRAINT: ALTER TABLE "audit_logs" DROP CONSTRAINT "x"',
     ]);
+    for (const property of ['DROP DEFAULT', 'DROP EXPRESSION', 'DROP IDENTITY IF EXISTS', 'DROP  NOT\n  NULL']) {
+      const sql = `ALTER TABLE "audit_logs" ALTER COLUMN "x" ${property};`;
+      expect(auditDdlViolations(sql), sql).toEqual([`ALTER COLUMN: ${sql.slice(0, -1).replace(/\s+/g, ' ')}`]);
+    }
+    // However the keywords are spaced.
+    expect(auditDdlViolations('ALTER TABLE "audit_logs"\n  DROP\n  CONSTRAINT "x";')).toEqual([
+      'DROP CONSTRAINT: ALTER TABLE "audit_logs" DROP CONSTRAINT "x"',
+    ]);
     expect(auditDdlViolations('ALTER TABLE "audit_logs" ADD COLUMN "x" UUID;')).toEqual([]);
+    expect(auditDdlViolations('ALTER TABLE "audit_logs" ADD COLUMN "drop" TEXT, ADD COLUMN "alter" TEXT;')).toEqual([]);
   });
 
   it('catches an audit enum dropped', () => {
