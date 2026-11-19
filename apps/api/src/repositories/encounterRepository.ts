@@ -173,9 +173,9 @@ export interface EncounterRepository {
     patientId: string,
     id: string,
     input: { reasonNote?: string | null },
-    // Built with the annulled encounter and the status of the payment that was
-    // deleted with it, or null if it had none.
-    audit: (encounter: EncounterDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
+    // Built with the annulled encounter. The payment deleted with it, if any,
+    // gets its own row (PAYMENT_DELETED), written by the repository.
+    audit: (encounter: EncounterDTO) => AuditEntry,
   ): Promise<'annulled' | 'not_found' | 'paid'>;
   /** not_found if there is no current encounter of that patient with that id. */
   update(

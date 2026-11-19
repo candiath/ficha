@@ -547,7 +547,7 @@ export const prismaEncounterRepository: EncounterRepository = {
     patientId: string,
     id: string,
     input: { reasonNote?: string | null },
-    audit: (encounter: EncounterDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
+    audit: (encounter: EncounterDTO) => AuditEntry,
   ): Promise<'annulled' | 'not_found' | 'paid'> {
     const db = forTenant(ctx);
 
@@ -576,14 +576,14 @@ export const prismaEncounterRepository: EncounterRepository = {
       //    The patient goes in the where too: an encounter of another patient,
       //    sent under this patient's URL, is not found below, and its payment
       //    must not be deleted on the way.
-      //    RETURNING says which status it had, for the audit row: the one
-      //    trace of a deleted payment (review of #292). Raw SQL, so the
-      //    tenant goes in the where by hand.
-      const removed = await tx.$queryRaw<{ status: 'PENDING' | 'WAIVED' }[]>`
+      //    RETURNING says which payment it was and its status, for its audit
+      //    row (PAYMENT_DELETED): the one trace of a deleted payment (review
+      //    of #292). Raw SQL, so the tenant goes in the where by hand.
+      const removed = await tx.$queryRaw<{ id: string; status: 'PENDING' | 'WAIVED' }[]>`
         DELETE FROM payments
          WHERE encounter_id = ${id}::uuid AND patient_id = ${patientId}::uuid
            AND tenant_id = ${ctx.tenantId}::uuid AND status <> 'PAID'
-        RETURNING status::text AS status`;
+        RETURNING id::text AS id, status::text AS status`;
 
       // 2. Annul the encounter only if no payment is left on it. If the payment
       //    was paid it still exists and this updateMany touches nothing: the
@@ -629,7 +629,7 @@ export const prismaEncounterRepository: EncounterRepository = {
         });
         const encounter = toDTO(row);
         const version = encounter.version + 1;
-        const auditLogId = await recordAudit(tx, ctx, audit({ ...encounter, version }, removed[0]?.status ?? null));
+        const auditLogId = await recordAudit(tx, ctx, audit({ ...encounter, version }));
         await recordRevision(tx, ctx, 'encounter_revisions', {
           aggregateId: id,
           patientId,
@@ -638,6 +638,17 @@ export const prismaEncounterRepository: EncounterRepository = {
           snapshot: encounterSnapshot(row),
           reasonNote: input.reasonNote,
         });
+        // The payment deleted with it, a fact of its own (as PAYMENT_CREATED
+        // is when an encounter creates one): its row names it, and shares the
+        // annulment's transaction_id.
+        for (const payment of removed) {
+          await recordAudit(tx, ctx, {
+            action: 'PAYMENT_DELETED',
+            patientId,
+            entityId: payment.id,
+            params: { status: payment.status },
+          });
+        }
         return 'annulled';
       }
 

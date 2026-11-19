@@ -64,9 +64,17 @@ describe('annulling an encounter', () => {
   }
 
   // What the annulment's audit row says happened to the payment.
-  async function annulledPayment(encounterId: string) {
-    const row = await prisma.auditLog.findFirstOrThrow({ where: { entityId: encounterId, action: 'ENCOUNTER_ANNULLED' } });
-    return (row.params as { payment: string }).payment;
+  // The payment the annulment deleted, as its own audit row: found through the
+  // annulment's transaction_id, which is what ties the two together.
+  async function deletedPayment(encounterId: string) {
+    const annulment = await prisma.auditLog.findFirstOrThrow({
+      where: { entityId: encounterId, action: 'ENCOUNTER_ANNULLED' },
+    });
+    const rows = await prisma.auditLog.findMany({
+      where: { transactionId: annulment.transactionId, action: 'PAYMENT_DELETED' },
+      select: { entity: true, entityId: true, params: true },
+    });
+    return rows.length === 0 ? null : rows;
   }
 
   async function paymentOf(encounterId: string) {
@@ -81,20 +89,23 @@ describe('annulling an encounter', () => {
 
     const row = await prisma.encounter.findUnique({ where: { id } });
     expect(row?.deletedAt).not.toBeNull();
-    expect(await annulledPayment(id)).toBe('NONE');
+    expect(await deletedPayment(id)).toBeNull();
   });
 
   it('takes its pending payment: no charge is left for a visit that did not happen', async () => {
     const id = await createEncounter({ baseAmountCents: 15000 });
-    expect(await paymentOf(id)).toBeDefined();
+    const payment = await paymentOf(id);
+    expect(payment).toBeDefined();
 
     expect((await annul(id)).status).toBe(204);
 
-    // Deleted for real: no money came in, so it is not history. The
-    // annulment's audit row is its trace.
+    // Deleted for real: no money came in, so it is not history. Its own audit
+    // row, in the annulment's transaction, is its trace.
     expect(await paymentOf(id)).toBeUndefined();
     expect(await prisma.payment.findFirst({ where: { encounterId: id } })).toBeNull();
-    expect(await annulledPayment(id)).toBe('PENDING_DELETED');
+    expect(await deletedPayment(id)).toEqual([
+      { entity: 'PAYMENT', entityId: payment.id, params: { status: 'PENDING' } },
+    ]);
   });
 
   it('answers 409 to a paid encounter and changes nothing', async () => {
@@ -126,7 +137,9 @@ describe('annulling an encounter', () => {
 
     expect((await annul(id)).status).toBe(204);
     expect(await paymentOf(id)).toBeUndefined();
-    expect(await annulledPayment(id)).toBe('WAIVED_DELETED');
+    expect(await deletedPayment(id)).toEqual([
+      { entity: 'PAYMENT', entityId: payment.id, params: { status: 'WAIVED' } },
+    ]);
   });
 
   it('an annulled encounter cannot be read alone, edited or annulled again', async () => {

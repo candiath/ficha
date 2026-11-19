@@ -60,14 +60,6 @@ export const AUDIT_APPOINTMENT_STATUSES = {
   NO_SHOW: 'no asistió',
 } as const;
 
-// What annulling an encounter did to its payment (ENCOUNTER_ANNULLED): a pending or
-// waived one is deleted with it, and a paid one refuses the annulment.
-export const AUDIT_ANNULLED_ENCOUNTER_PAYMENTS = {
-  NONE: 'sin cobro',
-  PENDING_DELETED: 'se eliminó su cobro pendiente',
-  WAIVED_DELETED: 'se eliminó su cobro eximido',
-} as const;
-
 // Why a clinical record was corrected or annulled (SPEC-clinical-revisions.md
 // §4). Attached to each *_UPDATED and annulment action in the step that
 // versions its aggregate: the catalog validates strictly, so a parameter is
@@ -361,23 +353,21 @@ export const AUDIT_ACTIONS = {
     ENCOUNTER_ANNULLED: action({
       entity: 'ENCOUNTER',
       kind: 'delete',
-      // `payment`: a pending or waived payment goes with the encounter, and the
-      // row says so; there is no other trace of it.
+      // A pending or waived payment goes with the encounter: PAYMENT_DELETED,
+      // a row of its own in the same transaction (same transaction_id). Until
+      // 2026-11-19 a `payment` parameter here said so; it was removed before
+      // the relaunch, when no real row held it.
       params: {
         encounterType: code(AUDIT_ENCOUNTER_TYPES),
         reason: code(AUDIT_REVISION_REASONS),
-        payment: code(AUDIT_ANNULLED_ENCOUNTER_PAYMENTS),
       },
       label: 'Sesión anulada',
-      describe: (p) => {
-        const what =
-          p.encounterType === 'DISCHARGE'
-            ? 'Anuló el alta'
-            : p.encounterType === 'NOTE'
-              ? 'Anuló una nota clínica'
-              : 'Anuló una sesión';
-        return p.payment && p.payment !== 'NONE' ? `${what} (${AUDIT_ANNULLED_ENCOUNTER_PAYMENTS[p.payment]})` : what;
-      },
+      describe: (p) =>
+        p.encounterType === 'DISCHARGE'
+          ? 'Anuló el alta'
+          : p.encounterType === 'NOTE'
+            ? 'Anuló una nota clínica'
+            : 'Anuló una sesión',
     }),
     PAYMENT_CREATED: action({
       entity: 'PAYMENT',
@@ -396,6 +386,16 @@ export const AUDIT_ACTIONS = {
         const changed = joinFields(p.changedFields, AUDIT_PAYMENT_FIELDS);
         return withStatus(changed ? `Actualizó ${changed} del cobro` : 'Actualizó el cobro', p.status);
       },
+    }),
+    // Only annulling its encounter deletes a payment, and only a pending or
+    // waived one (a paid one refuses the annulment). The status is the one
+    // deleted.
+    PAYMENT_DELETED: action({
+      entity: 'PAYMENT',
+      kind: 'delete',
+      params: { status: code(AUDIT_PAYMENT_STATUSES) },
+      label: 'Cobro eliminado',
+      describe: (p) => withStatus('Eliminó un cobro', p.status),
     }),
     CONSENT_SIGNED: action({
       entity: 'CONSENT',
