@@ -135,15 +135,18 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
     reason:
       'Before the relaunch, with no row holding them, the dead audit codes leave the enums (AuditAction, ' +
       'AuditEntity, PlatformAction). Postgres cannot drop an enum value, so each type is recreated: a new ' +
-      'type, the column switched through text, the old type dropped and the new one renamed. A DO block ' +
+      'type, the column switched through text, the old type dropped (after the switch, so no CASCADE) and the new one renamed. A DO block ' +
       'before each switch fails the migration if a row still holds a removed value. A type change rewrites ' +
       'the table without firing the row triggers, and audit-guards.sql passes unchanged.',
     violations: [
       'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "action" TYPE "AuditAction_new" USING "action"::text::"AuditAction_new"',
+      'DROP TYPE: DROP TYPE "AuditAction"',
       'RENAME: ALTER TYPE "AuditAction_new" RENAME TO "AuditAction"',
       'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "entity" TYPE "AuditEntity_new" USING "entity"::text::"AuditEntity_new"',
+      'DROP TYPE: DROP TYPE "AuditEntity"',
       'RENAME: ALTER TYPE "AuditEntity_new" RENAME TO "AuditEntity"',
       'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "action" TYPE "PlatformAction_new" USING "action"::text::"PlatformAction_',
+      'DROP TYPE: DROP TYPE "PlatformAction"',
       'RENAME: ALTER TYPE "PlatformAction_new" RENAME TO "PlatformAction"',
     ],
   },
@@ -236,8 +239,12 @@ const AUDIT_NAMES = new RegExp(
 );
 
 const FORBIDDEN: [string, RegExp][] = [
-  ['ALTER COLUMN', /\bALTER\s+COLUMN\b/i],
-  ['DROP COLUMN', /\bDROP\s+COLUMN\b/i],
+  // COLUMN is optional in Postgres: `ALTER TABLE audit_logs DROP entity_id`
+  // drops it too, and `ALTER "params" TYPE …` rewrites it. Any ALTER or DROP
+  // inside an ALTER TABLE, except the constraint and column-property forms
+  // (DROP NOT NULL, DROP DEFAULT…), which ALTER COLUMN already names.
+  ['ALTER COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+(?!CONSTRAINT\b)/i],
+  ['DROP COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bDROP\s+(?!CONSTRAINT\b|NOT\s+NULL\b|DEFAULT\b|EXPRESSION\b|IDENTITY\b)/i],
   ['RENAME', /\bRENAME\b/i],
   ['DROP TABLE', /\bDROP\s+TABLE\b/i],
   ['DROP CONSTRAINT', /\bDROP\s+CONSTRAINT\b/i],
@@ -263,21 +270,41 @@ const FORBIDDEN: [string, RegExp][] = [
   ['CREATE OR REPLACE FUNCTION', /\bCREATE\s+OR\s+REPLACE\s+FUNCTION\b/i],
   ['ALTER FUNCTION', /\bALTER\s+FUNCTION\b/i],
   ['DROP FUNCTION', /\bDROP\s+FUNCTION\b/i],
+  // Recreating an audit enum (new type, column switched, old type dropped)
+  // done in the wrong order fails without CASCADE, and CASCADE drops the
+  // column with every row's code.
+  ['DROP TYPE', /\bDROP\s+TYPE\b/i],
 ];
+
+// SQL built at run time (EXECUTE in a DO block or a function) names no table
+// the scan can read: a loop over every table with created_at reaches the
+// audit tables unseen. Flagged whatever it names; EXECUTE FUNCTION and
+// EXECUTE PROCEDURE are a trigger's, not dynamic SQL.
+const DYNAMIC_SQL = /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE)\b)/i;
+
+// The flag that allows deleting audit rows (docs/infra.md#audit-tables) exists
+// only on development, ci and the test database. A migration that creates it
+// would hand it to production; the deploy's no-audit-maintenance.sql sees it
+// only after the migration committed.
+const MAINTENANCE_FLAG = /\b(ficha_ops|audit_maintenance_allowed)\b/i;
 
 // What a migration does to the audit tables that it may not: one entry per
 // offending statement. Statements are split on ";", which is good enough to
-// find them (a function body split in two still names what it touches).
+// find them (a function body split in two still names what it touches). It
+// guards against our own mistakes, not against a migration written to evade
+// it. Dynamic SQL and the maintenance flag count wherever they appear; the
+// rest only in a statement that names an audit table, function or enum.
 function auditDdlViolations(sql: string): string[] {
   const code = sql.replace(/--[^\n]*/g, '');
   const violations: string[] = [];
   if (/session_replication_role/i.test(code)) violations.push('session_replication_role');
   for (const statement of code.split(';')) {
+    const text = statement.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (DYNAMIC_SQL.test(statement)) violations.push(`DYNAMIC SQL: ${text}`);
+    if (MAINTENANCE_FLAG.test(statement)) violations.push(`MAINTENANCE FLAG: ${text}`);
     if (!AUDIT_NAMES.test(statement)) continue;
     for (const [name, pattern] of FORBIDDEN) {
-      if (pattern.test(statement)) {
-        violations.push(`${name}: ${statement.trim().replace(/\s+/g, ' ').slice(0, 120)}`);
-      }
+      if (pattern.test(statement)) violations.push(`${name}: ${text}`);
     }
   }
   return violations;
@@ -350,5 +377,47 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('DROP INDEX CONCURRENTLY IF EXISTS "audit_logs_created_at_idx";')).toHaveLength(1);
     // A column named after a table in the singular is not the table.
     expect(auditDdlViolations('ALTER TABLE "x" DROP COLUMN "audit_log_id";')).toEqual([]);
+  });
+
+  // Mistakes a migration written by hand can make (#337's review).
+  it('catches a column dropped or retyped without the word COLUMN', () => {
+    expect(auditDdlViolations('ALTER TABLE "audit_logs" DROP "entity_id";')).toEqual([
+      'DROP COLUMN: ALTER TABLE "audit_logs" DROP "entity_id"',
+    ]);
+    expect(auditDdlViolations('ALTER TABLE ONLY audit_logs DROP IF EXISTS entity_id;')).toHaveLength(1);
+    expect(auditDdlViolations(`ALTER TABLE "audit_logs" ALTER "params" TYPE jsonb USING '{}'::jsonb;`)).toEqual([
+      `ALTER COLUMN: ALTER TABLE "audit_logs" ALTER "params" TYPE jsonb USING '{}'::jsonb`,
+    ]);
+    // The column-property and constraint forms are what they were: one entry each.
+    expect(auditDdlViolations('ALTER TABLE "audit_logs" ALTER COLUMN "description" DROP NOT NULL;')).toEqual([
+      'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "description" DROP NOT NULL',
+    ]);
+    expect(auditDdlViolations('ALTER TABLE "audit_logs" DROP CONSTRAINT "x";')).toEqual([
+      'DROP CONSTRAINT: ALTER TABLE "audit_logs" DROP CONSTRAINT "x"',
+    ]);
+    expect(auditDdlViolations('ALTER TABLE "audit_logs" ADD COLUMN "x" UUID;')).toEqual([]);
+  });
+
+  it('catches an audit enum dropped', () => {
+    expect(auditDdlViolations('DROP TYPE "AuditAction" CASCADE;')).toEqual(['DROP TYPE: DROP TYPE "AuditAction" CASCADE']);
+    expect(auditDdlViolations('DROP TYPE "ScaleType";')).toEqual([]);
+  });
+
+  it('catches dynamic SQL, whatever it names', () => {
+    const loop = `DO $$ DECLARE r record; BEGIN
+      FOR r IN SELECT table_name FROM information_schema.columns WHERE column_name = 'created_at' LOOP
+        EXECUTE format('ALTER TABLE %I ALTER created_at TYPE timestamptz', r.table_name);
+      END LOOP; END $$;`;
+    expect(auditDdlViolations(loop)).toHaveLength(1);
+    expect(auditDdlViolations(loop)[0]).toMatch(/^DYNAMIC SQL: /);
+    // A trigger's EXECUTE FUNCTION is not dynamic SQL.
+    expect(
+      auditDdlViolations('CREATE TRIGGER t BEFORE INSERT ON "patients" FOR EACH ROW EXECUTE FUNCTION public.f();'),
+    ).toEqual([]);
+  });
+
+  it('catches the maintenance flag created', () => {
+    expect(auditDdlViolations('CREATE SCHEMA IF NOT EXISTS ficha_ops;')).toHaveLength(1);
+    expect(auditDdlViolations('CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();')).toHaveLength(1);
   });
 });
