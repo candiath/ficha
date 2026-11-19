@@ -289,18 +289,13 @@ const FORBIDDEN: [string, RegExp][] = [
 // privilege, not dynamic SQL.
 const DYNAMIC_SQL = /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE|ON)\b)/i;
 
-// The flag that allows deleting audit rows (docs/infra.md#audit-tables) exists
-// only on development, ci and the test database. A migration that creates it
-// would hand it to production; the deploy's no-audit-maintenance.sql sees it
-// only after the migration committed.
-const MAINTENANCE_FLAG = /\b(ficha_ops|audit_maintenance_allowed)\b/i;
-
 // What a migration does to the audit tables that it may not: one entry per
 // offending statement. Statements are split on ";", which is good enough to
 // find them (a function body split in two still names what it touches). It
 // guards against our own mistakes, not against a migration written to evade
-// it. Dynamic SQL and the maintenance flag count wherever they appear; the
-// rest only in a statement that names an audit table, function or enum.
+// it. Dynamic SQL counts wherever it appears; the rest only in a statement
+// that names an audit table, function or enum. A migration that names the
+// maintenance flag fails noMaintenanceFlagMigration.test.ts, not this scan.
 function auditDdlViolations(sql: string): string[] {
   // Comments are not statements: both forms go, as in noMaintenanceFlagMigration.test.ts.
   const code = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
@@ -309,7 +304,6 @@ function auditDdlViolations(sql: string): string[] {
   for (const statement of code.split(';')) {
     const text = statement.trim().replace(/\s+/g, ' ').slice(0, 120);
     if (DYNAMIC_SQL.test(statement)) violations.push(`DYNAMIC SQL: ${text}`);
-    if (MAINTENANCE_FLAG.test(statement)) violations.push(`MAINTENANCE FLAG: ${text}`);
     if (!AUDIT_NAMES.test(statement)) continue;
     for (const [name, pattern] of FORBIDDEN) {
       if (pattern.test(statement)) violations.push(`${name}: ${text}`);
@@ -457,10 +451,5 @@ CREATE UNIQUE INDEX "audit_logs_tenant_id_id_key" ON "audit_logs"("tenant_id", "
     );
     expect(auditDdlViolations('REVOKE EXECUTE ON FUNCTION public.audit_maintenance_on() FROM PUBLIC;')).toEqual([]);
     expect(auditDdlViolations('ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO app;')).toEqual([]);
-  });
-
-  it('catches the maintenance flag created', () => {
-    expect(auditDdlViolations('CREATE SCHEMA IF NOT EXISTS ficha_ops;')).toHaveLength(1);
-    expect(auditDdlViolations('CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();')).toHaveLength(1);
   });
 });
