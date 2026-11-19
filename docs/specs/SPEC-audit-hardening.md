@@ -157,9 +157,9 @@ Seven triggers, and no others:
   - `DROP INDEX`, `DROP TYPE`, `INHERITS`, `ATTACH PARTITION` and `ENABLE REPLICA/ALWAYS TRIGGER`;
   - every enum of an audit table;
   - column changes written without the word `COLUMN`;
-  - any dynamic SQL (`EXECUTE`) and any mention of the maintenance flag, wherever they appear.
+  - any dynamic SQL (`EXECUTE`), wherever it appears.
 
-  The names it looks for come from `tests/auditTables.ts`, which `tests/auditTablesCoverage.test.ts` checks against the database. The scan guards against our own mistakes, not against a migration written to evade it.
+  The names it looks for come from `tests/auditTables.ts`, which `tests/auditTablesCoverage.test.ts` checks against the database. The scan guards against our own mistakes, not against a migration written to evade it. A migration that names the maintenance flag fails a test of its own, `tests/noMaintenanceFlagMigration.test.ts`, which reads every migration, the frozen ones too.
 
   Any of these passes only if the migration is on an allowlist, with its reason. Row triggers do not see DDL. This test is what keeps a type change (Prisma's `DROP COLUMN` + `ADD COLUMN`) from silently destroying audit content.
 - **The switch stays out of the app.** A test scans `apps/api`, `.github` and the root `package.json`. It fails when the switch's name appears outside an exact list of files: the migration, `tests/helpers.ts`, `tests/auditHardening.test.ts`, the scan test itself, `prisma/seed.ts` and `scripts/purge-test-audit.ts`. It builds the name by concatenation so as not to find itself. It also fails, anywhere, on a session-level `SET [SESSION] ficha.audit_maintenance`, or on a `set_config` of it whose value is not `pg_current_xact_id()::text` or whose third argument is not `true`.

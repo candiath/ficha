@@ -231,20 +231,26 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 // out of the scan.
 // A table's name also matches as the start of a longer one: its indexes,
 // constraints and triggers are named after it (audit_logs_tenant_id_patient_id_id_key),
-// and `_` is a word character, so \b alone would not see them.
+// and `_` is a word character, so \b alone would not see them. An enum's too:
+// Prisma recreates one as <name>_new and drops the old one as <name>_old.
 const AUDIT_NAMES = new RegExp(
-  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES].join('|')})(_\\w+)?\\b` +
-    `|\\b(${[...AUDIT_FUNCTIONS, ...AUDIT_ENUMS].join('|')})\\b`,
+  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES, ...AUDIT_ENUMS].join('|')})(_\\w+)?\\b` +
+    `|\\b(${AUDIT_FUNCTIONS.join('|')})\\b`,
   'i',
 );
 
 const FORBIDDEN: [string, RegExp][] = [
   // COLUMN is optional in Postgres: `ALTER TABLE audit_logs DROP entity_id`
   // drops it too, and `ALTER "params" TYPE …` rewrites it. Any ALTER or DROP
-  // inside an ALTER TABLE, except the constraint and column-property forms
-  // (DROP NOT NULL, DROP DEFAULT…), which ALTER COLUMN already names.
-  ['ALTER COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+(?!CONSTRAINT\b)/i],
-  ['DROP COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bDROP\s+(?!CONSTRAINT\b|NOT\s+NULL\b|DEFAULT\b|EXPRESSION\b|IDENTITY\b)/i],
+  // inside an ALTER TABLE, except the column-property forms (DROP NOT NULL,
+  // DROP DEFAULT…), which ALTER COLUMN already names, DROP CONSTRAINT, which
+  // has its own entry, and ALTER CONSTRAINT, which no rule names:
+  // audit-guards.sql pins every constraint of the audit tables, and a foreign
+  // key made NOT ENFORCED (Postgres 18) is no longer convalidated.
+  // One \s, and the rest inside the lookahead: a \s+ outside it would give
+  // back a space and let `DROP  CONSTRAINT` through as a column.
+  ['ALTER COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bALTER\s(?!\s*CONSTRAINT\b)/i],
+  ['DROP COLUMN', /\bALTER\s+TABLE\b[\s\S]*?\bDROP\s(?!\s*(?:CONSTRAINT|NOT\s+NULL|DEFAULT|EXPRESSION|IDENTITY)\b)/i],
   ['RENAME', /\bRENAME\b/i],
   ['DROP TABLE', /\bDROP\s+TABLE\b/i],
   ['DROP CONSTRAINT', /\bDROP\s+CONSTRAINT\b/i],
@@ -279,29 +285,25 @@ const FORBIDDEN: [string, RegExp][] = [
 // SQL built at run time (EXECUTE in a DO block or a function) names no table
 // the scan can read: a loop over every table with created_at reaches the
 // audit tables unseen. Flagged whatever it names; EXECUTE FUNCTION and
-// EXECUTE PROCEDURE are a trigger's, not dynamic SQL.
-const DYNAMIC_SQL = /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE)\b)/i;
-
-// The flag that allows deleting audit rows (docs/infra.md#audit-tables) exists
-// only on development, ci and the test database. A migration that creates it
-// would hand it to production; the deploy's no-audit-maintenance.sql sees it
-// only after the migration committed.
-const MAINTENANCE_FLAG = /\b(ficha_ops|audit_maintenance_allowed)\b/i;
+// EXECUTE PROCEDURE are a trigger's, and EXECUTE ON (GRANT, REVOKE) a
+// privilege, not dynamic SQL.
+const DYNAMIC_SQL = /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE|ON)\b)/i;
 
 // What a migration does to the audit tables that it may not: one entry per
 // offending statement. Statements are split on ";", which is good enough to
 // find them (a function body split in two still names what it touches). It
 // guards against our own mistakes, not against a migration written to evade
-// it. Dynamic SQL and the maintenance flag count wherever they appear; the
-// rest only in a statement that names an audit table, function or enum.
+// it. Dynamic SQL counts wherever it appears; the rest only in a statement
+// that names an audit table, function or enum. A migration that names the
+// maintenance flag fails noMaintenanceFlagMigration.test.ts, not this scan.
 function auditDdlViolations(sql: string): string[] {
-  const code = sql.replace(/--[^\n]*/g, '');
+  // Comments are not statements: both forms go, as in noMaintenanceFlagMigration.test.ts.
+  const code = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
   const violations: string[] = [];
   if (/session_replication_role/i.test(code)) violations.push('session_replication_role');
   for (const statement of code.split(';')) {
     const text = statement.trim().replace(/\s+/g, ' ').slice(0, 120);
     if (DYNAMIC_SQL.test(statement)) violations.push(`DYNAMIC SQL: ${text}`);
-    if (MAINTENANCE_FLAG.test(statement)) violations.push(`MAINTENANCE FLAG: ${text}`);
     if (!AUDIT_NAMES.test(statement)) continue;
     for (const [name, pattern] of FORBIDDEN) {
       if (pattern.test(statement)) violations.push(`${name}: ${text}`);
@@ -358,6 +360,20 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TYPE "AuditAction" ADD VALUE \'VIEWED\';')).toEqual([]);
     expect(auditDdlViolations('ALTER TABLE "patients" DROP COLUMN "notes";')).toEqual([]);
     expect(auditDdlViolations('-- DROP TRIGGER audit_logs_append_only (a comment)')).toEqual([]);
+    // Prisma's warnings, a block comment glued to the first statement, can name
+    // an audit table that statement does not touch.
+    const warned = `/*
+  Warnings:
+
+  - A unique constraint covering the columns \`[tenant_id,id]\` on the table \`audit_logs\` will be added. If there are existing duplicate values, this will fail.
+
+*/
+-- DropIndex
+DROP INDEX "patients_tenant_id_idx";
+
+-- CreateIndex
+CREATE UNIQUE INDEX "audit_logs_tenant_id_id_key" ON "audit_logs"("tenant_id", "id");`;
+    expect(auditDdlViolations(warned)).toEqual([]);
 
     // The alert tables are audit tables too.
     expect(auditDdlViolations('DROP TRIGGER sysadmin_alerts_append_only ON sysadmin_alerts;')).toHaveLength(1);
@@ -395,12 +411,27 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TABLE "audit_logs" DROP CONSTRAINT "x";')).toEqual([
       'DROP CONSTRAINT: ALTER TABLE "audit_logs" DROP CONSTRAINT "x"',
     ]);
+    for (const property of ['DROP DEFAULT', 'DROP EXPRESSION', 'DROP IDENTITY IF EXISTS', 'DROP  NOT\n  NULL']) {
+      const sql = `ALTER TABLE "audit_logs" ALTER COLUMN "x" ${property};`;
+      expect(auditDdlViolations(sql), sql).toEqual([`ALTER COLUMN: ${sql.slice(0, -1).replace(/\s+/g, ' ')}`]);
+    }
+    // However the keywords are spaced.
+    expect(auditDdlViolations('ALTER TABLE "audit_logs"\n  DROP\n  CONSTRAINT "x";')).toEqual([
+      'DROP CONSTRAINT: ALTER TABLE "audit_logs" DROP CONSTRAINT "x"',
+    ]);
     expect(auditDdlViolations('ALTER TABLE "audit_logs" ADD COLUMN "x" UUID;')).toEqual([]);
+    expect(auditDdlViolations('ALTER TABLE "audit_logs" ADD COLUMN "drop" TEXT, ADD COLUMN "alter" TEXT;')).toEqual([]);
   });
 
   it('catches an audit enum dropped', () => {
     expect(auditDdlViolations('DROP TYPE "AuditAction" CASCADE;')).toEqual(['DROP TYPE: DROP TYPE "AuditAction" CASCADE']);
     expect(auditDdlViolations('DROP TYPE "ScaleType";')).toEqual([]);
+    // Prisma recreates an enum under a temporary name: the old type is renamed
+    // to <name>_old and dropped under that name.
+    expect(auditDdlViolations('DROP TYPE "AuditAction_old" CASCADE;')).toEqual([
+      'DROP TYPE: DROP TYPE "AuditAction_old" CASCADE',
+    ]);
+    expect(auditDdlViolations('DROP TYPE "PlatformAuditEntity_old";')).toHaveLength(1);
   });
 
   it('catches dynamic SQL, whatever it names', () => {
@@ -410,14 +441,15 @@ describe('migrations leave the audit tables alone', () => {
       END LOOP; END $$;`;
     expect(auditDdlViolations(loop)).toHaveLength(1);
     expect(auditDdlViolations(loop)[0]).toMatch(/^DYNAMIC SQL: /);
-    // A trigger's EXECUTE FUNCTION is not dynamic SQL.
+    // A trigger's EXECUTE FUNCTION or PROCEDURE is not dynamic SQL, nor is the
+    // EXECUTE privilege.
     expect(
       auditDdlViolations('CREATE TRIGGER t BEFORE INSERT ON "patients" FOR EACH ROW EXECUTE FUNCTION public.f();'),
     ).toEqual([]);
-  });
-
-  it('catches the maintenance flag created', () => {
-    expect(auditDdlViolations('CREATE SCHEMA IF NOT EXISTS ficha_ops;')).toHaveLength(1);
-    expect(auditDdlViolations('CREATE TABLE IF NOT EXISTS ficha_ops.audit_maintenance_allowed ();')).toHaveLength(1);
+    expect(auditDdlViolations('CREATE TRIGGER t AFTER UPDATE ON "patients" FOR EACH ROW EXECUTE PROCEDURE f();')).toEqual(
+      [],
+    );
+    expect(auditDdlViolations('REVOKE EXECUTE ON FUNCTION public.audit_maintenance_on() FROM PUBLIC;')).toEqual([]);
+    expect(auditDdlViolations('ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO app;')).toEqual([]);
   });
 });
