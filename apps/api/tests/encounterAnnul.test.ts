@@ -63,7 +63,6 @@ describe('annulling an encounter', () => {
     return auth(request(app).post(`${encountersUrl()}/${encounterId}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
   }
 
-  // What the annulment's audit row says happened to the payment.
   // The payment the annulment deleted, as its own audit row: found through the
   // annulment's transaction_id, which is what ties the two together.
   async function deletedPayment(encounterId: string) {
