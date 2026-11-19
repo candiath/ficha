@@ -175,7 +175,7 @@ describe('audit rows record codes, never values', () => {
 
     const res = await auth(request(app).patch(`/api/patients/${patient.id}/encounters/${encounter.id}`)).send({
       reason: 'DATA_ENTRY_ERROR',
-      encounterType: 'DISCHARGE',
+      encounterType: 'NOTE',
       episodes: [{ episodeId: encounter.episodeId, painScaleAfter: 1 }],
       observations: null,
     });
@@ -186,7 +186,7 @@ describe('audit rows record codes, never values', () => {
       // observations was already empty: not a change.
       {
         action: 'ENCOUNTER_UPDATED',
-        params: { encounterType: 'DISCHARGE', changedFields: ['encounterType', 'painScaleAfter'], reason: 'DATA_ENTRY_ERROR' },
+        params: { encounterType: 'NOTE', changedFields: ['encounterType', 'painScaleAfter'], reason: 'DATA_ENTRY_ERROR' },
       },
     ]);
   });
