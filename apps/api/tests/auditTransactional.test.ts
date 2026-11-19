@@ -10,13 +10,13 @@ import {
   packageRepo,
   patientRepo,
   paymentRepo,
-  sessionRepo,
+  encounterRepo,
 } from '../src/repositories';
 import type { AuditEntry } from '../src/repositories/auditLogRepository';
 import type { TenantContext } from '../src/repositories/types';
 import { AuditEntryError } from '../src/repositories/prisma/recordAudit';
 import { ZodError } from 'zod';
-import { createSessionFixture, deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic, splitName } from './helpers';
+import { createPatientRecord, createEncounterFixture, deleteAuditRows, createTestContext, createTestClinic, patientAudit, type TestClinic, splitName } from './helpers';
 import { fixture } from './fixtures';
 
 // #188: an audited write and its audit row commit together or not at all.
@@ -48,19 +48,19 @@ describe('audit rows are written in the same transaction as their action', () =>
     });
 
   const newPatient = (fullName: string) =>
-    patientRepo.create(ctx, splitName(fullName), patientAudit('CREATED'));
+    createPatientRecord(ctx, splitName(fullName), patientAudit('CREATED'));
 
-  // A session treating an episode of its own, as every session does (#238).
-  const newSession = async (patientId: string) => {
+  // An encounter treating an episode of its own, as every encounter does (#238).
+  const newEncounter = async (patientId: string) => {
     const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId },
       select: { id: true },
     });
-    return createSessionFixture({
+    return createEncounterFixture({
       tenantId: clinic.tenantId,
       patientId,
       userId: user.id,
-      sessionDate: new Date(),
+      encounterDate: new Date(),
       blocks: [{ episodeId: episode.id }],
     });
   };
@@ -77,9 +77,9 @@ describe('audit rows are written in the same transaction as their action', () =>
     await prisma.appointment.deleteMany({ where: { tenantId } });
     await prisma.payment.deleteMany({ where: { tenantId } });
     await prisma.sessionPackage.deleteMany({ where: { tenantId } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId } });
     await prisma.initialEvaluation.deleteMany({ where: { tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId } });
     await prisma.informedConsent.deleteMany({ where: { tenantId } });
@@ -100,12 +100,12 @@ describe('audit rows are written in the same transaction as their action', () =>
   // as a 400 with the parameter's details. It still rolls the write back.
   it('an entry the catalog refuses rolls the write back, as a server error', async () => {
     const before = await prisma.patient.count({ where: { tenantId: clinic.tenantId } });
-    const deprecated = (p: { id: string }) =>
-      ({ action: 'CREATED', patientId: p.id, entityId: p.id, params: {} }) as unknown as AuditEntry;
+    const unknown = (p: { id: string }) =>
+      ({ action: 'NOT_AN_ACTION', patientId: p.id, entityId: p.id, params: {} }) as unknown as AuditEntry;
     const freeText = (p: { id: string }) =>
       ({ action: 'PATIENT_UPDATED', patientId: p.id, entityId: p.id, params: { changedFields: ['Dolor 42%'] } }) as unknown as AuditEntry;
 
-    for (const entry of [deprecated, freeText]) {
+    for (const entry of [unknown, freeText]) {
       const error = await patientRepo.create(ctx, { firstName: 'Rechazada', lastName: 'Test' }, entry).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(AuditEntryError);
       expect(error).not.toBeInstanceOf(ZodError);
@@ -115,7 +115,7 @@ describe('audit rows are written in the same transaction as their action', () =>
   });
 
   it('a patient update is rolled back when its audit row fails', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Original', lastName: 'Test' }, patientAudit('CREATED'));
+    const patient = await createPatientRecord(ctx, { firstName: 'Original', lastName: 'Test' }, patientAudit('CREATED'));
 
     await expect(
       patientRepo.update(ctx, patient.id, { firstName: 'Cambiado', lastName: 'Test' }, broken),
@@ -125,20 +125,20 @@ describe('audit rows are written in the same transaction as their action', () =>
     expect(row).toMatchObject({ firstName: 'Original', lastName: 'Test' });
   });
 
-  it('a clinical session, its blocks and its payment are not created when the audit row fails', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Con', lastName: 'Sesión' }, patientAudit('CREATED'));
+  it('a clinical encounter, its blocks and its payment are not created when the audit row fails', async () => {
+    const patient = await createPatientRecord(ctx, { firstName: 'Con', lastName: 'Sesión' }, patientAudit('CREATED'));
     const episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
     });
 
     await expect(
-      sessionRepo.create(
+      encounterRepo.create(
         ctx,
         patient.id,
         {
-          sessionType: 'SESSION',
-          sessionDate: new Date(),
+          encounterType: 'SESSION',
+          encounterDate: new Date(),
           episodes: [{ episodeId: episode.id, painScaleBefore: 5 }],
           payment: { baseAmountCents: 1000, discountCents: 0 },
         },
@@ -146,25 +146,25 @@ describe('audit rows are written in the same transaction as their action', () =>
       ),
     ).rejects.toThrow();
 
-    expect(await prisma.session.count({ where: { patientId: patient.id } })).toBe(0);
-    expect(await prisma.sessionEpisode.count({ where: { patientId: patient.id } })).toBe(0);
+    expect(await prisma.encounter.count({ where: { patientId: patient.id } })).toBe(0);
+    expect(await prisma.encounterBlock.count({ where: { patientId: patient.id } })).toBe(0);
     expect(await prisma.payment.count({ where: { patientId: patient.id } })).toBe(0);
   });
 
   it('a payment is not created when its audit row fails', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Con', lastName: 'Cobro' }, patientAudit('CREATED'));
-    const session = await createSessionFixture({
+    const patient = await createPatientRecord(ctx, { firstName: 'Con', lastName: 'Cobro' }, patientAudit('CREATED'));
+    const encounter = await createEncounterFixture({
       tenantId: clinic.tenantId,
       patientId: patient.id,
       userId: user.id,
-      sessionDate: new Date(),
+      encounterDate: new Date(),
     });
 
     await expect(
-      paymentRepo.create(ctx, { sessionId: session.id, baseAmountCents: 1000, discountCents: 0 }, broken),
+      paymentRepo.create(ctx, { encounterId: encounter.id, baseAmountCents: 1000, discountCents: 0 }, broken),
     ).rejects.toThrow();
 
-    expect(await prisma.payment.count({ where: { sessionId: session.id } })).toBe(0);
+    expect(await prisma.payment.count({ where: { encounterId: encounter.id } })).toBe(0);
   });
 
   it('a patient is not soft-deleted when its audit row fails', async () => {
@@ -233,34 +233,34 @@ describe('audit rows are written in the same transaction as their action', () =>
     expect(await prisma.initialEvaluation.count({ where: { episodeId: episode.id } })).toBe(0);
   });
 
-  it('a clinical session update is rolled back when its audit row fails', async () => {
+  it('a clinical encounter update is rolled back when its audit row fails', async () => {
     const patient = await newPatient('Sesión Intacta');
-    const session = await newSession(patient.id);
+    const encounter = await newEncounter(patient.id);
 
     await expect(
-      sessionRepo.update(ctx, patient.id, session.id, { observations: 'cambiada' }, broken),
+      encounterRepo.update(ctx, patient.id, encounter.id, { observations: 'cambiada' }, broken),
     ).rejects.toThrow();
 
-    const row = await prisma.session.findUniqueOrThrow({ where: { id: session.id } });
+    const row = await prisma.encounter.findUniqueOrThrow({ where: { id: encounter.id } });
     expect(row.observations).toBeNull();
   });
 
-  it('a clinical session is not annulled when its audit row fails', async () => {
+  it('a clinical encounter is not annulled when its audit row fails', async () => {
     const patient = await newPatient('Sesión Vigente');
-    const session = await newSession(patient.id);
+    const encounter = await newEncounter(patient.id);
 
-    await expect(sessionRepo.annul(ctx, patient.id, session.id, {}, broken)).rejects.toThrow();
+    await expect(encounterRepo.annul(ctx, patient.id, encounter.id, {}, broken)).rejects.toThrow();
 
-    const row = await prisma.session.findUniqueOrThrow({ where: { id: session.id } });
+    const row = await prisma.encounter.findUniqueOrThrow({ where: { id: encounter.id } });
     expect(row.deletedAt).toBeNull();
   });
 
   it('a payment update is rolled back when its audit row fails', async () => {
     const patient = await newPatient('Cobro Intacto');
-    const session = await newSession(patient.id);
+    const encounter = await newEncounter(patient.id);
     const created = await paymentRepo.create(
       ctx,
-      { sessionId: session.id, baseAmountCents: 1000, discountCents: 0 },
+      { encounterId: encounter.id, baseAmountCents: 1000, discountCents: 0 },
       validFor(patient.id),
     );
     if (!created.ok) throw new Error('setup: payment not created');
@@ -352,7 +352,7 @@ describe('audit rows are written in the same transaction as their action', () =>
   });
 
   it('a successful write leaves exactly one audit row, attributed to the actor', async () => {
-    const patient = await patientRepo.create(ctx, { firstName: 'Auditado', lastName: 'Test' }, patientAudit('CREATED'));
+    const patient = await createPatientRecord(ctx, { firstName: 'Auditado', lastName: 'Test' }, patientAudit('CREATED'));
 
     const rows = await prisma.auditLog.findMany({ where: { patientId: patient.id } });
     expect(rows).toHaveLength(1);

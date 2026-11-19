@@ -5,20 +5,17 @@ import ChangePasswordDialog, { type PasswordSession } from '@/components/account
 import UndeliveredAlertBanner from '@/components/platform/UndeliveredAlertBanner';
 import { Button } from '@/components/ui/button';
 import { usePlatformAuth } from '@/contexts/PlatformAuthContext';
-import { platformApi } from '@/lib/api';
 import { platformAuthApi } from '@/services/platform';
 
 // El mismo diálogo que usa Mi cuenta en la clínica, contra la sesión del
 // operador: otro endpoint y otro lugar donde guardar el token nuevo. Sin
 // esto, la contraseña con la que se creó al operador (una variable de
 // entorno en una línea de shell) quedaba como la única, salvo por curl.
-// The operator is still on a JWT, and changing the password invalidates every
-// earlier token, including this one: store the new token it gets back.
+// The current session survives the change (the API revokes the others), so
+// the stored token stays as it is.
 const operatorSession: PasswordSession = {
-  changePassword: async (currentPassword, newPassword) => {
-    const { token } = await platformAuthApi.changePassword(currentPassword, newPassword);
-    platformApi.setToken(token);
-  },
+  changePassword: (currentPassword, newPassword) =>
+    platformAuthApi.changePassword(currentPassword, newPassword),
 };
 
 // Layout mínimo del operador: una barra con quién está logueado, cambiar

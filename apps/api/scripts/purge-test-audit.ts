@@ -40,7 +40,7 @@ async function main() {
       SELECT t.id FROM tenants t
       WHERE t.slug ~ '^test-[0-9a-f]{8}$'
         AND t.name = 'Clínica Test ' || substr(t.slug, 6)
-        AND t.created_at < (now() AT TIME ZONE 'UTC') - interval '1 hour'
+        AND t.created_at < now() - interval '1 hour'
         AND NOT EXISTS (
           SELECT 1 FROM users u WHERE u.tenant_id = t.id AND u.email NOT LIKE ${TEST_DOMAIN}
         )`;
@@ -48,12 +48,12 @@ async function main() {
 
     // Revisions first: each one restricts deleting the audit row it names.
     const clinicsOf = { where: { tenantId: { in: tenantIds } } };
-    await tx.sessionRevision.deleteMany(clinicsOf);
+    await tx.encounterRevision.deleteMany(clinicsOf);
     await tx.patientRevision.deleteMany(clinicsOf);
     await tx.episodeRevision.deleteMany(clinicsOf);
     await tx.evaluationRevision.deleteMany(clinicsOf);
     await tx.consentRevision.deleteMany(clinicsOf);
-    await tx.patientEventRevision.deleteMany(clinicsOf);
+    await tx.patientAntecedentRevision.deleteMany(clinicsOf);
     const clinicalRows = await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     const platformRows = await tx.platformAuditLog.deleteMany({
       where: {

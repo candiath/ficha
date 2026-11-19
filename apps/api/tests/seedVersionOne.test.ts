@@ -23,11 +23,11 @@ describe('versionUnversioned (the seed’s version 1)', () => {
       const tenantId = c.tenantId;
       const where = { tenantId };
       await deleteAuditRows([tenantId]);
-      await prisma.sessionEpisode.deleteMany({ where });
-      await prisma.session.deleteMany({ where });
+      await prisma.encounterBlock.deleteMany({ where });
+      await prisma.encounter.deleteMany({ where });
       await prisma.informedConsent.deleteMany({ where });
       await prisma.initialEvaluation.deleteMany({ where });
-      await prisma.patientEvent.deleteMany({ where });
+      await prisma.patientAntecedent.deleteMany({ where });
       await prisma.clinicalEpisode.deleteMany({ where });
       await prisma.patient.deleteMany({ where });
       await c.cleanup();
@@ -43,22 +43,22 @@ describe('versionUnversioned (the seed’s version 1)', () => {
     const second = await prisma.clinicalEpisode.create({ data: { ...owner, mainComplaint: 'Cervicalgia' } });
     const evaluation = await prisma.initialEvaluation.create({ data: { ...owner, episodeId: episode.id } });
     const consent = await prisma.informedConsent.create({ data: { ...owner, signedAt: new Date() } });
-    const event = await prisma.patientEvent.create({ data: { ...owner, kind: 'SURGERY', description: 'Cesárea' } });
-    const session = await prisma.session.create({
+    const antecedent = await prisma.patientAntecedent.create({ data: { ...owner, kind: 'SURGERY', description: 'Cesárea' } });
+    const encounter = await prisma.encounter.create({
       data: {
         ...owner,
         userId: user.id,
-        sessionDate: new Date(),
+        encounterDate: new Date(),
         episodes: { create: [{ episodeId: episode.id, treatment: 'Movilización' }] },
       },
     });
     // Two blocks, the later episode first: the snapshot orders them.
-    const discharge = await prisma.session.create({
+    const discharge = await prisma.encounter.create({
       data: {
         ...owner,
         userId: user.id,
-        sessionType: 'DISCHARGE',
-        sessionDate: new Date(),
+        encounterType: 'DISCHARGE',
+        encounterDate: new Date(),
         episodes: {
           create: [
             { episodeId: second.id, treatment: 'Alta' },
@@ -81,7 +81,7 @@ describe('versionUnversioned (the seed’s version 1)', () => {
       select: { id: true, entity: true, entityId: true, action: true, params: true, actorType: true },
     });
     expect(new Set(audit.map((a) => a.entityId))).toEqual(
-      new Set([patient.id, episode.id, second.id, evaluation.id, consent.id, event.id, session.id, discharge.id]),
+      new Set([patient.id, episode.id, second.id, evaluation.id, consent.id, antecedent.id, encounter.id, discharge.id]),
     );
     for (const row of audit) {
       expect(row.actorType).toBe('SYSTEM');
@@ -92,7 +92,7 @@ describe('versionUnversioned (the seed’s version 1)', () => {
 
     // Each revision points at its own aggregate's audit row.
     const byId = new Map(audit.map((a) => [a.id, a.entityId]));
-    const revision = await prisma.sessionRevision.findFirstOrThrow({ where: { sessionId: discharge.id } });
+    const revision = await prisma.encounterRevision.findFirstOrThrow({ where: { encounterId: discharge.id } });
     expect(byId.get(revision.auditLogId)).toBe(discharge.id);
 
     // A second run of the seed writes nothing.

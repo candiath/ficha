@@ -238,11 +238,11 @@ export const prismaEpisodeRepository: EpisodeRepository = {
       select: {
         id: true,
         patientId: true,
-        sessions: {
-          where: { session: { deletedAt: null } },
-          orderBy: { session: { sessionDate: 'desc' } },
+        blocks: {
+          where: { encounter: { deletedAt: null } },
+          orderBy: { encounter: { encounterDate: 'desc' } },
           take: 1,
-          select: { session: { select: { sessionDate: true } } },
+          select: { encounter: { select: { encounterDate: true } } },
         },
       },
     });
@@ -251,7 +251,7 @@ export const prismaEpisodeRepository: EpisodeRepository = {
       .map((row) => ({
         patientId: row.patientId,
         episodeId: row.id,
-        lastActivityAt: row.sessions[0]?.session.sessionDate ?? null,
+        lastActivityAt: row.blocks[0]?.encounter.encounterDate ?? null,
       }))
       .filter((e) => e.lastActivityAt === null || e.lastActivityAt < cutoff)
       .map((e) => ({ ...e, lastActivityAt: e.lastActivityAt?.toISOString() ?? null }));
@@ -263,13 +263,13 @@ export const prismaEpisodeRepository: EpisodeRepository = {
     episodeId: string,
   ): Promise<Date | null> {
     const db = forTenant(ctx);
-    const lastSession = await db.session.findFirst({
+    const lastEncounter = await db.encounter.findFirst({
       // deletedAt: null — una sesión borrada no cuenta como actividad, o el
       // episodio parecería vivo por algo que se dio de baja.
       where: { deletedAt: null, patientId, episodes: { some: { episodeId } } },
-      orderBy: { sessionDate: 'desc' },
-      select: { sessionDate: true },
+      orderBy: { encounterDate: 'desc' },
+      select: { encounterDate: true },
     });
-    return lastSession?.sessionDate ?? null;
+    return lastEncounter?.encounterDate ?? null;
   },
 };

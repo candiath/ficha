@@ -16,7 +16,7 @@ import { z } from 'zod';
  * un paciente que venís tratando hace meses— la API lo acepta y el frontend
  * lo advierte.
  *
- * Nació como `sessionDate.ts`, con la fecha de sesión como único caso (#51).
+ * Nació como `encounterDate.ts`, con la fecha de sesión como único caso (#51).
  * El tope no tiene nada de particular a las sesiones —un año tipeado mal es
  * un año tipeado mal en cualquier fecha de la ficha—, así que cuando los
  * episodios necesitaron el mismo piso se generalizó en vez de copiarse: el
@@ -86,7 +86,7 @@ export function isClinicalDateBeforeFloor(date: Date): boolean {
  *  - los .refine() aplican los topes duros que el frontend no tiene (allá sólo
  *    se advierte): un margen de días hacia adelante y un piso absoluto hacia
  *    atrás. Al vivir en el field, cubren POST y PATCH por igual:
- *    SessionUpdateSchema es .partial(), pero el refine corre cuando la fecha
+ *    EncounterUpdateSchema es .partial(), pero el refine corre cuando la fecha
  *    viene presente.
  *
  * `subject` es cómo se llama la fecha en los mensajes de error ("La fecha de
@@ -105,5 +105,5 @@ export function clinicalDateField(subject: string) {
     });
 }
 
-export const sessionDateField = clinicalDateField('La fecha de sesión');
+export const encounterDateField = clinicalDateField('La fecha de sesión');
 

@@ -35,7 +35,7 @@ export const PasswordSchema = z
 //
 // It comes out in lowercase, the form Postgres returns a `uuid` in. Postgres
 // compares uuids regardless of case, but the API also compares ids in code: a
-// session's blocks are matched to the stored ones by `episodeId`, and an
+// encounter's blocks are matched to the stored ones by `episodeId`, and an
 // uppercase id would miss, rebuild its block from empty and write a revision
 // for a save that changed nothing.
 export const IdSchema = z.uuid('Id inválido').transform((id) => id.toLowerCase());

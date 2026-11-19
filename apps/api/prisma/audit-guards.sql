@@ -11,9 +11,9 @@
 -- The audit tables are audit_logs, platform_audit_logs, and since
 -- sysadmin-alerts (docs/specs/SPEC-sysadmin-alerts.md) sysadmin_alerts and
 -- sysadmin_alert_deliveries. The clinical revisions tables get the same checks
--- (docs/specs/SPEC-clinical-revisions.md §6): session_revisions, patient_revisions,
+-- (docs/specs/SPEC-clinical-revisions.md §6): encounter_revisions, patient_revisions,
 -- episode_revisions, evaluation_revisions, consent_revisions and
--- patient_event_revisions.
+-- patient_antecedent_revisions.
 DO $guards$
 DECLARE
   -- The audit tables, resolved without erroring: a missing one is reported
@@ -23,12 +23,12 @@ DECLARE
   platform regclass := to_regclass('public.platform_audit_logs');
   alerts regclass := to_regclass('public.sysadmin_alerts');
   deliveries regclass := to_regclass('public.sysadmin_alert_deliveries');
-  session_revs regclass := to_regclass('public.session_revisions');
+  encounter_revs regclass := to_regclass('public.encounter_revisions');
   patient_revs regclass := to_regclass('public.patient_revisions');
   episode_revs regclass := to_regclass('public.episode_revisions');
   evaluation_revs regclass := to_regclass('public.evaluation_revisions');
   consent_revs regclass := to_regclass('public.consent_revisions');
-  event_revs regclass := to_regclass('public.patient_event_revisions');
+  antecedent_revs regclass := to_regclass('public.patient_antecedent_revisions');
 
   problems text[] := '{}';
   tbl regclass;
@@ -40,15 +40,15 @@ BEGIN
   IF platform IS NULL THEN problems := problems || 'table platform_audit_logs is missing'::text; END IF;
   IF alerts IS NULL THEN problems := problems || 'table sysadmin_alerts is missing'::text; END IF;
   IF deliveries IS NULL THEN problems := problems || 'table sysadmin_alert_deliveries is missing'::text; END IF;
-  IF session_revs IS NULL THEN problems := problems || 'table session_revisions is missing'::text; END IF;
+  IF encounter_revs IS NULL THEN problems := problems || 'table encounter_revisions is missing'::text; END IF;
   IF patient_revs IS NULL THEN problems := problems || 'table patient_revisions is missing'::text; END IF;
   IF episode_revs IS NULL THEN problems := problems || 'table episode_revisions is missing'::text; END IF;
   IF evaluation_revs IS NULL THEN problems := problems || 'table evaluation_revisions is missing'::text; END IF;
   IF consent_revs IS NULL THEN problems := problems || 'table consent_revisions is missing'::text; END IF;
-  IF event_revs IS NULL THEN problems := problems || 'table patient_event_revisions is missing'::text; END IF;
+  IF antecedent_revs IS NULL THEN problems := problems || 'table patient_antecedent_revisions is missing'::text; END IF;
 
   -- Triggers: exactly these, enabled. Each one is described by its name,
-  -- timing/events/level (tgtype), the function it calls, its WHEN condition
+  -- timing/antecedents/level (tgtype), the function it calls, its WHEN condition
   -- (hashed: pg_get_expr cannot print one that reads both NEW and OLD),
   -- its UPDATE OF columns, its arguments and whether it is a constraint
   -- trigger. Internal triggers (foreign keys) are checked below as constraints.
@@ -57,11 +57,14 @@ BEGIN
      'audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_check_session 7 public.audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
+     'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'\n' ||
+     'audit_logs_stamp_transaction_id 7 public.audit_rows_stamp_transaction_id() when=- cols= args=0 constraint=f'),
     (platform,
      'platform_audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'platform_audit_logs_check_session 7 public.platform_audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
+     'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'\n' ||
+     'platform_audit_logs_stamp_transaction_id 7 public.audit_rows_stamp_transaction_id() when=- cols= args=0 constraint=f'),
     (alerts,
      'sysadmin_alerts_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alerts_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
@@ -70,9 +73,9 @@ BEGIN
      'sysadmin_alert_deliveries_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alert_deliveries_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alert_deliveries_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
-    (session_revs,
-     'session_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'session_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
+    (encounter_revs,
+     'encounter_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'encounter_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
     (patient_revs,
      'patient_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'patient_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
@@ -85,9 +88,9 @@ BEGIN
     (consent_revs,
      'consent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'consent_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f'),
-    (event_revs,
-     'patient_event_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'patient_event_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
+    (antecedent_revs,
+     'patient_antecedent_revisions_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
+     'patient_antecedent_revisions_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f')
   LOOP
     -- A missing table is already reported above.
     CONTINUE WHEN tbl IS NULL;
@@ -149,9 +152,9 @@ BEGIN
       (platform, 'platform_audit_logs_tenant_id_target_user_id_fkey', 'tenant_id,target_user_id', 'public.users'::regclass, 'tenant_id,id'),
       (alerts, 'sysadmin_alerts_operator_id_fkey', 'operator_id', 'public.platform_operators'::regclass, 'id'),
       (deliveries, 'sysadmin_alert_deliveries_alert_id_fkey', 'alert_id', alerts, 'id'),
-      (session_revs, 'session_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
-      (session_revs, 'session_revisions_tenant_id_patient_id_session_id_fkey', 'tenant_id,patient_id,session_id', 'public.sessions'::regclass, 'tenant_id,patient_id,id'),
-      (session_revs, 'session_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
+      (encounter_revs, 'encounter_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (encounter_revs, 'encounter_revisions_tenant_id_patient_id_encounter_id_fkey', 'tenant_id,patient_id,encounter_id', 'public.encounters'::regclass, 'tenant_id,patient_id,id'),
+      (encounter_revs, 'encounter_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
       (patient_revs, 'patient_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
       (patient_revs, 'patient_revisions_tenant_id_patient_id_fkey', 'tenant_id,patient_id', 'public.patients'::regclass, 'tenant_id,id'),
       (patient_revs, 'patient_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
@@ -164,9 +167,9 @@ BEGIN
       (consent_revs, 'consent_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
       (consent_revs, 'consent_revisions_tenant_id_patient_id_consent_id_fkey', 'tenant_id,patient_id,consent_id', 'public.informed_consents'::regclass, 'tenant_id,patient_id,id'),
       (consent_revs, 'consent_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id'),
-      (event_revs, 'patient_event_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
-      (event_revs, 'patient_event_revisions_tenant_id_patient_id_patient_event_fkey', 'tenant_id,patient_id,patient_event_id', 'public.patient_events'::regclass, 'tenant_id,patient_id,id'),
-      (event_revs, 'patient_event_revisions_tenant_id_patient_id_audit_log_id_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
+      (antecedent_revs, 'patient_antecedent_revisions_tenant_id_fkey', 'tenant_id', 'public.tenants'::regclass, 'id'),
+      (antecedent_revs, 'patient_antecedent_revisions_tenant_id_patient_id_patient__fkey', 'tenant_id,patient_id,patient_antecedent_id', 'public.patient_antecedents'::regclass, 'tenant_id,patient_id,id'),
+      (antecedent_revs, 'patient_antecedent_revisions_tenant_id_patient_id_audit_lo_fkey', 'tenant_id,patient_id,audit_log_id', clinical, 'tenant_id,patient_id,id')
     ) AS fk(tbl, name, cols, target, target_cols)
   LOOP
     CONTINUE WHEN r.tbl IS NULL OR r.target IS NULL;
@@ -206,12 +209,18 @@ BEGIN
        $$CHECK (((actor_type <> 'OPERATOR'::"AuditActorType") AND ((actor_type = 'USER'::"AuditActorType") = (user_id IS NOT NULL))))$$),
       (platform, 'platform_audit_logs_actor_is_operator', $$CHECK ((actor_type = 'OPERATOR'::"AuditActorType"))$$),
       (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$),
-      (session_revs, 'session_revisions_version_positive', $$CHECK ((version >= 1))$$),
+      -- The nil default is what a row gets if the stamp trigger is missing
+      -- (20261121120000_audit_transaction_id): refused, so the insert fails.
+      (clinical, 'audit_logs_transaction_id_stamped',
+       $$CHECK ((transaction_id <> '00000000-0000-0000-0000-000000000000'::uuid))$$),
+      (platform, 'platform_audit_logs_transaction_id_stamped',
+       $$CHECK ((transaction_id <> '00000000-0000-0000-0000-000000000000'::uuid))$$),
+      (encounter_revs, 'encounter_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (patient_revs, 'patient_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (episode_revs, 'episode_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (evaluation_revs, 'evaluation_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (consent_revs, 'consent_revisions_version_positive', $$CHECK ((version >= 1))$$),
-      (event_revs, 'patient_event_revisions_version_positive', $$CHECK ((version >= 1))$$)
+      (antecedent_revs, 'patient_antecedent_revisions_version_positive', $$CHECK ((version >= 1))$$)
     ) AS c(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -229,18 +238,20 @@ BEGIN
       (platform, 'operator_id'),
       (clinical, 'params'),
       (clinical, 'actor_type'),
+      (clinical, 'transaction_id'),
       (platform, 'params'),
       (platform, 'actor_type'),
+      (platform, 'transaction_id'),
       (alerts, 'kind'),
       (deliveries, 'alert_id'),
       (deliveries, 'outcome'),
-      (session_revs, 'tenant_id'),
-      (session_revs, 'patient_id'),
-      (session_revs, 'session_id'),
-      (session_revs, 'version'),
-      (session_revs, 'audit_log_id'),
-      (session_revs, 'snapshot'),
-      (session_revs, 'schema_version'),
+      (encounter_revs, 'tenant_id'),
+      (encounter_revs, 'patient_id'),
+      (encounter_revs, 'encounter_id'),
+      (encounter_revs, 'version'),
+      (encounter_revs, 'audit_log_id'),
+      (encounter_revs, 'snapshot'),
+      (encounter_revs, 'schema_version'),
       (patient_revs, 'tenant_id'),
       (patient_revs, 'patient_id'),
       (patient_revs, 'version'),
@@ -268,13 +279,13 @@ BEGIN
       (consent_revs, 'audit_log_id'),
       (consent_revs, 'snapshot'),
       (consent_revs, 'schema_version'),
-      (event_revs, 'tenant_id'),
-      (event_revs, 'patient_id'),
-      (event_revs, 'patient_event_id'),
-      (event_revs, 'version'),
-      (event_revs, 'audit_log_id'),
-      (event_revs, 'snapshot'),
-      (event_revs, 'schema_version')
+      (antecedent_revs, 'tenant_id'),
+      (antecedent_revs, 'patient_id'),
+      (antecedent_revs, 'patient_antecedent_id'),
+      (antecedent_revs, 'version'),
+      (antecedent_revs, 'audit_log_id'),
+      (antecedent_revs, 'snapshot'),
+      (antecedent_revs, 'schema_version')
     ) AS c(tbl, col)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;
@@ -290,9 +301,14 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.audit_maintenance_on()', '475ea0b36f23ed709a26e54aa89fc4f2'),
       ('public.audit_rows_are_append_only()', 'c35b0c6e4047a5b148f0750d2e2f2065'),
-      ('public.audit_rows_stamp_created_at()', '0faed1c7656e41e1c747993b78b23af1'),
+      -- Since 20261116120000_timestamptz: clock_timestamp() into a timestamptz.
+      ('public.audit_rows_stamp_created_at()', '0005a6f9a83ea5bfae363642c491ed28'),
       ('public.audit_logs_check_session()', 'd6f9e9aa7014b9600e7c11f516f02af6'),
-      ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d')
+      -- Since 20261119120000_operator_session_revocation_and_audit.
+      ('public.platform_audit_logs_check_session()', '989bc29d29b7fbce61f9e4b0f690957c'),
+      ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d'),
+      -- Since 20261121120000_audit_transaction_id.
+      ('public.audit_rows_stamp_transaction_id()', 'f7f42ea45920934aa98d600bada602f5')
     ) AS f(signature, hash)
   LOOP
     IF to_regprocedure(r.signature) IS NULL THEN
@@ -303,16 +319,17 @@ BEGIN
   END LOOP;
 
   -- Indexes a guarantee rests on, by exact definition: one platform row per
-  -- action on an object (SPEC-audit-structured-entries.md §2), and the key the
+  -- object for the action that made it, a reset link or a test alert
+  -- (SPEC-audit-structured-entries.md §2), and the key the
   -- clinical revisions point at, so a version names an audit row of its own
   -- clinic and patient (SPEC-clinical-revisions.md §2).
   FOR r IN SELECT * FROM (VALUES
-      (platform, 'platform_audit_logs_action_entity_key',
-       'CREATE UNIQUE INDEX platform_audit_logs_action_entity_key ON public.platform_audit_logs USING btree (action, entity, entity_id) WHERE (entity IS NOT NULL)'),
+      (platform, 'platform_audit_logs_created_entity_key',
+       $$CREATE UNIQUE INDEX platform_audit_logs_created_entity_key ON public.platform_audit_logs USING btree (entity, entity_id) WHERE (action = ANY (ARRAY['PASSWORD_RESET_LINK_CREATED'::"PlatformAction", 'INVITATION_LINK_CREATED'::"PlatformAction", 'TEST_ALERT_SENT'::"PlatformAction"]))$$),
       (clinical, 'audit_logs_tenant_id_patient_id_id_key',
        'CREATE UNIQUE INDEX audit_logs_tenant_id_patient_id_id_key ON public.audit_logs USING btree (tenant_id, patient_id, id)'),
-      (session_revs, 'session_revisions_session_id_version_key',
-       'CREATE UNIQUE INDEX session_revisions_session_id_version_key ON public.session_revisions USING btree (session_id, version)'),
+      (encounter_revs, 'encounter_revisions_encounter_id_version_key',
+       'CREATE UNIQUE INDEX encounter_revisions_encounter_id_version_key ON public.encounter_revisions USING btree (encounter_id, version)'),
       (patient_revs, 'patient_revisions_patient_id_version_key',
        'CREATE UNIQUE INDEX patient_revisions_patient_id_version_key ON public.patient_revisions USING btree (patient_id, version)'),
       (episode_revs, 'episode_revisions_episode_id_version_key',
@@ -321,8 +338,8 @@ BEGIN
        'CREATE UNIQUE INDEX evaluation_revisions_evaluation_id_version_key ON public.evaluation_revisions USING btree (evaluation_id, version)'),
       (consent_revs, 'consent_revisions_consent_id_version_key',
        'CREATE UNIQUE INDEX consent_revisions_consent_id_version_key ON public.consent_revisions USING btree (consent_id, version)'),
-      (event_revs, 'patient_event_revisions_patient_event_id_version_key',
-       'CREATE UNIQUE INDEX patient_event_revisions_patient_event_id_version_key ON public.patient_event_revisions USING btree (patient_event_id, version)')
+      (antecedent_revs, 'patient_antecedent_revisions_patient_antecedent_id_version_key',
+       'CREATE UNIQUE INDEX patient_antecedent_revisions_patient_antecedent_id_version_key ON public.patient_antecedent_revisions USING btree (patient_antecedent_id, version)')
     ) AS i(tbl, name, def)
   LOOP
     CONTINUE WHEN r.tbl IS NULL;

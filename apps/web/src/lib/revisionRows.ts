@@ -1,19 +1,21 @@
 import {
-  ConsentSnapshotV1,
-  EpisodeSnapshotV1,
-  EvaluationSnapshotV1,
-  PatientEventSnapshotV1,
-  PatientSnapshotV1,
-  SessionSnapshotV1,
+  CONSENT_SNAPSHOTS,
+  DOCUMENT_TYPE_LABELS,
+  EPISODE_SNAPSHOTS,
+  EVALUATION_SNAPSHOTS,
+  PATIENT_ANTECEDENT_SNAPSHOTS,
+  PATIENT_SNAPSHOTS,
+  ENCOUNTER_SNAPSHOTS,
   formatPartialDate,
+  type SnapshotHistory,
 } from '@ficha/shared';
-import type { z } from 'zod';
 import {
   EPISODE_STATUS_LABELS,
-  PATIENT_EVENT_KIND_LABELS,
-  SESSION_TYPE_LABELS,
+  PATIENT_ANTECEDENT_KIND_LABELS,
+  ENCOUNTER_TYPE_LABELS,
   SEX_LABELS,
 } from '@/lib/labels';
+import { formatDay } from '@/lib/calendarDate';
 
 // How a revision's snapshot reads on screen (SPEC-clinical-revisions.md §7):
 // one renderer per aggregate turns its snapshot into labelled rows, read-only.
@@ -26,13 +28,13 @@ export interface SnapshotRow {
   label: string;
   value: string;
   compare?: string;
-  // Rows of one block of a session share a group: the problem it treated,
+  // Rows of one block of an encounter share a group: the problem it treated,
   // by its episode's id and named by its complaint (two may share a name).
   group?: { key: string; label: string };
 }
 
 export interface SnapshotRenderContext {
-  // A session's block names its episode by complaint.
+  // An encounter's block names its episode by complaint.
   episodeName?: (episodeId: string) => string;
 }
 
@@ -53,26 +55,35 @@ function date(iso: string | null): string {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-// A date of birth is the ISO string of its UTC midnight: read in UTC, or the
-// day before shows west of Greenwich.
-function utcDate(iso: string | null): string {
-  if (!iso) return EMPTY;
-  return new Date(iso).toLocaleDateString('es-AR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+// A date of birth is a day (YYYY-MM-DD, as the history reads every version of
+// the patient snapshot): written out from its parts, with no time zone to shift it.
+function day(value: string | null): string {
+  return formatDay(value) ?? EMPTY;
 }
 
-// A snapshot of a schema version this screen does not know, or that does not
-// parse, renders as null: the dialog says so instead of guessing.
-function parsed<S extends z.ZodType>(schema: S, version: number, snapshot: unknown, render: (s: z.infer<S>) => SnapshotRow[]) {
-  if (version !== 1) return null;
-  const result = schema.safeParse(snapshot);
-  return result.success ? render(result.data) : null;
+// A snapshot is shown in the current shape, whatever schema version it was
+// written with: its history reads it (packages/shared clinicalSnapshots.ts), so
+// a field a later version added shows as empty in the versions before it. One
+// of a version this build does not know, or that does not parse, renders as
+// null: the dialog says so instead of guessing.
+//
+// A version change that REMOVES a field needs a renderer of its own for the
+// old versions here, or what they held stops being shown.
+function parsed<Current>(
+  history: SnapshotHistory<Current>,
+  version: number,
+  snapshot: unknown,
+  render: (s: Current) => SnapshotRow[],
+) {
+  const current = history.read(version, snapshot);
+  return current === null ? null : render(current);
 }
 
-export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) =>
-  parsed(SessionSnapshotV1, version, snapshot, (s) => [
-    { key: 'sessionType', label: 'Tipo', value: SESSION_TYPE_LABELS[s.sessionType] ?? s.sessionType },
-    { key: 'sessionDate', label: 'Fecha', value: dateTime(s.sessionDate) },
-    ...(s.sessionType === 'NOTE' || s.observations ? [{ key: 'observations', label: 'Nota', value: text(s.observations) }] : []),
+export const renderEncounterSnapshot: SnapshotRenderer = (snapshot, version, ctx) =>
+  parsed(ENCOUNTER_SNAPSHOTS, version, snapshot, (s) => [
+    { key: 'encounterType', label: 'Tipo', value: ENCOUNTER_TYPE_LABELS[s.encounterType] ?? s.encounterType },
+    { key: 'encounterDate', label: 'Fecha', value: dateTime(s.encounterDate) },
+    ...(s.encounterType === 'NOTE' || s.observations ? [{ key: 'observations', label: 'Nota', value: text(s.observations) }] : []),
     ...s.episodes.flatMap((b) => {
       const group = { key: b.episodeId, label: `Motivo: ${ctx.episodeName?.(b.episodeId) ?? 'episodio'}` };
       const row = (field: string, label: string, value: string): SnapshotRow => ({
@@ -82,7 +93,7 @@ export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) 
         group,
       });
       return [
-        row('preSessionState', 'Estado previo', text(b.preSessionState)),
+        row('preEncounterState', 'Estado previo', text(b.preEncounterState)),
         row('treatment', 'Tratamiento', text(b.treatment)),
         row('painScaleBefore', 'Dolor al inicio', num(b.painScaleBefore)),
         row('painScaleAfter', 'Dolor al final', num(b.painScaleAfter)),
@@ -93,17 +104,22 @@ export const renderSessionSnapshot: SnapshotRenderer = (snapshot, version, ctx) 
   ]);
 
 export const renderPatientSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(PatientSnapshotV1, version, snapshot, (s) => [
+  parsed(PATIENT_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'firstName', label: 'Nombre', value: text(s.firstName) },
     { key: 'lastName', label: 'Apellido', value: text(s.lastName) },
-    { key: 'birthDate', label: 'Fecha de nacimiento', value: utcDate(s.birthDate) },
+    { key: 'birthDate', label: 'Fecha de nacimiento', value: day(s.birthDate) },
     { key: 'sex', label: 'Sexo', value: s.sex ? (SEX_LABELS[s.sex] ?? s.sex) : EMPTY },
+    {
+      key: 'document',
+      label: 'Documento',
+      value: s.documentType && s.documentNumber ? `${DOCUMENT_TYPE_LABELS[s.documentType]} ${s.documentNumber}` : EMPTY,
+    },
     { key: 'occupation', label: 'Ocupación', value: text(s.occupation) },
     { key: 'referringDoctor', label: 'Médico derivante', value: text(s.referringDoctor) },
   ]);
 
 export const renderEpisodeSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(EpisodeSnapshotV1, version, snapshot, (s) => [
+  parsed(EPISODE_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'mainComplaint', label: 'Motivo de consulta', value: text(s.mainComplaint) },
     { key: 'status', label: 'Estado', value: EPISODE_STATUS_LABELS[s.status] ?? s.status },
     { key: 'openedAt', label: 'Apertura', value: date(s.openedAt) },
@@ -111,33 +127,25 @@ export const renderEpisodeSnapshot: SnapshotRenderer = (snapshot, version) =>
   ]);
 
 export const renderEvaluationSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(EvaluationSnapshotV1, version, snapshot, (s) => [
+  parsed(EVALUATION_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'evaluatedAt', label: 'Fecha de evaluación', value: date(s.evaluatedAt) },
     { key: 'patientNarrative', label: 'Relato del paciente', value: text(s.patientNarrative) },
     { key: 'otherHistory', label: 'Otros antecedentes', value: text(s.otherHistory) },
     { key: 'physicalActivity', label: 'Actividad física', value: text(s.physicalActivity) },
     { key: 'painFrequency', label: 'Frecuencia del dolor', value: text(s.painFrequency) },
-    { key: 'evaScale', label: 'Escala EVA', value: num(s.evaScale) },
+    { key: 'painScale', label: 'Escala EVA', value: num(s.painScale) },
     { key: 'notes', label: 'Notas', value: text(s.notes) },
-    // Its shape is not defined yet (spec §3): whether it changed is shown, not
-    // the drawing.
-    {
-      key: 'retractionMap',
-      label: 'Mapa de retracciones',
-      value: s.retractionMap === null || s.retractionMap === undefined ? 'Sin marcar' : 'Con marcas',
-      compare: JSON.stringify(s.retractionMap ?? null),
-    },
   ]);
 
 export const renderConsentSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(ConsentSnapshotV1, version, snapshot, (s) => [
+  parsed(CONSENT_SNAPSHOTS, version, snapshot, (s) => [
     { key: 'signedAt', label: 'Firmado', value: dateTime(s.signedAt) },
     { key: 'revokedAt', label: 'Revocado', value: s.revokedAt ? dateTime(s.revokedAt) : 'No' },
   ]);
 
-export const renderPatientEventSnapshot: SnapshotRenderer = (snapshot, version) =>
-  parsed(PatientEventSnapshotV1, version, snapshot, (s) => [
-    { key: 'kind', label: 'Tipo', value: PATIENT_EVENT_KIND_LABELS[s.kind] ?? s.kind },
+export const renderPatientAntecedentSnapshot: SnapshotRenderer = (snapshot, version) =>
+  parsed(PATIENT_ANTECEDENT_SNAPSHOTS, version, snapshot, (s) => [
+    { key: 'kind', label: 'Tipo', value: PATIENT_ANTECEDENT_KIND_LABELS[s.kind] ?? s.kind },
     { key: 'description', label: 'Descripción', value: text(s.description) },
     {
       key: 'occurred',
@@ -158,8 +166,8 @@ export function changedKeys(rows: SnapshotRow[], previous: SnapshotRow[] | null)
 }
 
 // What the version before had and this one does not, by name: a block removed
-// from a session (its group), or a row shown only when it has a value (a
-// session's note, cleared). Without it, a removal would mark nothing.
+// from an encounter (its group), or a row shown only when it has a value (a
+// encounter's note, cleared). Without it, a removal would mark nothing.
 export function removedParts(rows: SnapshotRow[], previous: SnapshotRow[] | null): string[] {
   if (!previous) return [];
   const groups = new Set(rows.map((r) => r.group?.key));

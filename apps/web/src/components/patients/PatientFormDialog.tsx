@@ -33,21 +33,51 @@ import RevisionReasonField from '@/components/patients/RevisionReasonField';
 import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
+import { ApiError } from '@/lib/api';
+import { DOCUMENT_TYPES, DOCUMENT_TYPE_LABELS, normalizeDocumentNumber } from '@ficha/shared';
 
-const schema = z.object({
+// The select's value for "no document": a Select has no empty value.
+const NO_DOCUMENT = 'NONE';
+
+const schema = z
+  .object({
   firstName: z.string().trim().min(1, 'El nombre es obligatorio'),
   lastName: z.string().trim().min(1, 'El apellido es obligatorio'),
   birthDate: z.string().optional().or(z.literal('')),
   sex: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
+  documentType: z.enum([NO_DOCUMENT, ...DOCUMENT_TYPES]),
+  documentNumber: z.string(),
   phone: z.string().optional().or(z.literal('')),
   occupation: z.string().optional().or(z.literal('')),
   referringDoctor: z.string().optional().or(z.literal('')),
   insuranceName: z.string().optional().or(z.literal('')),
   insuranceNumber: z.string().optional().or(z.literal('')),
   insurancePlan: z.string().optional().or(z.literal('')),
-});
+  })
+  // The same rules as the API, with the same function, so the form says it
+  // before sending: a type and a number go together, and the number is one
+  // its type accepts.
+  .superRefine((values, ctx) => {
+    const number = values.documentNumber.trim();
+    if (values.documentType === NO_DOCUMENT) {
+      if (number) ctx.addIssue({ code: 'custom', path: ['documentType'], message: 'Elegí el tipo de documento' });
+      return;
+    }
+    if (!number) {
+      ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'Ingresá el número de documento' });
+      return;
+    }
+    const normalized = normalizeDocumentNumber(values.documentType, number);
+    if (!normalized.ok) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: normalized.error });
+  });
 
 import { SEX_LABELS } from '@/lib/labels';
+
+// The API's 409 for a document another patient of the clinic has: its body
+// names her. Any other 409 on an edit is a stale version.
+function isDocumentTaken(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 409 && 'holder' in err.body;
+}
 
 type FormValues = z.infer<typeof schema>;
 
@@ -63,8 +93,10 @@ function valuesOf(patient: Patient | undefined): FormValues {
   return {
     firstName: patient?.firstName ?? '',
     lastName: patient?.lastName ?? '',
-    birthDate: patient?.birthDate ? patient.birthDate.slice(0, 10) : '',
+    birthDate: patient?.birthDate ?? '',
     sex: patient?.sex ?? undefined,
+    documentType: patient?.documentType ?? NO_DOCUMENT,
+    documentNumber: patient?.documentNumber ?? '',
     phone: patient?.phone ?? '',
     occupation: patient?.occupation ?? '',
     referringDoctor: patient?.referringDoctor ?? '',
@@ -85,6 +117,8 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
       lastName: '',
       birthDate: '',
       sex: undefined,
+      documentType: NO_DOCUMENT,
+      documentNumber: '',
       phone: '',
       occupation: '',
       referringDoctor: '',
@@ -118,15 +152,22 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
   }, [open, isEditing, record, form]);
 
   const mutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      isEditing
+    mutationFn: ({ documentType, documentNumber, ...values }: FormValues) => {
+      // Type and number travel together; "no document" is both empty.
+      const data = {
+        ...values,
+        documentType: documentType === NO_DOCUMENT ? null : documentType,
+        documentNumber: documentType === NO_DOCUMENT ? null : documentNumber,
+      };
+      return isEditing
         ? patientApi.update(patient.id, {
-            ...values,
+            ...data,
             expectedVersion: record?.version,
             reason: revision.reason ?? undefined,
             reasonNote: revision.note,
           })
-        : patientApi.create(values),
+        : patientApi.create(data);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientKeys.all });
       toast.success(isEditing ? 'Paciente actualizado' : 'Paciente creado');
@@ -134,6 +175,12 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
       close();
     },
     onError: (err: Error) => {
+      // Another patient has that document: said on the field, with her name,
+      // and what was typed stays.
+      if (isDocumentTaken(err)) {
+        form.setError('documentNumber', { message: err.message });
+        return;
+      }
       if (isEditing && isStaleEdit(err)) {
         setStaleMessage(err.message);
         return;
@@ -237,6 +284,47 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="documentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de documento</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger aria-label="Tipo de documento">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_DOCUMENT}>Sin documento</SelectItem>
+                        {DOCUMENT_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {DOCUMENT_TYPE_LABELS[type]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="documentNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Número de documento</FormLabel>
+                    <FormControl>
+                      <Input placeholder="30.123.456" autoComplete="off" {...field} />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

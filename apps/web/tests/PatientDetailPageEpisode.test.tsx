@@ -25,7 +25,7 @@ vi.mock('@/services/episodes', () => ({
   episodeApi: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 }));
 
-// The page mounts the session form, which asks for the last price and the
+// The page mounts the encounter form, which asks for the last price and the
 // patient's packages. Answered here, or the requests would reach a dev API.
 vi.mock('@/services/payments', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/payments')>()),
@@ -258,5 +258,14 @@ describe('PatientDetailPage: the episode over its version', () => {
 
     await waitFor(() => expect(episodeApi.update).toHaveBeenCalledTimes(1));
     expect(vi.mocked(episodeApi.update).mock.calls[0][2]).toMatchObject({ mainComplaint: 'Mío', expectedVersion: 2 });
+  });
+});
+
+// Hidden until a consent records the text the patient signed (#248).
+describe('PatientDetailPage: tabs', () => {
+  it('offers no informed consent tab', async () => {
+    renderPage();
+    expect(await screen.findByRole('tab', { name: 'Sesiones' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Consentimiento' })).not.toBeInTheDocument();
   });
 });

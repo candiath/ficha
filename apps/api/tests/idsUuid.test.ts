@@ -79,7 +79,7 @@ describe('ids UUID', () => {
     });
 
     it('params anidados: el del router hijo y el del montaje', async () => {
-      const sesion = await auth(request(app).get(`/api/patients/${patientId}/sessions/${MALFORMADO}`));
+      const sesion = await auth(request(app).get(`/api/patients/${patientId}/encounters/${MALFORMADO}`));
       expect(sesion.status).toBe(404);
       expect(sesion.body).toEqual({ error: 'Sesión no encontrada' });
 

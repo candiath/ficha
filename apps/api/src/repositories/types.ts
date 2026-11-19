@@ -20,6 +20,11 @@ export interface TenantContext {
 // TenantContext: el operador no pertenece a ninguna clínica, y que los
 // repositorios de dominio no lo acepten es lo que le impide tocar datos
 // clínicos por accidente. Solo lo recibe platformRepository.
+//
+// operatorSessionId is the platform_operator_sessions row of the request, as
+// TenantContext.authSessionId is the clinic user's: logout revokes it, a
+// password change keeps it, and recordPlatformAudit stores it on the row.
 export interface OperatorContext {
   operatorId: string;
+  operatorSessionId: string;
 }

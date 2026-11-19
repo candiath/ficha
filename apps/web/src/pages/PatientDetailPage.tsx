@@ -1,10 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { DOCUMENT_TYPE_LABELS } from '@ficha/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, FileText, Link2, Pencil, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
+import { ageOnDay, formatDay } from '@/lib/calendarDate';
 import { useUnsavedChanges } from '@/lib/unsavedChanges';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,34 +27,31 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DirtyLabel } from '@/components/ui/dirty-label';
 import AbandonEpisodeConfirm from '@/components/patients/AbandonEpisodeConfirm';
-import { BodyDiagram } from '@/components/patients/BodyDiagram';
 import PatientFormDialog from '@/components/patients/PatientFormDialog';
 import RevisionReasonField from '@/components/patients/RevisionReasonField';
 import { useRevisionReason } from '@/hooks/useRevisionReason';
 import StaleRecordNotice from '@/components/patients/StaleRecordNotice'
 import { isStaleEdit } from '@/lib/staleEdit';
-import ConsentTab from '@/components/patients/ConsentTab';
 import { PatientHistoryCard } from '@/components/patients/PatientHistoryCard';
 import ActivityTimeline from '@/components/patients/ActivityTimeline';
-import SessionFormDialog from '@/components/sessions/SessionFormModalWide';
-import { SessionTypeBadge } from '@/components/sessions/SessionTypeBadge';
-import PainEvolutionChart from '@/components/sessions/PainEvolutionChart';
+import EncounterFormDialog from '@/components/encounters/EncounterFormModalWide';
+import { EncounterTypeBadge } from '@/components/encounters/EncounterTypeBadge';
+import PainEvolutionChart from '@/components/encounters/PainEvolutionChart';
 import { toast } from 'sonner';
 import { episodeApi, episodeKeys } from '@/services/episodes';
 import type { ClinicalEpisode, EpisodeUpdateData } from '@/types/episode';
 import { evaluationApi, evaluationKeys } from '@/services/evaluation';
 import { patientApi, patientKeys } from '@/services/patients';
-import { sessionApi, sessionKeys } from '@/services/sessions';
+import { encounterApi, encounterKeys } from '@/services/encounters';
 import {
   EPISODE_STATUS_CLASS,
   EPISODE_STATUS_LABELS,
   SEX_CLASS,
   SEX_LABELS,
 } from '@/lib/labels';
-import type { BodyMarker } from '@/types/evaluation';
-import { blockFor, type Session } from '@/types/session';
+import { blockFor, type Encounter } from '@/types/encounter';
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
-import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot, renderSessionSnapshot } from '@/lib/revisionRows';
+import { renderEpisodeSnapshot, renderEvaluationSnapshot, renderPatientSnapshot, renderEncounterSnapshot } from '@/lib/revisionRows';
 import { revisionPaths } from '@/services/revisions';
 
 const evalSchema = z.object({
@@ -62,7 +61,7 @@ const evalSchema = z.object({
   notes: z.string(),
   physicalActivity: z.string(),
   painFrequency: z.string(),
-  evaScale: z.string().optional().or(z.literal('')),
+  painScale: z.string().optional().or(z.literal('')),
 });
 
 type EvalFormValues = z.infer<typeof evalSchema>;
@@ -77,14 +76,9 @@ function formatDate(iso: string | null | undefined) {
   });
 }
 
-function getAge(iso: string | null | undefined): string | undefined {
-  if (!iso) return undefined;
-  const today = new Date();
-  const birth = new Date(iso);
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return `${age} años`;
+function getAge(day: string | null | undefined): string | undefined {
+  const age = ageOnDay(day);
+  return age === null ? undefined : `${age} años`;
 }
 
 function DetailField({ label, value }: { label: string; value?: React.ReactNode }) {
@@ -210,8 +204,6 @@ function EpisodeCombobox({
 // The patient's occupation is edited here too, so the tab carries her version.
 function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUnsavedChangesChange }: { patientId: string; episodeId: string; occupation?: string | null; patientVersion?: number; onUnsavedChangesChange?: (v: boolean) => void }) {
   const queryClient = useQueryClient();
-  const [retractionMap, setRetractionMap] = useState<BodyMarker[]>([]);
-  const [retractionMapDirty, setRetractionMapDirty] = useState(false);
   // A correction says why (SPEC-clinical-revisions.md §4); the first
   // evaluation does not, unless it also corrects the patient's occupation.
   const revision = useRevisionReason();
@@ -232,11 +224,11 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
       notes: '',
       physicalActivity: '',
       painFrequency: '',
-      evaScale: '',
+      painScale: '',
     },
   });
   const { isDirty, dirtyFields } = form.formState;
-  const hasUnsavedChanges = isDirty || retractionMapDirty;
+  const hasUnsavedChanges = isDirty;
 
   useEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges);
@@ -263,11 +255,8 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         notes: evaluation.notes ?? '',
         physicalActivity: evaluation.physicalActivity ?? '',
         painFrequency: evaluation.painFrequency ?? '',
-        evaScale: evaluation.evaScale ? String(evaluation.evaScale) : '',
+        painScale: evaluation.painScale ? String(evaluation.painScale) : '',
       });
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRetractionMap(evaluation.retractionMap ?? []);
-      setRetractionMapDirty(false);
     }
   }, [evaluation, form, occupation]);
 
@@ -279,10 +268,9 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
         patientNarrative: values.patientNarrative,
         otherHistory: values.otherHistory,
         notes: values.notes,
-        retractionMap: retractionMap.length > 0 ? retractionMap : null,
         physicalActivity: values.physicalActivity,
         painFrequency: values.painFrequency,
-        evaScale: values.evaScale ? Number(values.evaScale) : null,
+        painScale: values.painScale ? Number(values.painScale) : null,
         expectedVersion: evaluation?.version ?? 0,
         ...(evaluation ? { reason: revision.reason ?? undefined, reasonNote: revision.note } : {}),
       });
@@ -299,7 +287,6 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: evaluationKeys.detail(patientId, episodeId) });
       queryClient.invalidateQueries({ queryKey: patientKeys.detail(patientId) });
-      setRetractionMapDirty(false);
       revision.reset();
       toast.success('Evaluación guardada');
     },
@@ -454,15 +441,16 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
                 />
                 <FormField
                   control={form.control}
-                  name="evaScale"
+                  name="painScale"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.evaScale} /></FormLabel>
+                      <FormLabel><DirtyLabel label="Escala EVA (cuando siente dolor)" dirty={dirtyFields.painScale} /></FormLabel>
                       <FormControl>
                         <Input
                           type="number"
                           min="0"
                           max="10"
+                          step="1"
                           placeholder="0-10"
                           {...field}
                         />
@@ -475,27 +463,6 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
 
               <Separator />
 
-              {/* Mapa corporal */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">Mapa corporal — Retracciones</h3>
-                <p className="text-xs text-muted-foreground">
-                  Marcá zonas de retracción, dolor o alteración en el diagrama.
-                  Los cambios se guardan junto con la evaluación.
-                </p>
-                <BodyDiagram
-                  markers={retractionMap}
-                  onAddMarker={(marker) => {
-                    setRetractionMap((prev) => [...prev, { ...marker, id: crypto.randomUUID() }]);
-                    setRetractionMapDirty(true);
-                  }}
-                  onRemoveMarker={(id) => {
-                    setRetractionMap((prev) => prev.filter((m) => m.id !== id));
-                    setRetractionMapDirty(true);
-                  }}
-                />
-              </div>
-
-              <Separator />
               <FormField
                 control={form.control}
                 name="notes"
@@ -547,9 +514,9 @@ function EvaluationTab({ patientId, episodeId, occupation, patientVersion, onUns
   );
 }
 
-const SESSIONS_PAGE_SIZE = 8;
+const ENCOUNTERS_PAGE_SIZE = 8;
 
-function SessionsTab({
+function EncountersTab({
   patientId,
   episodeId,
   episodeStatus,
@@ -563,17 +530,17 @@ function SessionsTab({
   const queryClient = useQueryClient();
   const [newOpen, setNewOpen] = useState(false);
   const [closedWarning, setClosedWarning] = useState(false);
-  const [selected, setSelected] = useState<Session | null>(null);
-  // An annulled session opens its history: it is read, never edited.
-  const [historyOf, setHistoryOf] = useState<Session | null>(null);
+  const [selected, setSelected] = useState<Encounter | null>(null);
+  // An annulled encounter opens its history: it is read, never edited.
+  const [historyOf, setHistoryOf] = useState<Encounter | null>(null);
   const [page, setPage] = useState(0);
 
-  const { data: sessions = [], isLoading } = useQuery({
-    queryKey: sessionKeys.list(patientId, episodeId),
-    queryFn: () => sessionApi.list(patientId, episodeId),
+  const { data: encounters = [], isLoading } = useQuery({
+    queryKey: encounterKeys.list(patientId, episodeId),
+    queryFn: () => encounterApi.list(patientId, episodeId),
   });
 
-  // To name the other problems a shared session treated.
+  // To name the other problems a shared encounter treated.
   const { data: episodes = [] } = useQuery({
     queryKey: episodeKeys.list(patientId),
     queryFn: () => episodeApi.list(patientId),
@@ -600,13 +567,13 @@ function SessionsTab({
     },
   });
 
-  // The record lists annulled sessions struck through (SPEC-clinical-revisions.md
+  // The record lists annulled encounters struck through (SPEC-clinical-revisions.md
   // §8); they count in nothing: not the total, the numbering or the discharge.
-  const current = sessions.filter((s) => !s.annulledAt);
-  const annulledCount = sessions.length - current.length;
-  const dischargeSession = current.find((s) => s.sessionType === 'DISCHARGE') ?? null;
-  const dischargeDate = dischargeSession
-    ? new Date(dischargeSession.sessionDate).toLocaleDateString('es-AR', {
+  const current = encounters.filter((s) => !s.annulledAt);
+  const annulledCount = encounters.length - current.length;
+  const dischargeEncounter = current.find((s) => s.encounterType === 'DISCHARGE') ?? null;
+  const dischargeDate = dischargeEncounter
+    ? new Date(dischargeEncounter.encounterDate).toLocaleDateString('es-AR', {
         day: '2-digit',
         month: 'long',
         year: 'numeric',
@@ -614,7 +581,7 @@ function SessionsTab({
       })
     : null;
 
-  function handleNewSession() {
+  function handleNewEncounter() {
     if (episodeStatus !== 'ACTIVE') {
       setClosedWarning(true);
     } else {
@@ -629,7 +596,7 @@ function SessionsTab({
   return (
     <>
       {/* Gráfico de evolución del dolor */}
-      <PainEvolutionChart sessions={sessions} episodeId={episodeId} />
+      <PainEvolutionChart encounters={encounters} episodeId={episodeId} />
 
       {/* Header de sección */}
       <div className="flex items-center justify-between mb-4">
@@ -639,7 +606,7 @@ function SessionsTab({
             : `${current.length} ${current.length === 1 ? 'sesión' : 'sesiones'}`}
           {annulledCount > 0 && ` · ${annulledCount} anulada${annulledCount !== 1 ? 's' : ''}`}
         </p>
-        <Button size="sm" onClick={handleNewSession}>
+        <Button size="sm" onClick={handleNewEncounter}>
           <Plus className="h-4 w-4 mr-1" />
           Nueva sesión
         </Button>
@@ -658,13 +625,13 @@ function SessionsTab({
                     ? <>Este paciente fue dado de alta el <span className="font-medium text-foreground">{dischargeDate}</span>.</>
                     : 'Este episodio está cerrado.'}
                 </p>
-                {dischargeSession && (
+                {dischargeEncounter && (
                   <button
                     type="button"
                     className="text-sm text-primary underline-offset-2 hover:underline"
                     onClick={() => {
                       setClosedWarning(false);
-                      setSelected(dischargeSession);
+                      setSelected(dischargeEncounter);
                     }}
                   >
                     Ver nota de alta
@@ -698,7 +665,7 @@ function SessionsTab({
       </Dialog>
 
       {/* Lista de sesiones */}
-      {sessions.length === 0 ? (
+      {encounters.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg">
           <p className="font-medium">Sin sesiones</p>
           <p className="text-sm text-muted-foreground mt-1 max-w-xs">
@@ -708,9 +675,9 @@ function SessionsTab({
       ) : (
         <>
         <div className="space-y-3">
-          {sessions.slice(page * SESSIONS_PAGE_SIZE, (page + 1) * SESSIONS_PAGE_SIZE).map((session) => {
-            const annulled = session.annulledAt !== null;
-            const date = new Date(session.sessionDate);
+          {encounters.slice(page * ENCOUNTERS_PAGE_SIZE, (page + 1) * ENCOUNTERS_PAGE_SIZE).map((encounter) => {
+            const annulled = encounter.annulledAt !== null;
+            const date = new Date(encounter.encounterDate);
             const formattedDate = date.toLocaleDateString('es-AR', {
               weekday: 'short',
               day: '2-digit',
@@ -718,26 +685,26 @@ function SessionsTab({
               year: 'numeric',
               timeZone: 'UTC',
             });
-            // Numbered among the current ones; an annulled session has none.
-            const sessionNumber = annulled ? null : current.length - current.indexOf(session);
+            // Numbered among the current ones; an annulled encounter has none.
+            const encounterNumber = annulled ? null : current.length - current.indexOf(encounter);
             // This episode's block: the pain of a visit that treated several
             // problems is the pain of each one.
-            const block = blockFor(session, episodeId);
-            // An annulled session shows no clinical content in the list: it may
+            const block = blockFor(encounter, episodeId);
+            // An annulled encounter shows no clinical content in the list: it may
             // have been entered on the wrong patient. Its content is one click
             // away, in its history (review of #292).
             const hasPain =
               !annulled && !!block && (block.painScaleBefore !== null || block.painScaleAfter !== null);
-            const otherEpisodes = annulled ? [] : session.episodes.filter((b) => b.episodeId !== episodeId);
+            const otherEpisodes = annulled ? [] : encounter.episodes.filter((b) => b.episodeId !== episodeId);
             // This episode's treatment; a note shows its own text.
-            const preview = annulled ? null : (block?.treatment ?? session.observations);
+            const preview = annulled ? null : (block?.treatment ?? encounter.observations);
 
             return (
               <button
-                key={session.id}
+                key={encounter.id}
                 type="button"
                 className="w-full text-left"
-                onClick={() => (annulled ? setHistoryOf(session) : setSelected(session))}
+                onClick={() => (annulled ? setHistoryOf(encounter) : setSelected(encounter))}
                 aria-label={annulled ? `Sesión anulada del ${formattedDate}: ver historial` : undefined}
               >
                 <Card className={`hover:bg-muted/40 transition-colors cursor-pointer ${annulled ? 'opacity-60' : ''}`}>
@@ -746,7 +713,7 @@ function SessionsTab({
                       <div className="flex items-start gap-3 min-w-0">
                         {/* Número de sesión */}
                         <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                          {sessionNumber ?? '–'}
+                          {encounterNumber ?? '–'}
                         </span>
                         <div className={`min-w-0 ${annulled ? 'line-through' : ''}`}>
                           <p className="text-sm font-medium capitalize">{formattedDate}</p>
@@ -778,7 +745,7 @@ function SessionsTab({
                             {block?.painScaleAfter ?? '—'}
                           </span>
                         )}
-                        <SessionTypeBadge type={session.sessionType} />
+                        <EncounterTypeBadge type={encounter.encounterType} />
                         {annulled && <Badge variant="destructive">Anulada</Badge>}
                       </div>
                     </div>
@@ -790,10 +757,10 @@ function SessionsTab({
         </div>
 
         {/* Pagination */}
-        {sessions.length > SESSIONS_PAGE_SIZE && (
+        {encounters.length > ENCOUNTERS_PAGE_SIZE && (
           <div className="flex items-center justify-between mt-4">
             <p className="text-sm text-muted-foreground">
-              {page * SESSIONS_PAGE_SIZE + 1}–{Math.min((page + 1) * SESSIONS_PAGE_SIZE, sessions.length)} de {sessions.length}
+              {page * ENCOUNTERS_PAGE_SIZE + 1}–{Math.min((page + 1) * ENCOUNTERS_PAGE_SIZE, encounters.length)} de {encounters.length}
             </p>
             <div className="flex items-center gap-1">
               <Button
@@ -806,14 +773,14 @@ function SessionsTab({
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm text-muted-foreground px-2">
-                {page + 1} / {Math.ceil(sessions.length / SESSIONS_PAGE_SIZE)}
+                {page + 1} / {Math.ceil(encounters.length / ENCOUNTERS_PAGE_SIZE)}
               </span>
               <Button
                 variant="outline"
                 size="icon"
                 className="h-8 w-8"
                 onClick={() => setPage((p) => p + 1)}
-                disabled={(page + 1) * SESSIONS_PAGE_SIZE >= sessions.length}
+                disabled={(page + 1) * ENCOUNTERS_PAGE_SIZE >= encounters.length}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -823,7 +790,7 @@ function SessionsTab({
         </>
       )}
 
-      <SessionFormDialog
+      <EncounterFormDialog
         open={newOpen}
         onOpenChange={setNewOpen}
         patientId={patientId}
@@ -834,11 +801,11 @@ function SessionsTab({
       {/* Ver una sesión registrada y editarla son la misma pantalla: se abre el
           mismo formulario que la creó, con los datos cargados. */}
       {selected && (
-        <SessionFormDialog
+        <EncounterFormDialog
           open
           onOpenChange={(o) => !o && setSelected(null)}
           patientId={patientId}
-          session={selected}
+          encounter={selected}
         />
       )}
 
@@ -847,9 +814,9 @@ function SessionsTab({
           open
           onOpenChange={(o) => !o && setHistoryOf(null)}
           patientId={patientId}
-          base={revisionPaths.session(patientId, historyOf.id)}
+          base={revisionPaths.encounter(patientId, historyOf.id)}
           title="Historial de la sesión anulada"
-          render={renderSessionSnapshot}
+          render={renderEncounterSnapshot}
           renderContext={{ episodeName: (id) => episodes.find((e) => e.id === id)?.mainComplaint ?? 'episodio' }}
         />
       )}
@@ -860,8 +827,7 @@ function SessionsTab({
 const TAB_COMPONENT: Record<string, string> = {
   resumen: 'PatientDetailPage',
   evaluacion: 'EvaluationTab',
-  sesiones: 'SessionsTab',
-  consentimiento: 'ConsentTab',
+  sesiones: 'EncountersTab',
   actividad: 'ActivityTimeline',
 };
 
@@ -888,7 +854,7 @@ export default function PatientDetailPage() {
   const episodeRevision = useRevisionReason();
   const [episodeStale, setEpisodeStale] = useState<string | null>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
-  // El alta es una sesión más (sessionType DISCHARGE): la API la registra y
+  // El alta es una sesión más (encounterType DISCHARGE): la API la registra y
   // cierra el episodio en la misma transacción. Por eso se abre el mismo modal
   // de sesión, no un formulario aparte.
   const [dischargeOpen, setDischargeOpen] = useState(false);
@@ -988,7 +954,7 @@ export default function PatientDetailPage() {
   }
 
   const age = getAge(patient.birthDate);
-  const birthFormatted = formatDate(patient.birthDate);
+  const birthFormatted = formatDay(patient.birthDate) ?? undefined;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -1109,7 +1075,10 @@ export default function PatientDetailPage() {
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="evaluacion">Evaluación inicial</TabsTrigger>
           <TabsTrigger value="sesiones">Sesiones</TabsTrigger>
-          <TabsTrigger value="consentimiento">Consentimiento</TabsTrigger>
+          {/* The informed consent is hidden until a consent records the text
+              the patient signed (#248): today the row holds only dates, and the
+              text lives in ConsentTab. The component, the API and the model
+              stay; a consent already signed still shows in Actividad. */}
           <TabsTrigger value="actividad">Actividad</TabsTrigger>
         </TabsList>
         <Separator />
@@ -1139,6 +1108,14 @@ export default function PatientDetailPage() {
                   value={
                     birthFormatted
                       ? `${birthFormatted}${age ? ` (${age})` : ''}`
+                      : undefined
+                  }
+                />
+                <DetailField
+                  label="Documento"
+                  value={
+                    patient.documentType && patient.documentNumber
+                      ? `${DOCUMENT_TYPE_LABELS[patient.documentType]} ${patient.documentNumber}`
                       : undefined
                   }
                 />
@@ -1181,7 +1158,7 @@ export default function PatientDetailPage() {
         {/* ── Sesiones ── */}
         <TabsContent value="sesiones" className="mt-6">
           {effectiveEpisodeId ? (
-            <SessionsTab
+            <EncountersTab
               key={effectiveEpisodeId}
               patientId={id!}
               episodeId={effectiveEpisodeId}
@@ -1193,11 +1170,6 @@ export default function PatientDetailPage() {
               Seleccioná un episodio para ver las sesiones.
             </div>
           )}
-        </TabsContent>
-
-        {/* ── Consentimiento ── */}
-        <TabsContent value="consentimiento" className="mt-6">
-          <ConsentTab patient={patient} />
         </TabsContent>
 
         {/* ── Actividad ── */}
@@ -1356,12 +1328,12 @@ export default function PatientDetailPage() {
       </Dialog>
 
       {effectiveEpisodeId && (
-        <SessionFormDialog
+        <EncounterFormDialog
           open={dischargeOpen}
           onOpenChange={setDischargeOpen}
           patientId={id!}
           episodeId={effectiveEpisodeId}
-          sessionType="DISCHARGE"
+          encounterType="DISCHARGE"
         />
       )}
 

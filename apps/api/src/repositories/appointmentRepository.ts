@@ -19,7 +19,7 @@ export interface AppointmentDTO {
   userId: string;
   episodeId: string | null;
   /** La sesión que salió de este turno, si el paciente vino y se registró. */
-  sessionId: string | null;
+  encounterId: string | null;
   /** Compartido por los turnos de una misma serie recurrente. */
   seriesId: string | null;
   startsAt: string;

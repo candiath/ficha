@@ -4,7 +4,7 @@
 //
 // A medida que construyas la app, agregá los tipos acá. Ejemplo:
 // export type { Patient } from './types/patient';
-// export type { Session } from './types/session';
+// export type { Encounter } from './types/encounter';
 
 import type { PlatformAction } from './auditActions';
 
@@ -34,6 +34,7 @@ export * from './partialDate';
 // it, and the web builds each row's sentence from it.
 export * from './auditActions';
 export * from './clinicalSnapshots';
+export * from './patientDocument';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ export interface AuthTenant {
 export interface AuthUser {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
   role: UserRole;
   tenant: AuthTenant;
 }
@@ -114,13 +115,6 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
-// Response of POST /api/platform/auth/change-password. The operator is still
-// on a JWT: the change invalidates every earlier token, so a new one comes
-// back. The clinic endpoint answers 204 instead (its session survives).
-export interface ChangePasswordResponse {
-  token: string;
-}
-
 // ── Gestión de usuarios (solo ADMIN) ─────────────────────────────────────────
 
 // A freshly generated password reset link (POST /api/users/:id/password-reset
@@ -133,7 +127,7 @@ export interface PasswordResetLink {
 // Public reset page: whose account a valid link resets.
 export interface PasswordResetTarget {
   email: string;
-  name: string | null;
+  name: string;
   // She never logged in: the link is her invitation, and the page asks her to
   // choose a password rather than reset one. Nothing the link holder could not
   // learn by trying to log in.
@@ -185,20 +179,20 @@ export interface PathologyCount {
 
 // Sesiones de un mes calendario. `month` viene como "YYYY-MM"; el label
 // localizado (p. ej. "feb") lo arma el cliente, la API es agnóstica de locale.
-export interface MonthSessionCount {
+export interface MonthEncounterCount {
   month: string;
   count: number;
 }
 
-// Respuesta de GET /api/dashboard/stats. Las notas rápidas (sessionType NOTE)
+// Respuesta de GET /api/dashboard/stats. Las notas rápidas (encounterType NOTE)
 // no cuentan como sesiones; "activo" = paciente con algún episodio ACTIVE.
 export interface DashboardStats {
   activePatients: number;
-  totalSessions: number;
-  sessionsThisMonth: number;
+  totalEncounters: number;
+  encountersThisMonth: number;
   pendingPayments: number;
   pathologies: PathologyCount[];
-  sessionsByMonth: MonthSessionCount[];
+  encountersByMonth: MonthEncounterCount[];
 }
 
 // ── Turnos ───────────────────────────────────────────────────────────────────
@@ -231,7 +225,7 @@ export interface AppointmentListItem {
   userId: string;
   episodeId: string | null;
   /** La sesión que salió de este turno, si el paciente vino y se registró. */
-  sessionId: string | null;
+  encounterId: string | null;
   /** Compartido por los turnos de una misma serie recurrente. */
   seriesId: string | null;
   startsAt: string;
@@ -323,7 +317,7 @@ export interface PlatformAuditEntry {
   tenantId: string | null;
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
-  targetUser: { email: string; name: string | null } | null;
+  targetUser: { email: string; name: string } | null;
   // The operator who acted.
   operator: { name: string | null; email: string } | null;
   action: PlatformAction;
@@ -338,7 +332,11 @@ export interface PlatformAuditEntry {
 // docs/specs/SPEC-sysadmin-alerts.md). The card shows the configuration by
 // status and variable names only: never the token or the chat id.
 
-export type SysadminAlertKind = 'AUDIT_GUARDS_FAILED' | 'AUDIT_MAINTENANCE_FLAG_PRESENT' | 'TEST';
+export type SysadminAlertKind =
+  | 'AUDIT_GUARDS_FAILED'
+  | 'AUDIT_MAINTENANCE_FLAG_PRESENT'
+  | 'OPERATOR_PASSWORD_RESET'
+  | 'TEST';
 
 export type SysadminAlertOutcome = 'SENT' | 'REJECTED' | 'UNREACHABLE' | 'NOT_CONFIGURED';
 

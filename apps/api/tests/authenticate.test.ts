@@ -1,4 +1,3 @@
-import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
@@ -65,12 +64,15 @@ describe('authenticate middleware', () => {
     expect(res.body).toEqual(INVALID);
   });
 
-  // What a client still holding a pre-sessions token would send.
+  // What a client still holding a pre-encounters token would send: a JWT's
+  // shape, built by hand since the system no longer signs any.
   it('rejects a JWT', async () => {
-    const jwtToken = jwt.sign({ tenantId: user.tenantId }, 'a-secret-of-at-least-32-characters!!', {
-      subject: user.id,
-      expiresIn: '1h',
-    });
+    const part = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const jwtToken = [
+      part({ alg: 'HS256', typ: 'JWT' }),
+      part({ sub: user.id, tenantId: user.tenantId, exp: Math.floor(Date.now() / 1000) + 3600 }),
+      'c2lnbmF0dXJl',
+    ].join('.');
     const res = await me(jwtToken);
 
     expect(res.status).toBe(401);

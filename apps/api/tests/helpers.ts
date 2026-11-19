@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { expect } from 'vitest';
-import { Prisma, type PlatformOperator, type SessionType, type User, type UserRole } from '@prisma/client';
+import { Prisma, type PlatformOperator, type EncounterType, type User, type UserRole } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { generateOpaqueToken, hashOpaqueToken } from '../src/lib/opaqueToken';
 import type { TenantContext } from '../src/repositories/types';
-import { auditEntityOf, auditEntryProblem, SESSION_SNAPSHOT_VERSION } from '@ficha/shared';
-import { sessionSnapshot } from '../src/repositories/prisma/sessionSnapshot';
+import { auditEntityOf, auditEntryProblem, ENCOUNTER_SNAPSHOT_VERSION } from '@ficha/shared';
+import { encounterSnapshot } from '../src/repositories/prisma/encounterSnapshot';
 import { unwatchClinic, watchClinic } from './revisionInvariant';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from '../src/repositories/auditLogRepository';
-import type { PatientAuditField } from '../src/repositories/patientRepository';
+import type { PatientAuditField, PatientCreateInput, PatientDTO, PatientRecordDTO } from '../src/repositories/patientRepository';
+import { patientRepo } from '../src/repositories';
 import type { RevisionTable } from '../src/repositories/prisma/recordRevision';
 
 // Los tests corren contra la DB real de desarrollo (Neon): cada suite crea
@@ -92,7 +92,7 @@ interface CreateTestTokenOptions {
   trusted?: boolean;
   /** When the session was last used; in the past to test idle expiry. */
   lastUsedAt?: Date;
-  /** When the session was created; out of order to test a clock that stepped back. */
+  /** When the encounter was created; out of order to test a clock that stepped back. */
   createdAt?: Date;
 }
 
@@ -127,8 +127,8 @@ export async function createTestAuthSession(
 }
 
 // A TenantContext as authenticate builds it, for tests that call repositories
-// directly: backed by a real session of the user, so audited writes record a
-// session that exists (#186).
+// directly: backed by a real encounter of the user, so audited writes record a
+// encounter that exists (#186).
 export async function createTestContext(
   tenantId: string,
   user: { id: string; role: UserRole },
@@ -142,10 +142,11 @@ export async function createTestContext(
 export interface TestOperator {
   operator: PlatformOperator;
   token: string;
+  operatorSessionId: string;
   cleanup(): Promise<void>;
 }
 
-// Un operador de plataforma con su token. No pertenece a ninguna clínica:
+// Un operador de plataforma con una sesión real y su token. No pertenece a ninguna clínica:
 // se limpia aparte de createTestClinic, y sus filas de auditoría se borran
 // por operador (las de una clínica de test ya las borra cleanup de ésta).
 export async function createTestOperator(
@@ -168,21 +169,28 @@ export async function createTestOperator(
     await prisma.platformOperator.delete({ where: { id: operator.id } });
   }
 
-  return { operator, token: signOperatorTestToken(operator.id), cleanup };
+  const { token, operatorSessionId } = await createOperatorTestSession(operator);
+  return { operator, token, operatorSessionId, cleanup };
 }
 
-// Firma un token de operador con el secreto de plataforma, sin pasar por el
-// login. `secret` permite firmar a propósito con el secreto equivocado para
-// probar que el otro middleware lo rechaza.
-export function signOperatorTestToken(
-  operatorId: string,
-  opts: { secret?: string } = {},
-): string {
-  return jwt.sign(
-    { kind: 'platform' },
-    opts.secret ?? (process.env.PLATFORM_JWT_SECRET as string),
-    { subject: operatorId, expiresIn: '1h' },
-  );
+// A real platform_operator_sessions row and its token, without going through
+// the login: the operator's counterpart of createTestAuthSession. Its rows go
+// with the operator (ON DELETE CASCADE).
+export async function createOperatorTestSession(
+  operator: { id: string },
+  opts: { ttlMs?: number; lastUsedAt?: Date } = {},
+): Promise<{ token: string; operatorSessionId: string }> {
+  const token = generateOpaqueToken();
+  const session = await prisma.platformOperatorSession.create({
+    data: {
+      operatorId: operator.id,
+      tokenHash: hashOpaqueToken(token),
+      expiresAt: new Date(Date.now() + (opts.ttlMs ?? 60 * 60 * 1000)),
+      ...(opts.lastUsedAt && { lastUsedAt: opts.lastUsedAt }),
+    },
+    select: { id: true },
+  });
+  return { token, operatorSessionId: session.id };
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -246,6 +254,18 @@ export function patientAudit(action: 'CREATED' | 'UPDATED') {
       });
 }
 
+// The patient patientRepo.create wrote. A refusal (her document is another
+// patient's) fails the test: the tests that expect one call the repository.
+export async function createPatientRecord(
+  ctx: TenantContext,
+  input: PatientCreateInput,
+  audit: AuditBuilder<PatientDTO> = patientAudit('CREATED'),
+): Promise<PatientRecordDTO> {
+  const result = await patientRepo.create(ctx, input, audit);
+  if (!result.ok) throw new Error(`patient not created: ${result.reason}`);
+  return result.patient;
+}
+
 export function patientDeleteAudit(patientId: string): AuditEntry {
   return { action: 'PATIENT_DELETED', patientId, entityId: patientId, params: {} };
 }
@@ -283,17 +303,17 @@ function requireIds(ids: string[], what: string): void {
 
 // Every audit row of these clinics, clinical and platform. Their clinical
 // revisions go first: each one restricts deleting the audit row it names, and
-// the session it versions (SPEC-clinical-revisions.md, *Test cleanup*).
+// the encounter it versions (SPEC-clinical-revisions.md, *Test cleanup*).
 export async function deleteAuditRows(tenantIds: string[]): Promise<void> {
   requireIds(tenantIds, 'tenant id');
   await inAuditMaintenance(async (tx) => {
     const clinics = { where: { tenantId: { in: tenantIds } } };
-    await tx.sessionRevision.deleteMany(clinics);
+    await tx.encounterRevision.deleteMany(clinics);
     await tx.patientRevision.deleteMany(clinics);
     await tx.episodeRevision.deleteMany(clinics);
     await tx.evaluationRevision.deleteMany(clinics);
     await tx.consentRevision.deleteMany(clinics);
-    await tx.patientEventRevision.deleteMany(clinics);
+    await tx.patientAntecedentRevision.deleteMany(clinics);
     await tx.auditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await tx.platformAuditLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
   });
@@ -306,8 +326,8 @@ export async function deleteRevisions(table: RevisionTable, aggregateIds: string
   const ids = { in: aggregateIds };
   await inAuditMaintenance(async (tx) => {
     switch (table) {
-      case 'session_revisions':
-        return tx.sessionRevision.deleteMany({ where: { sessionId: ids } });
+      case 'encounter_revisions':
+        return tx.encounterRevision.deleteMany({ where: { encounterId: ids } });
       case 'patient_revisions':
         return tx.patientRevision.deleteMany({ where: { patientId: ids } });
       case 'episode_revisions':
@@ -316,8 +336,8 @@ export async function deleteRevisions(table: RevisionTable, aggregateIds: string
         return tx.evaluationRevision.deleteMany({ where: { evaluationId: ids } });
       case 'consent_revisions':
         return tx.consentRevision.deleteMany({ where: { consentId: ids } });
-      case 'patient_event_revisions':
-        return tx.patientEventRevision.deleteMany({ where: { patientEventId: ids } });
+      case 'patient_antecedent_revisions':
+        return tx.patientAntecedentRevision.deleteMany({ where: { patientAntecedentId: ids } });
     }
   });
 }
@@ -364,27 +384,27 @@ export async function insertAuditRowsAt(rows: BackdatedAuditRow[]): Promise<{ id
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
-type SessionBlockFixture = Prisma.SessionEpisodeUncheckedCreateWithoutSessionInput;
+type EncounterBlockFixture = Prisma.EncounterBlockUncheckedCreateWithoutEncounterInput;
 
-interface SessionFixture {
+interface EncounterFixture {
   tenantId: string;
   patientId: string;
   userId: string;
-  sessionDate: Date;
-  sessionType?: SessionType;
+  encounterDate: Date;
+  encounterType?: EncounterType;
   observations?: string | null;
   deletedAt?: Date | null;
-  blocks?: SessionBlockFixture[];
+  blocks?: EncounterBlockFixture[];
 }
 
-// A session written straight to the database, for tests about what reads it. It
+// An encounter written straight to the database, for tests about what reads it. It
 // comes as the app leaves one: with its blocks, its audit row and version 1,
 // which is what the revision invariant checks (tests/revisionInvariant.ts).
-export async function createSessionFixture(fixture: SessionFixture): Promise<{ id: string }> {
+export async function createEncounterFixture(fixture: EncounterFixture): Promise<{ id: string }> {
   const { blocks = [], ...fields } = fixture;
   const { tenantId, patientId, userId } = fields;
   return prisma.$transaction(async (tx) => {
-    const row = await tx.session.create({
+    const row = await tx.encounter.create({
       data: {
         ...fields,
         episodes: { create: blocks },
@@ -392,28 +412,28 @@ export async function createSessionFixture(fixture: SessionFixture): Promise<{ i
       select: {
         id: true,
         userId: true,
-        sessionType: true,
-        sessionDate: true,
+        encounterType: true,
+        encounterDate: true,
         observations: true,
         episodes: { orderBy: { episodeId: 'asc' } },
       },
     });
     const action = (
-      { SESSION: 'SESSION_RECORDED', NOTE: 'NOTE_RECORDED', DISCHARGE: 'DISCHARGE_RECORDED' } as const
-    )[row.sessionType];
+      { SESSION: 'ENCOUNTER_RECORDED', NOTE: 'NOTE_RECORDED', DISCHARGE: 'DISCHARGE_RECORDED' } as const
+    )[row.encounterType];
     const { id: auditLogId } = await tx.auditLog.create({
-      data: { tenantId, patientId, userId, entity: 'SESSION', entityId: row.id, action },
+      data: { tenantId, patientId, userId, entity: 'ENCOUNTER', entityId: row.id, action },
       select: { id: true },
     });
-    await tx.sessionRevision.create({
+    await tx.encounterRevision.create({
       data: {
         tenantId,
         patientId,
-        sessionId: row.id,
+        encounterId: row.id,
         version: 1,
         auditLogId,
-        schemaVersion: SESSION_SNAPSHOT_VERSION,
-        snapshot: sessionSnapshot(row),
+        schemaVersion: ENCOUNTER_SNAPSHOT_VERSION,
+        snapshot: encounterSnapshot(row),
       },
     });
     return { id: row.id };

@@ -8,7 +8,6 @@ import { errorHandler } from './middlewares/errorHandler';
 import { idParam } from './middlewares/idParam';
 import { requireRole } from './middlewares/requireRole';
 import { BUILD_VERSION_HEADER, buildVersion } from './lib/buildVersion';
-import { getPlatformJwtSecret } from './lib/platformJwt';
 import { pingDatabase } from './lib/prisma';
 import alertsRouter from './routes/alerts';
 import appointmentsRouter from './routes/appointments';
@@ -18,26 +17,22 @@ import consentRouter from './routes/consent';
 import dashboardRouter from './routes/dashboard';
 import episodesRouter from './routes/episodes';
 import evaluationRouter from './routes/evaluations';
-import globalSessionsRouter from './routes/globalSessions';
+import globalEncountersRouter from './routes/globalEncounters';
 import packagesRouter from './routes/packages';
 import paymentsRouter from './routes/payments';
 import platformRouter from './routes/platform';
 import platformAlertsRouter from './routes/platformAlerts';
 import platformAuthRouter from './routes/platformAuth';
 import patientsRouter from './routes/patients';
-import sessionsRouter from './routes/sessions';
+import encountersRouter from './routes/encounters';
 import tenantRouter from './routes/tenant';
-import patientEventsRouter from './routes/patientEvents';
+import patientAntecedentsRouter from './routes/patientAntecedents';
 import usersRouter from './routes/users';
 
 // Arma la app de Express completa (middlewares, rutas, error handler) sin
 // levantar el puerto. index.ts la importa para hacer listen; los tests la
 // importan para dispararle requests con supertest sin abrir sockets.
 const app = express();
-
-// Validate configuration while building the app: better to blow up here than
-// to find out at the first login that a setting was missing or malformed.
-getPlatformJwtSecret();
 
 // Detrás de un proxy (Render), la IP real del cliente viene en
 // X-Forwarded-For; sin esto el rate limiter vería la IP del proxy
@@ -58,8 +53,8 @@ const envOrigins = (process.env.CORS_ORIGIN ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Mismo criterio que getPlatformJwtSecret: mejor explotar al arrancar que descubrir
-// en producción que el frontend quedó bloqueado (o cualquier origen, adentro).
+// Validate configuration while building the app: better to blow up here than
+// to find out in production que el frontend quedó bloqueado (o cualquier origen, adentro).
 if (IS_PRODUCTION && envOrigins.length === 0) {
   throw new Error(
     'CORS_ORIGIN debe estar definido en producción: orígenes exactos ' +
@@ -149,12 +144,12 @@ app.use('/api/patients/:patientId/episodes', requireLivePatient, episodesRouter)
 // The episodes mount above matches this path by prefix and runs the guard
 // too; this one stays, so the evaluation does not depend on mount order.
 app.use('/api/patients/:patientId/episodes/:episodeId/evaluation', requireLivePatient, evaluationRouter);
-app.use('/api/patients/:patientId/sessions', requireLivePatient, sessionsRouter);
+app.use('/api/patients/:patientId/encounters', requireLivePatient, encountersRouter);
 // No requireLivePatient: a deleted patient's history stays readable.
 app.use('/api/patients/:patientId/audit-log', auditLogRouter);
 app.use('/api/patients/:patientId/consent', requireLivePatient, consentRouter);
-app.use('/api/patients/:patientId/events', requireLivePatient, patientEventsRouter);
-app.use('/api/sessions', globalSessionsRouter);
+app.use('/api/patients/:patientId/antecedents', requireLivePatient, patientAntecedentsRouter);
+app.use('/api/encounters', globalEncountersRouter);
 app.use('/api/packages', packagesRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/alerts', alertsRouter);

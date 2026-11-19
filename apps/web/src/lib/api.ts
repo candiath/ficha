@@ -1,4 +1,4 @@
-// Cliente HTTP centralizado: adjunta el token JWT en cada request y
+// Cliente HTTP centralizado: adjunta el token de sesión en cada request y
 // maneja el 401 en un solo lugar (en vez de página por página).
 //
 // Hay dos instancias, una por sesión: la de la clínica (`api`) y la del
@@ -80,7 +80,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     }
 
     // An API from another build may send data this web reads wrong (an old
-    // web would show annulled sessions as current), so a read is refused and
+    // web would show annulled encounters as current), so a read is refused and
     // the notice asks for a reload (lib/buildVersion.ts). A write already
     // happened on the server: its response is let through, or the user would
     // see an error for something that was saved, and the form would still

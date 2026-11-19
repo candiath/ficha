@@ -12,6 +12,11 @@ import { describe, expect, it } from 'vitest';
 const MIGRATIONS = path.join(__dirname, '..', 'prisma', 'migrations');
 
 const VERSIONED_TABLES = [
+  'encounters',
+  'encounter_blocks',
+  'patient_antecedents',
+  // The names before 20261118120000_rename_session_to_encounter and
+  // 20261118130000_rename_patient_event_to_antecedent.
   'sessions',
   'session_episodes',
   'patients',
@@ -85,7 +90,30 @@ const FROZEN = new Set([
   '20261106120000_audit_appointments_and_packages',
 ]);
 
-const ALLOWED: Record<string, { reason: string; violations: string[] }> = {};
+const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261117130000_drop_unused_columns': {
+    reason:
+      "The evaluation's body map column (retraction_map) is dropped before the relaunch: no code has read or " +
+      'written it since #238, and no snapshot ever held it (SPEC-clinical-revisions.md §3). Nothing in a ' +
+      'versioned table changes content: the column was ignored by the client and holds no clinical data the ' +
+      'revisions could lose.',
+    violations: ['DROP COLUMN: ALTER TABLE "initial_evaluations" DROP COLUMN "retraction_map"'],
+  },
+  '20261116120000_timestamptz': {
+    reason:
+      'Every timestamp column becomes timestamptz(3) before the relaunch (#238), while no table holds ' +
+      'real clinical rows. Each column is converted with AT TIME ZONE \'UTC\': the instants do not ' +
+      'change, nor does any snapshot, which stores them as ISO strings in UTC.',
+    violations: [
+      'ALTER COLUMN TYPE: ALTER TABLE "patients" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3) USING "created_at" AT TIME ZONE \'UTC\', ALT',
+      'ALTER COLUMN TYPE: ALTER TABLE "clinical_episodes" ALTER COLUMN "opened_at" SET DATA TYPE TIMESTAMPTZ(3) USING "opened_at" AT TIME ZONE \'UT',
+      'ALTER COLUMN TYPE: ALTER TABLE "patient_events" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3) USING "created_at" AT TIME ZONE \'UTC',
+      'ALTER COLUMN TYPE: ALTER TABLE "initial_evaluations" ALTER COLUMN "evaluated_at" SET DATA TYPE TIMESTAMPTZ(3) USING "evaluated_at" AT TIME ',
+      'ALTER COLUMN TYPE: ALTER TABLE "sessions" ALTER COLUMN "session_date" SET DATA TYPE TIMESTAMPTZ(3) USING "session_date" AT TIME ZONE \'UTC\',',
+      'ALTER COLUMN TYPE: ALTER TABLE "informed_consents" ALTER COLUMN "signed_at" SET DATA TYPE TIMESTAMPTZ(3) USING "signed_at" AT TIME ZONE \'UT',
+    ],
+  },
+};
 
 export function historyViolations(sql: string): string[] {
   const code = sql.replace(/--[^\n]*/g, '');

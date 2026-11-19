@@ -30,6 +30,12 @@ export function authSessionProfile(trusted: boolean): AuthSessionProfile {
   return trusted ? TRUSTED_SESSION : NORMAL_SESSION;
 }
 
+// The platform operator (docs/specs/SPEC-operator-sessions.md): "log in, do
+// one thing, leave". Short idle so a session left open dies quickly; the
+// absolute keeps the 2 h lifetime of the JWT it replaced. One profile: the
+// operator has no trusted device.
+export const OPERATOR_SESSION: AuthSessionProfile = { idleMs: 30 * MINUTE, absoluteMs: 2 * HOUR };
+
 // At most this many trusted sessions per user; a new one beyond the cap
 // demotes the oldest to normal.
 export const TRUSTED_SESSIONS_PER_USER = 3;

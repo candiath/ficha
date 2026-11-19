@@ -1,27 +1,31 @@
-import type { DatePrecision, EpisodeStatus, PatientEventKind, Prisma, Sex } from '@prisma/client';
+import type { DatePrecision, DocumentType, EpisodeStatus, PatientAntecedentKind, Sex } from '@prisma/client';
 import type {
   ConsentSnapshotV1,
   EpisodeSnapshotV1,
   EvaluationSnapshotV1,
-  PatientEventSnapshotV1,
-  PatientSnapshotV1,
+  PatientAntecedentSnapshotV1,
+  PatientSnapshotV2,
 } from '@ficha/shared';
 
 // The canonical projections of the patient, the episode, the initial
-// evaluation, the informed consent and the patient event
+// evaluation, the informed consent and the patient antecedent
 // (SPEC-clinical-revisions.md §3): the one mapping from each row to its
 // snapshot, used to write a version and to decide whether a write changed
-// anything. The session's is in sessionSnapshot.ts.
+// anything. The encounter's is in encounterSnapshot.ts.
 // tests/historyProjectionCoverage.test.ts holds every other column to a decision.
 
 const iso = (d: Date) => d.toISOString();
 const isoOrNull = (d: Date | null) => d?.toISOString() ?? null;
+// A DATE column: its day, YYYY-MM-DD.
+export const dayOrNull = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 export const patientSnapshotSelect = {
   firstName: true,
   lastName: true,
   birthDate: true,
   sex: true,
+  documentType: true,
+  documentNumber: true,
   occupation: true,
   referringDoctor: true,
 } as const;
@@ -31,14 +35,18 @@ export function patientSnapshot(p: {
   lastName: string;
   birthDate: Date | null;
   sex: Sex | null;
+  documentType: DocumentType | null;
+  documentNumber: string | null;
   occupation: string | null;
   referringDoctor: string | null;
-}): PatientSnapshotV1 {
+}): PatientSnapshotV2 {
   return {
     firstName: p.firstName,
     lastName: p.lastName,
-    birthDate: isoOrNull(p.birthDate),
+    birthDate: dayOrNull(p.birthDate),
     sex: p.sex,
+    documentType: p.documentType,
+    documentNumber: p.documentNumber,
     occupation: p.occupation,
     referringDoctor: p.referringDoctor,
   };
@@ -64,20 +72,18 @@ export function evaluationSnapshot(e: {
   patientNarrative: string | null;
   otherHistory: string | null;
   notes: string | null;
-  retractionMap: Prisma.JsonValue;
   physicalActivity: string | null;
   painFrequency: string | null;
-  evaScale: number | null;
+  painScale: number | null;
   evaluatedAt: Date;
 }): EvaluationSnapshotV1 {
   return {
     patientNarrative: e.patientNarrative,
     otherHistory: e.otherHistory,
     notes: e.notes,
-    retractionMap: e.retractionMap,
     physicalActivity: e.physicalActivity,
     painFrequency: e.painFrequency,
-    evaScale: e.evaScale,
+    painScale: e.painScale,
     evaluatedAt: iso(e.evaluatedAt),
   };
 }
@@ -86,18 +92,18 @@ export function consentSnapshot(c: { signedAt: Date; revokedAt: Date | null }): 
   return { signedAt: iso(c.signedAt), revokedAt: isoOrNull(c.revokedAt) };
 }
 
-export function patientEventSnapshot(e: {
-  kind: PatientEventKind;
+export function patientAntecedentSnapshot(e: {
+  kind: PatientAntecedentKind;
   description: string;
   occurredOn: Date | null;
   occurredPrecision: DatePrecision | null;
   occurredApproximate: boolean;
-}): PatientEventSnapshotV1 {
+}): PatientAntecedentSnapshotV1 {
   return {
     kind: e.kind,
     description: e.description,
     // A @db.Date column: its day, without the midnight Prisma reads it at.
-    occurredOn: e.occurredOn?.toISOString().slice(0, 10) ?? null,
+    occurredOn: dayOrNull(e.occurredOn),
     occurredPrecision: e.occurredPrecision,
     occurredApproximate: e.occurredApproximate,
   };

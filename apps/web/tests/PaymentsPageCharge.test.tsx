@@ -19,7 +19,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const PAYMENT: Payment = {
   id: 'pay1',
   patientId: 'p1',
-  sessionId: 's1',
+  encounterId: 's1',
   packageId: null,
   baseAmountCents: 1500000,
   discountCents: 0,
@@ -31,7 +31,7 @@ const PAYMENT: Payment = {
   createdAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
   patient: { id: 'p1', fullName: 'María García' },
-  session: { id: 's1', sessionDate: '2026-10-01T13:00:00.000Z', sessionType: 'FOLLOW_UP' },
+  encounter: { id: 's1', encounterDate: '2026-10-01T13:00:00.000Z', encounterType: 'FOLLOW_UP' },
   package: null,
 };
 

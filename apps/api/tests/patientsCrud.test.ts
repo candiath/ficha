@@ -70,7 +70,7 @@ describe('CRUD de pacientes por HTTP', () => {
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({
       firstName: 'Ana María', lastName: 'Pérez',
-      birthDate: '1985-11-23T00:00:00.000Z',
+      birthDate: '1985-11-23',
       sex: 'FEMALE',
       phone: '11-5555-0000',
       occupation: 'Docente',

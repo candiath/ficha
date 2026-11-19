@@ -4,7 +4,7 @@ import type { User } from '@prisma/client';
 import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { settle } from '../src/lib/paymentSettlement';
-import { createSessionFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
+import { createEncounterFixture, deleteAuditRows, createTestClinic, createTestToken, sleep, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
 // Un cobro de monto cero no es una deuda: si el descuento cancela el costo
@@ -64,7 +64,7 @@ describe('cobros de monto cero, de punta a punta', () => {
       data: { tenantId: clinic.tenantId, firstName: 'Paciente', lastName: 'Bonificado' },
       select: { id: true },
     });
-    // Every session treats an episode (#238).
+    // Every encounter treats an episode (#238).
     episode = await fixture.clinicalEpisode.create({
       data: { tenantId: clinic.tenantId, patientId: patient.id },
       select: { id: true },
@@ -76,9 +76,9 @@ describe('cobros de monto cero, de punta a punta', () => {
     await prisma.clinicalAlert.deleteMany({ where: { tenantId: clinic.tenantId } });
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where: { tenantId: clinic.tenantId } });
-    // A session's blocks (#238) restrict its deletion: they go first.
-    await prisma.sessionEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
-    await prisma.session.deleteMany({ where: { tenantId: clinic.tenantId } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await prisma.encounter.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.clinicalEpisode.deleteMany({ where: { tenantId: clinic.tenantId } });
     await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
     await clinic.cleanup();
@@ -87,9 +87,9 @@ describe('cobros de monto cero, de punta a punta', () => {
   /** Crea una sesión con su cobro embebido y devuelve el cobro. */
   async function crearCobro(baseAmountCents: number, discountCents = 0) {
     const sesion = await auth(
-      request(app).post(`/api/patients/${patient.id}/sessions`),
+      request(app).post(`/api/patients/${patient.id}/encounters`),
     ).send({
-      sessionDate: new Date().toISOString(),
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId: episode.id }],
       payment: { baseAmountCents, discountCents },
     });
@@ -97,7 +97,7 @@ describe('cobros de monto cero, de punta a punta', () => {
 
     const cobros = await auth(request(app).get(`/api/payments?patientId=${patient.id}`));
     return cobros.body.data.find(
-      (p: { sessionId: string }) => p.sessionId === sesion.body.data.id,
+      (p: { encounterId: string }) => p.encounterId === sesion.body.data.id,
     );
   }
 
@@ -173,12 +173,12 @@ describe('cobros de monto cero, de punta a punta', () => {
       const hace20Dias = new Date();
       hace20Dias.setDate(hace20Dias.getDate() - 20);
 
-      const sesion = await createSessionFixture({ tenantId: clinic.tenantId, patientId, userId: user.id, sessionDate: hace20Dias });
+      const sesion = await createEncounterFixture({ tenantId: clinic.tenantId, patientId, userId: user.id, encounterDate: hace20Dias });
       await prisma.payment.create({
         data: {
           tenantId: clinic.tenantId,
           patientId,
-          sessionId: sesion.id,
+          encounterId: sesion.id,
           baseAmountCents: monto,
           discountCents: 0,
           finalAmountCents: monto,

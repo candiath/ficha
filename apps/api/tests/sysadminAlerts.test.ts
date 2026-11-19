@@ -207,7 +207,7 @@ describe('sendTest', () => {
       () => json({ ok: false, error_code: 403, description: 'Forbidden: bot was blocked by the user' }, 403),
     ]);
 
-    const result = await alerts.sendTest({ operatorId: operator.operator.id });
+    const result = await alerts.sendTest({ operatorId: operator.operator.id, operatorSessionId: operator.operatorSessionId });
 
     expect(result).toEqual({
       alertId: expect.any(String),

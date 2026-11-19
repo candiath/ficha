@@ -57,13 +57,15 @@ describe('patient revisions', () => {
     const [revision, ...rest] = await revisions(res.body.data.id);
     const [audit] = await auditRows(res.body.data.id);
     expect(rest).toEqual([]);
-    expect(revision).toMatchObject({ version: 1, auditLogId: audit.id, schemaVersion: 1, reasonNote: null });
+    expect(revision).toMatchObject({ version: 1, auditLogId: audit.id, schemaVersion: 2, reasonNote: null });
     // Identification and clinical context; no phone.
     expect(revision.snapshot).toEqual({
       firstName: 'Ana',
       lastName: 'Pérez',
-      birthDate: '1980-05-03T00:00:00.000Z',
+      birthDate: '1980-05-03',
       sex: 'FEMALE',
+      documentType: null,
+      documentNumber: null,
       occupation: 'Docente',
       referringDoctor: null,
     });

@@ -18,6 +18,7 @@ import { useState } from 'react';
 import RevisionHistoryDialog, { RevisionHistoryButton } from '@/components/patients/RevisionHistoryDialog';
 import { renderConsentSnapshot } from '@/lib/revisionRows';
 import { revisionPaths } from '@/services/revisions';
+import { formatDay } from '@/lib/calendarDate';
 
 interface Props {
   patient: Patient;
@@ -110,7 +111,7 @@ export default function ConsentTab({ patient }: Props) {
                 <span className="font-medium text-muted-foreground">
                   Fecha de nacimiento:
                 </span>{' '}
-                {formatDate(patient.birthDate)}
+                {formatDay(patient.birthDate)}
               </p>
             )}
             <p>

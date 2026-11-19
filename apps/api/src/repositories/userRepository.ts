@@ -8,7 +8,7 @@ import type { TenantContext } from './types';
 export interface TenantUserDTO {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
   role: UserRole;
   isActive: boolean;
   lastLoginAt: string | null;

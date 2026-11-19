@@ -33,9 +33,9 @@ vi.mock('@/services/evaluation', () => ({
   evaluationApi: { get: vi.fn(), upsert: vi.fn() },
 }));
 
-vi.mock('@/services/patientEvents', () => ({
-  patientEventKeys: { list: (patientId: string) => ['patients', patientId, 'events'] },
-  patientEventApi: { list: vi.fn().mockResolvedValue([]) },
+vi.mock('@/services/patientAntecedents', () => ({
+  patientAntecedentKeys: { list: (patientId: string) => ['patients', patientId, 'antecedents'] },
+  patientAntecedentApi: { list: vi.fn().mockResolvedValue([]) },
 }));
 
 // The page mounts the discharge form, which asks for the last price, the
@@ -91,10 +91,9 @@ const EVALUATION: InitialEvaluation = {
   patientNarrative: null,
   otherHistory: null,
   notes: 'Primera',
-  retractionMap: null,
   physicalActivity: null,
   painFrequency: null,
-  evaScale: null,
+  painScale: null,
   evaluatedAt: '2026-10-01T13:00:00.000Z',
   updatedAt: '2026-10-01T13:00:00.000Z',
   version: 2,

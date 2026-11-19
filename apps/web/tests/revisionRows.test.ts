@@ -5,9 +5,9 @@ import {
   renderConsentSnapshot,
   renderEpisodeSnapshot,
   renderEvaluationSnapshot,
-  renderPatientEventSnapshot,
+  renderPatientAntecedentSnapshot,
   renderPatientSnapshot,
-  renderSessionSnapshot,
+  renderEncounterSnapshot,
   type SnapshotRow,
 } from '@/lib/revisionRows';
 
@@ -16,17 +16,19 @@ import {
 const view = (rows: SnapshotRow[] | null) => Object.fromEntries((rows ?? []).map((r) => [r.label, r.value]));
 
 describe('snapshot renderers', () => {
-  it('the patient: identification and clinical context, the birth date in UTC', () => {
+  const PATIENT_V1 = {
+    firstName: 'Ana',
+    lastName: 'Pérez',
+    birthDate: '1990-03-01T00:00:00.000Z',
+    sex: 'FEMALE',
+    occupation: null,
+    referringDoctor: 'Dr. López',
+  };
+
+  it('the patient: identification and clinical context, the birth date as a plain day', () => {
     const rows = renderPatientSnapshot(
-      {
-        firstName: 'Ana',
-        lastName: 'Pérez',
-        birthDate: '1990-03-01T00:00:00.000Z',
-        sex: 'FEMALE',
-        occupation: null,
-        referringDoctor: 'Dr. López',
-      },
-      1,
+      { ...PATIENT_V1, birthDate: '1990-03-01', documentType: 'DNI', documentNumber: '30123456' },
+      2,
       {},
     );
     expect(view(rows)).toEqual({
@@ -34,9 +36,38 @@ describe('snapshot renderers', () => {
       Apellido: 'Pérez',
       'Fecha de nacimiento': '01/03/1990',
       Sexo: 'Femenino',
+      Documento: 'DNI 30123456',
       Ocupación: '—',
       'Médico derivante': 'Dr. López',
     });
+  });
+
+  // The document made the patient snapshot version 2. A version written
+  // before it is shown as a patient with none, and adding one reads as a change.
+  it('a patient version written before the document shows it as empty', () => {
+    const before = renderPatientSnapshot(PATIENT_V1, 1, {});
+    expect(view(before)).toMatchObject({ Nombre: 'Ana', Documento: '—', 'Médico derivante': 'Dr. López' });
+
+    const after = renderPatientSnapshot(
+      { ...PATIENT_V1, birthDate: '1990-03-01', documentType: 'DNI', documentNumber: '30123456' },
+      2,
+      {},
+    );
+    expect([...changedKeys(after!, before)]).toEqual(['document']);
+  });
+
+  // Version 1 held the date of birth as a UTC midnight; the history reads it as its day.
+  it('a version 1 date of birth shows the same day as version 2', () => {
+    expect(view(renderPatientSnapshot(PATIENT_V1, 1, {}))['Fecha de nacimiento']).toBe('01/03/1990');
+  });
+
+  it('does not guess a snapshot that is not what its schema version says', () => {
+    // Version 1 never held a document; version 2 always names both fields.
+    expect(renderPatientSnapshot({ ...PATIENT_V1, documentType: null, documentNumber: null }, 1, {})).toBeNull();
+    expect(renderPatientSnapshot(PATIENT_V1, 2, {})).toBeNull();
+    // A timestamp is not a day: version 2 refuses it.
+    expect(renderPatientSnapshot({ ...PATIENT_V1, documentType: null, documentNumber: null }, 2, {})).toBeNull();
+    expect(renderPatientSnapshot(PATIENT_V1, 3, {})).toBeNull();
   });
 
   it('the episode: complaint, status and dates', () => {
@@ -48,15 +79,14 @@ describe('snapshot renderers', () => {
     expect(view(rows)).toEqual({ 'Motivo de consulta': 'Lumbalgia', Estado: 'Alta', Apertura: '05/01/2026', Cierre: '—' });
   });
 
-  it('the evaluation: its texts, and whether the body map has marks, never its drawing', () => {
+  it('the evaluation: its texts and its pain score', () => {
     const snapshot = {
       patientNarrative: 'Dolor al levantarse',
       otherHistory: null,
       notes: '',
-      retractionMap: [{ x: 1, y: 2 }],
       physicalActivity: null,
       painFrequency: 'Diario',
-      evaScale: 7,
+      painScale: 7,
       evaluatedAt: '2026-01-05T12:00:00.000Z',
     };
     const rows = renderEvaluationSnapshot(snapshot, 1, {});
@@ -65,11 +95,12 @@ describe('snapshot renderers', () => {
       Notas: '—',
       'Frecuencia del dolor': 'Diario',
       'Escala EVA': '7',
-      'Mapa de retracciones': 'Con marcas',
     });
-    // A new mark changes the row, though it still reads "Con marcas".
-    const moved = renderEvaluationSnapshot({ ...snapshot, retractionMap: [{ x: 3, y: 2 }] }, 1, {});
-    expect([...changedKeys(moved!, rows)]).toEqual(['retractionMap']);
+    const scored = renderEvaluationSnapshot({ ...snapshot, painScale: 4 }, 1, {});
+    expect([...changedKeys(scored!, rows)]).toEqual(['painScale']);
+    // A snapshot that still carries the body map, removed before the relaunch,
+    // is not one this screen knows: it says so instead of guessing.
+    expect(renderEvaluationSnapshot({ ...snapshot, retractionMap: [{ x: 1, y: 2 }] }, 1, {})).toBeNull();
   });
 
   it('the consent: signed, and revoked or not', () => {
@@ -83,14 +114,14 @@ describe('snapshot renderers', () => {
     expect(revoked.Firmado).toMatch(/05\/01\/2026|5\/1\/26/);
   });
 
-  it('the patient event: kind, description and its date as she remembers it', () => {
-    const rows = renderPatientEventSnapshot(
+  it('the patient antecedent: kind, description and its date as she remembers it', () => {
+    const rows = renderPatientAntecedentSnapshot(
       { kind: 'SURGERY', description: 'Rodilla', occurredOn: '2019-05-01', occurredPrecision: 'MONTH', occurredApproximate: true },
       1,
       {},
     );
     expect(view(rows)).toEqual({ Tipo: 'Cirugía', Descripción: 'Rodilla', Fecha: '~mayo de 2019' });
-    const undated = renderPatientEventSnapshot(
+    const undated = renderPatientAntecedentSnapshot(
       { kind: 'OTHER', description: 'Algo', occurredOn: null, occurredPrecision: null, occurredApproximate: false },
       1,
       {},
@@ -98,13 +129,13 @@ describe('snapshot renderers', () => {
     expect(view(undated).Fecha).toBe('Sin fecha');
   });
 
-  it('the session: one group per block, named by its episode', () => {
-    const block = { preSessionState: null, painScaleBefore: 5, painScaleAfter: null, patientExercises: null, reEvaluationNotes: null };
-    const rows = renderSessionSnapshot(
+  it('the encounter: one group per block, named by its episode', () => {
+    const block = { preEncounterState: null, painScaleBefore: 5, painScaleAfter: null, patientExercises: null, reEvaluationNotes: null };
+    const rows = renderEncounterSnapshot(
       {
         userId: 'u1',
-        sessionType: 'SESSION',
-        sessionDate: '2026-11-02T13:00:00.000Z',
+        encounterType: 'SESSION',
+        encounterDate: '2026-11-02T13:00:00.000Z',
         observations: null,
         episodes: [{ episodeId: 'e1', treatment: 'Lumbar', ...block }],
       },
@@ -127,8 +158,8 @@ describe('snapshot renderers', () => {
     ['episode', renderEpisodeSnapshot],
     ['evaluation', renderEvaluationSnapshot],
     ['consent', renderConsentSnapshot],
-    ['patient event', renderPatientEventSnapshot],
-    ['session', renderSessionSnapshot],
+    ['patient antecedent', renderPatientAntecedentSnapshot],
+    ['encounter', renderEncounterSnapshot],
   ] as const)('the %s: a schema version it does not know, or a snapshot that does not parse, renders as null', (_, render) => {
     expect(render({}, 1, {})).toBeNull();
     expect(render({}, 2, {})).toBeNull();
@@ -161,7 +192,7 @@ describe('what a version changed', () => {
   });
 
   it('names a row the version before had and this one does not', () => {
-    // A session's note is shown only when it has one: clearing it drops the row.
+    // An encounter's note is shown only when it has one: clearing it drops the row.
     const before = rows([['observations', 'Llegó tarde'], ['x.a', '1', 'x']]);
     const now = rows([['x.a', '1', 'x']]);
     expect(removedParts(now, before)).toEqual(['observations']);

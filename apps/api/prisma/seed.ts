@@ -1,4 +1,4 @@
-import { type DatePrecision, type PatientEventKind, Prisma, PrismaClient } from '@prisma/client';
+import { type DatePrecision, type PatientAntecedentKind, Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { auditEntityOf, auditEntryProblem } from '@ficha/shared';
@@ -50,14 +50,14 @@ function devId(name: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-// A session's block for one episode it treated (#238): what belongs to that
+// An encounter's block for one episode it treated (#238): what belongs to that
 // problem alone.
 async function seedBlock(
-  session: { id: string; tenantId: string; patientId: string },
+  encounter: { id: string; tenantId: string; patientId: string },
   episodeId: string,
   fields: Pick<
-    Prisma.SessionEpisodeUncheckedCreateInput,
-    | 'preSessionState'
+    Prisma.EncounterBlockUncheckedCreateInput,
+    | 'preEncounterState'
     | 'treatment'
     | 'painScaleBefore'
     | 'painScaleAfter'
@@ -65,13 +65,13 @@ async function seedBlock(
     | 'reEvaluationNotes'
   > = {},
 ): Promise<void> {
-  await prisma.sessionEpisode.upsert({
-    where: { sessionId_episodeId: { sessionId: session.id, episodeId } },
+  await prisma.encounterBlock.upsert({
+    where: { encounterId_episodeId: { encounterId: encounter.id, episodeId } },
     update: {},
     create: {
-      tenantId: session.tenantId,
-      patientId: session.patientId,
-      sessionId: session.id,
+      tenantId: encounter.tenantId,
+      patientId: encounter.patientId,
+      encounterId: encounter.id,
       episodeId,
       ...fields,
     },
@@ -79,14 +79,14 @@ async function seedBlock(
 }
 
 // An entry of a patient's history (#238), with its partial date.
-async function seedEvent(
+async function seedAntecedent(
   id: string,
   owner: { tenantId: string; patientId: string },
-  kind: PatientEventKind,
+  kind: PatientAntecedentKind,
   description: string,
   occurred: { date: string; precision: DatePrecision; approximate?: boolean } | null,
 ): Promise<void> {
-  await prisma.patientEvent.upsert({
+  await prisma.patientAntecedent.upsert({
     where: { id },
     update: {},
     create: {
@@ -153,30 +153,30 @@ async function main() {
   });
 
   // ── Demo session (expired) ────────────────────────────────────────────────
-  // The demo audit history names a session of its author, as the database
+  // The demo audit history names an encounter of its author, as the database
   // requires (#186). Already expired, and its token is random bytes nobody
   // ever saw: it cannot be used to sign in.
   //
-  // Dated relative to this run, and refreshed on every run: a session that
+  // Dated relative to this run, and refreshed on every run: an encounter that
   // ended more than 180 days ago is deleted by the retention runner (#178),
   // and a local API could delete it between this upsert and the demo audit
-  // rows below, whose insert trigger requires the session to exist. The demo
+  // rows below, whose insert trigger requires the encounter to exist. The demo
   // audit rows keep their own, earlier, backdated times; nothing compares the
   // two.
   const ranAt = Date.now();
-  const demoSessionDates = {
+  const demoEncounterDates = {
     createdAt: new Date(ranAt - 2 * 24 * 60 * 60 * 1000),
     lastUsedAt: new Date(ranAt - 25 * 60 * 60 * 1000),
     expiresAt: new Date(ranAt - 24 * 60 * 60 * 1000),
   };
-  const demoSession = await prisma.authSession.upsert({
+  const demoEncounter = await prisma.authSession.upsert({
     where: { id: devId('dev-auth-session-001') },
-    update: demoSessionDates,
+    update: demoEncounterDates,
     create: {
       id: devId('dev-auth-session-001'),
       userId: user.id,
       tokenHash: createHash('sha256').update(randomBytes(32)).digest(),
-      ...demoSessionDates,
+      ...demoEncounterDates,
     },
   });
 
@@ -202,6 +202,8 @@ async function main() {
       tenantId: tenant.id,
       firstName: 'María',
       lastName: 'García',
+      documentType: 'DNI',
+      documentNumber: '28456123',
       phone: '+54 11 1234-5678',
       sex: 'FEMALE',
       occupation: 'Docente',
@@ -211,7 +213,7 @@ async function main() {
   // ── Episodios clínicos del paciente de prueba ─────────────────────────────
   // Two problems treated in parallel (#238), both open: the back, and an
   // ankle sprain that started later. One session treats both, each with its
-  // own block, so a new session can pick both too. A shoulder tendinitis from
+  // own block, so a new encounter can pick both too. A shoulder tendinitis from
   // the year before is the closed episode, with its discharge.
   const episode1 = await prisma.clinicalEpisode.upsert({
     where: { id: devId('dev-episode-001') },
@@ -270,35 +272,35 @@ async function main() {
   // Each kind of date: a year, a month (approximate, as "hace unos meses"
   // becomes), a day, and none.
   const mariaOwner = { tenantId: tenant.id, patientId: patient.id };
-  await seedEvent(devId('dev-event-001'), mariaOwner, 'FRACTURE', 'Fractura de muñeca izquierda, tratada con yeso', {
+  await seedAntecedent(devId('dev-antecedent-001'), mariaOwner, 'FRACTURE', 'Fractura de muñeca izquierda, tratada con yeso', {
     date: '2019-01-01',
     precision: 'YEAR',
   });
-  await seedEvent(devId('dev-event-002'), mariaOwner, 'PAIN_ONSET', 'Dolor lumbar al estar sentada', {
+  await seedAntecedent(devId('dev-antecedent-002'), mariaOwner, 'PAIN_ONSET', 'Dolor lumbar al estar sentada', {
     date: '2025-11-01',
     precision: 'MONTH',
     approximate: true,
   });
-  await seedEvent(devId('dev-event-003'), mariaOwner, 'TRAUMA', 'Torcedura de tobillo derecho bajando una escalera', {
+  await seedAntecedent(devId('dev-antecedent-003'), mariaOwner, 'TRAUMA', 'Torcedura de tobillo derecho bajando una escalera', {
     date: '2026-02-20',
     precision: 'DAY',
   });
-  await seedEvent(devId('dev-event-004'), mariaOwner, 'SURGERY', 'Cesárea', null);
+  await seedAntecedent(devId('dev-antecedent-004'), mariaOwner, 'SURGERY', 'Cesárea', null);
 
   // ── Sesiones de ejemplo ────────────────────────────────────────────────
   // The shoulder and its discharge, the year before; then the back alone,
   // both open problems in one visit, the ankle alone, and a note that belongs
   // to no episode.
-  const p1Sessions = [
+  const p1Encounters = [
     {
-      id: devId('dev-session-005'),
+      id: devId('dev-encounter-005'),
       type: 'SESSION' as const,
       date: '2025-09-10T10:00:00.000Z',
       note: null,
       blocks: [
         {
           episodeId: episodeShoulder.id,
-          preSessionState: 'Dolor de hombro derecho al levantar el brazo por encima de la cabeza.',
+          preEncounterState: 'Dolor de hombro derecho al levantar el brazo por encima de la cabeza.',
           treatment: 'Movilidad pasiva y activa asistida. Trabajo excéntrico de supraespinoso.',
           painScaleBefore: 6,
           painScaleAfter: 4,
@@ -308,14 +310,14 @@ async function main() {
       ],
     },
     {
-      id: devId('dev-session-004'),
+      id: devId('dev-encounter-004'),
       type: 'DISCHARGE' as const,
       date: '2025-10-15T10:00:00.000Z',
       note: null,
       blocks: [
         {
           episodeId: episodeShoulder.id,
-          preSessionState: 'Sin dolor de hombro en las actividades diarias.',
+          preEncounterState: 'Sin dolor de hombro en las actividades diarias.',
           treatment: 'Alta de la tendinitis: rango completo, sin arco doloroso.',
           painScaleBefore: 1,
           painScaleAfter: 0,
@@ -325,14 +327,14 @@ async function main() {
       ],
     },
     {
-      id: devId('dev-session-001'),
+      id: devId('dev-encounter-001'),
       type: 'SESSION' as const,
       date: '2026-02-10T10:00:00.000Z',
       note: null,
       blocks: [
         {
           episodeId: episode1.id,
-          preSessionState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
+          preEncounterState: 'Paciente refiere dolor lumbar al estar sentada más de 30 minutos. Noches con dificultad para dormir de costado.',
           treatment: 'Se trabajó cadena posterior con postura en rana en el suelo, 20 minutos. Respiración diafragmática guiada.',
           painScaleBefore: 7,
           painScaleAfter: 4,
@@ -342,14 +344,14 @@ async function main() {
       ],
     },
     {
-      id: devId('dev-session-002'),
+      id: devId('dev-encounter-002'),
       type: 'SESSION' as const,
       date: '2026-02-24T10:00:00.000Z',
       note: null,
       blocks: [
         {
           episodeId: episode1.id,
-          preSessionState: 'Mejoría notable de la espalda: el dolor aparece recién después de 1 hora sentada.',
+          preEncounterState: 'Mejoría notable de la espalda: el dolor aparece recién después de 1 hora sentada.',
           treatment: 'Rana en el suelo y parado en la pared, 30 minutos.',
           painScaleBefore: 5,
           painScaleAfter: 2,
@@ -358,7 +360,7 @@ async function main() {
         },
         {
           episodeId: episodeAnkle.id,
-          preSessionState: 'Llega rengueando: se torció el tobillo derecho bajando una escalera hace cuatro días.',
+          preEncounterState: 'Llega rengueando: se torció el tobillo derecho bajando una escalera hace cuatro días.',
           treatment: 'Movilización suave y drenaje del tobillo, 20 minutos.',
           painScaleBefore: 6,
           painScaleAfter: 4,
@@ -368,14 +370,14 @@ async function main() {
       ],
     },
     {
-      id: devId('dev-session-003'),
+      id: devId('dev-encounter-003'),
       type: 'SESSION' as const,
       date: '2026-03-03T10:00:00.000Z',
       note: null,
       blocks: [
         {
           episodeId: episodeAnkle.id,
-          preSessionState: 'Viene solo por el tobillo: la espalda está tranquila esta semana.',
+          preEncounterState: 'Viene solo por el tobillo: la espalda está tranquila esta semana.',
           treatment: 'Propiocepción en superficie estable, fortalecimiento de peroneos con banda elástica.',
           painScaleBefore: 3,
           painScaleAfter: 1,
@@ -393,8 +395,8 @@ async function main() {
     },
   ];
 
-  for (const s of p1Sessions) {
-    const session = await prisma.session.upsert({
+  for (const s of p1Encounters) {
+    const encounter = await prisma.encounter.upsert({
       where: { id: s.id },
       update: {},
       create: {
@@ -402,29 +404,29 @@ async function main() {
         tenantId: tenant.id,
         patientId: patient.id,
         userId: user.id,
-        sessionType: s.type,
-        sessionDate: new Date(s.date),
+        encounterType: s.type,
+        encounterDate: new Date(s.date),
         // The text of a note; everything clinical about a problem is in its block.
         observations: s.note,
       },
     });
     for (const { episodeId, ...fields } of s.blocks) {
-      await seedBlock(session, episodeId, fields);
+      await seedBlock(encounter, episodeId, fields);
     }
   }
 
   // ── Registros de auditoría de ejemplo ──────────────────────────────────
   // Codes only, checked against the catalog (SPEC-audit-structured-entries.md).
-  const demoAudit = { tenantId: tenant.id, userId: user.id, authSessionId: demoSession.id };
+  const demoAudit = { tenantId: tenant.id, userId: user.id, authSessionId: demoEncounter.id };
   await seedAuditRows([
     { ...demoAudit, id: devId('dev-audit-001'), patientId: patient.id, entity: 'PATIENT', entityId: patient.id, action: 'PATIENT_CREATED', params: {}, createdAt: new Date('2026-02-01T09:00:00.000Z') },
     { ...demoAudit, id: devId('dev-audit-002'), patientId: patient.id, entity: 'EVALUATION', entityId: devId('dev-eval-001'), action: 'EVALUATION_CREATED', params: {}, createdAt: new Date('2026-02-01T09:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-001'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-10T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-002'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-02-24T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-005'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-003'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2026-03-03T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-006'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-004'), action: 'DISCHARGE_RECORDED', params: {}, createdAt: new Date('2025-10-15T10:30:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-007'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-note-001'), action: 'NOTE_RECORDED', params: {}, createdAt: new Date('2026-03-19T15:05:00.000Z') },
-    { ...demoAudit, id: devId('dev-audit-008'), patientId: patient.id, entity: 'SESSION', entityId: devId('dev-session-005'), action: 'SESSION_RECORDED', params: {}, createdAt: new Date('2025-09-10T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-003'), patientId: patient.id, entity: 'ENCOUNTER', entityId: devId('dev-encounter-001'), action: 'ENCOUNTER_RECORDED', params: {}, createdAt: new Date('2026-02-10T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-004'), patientId: patient.id, entity: 'ENCOUNTER', entityId: devId('dev-encounter-002'), action: 'ENCOUNTER_RECORDED', params: {}, createdAt: new Date('2026-02-24T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-005'), patientId: patient.id, entity: 'ENCOUNTER', entityId: devId('dev-encounter-003'), action: 'ENCOUNTER_RECORDED', params: {}, createdAt: new Date('2026-03-03T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-006'), patientId: patient.id, entity: 'ENCOUNTER', entityId: devId('dev-encounter-004'), action: 'DISCHARGE_RECORDED', params: {}, createdAt: new Date('2025-10-15T10:30:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-007'), patientId: patient.id, entity: 'ENCOUNTER', entityId: devId('dev-note-001'), action: 'NOTE_RECORDED', params: {}, createdAt: new Date('2026-03-19T15:05:00.000Z') },
+    { ...demoAudit, id: devId('dev-audit-008'), patientId: patient.id, entity: 'ENCOUNTER', entityId: devId('dev-encounter-005'), action: 'ENCOUNTER_RECORDED', params: {}, createdAt: new Date('2025-09-10T10:30:00.000Z') },
   ]);
 
   // ── Alertas clínicas de ejemplo ────────────────────────────────────────
@@ -469,6 +471,8 @@ async function main() {
       tenantId: tenant.id,
       firstName: 'Javier',
       lastName: 'Rodríguez',
+      documentType: 'DNI',
+      documentNumber: '27998341',
       birthDate: new Date('1980-08-15'),
       sex: 'MALE',
       phone: '+54 11 4567-8901',
@@ -506,51 +510,22 @@ async function main() {
       patientNarrative:
         'Cervicalgia bilateral con irradiación a hombros y brazos. Cefaleas tensionales 3–4 veces por semana. Los síntomas empeoran al final de la jornada laboral frente a la pantalla.',
       otherHistory: 'Hipertensión arterial controlada con enalapril. Sedentario. 12 años de trabajo de oficina.',
-      retractionMap: [
-        {
-          id: 'rm-1',
-          x: 50,
-          y: 12,
-          label: 'Contractura trapecio bilateral',
-          severity: 'high',
-          notes: 'Bilateral, más marcada a derecha. Trigger points activos.',
-          view: 'back',
-        },
-        {
-          id: 'rm-2',
-          x: 50,
-          y: 8,
-          label: 'Tensión suboccipital',
-          severity: 'medium',
-          notes: 'Genera cefalea occipital. Restricción en flexo-extensión C0-C1.',
-          view: 'back',
-        },
-        {
-          id: 'rm-3',
-          x: 50,
-          y: 14,
-          label: 'Retracción cadena anterior tórax',
-          severity: 'medium',
-          notes: 'Pectorales menores acortados. Contribuyen a la protracción escapular.',
-          view: 'front',
-        },
-      ],
       evaluatedAt: new Date('2025-12-05T09:30:00.000Z'),
     },
   });
 
   // ── Antecedentes ─────────────────────────────────────────────────────────
   const javierOwner = { tenantId: tenant.id, patientId: p2.id };
-  await seedEvent(devId('dev-event-101'), javierOwner, 'DIAGNOSIS', 'Hernia discal C5-C6 leve, confirmada por RMN', {
+  await seedAntecedent(devId('dev-antecedent-101'), javierOwner, 'DIAGNOSIS', 'Hernia discal C5-C6 leve, confirmada por RMN', {
     date: '2024-02-01',
     precision: 'MONTH',
   });
-  await seedEvent(devId('dev-event-102'), javierOwner, 'PAIN_ONSET', 'Cervicalgia con cefaleas tensionales', {
+  await seedAntecedent(devId('dev-antecedent-102'), javierOwner, 'PAIN_ONSET', 'Cervicalgia con cefaleas tensionales', {
     date: '2025-06-01',
     precision: 'MONTH',
     approximate: true,
   });
-  await seedEvent(devId('dev-event-103'), javierOwner, 'SURGERY', 'Apendicectomía', {
+  await seedAntecedent(devId('dev-antecedent-103'), javierOwner, 'SURGERY', 'Apendicectomía', {
     date: '2010-01-01',
     precision: 'YEAR',
     approximate: true,
@@ -585,9 +560,9 @@ async function main() {
   });
 
   // ── 8 Sesiones de tratamiento ────────────────────────────────────────────
-  const sessionsP2 = [
+  const encountersP2 = [
     {
-      id: devId('dev-session-p2-001'),
+      id: devId('dev-encounter-p2-001'),
       date: '2025-12-05T10:00:00.000Z',
       painBefore: 8,
       painAfter: 5,
@@ -601,7 +576,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: devId('dev-session-p2-002'),
+      id: devId('dev-encounter-p2-002'),
       date: '2025-12-12T10:00:00.000Z',
       painBefore: 7,
       painAfter: 4,
@@ -614,7 +589,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: devId('dev-session-p2-003'),
+      id: devId('dev-encounter-p2-003'),
       date: '2026-01-09T10:00:00.000Z',
       painBefore: 6,
       painAfter: 3,
@@ -627,7 +602,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: devId('dev-session-p2-004'),
+      id: devId('dev-encounter-p2-004'),
       date: '2026-01-16T10:00:00.000Z',
       painBefore: 5,
       painAfter: 2,
@@ -640,7 +615,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: devId('dev-session-p2-005'),
+      id: devId('dev-encounter-p2-005'),
       date: '2026-01-23T10:00:00.000Z',
       painBefore: 5,
       painAfter: 5,
@@ -652,7 +627,7 @@ async function main() {
       type: 'NOTE' as const,
     },
     {
-      id: devId('dev-session-p2-006'),
+      id: devId('dev-encounter-p2-006'),
       date: '2026-01-30T10:00:00.000Z',
       painBefore: 5,
       painAfter: 2,
@@ -664,7 +639,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: devId('dev-session-p2-007'),
+      id: devId('dev-encounter-p2-007'),
       date: '2026-02-06T10:00:00.000Z',
       painBefore: 3,
       painAfter: 1,
@@ -675,7 +650,7 @@ async function main() {
       type: 'SESSION' as const,
     },
     {
-      id: devId('dev-session-p2-008'),
+      id: devId('dev-encounter-p2-008'),
       date: '2026-03-06T10:00:00.000Z',
       painBefore: 3,
       painAfter: 1,
@@ -688,9 +663,9 @@ async function main() {
     },
   ];
 
-  const createdSessionsP2: { id: string; sessionDate: Date }[] = [];
-  for (const s of sessionsP2) {
-    const session = await prisma.session.upsert({
+  const createdEncountersP2: { id: string; encounterDate: Date }[] = [];
+  for (const s of encountersP2) {
+    const encounter = await prisma.encounter.upsert({
       where: { id: s.id },
       update: {},
       create: {
@@ -698,33 +673,33 @@ async function main() {
         tenantId: tenant.id,
         patientId: p2.id,
         userId: user.id,
-        sessionType: s.type,
-        sessionDate: new Date(s.date),
-        // A note keeps its text; a session's treatment is its block's.
+        encounterType: s.type,
+        encounterDate: new Date(s.date),
+        // A note keeps its text; an encounter's treatment is its block's.
         observations: s.type === 'NOTE' ? s.obs : null,
       },
     });
-    await seedBlock(session, episodeP2.id, {
-      preSessionState: s.preSesion,
+    await seedBlock(encounter, episodeP2.id, {
+      preEncounterState: s.preSesion,
       treatment: s.type === 'NOTE' ? null : s.obs,
       painScaleBefore: s.painBefore,
       painScaleAfter: s.painAfter,
       reEvaluationNotes: s.reevalNotes,
       patientExercises: s.exercises,
     });
-    createdSessionsP2.push({ id: session.id, sessionDate: session.sessionDate });
+    createdEncountersP2.push({ id: encounter.id, encounterDate: encounter.encounterDate });
   }
 
   // ── Pagos por sesión (7 pagados, 1 pendiente) ────────────────────────────
   const paymentsP2 = [
-    { id: devId('dev-pay-p2-001'), sessionId: devId('dev-session-p2-001'), status: 'PAID',    paidAt: '2025-12-05T11:00:00.000Z', method: 'TRANSFER' },
-    { id: devId('dev-pay-p2-002'), sessionId: devId('dev-session-p2-002'), status: 'PAID',    paidAt: '2025-12-12T11:00:00.000Z', method: 'TRANSFER' },
-    { id: devId('dev-pay-p2-003'), sessionId: devId('dev-session-p2-003'), status: 'PAID',    paidAt: '2026-01-09T11:00:00.000Z', method: 'CASH' },
-    { id: devId('dev-pay-p2-004'), sessionId: devId('dev-session-p2-004'), status: 'PAID',    paidAt: '2026-01-16T11:00:00.000Z', method: 'TRANSFER' },
-    { id: devId('dev-pay-p2-005'), sessionId: devId('dev-session-p2-005'), status: 'PAID',    paidAt: '2026-01-23T11:00:00.000Z', method: 'CASH' },
-    { id: devId('dev-pay-p2-006'), sessionId: devId('dev-session-p2-006'), status: 'PAID',    paidAt: '2026-01-30T11:00:00.000Z', method: 'TRANSFER' },
-    { id: devId('dev-pay-p2-007'), sessionId: devId('dev-session-p2-007'), status: 'PAID',    paidAt: '2026-02-06T11:00:00.000Z', method: 'TRANSFER' },
-    { id: devId('dev-pay-p2-008'), sessionId: devId('dev-session-p2-008'), status: 'PENDING', paidAt: null,                       method: null },
+    { id: devId('dev-pay-p2-001'), encounterId: devId('dev-encounter-p2-001'), status: 'PAID',    paidAt: '2025-12-05T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-002'), encounterId: devId('dev-encounter-p2-002'), status: 'PAID',    paidAt: '2025-12-12T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-003'), encounterId: devId('dev-encounter-p2-003'), status: 'PAID',    paidAt: '2026-01-09T11:00:00.000Z', method: 'CASH' },
+    { id: devId('dev-pay-p2-004'), encounterId: devId('dev-encounter-p2-004'), status: 'PAID',    paidAt: '2026-01-16T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-005'), encounterId: devId('dev-encounter-p2-005'), status: 'PAID',    paidAt: '2026-01-23T11:00:00.000Z', method: 'CASH' },
+    { id: devId('dev-pay-p2-006'), encounterId: devId('dev-encounter-p2-006'), status: 'PAID',    paidAt: '2026-01-30T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-007'), encounterId: devId('dev-encounter-p2-007'), status: 'PAID',    paidAt: '2026-02-06T11:00:00.000Z', method: 'TRANSFER' },
+    { id: devId('dev-pay-p2-008'), encounterId: devId('dev-encounter-p2-008'), status: 'PENDING', paidAt: null,                       method: null },
   ] as const;
 
   for (const p of paymentsP2) {
@@ -735,7 +710,7 @@ async function main() {
         id: p.id,
         tenantId: tenant.id,
         patientId: p2.id,
-        sessionId: p.sessionId,
+        encounterId: p.encounterId,
         packageId: pkg2.id,
         baseAmountCents: 750_000,
         discountCents: 0,
@@ -752,15 +727,15 @@ async function main() {
     { id: devId('dev-audit-p2-001'), entity: 'PATIENT', entityId: p2.id, action: 'PATIENT_CREATED', params: {}, date: '2025-12-01T09:00:00.000Z' },
     { id: devId('dev-audit-p2-002'), entity: 'CONSENT', entityId: devId('dev-consent-002'), action: 'CONSENT_SIGNED', params: {}, date: '2025-12-05T09:00:00.000Z' },
     { id: devId('dev-audit-p2-003'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_CREATED', params: {}, date: '2025-12-05T09:30:00.000Z' },
-    { id: devId('dev-audit-p2-004'), entity: 'SESSION', entityId: devId('dev-session-p2-001'), action: 'SESSION_RECORDED', params: {}, date: '2025-12-05T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-006'), entity: 'SESSION', entityId: devId('dev-session-p2-002'), action: 'SESSION_RECORDED', params: {}, date: '2025-12-12T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-007'), entity: 'SESSION', entityId: devId('dev-session-p2-003'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-09T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-008'), entity: 'SESSION', entityId: devId('dev-session-p2-004'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-16T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-009'), entity: 'SESSION', entityId: devId('dev-session-p2-005'), action: 'NOTE_RECORDED', params: {}, date: '2026-01-23T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-010'), entity: 'SESSION', entityId: devId('dev-session-p2-006'), action: 'SESSION_RECORDED', params: {}, date: '2026-01-30T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-012'), entity: 'SESSION', entityId: devId('dev-session-p2-007'), action: 'SESSION_RECORDED', params: {}, date: '2026-02-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-013'), entity: 'SESSION', entityId: devId('dev-session-p2-008'), action: 'SESSION_RECORDED', params: {}, date: '2026-03-06T11:00:00.000Z' },
-    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_UPDATED', params: { changedFields: ['evaScale', 'notes'], reason: 'LATE_INFORMATION' }, date: '2026-01-30T10:00:00.000Z' },
+    { id: devId('dev-audit-p2-004'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-001'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2025-12-05T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-006'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-002'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2025-12-12T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-007'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-003'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2026-01-09T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-008'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-004'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2026-01-16T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-009'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-005'), action: 'NOTE_RECORDED', params: {}, date: '2026-01-23T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-010'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-006'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2026-01-30T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-012'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-007'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2026-02-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-013'), entity: 'ENCOUNTER', entityId: devId('dev-encounter-p2-008'), action: 'ENCOUNTER_RECORDED', params: {}, date: '2026-03-06T11:00:00.000Z' },
+    { id: devId('dev-audit-p2-015'), entity: 'EVALUATION', entityId: devId('dev-eval-002'), action: 'EVALUATION_UPDATED', params: { changedFields: ['painScale', 'notes'], reason: 'LATE_INFORMATION' }, date: '2026-01-30T10:00:00.000Z' },
   ] as const;
 
   await seedAuditRows(

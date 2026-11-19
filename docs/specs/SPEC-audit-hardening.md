@@ -97,6 +97,10 @@ END
 $$;
 ```
 
+**Since `20261116120000_timestamptz`** every `created_at` is `timestamptz(3)`, and the stamp is `clock_timestamp()` itself: `clock_timestamp() AT TIME ZONE 'UTC'` is a UTC wall time, right for a column without time zone, which a `timestamptz` column would read in the session's zone.
+
+**Since `20261121120000_audit_transaction_id`** `audit_logs` and `platform_audit_logs` also carry `transaction_id`, stamped by `audit_rows_stamp_transaction_id` (`BEFORE INSERT`, row): `md5(xid8 : the transaction's start in microseconds)`, shaped as a version-8 UUID, shared by every row of one transaction. The xid alone would repeat after a restore into another cluster, whose counter starts over; the start time tells those transactions apart. Under maintenance a value sent is kept (restoring rows). The column defaults to the nil UUID, which a `CHECK` refuses, so a missing trigger fails the insert. The guards pin the triggers, the function, the `CHECK`s and the `NOT NULL`s.
+
 The switch is turned on with `SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`.
 
 Seven triggers, and no others:
@@ -150,6 +154,14 @@ Seven triggers, and no others:
   - `CREATE OR REPLACE FUNCTION`, `ALTER FUNCTION`, `DROP FUNCTION`;
   - `ALTER TYPE … RENAME VALUE` on `AuditAction`, `AuditEntity` or `PlatformAction`;
   - `session_replication_role`.
+
+  That was the list at PR 2. The current one is in `tests/auditMigrationScan.test.ts`. It has grown with:
+  - `DROP INDEX`, `DROP TYPE`, `INHERITS`, `ATTACH PARTITION` and `ENABLE REPLICA/ALWAYS TRIGGER`;
+  - every enum of an audit table;
+  - column changes written without the word `COLUMN`;
+  - any dynamic SQL (`EXECUTE`), wherever it appears.
+
+  The names it looks for come from `tests/auditTables.ts`, which `tests/auditTablesCoverage.test.ts` checks against the database. The scan guards against our own mistakes, not against a migration written to evade it. A migration that names the maintenance flag fails a test of its own, `tests/noMaintenanceFlagMigration.test.ts`, which reads every migration, the frozen ones too.
 
   Any of these passes only if the migration is on an allowlist, with its reason. Row triggers do not see DDL. This test is what keeps a type change (Prisma's `DROP COLUMN` + `ADD COLUMN`) from silently destroying audit content.
 - **The switch stays out of the app.** A test scans `apps/api`, `.github` and the root `package.json`. It fails when the switch's name appears outside an exact list of files: the migration, `tests/helpers.ts`, `tests/auditHardening.test.ts`, the scan test itself, `prisma/seed.ts` and `scripts/purge-test-audit.ts`. It builds the name by concatenation so as not to find itself. It also fails, anywhere, on a session-level `SET [SESSION] ficha.audit_maintenance`, or on a `set_config` of it whose value is not `pg_current_xact_id()::text` or whose third argument is not `true`.
@@ -353,7 +365,7 @@ Web: the platform audit list renders `targetUser`.
 ## Decisions (2026-10-09)
 
 1. **Checks:** kept in full.
-2. **The operator's session:** `operator-sessions` adds `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key, checked on insert as §1 checks the clinic's, filled from `req.operator`).
+2. **The operator's session:** `operator-sessions` adds `platform_audit_logs.operator_session_id` (nullable uuid, no foreign key, checked on insert as §1 checks the clinic's, filled from `req.operator`). Operator-sessions shipped without it; it was added on 2026-11-17 (SPEC-operator-sessions.md, "Added after the first PR").
 3. **Versioning clinical records:** a module of its own in the map, `clinical-revisions`.
 4. **The role, session type and scale type** stay in descriptions.
 

@@ -91,6 +91,7 @@ Two tables: the alert, and its delivery attempts.
 enum SysadminAlertKind {
   AUDIT_GUARDS_FAILED            // audit-guards.sql failed at startup
   AUDIT_MAINTENANCE_FLAG_PRESENT // no-audit-maintenance.sql failed at startup
+  OPERATOR_PASSWORD_RESET        // reset:operator-password replaced an operator's password
   TEST                           // sent by the operator from /platform
 }
 
@@ -307,6 +308,7 @@ Alerta 0192e4a1-…
 |---|---|
 | `AUDIT_GUARDS_FAILED` | Falló el chequeo de las tablas de auditoría al arrancar la API (audit-guards.sql). Alguna garantía de la base cambió después del deploy. El detalle está en los logs del servicio. |
 | `AUDIT_MAINTENANCE_FLAG_PRESENT` | La base tiene la marca de mantenimiento de auditoría (no-audit-maintenance.sql). En este entorno las filas de auditoría se pueden borrar. El detalle está en los logs del servicio. |
+| `OPERATOR_PASSWORD_RESET` | Se reemplazó la contraseña de un operador desde la terminal (reset:operator-password). Si no fuiste vos, alguien con acceso a la base de este entorno puede entrar como operador. |
 | `TEST` | Alerta de prueba enviada desde /platform. Si la ves, las alertas de este entorno llegan. |
 
 - **The label** is `RENDER_SERVICE_NAME`, which Render sets (`Ficha`, `ficha-staging`), or `local` when it is unset. It is kept to `[A-Za-z0-9 ._-]` and 40 characters.

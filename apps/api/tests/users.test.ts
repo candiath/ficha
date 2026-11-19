@@ -101,6 +101,23 @@ describe('requireRole + /api/users', () => {
     expect(res.body).toEqual({ error: 'Ya existe un usuario con ese email' });
   });
 
+  // Every clinical entry is signed with her name: a user without one is refused.
+  it.each([
+    ['missing', {}],
+    ['empty', { name: '' }],
+    ['only spaces', { name: '   ' }],
+    ['null', { name: null }],
+  ])('refuses a user whose name is %s, and leaves no row', async (_case, name) => {
+    const email = clinicA.email(`sin-nombre-${_case.replace(' ', '-')}`);
+    const res = await request(app)
+      .post(USERS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ email, ...name });
+
+    expect(res.status).toBe(400);
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+  });
+
   // Nobody but her chooses her password (area 2 review, M2): the creator
   // gets an invitation link, and a password in the body is refused.
   it('refuses a password in the body: the new user sets her own', async () => {

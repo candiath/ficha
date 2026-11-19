@@ -10,10 +10,12 @@ import {
   createTestOperator,
   deleteAuditRows,
   expectRestrictedDelete,
+  inAuditMaintenance,
   type TestClinic,
   type TestOperator,
 } from './helpers';
 import { fixture } from './fixtures';
+import { AUDIT_TABLES, REVISION_TABLES, STAMPED_AUDIT_TABLES } from './auditTables';
 
 // What the database itself enforces on audit rows (#186,
 // docs/specs/SPEC-audit-hardening.md): they cannot be changed, only deleted
@@ -104,7 +106,7 @@ describe('audit rows are append-only', () => {
     }
   });
 
-  it("stamps the database's current UTC time, whatever the caller sent", async () => {
+  it("stamps the database's current time, whatever the caller sent or the session's time zone", async () => {
     // In a session whose time zone is not UTC (Neon's default is UTC, which
     // would hide a stamp that followed the session's zone).
     const { id } = await prisma.$transaction(async (tx) => {
@@ -112,11 +114,13 @@ describe('audit rows are append-only', () => {
       return tx.auditLog.create({ data: row({ createdAt: new Date('2020-01-01T00:00:00Z') }), select: { id: true } });
     });
 
+    // Two instants (created_at is timestamptz): no session's zone enters.
     const [stored] = await prisma.$queryRaw<{ age: number }[]>`
-      SELECT extract(epoch FROM (now() AT TIME ZONE 'UTC') - created_at)::float8 AS age
+      SELECT extract(epoch FROM now() - created_at)::float8 AS age
       FROM audit_logs WHERE id = ${id}::uuid`;
     // now() is the start of this query's transaction, a moment after the
-    // insert: the age is small, and never the six years the caller asked for.
+    // insert: the age is small. A stamp that followed the session's zone would
+    // be three hours off, and the caller's date six years.
     expect(Math.abs(stored.age)).toBeLessThan(60);
   });
 
@@ -135,6 +139,136 @@ describe('audit rows are append-only', () => {
       FROM audit_logs a, audit_logs b
       WHERE a.id = ${first.id}::uuid AND b.id = ${second.id}::uuid`;
     expect(gap).toBeGreaterThanOrEqual(0.04);
+  });
+});
+
+// Every audit row names the database transaction that wrote it, stamped like
+// created_at (migration 20261121120000_audit_transaction_id): the rows of one
+// audited write share it, in either table, and the caller cannot choose it.
+describe('audit rows name the transaction that wrote them', () => {
+  const NIL = '00000000-0000-0000-0000-000000000000';
+  const UUID_V8 = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  let clinic: TestClinic;
+  let operator: TestOperator;
+  let user: User;
+  let patientId: string;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    operator = await createTestOperator();
+    user = await clinic.createUser();
+    ({ id: patientId } = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Grouped', lastName: 'Patient' },
+      select: { id: true },
+    }));
+  });
+
+  afterAll(async () => {
+    await deleteAuditRows([clinic.tenantId]);
+    await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await operator.cleanup();
+    await clinic.cleanup();
+  });
+
+  const row = (overrides: { transactionId?: string } = {}) => ({
+    tenantId: clinic.tenantId,
+    patientId,
+    userId: user.id,
+    entity: 'PATIENT' as const,
+    entityId: patientId,
+    action: 'PATIENT_DELETED' as const,
+    ...overrides,
+  });
+  const select = { transactionId: true } as const;
+
+  it('gives the rows of one transaction one id, and another transaction another', async () => {
+    const [a, b] = await prisma.$transaction(async (tx) => [
+      await tx.auditLog.create({ data: row(), select }),
+      await tx.auditLog.create({ data: row(), select }),
+    ]);
+    const c = await prisma.auditLog.create({ data: row(), select });
+
+    expect(a.transactionId).toMatch(UUID_V8);
+    expect(b.transactionId).toBe(a.transactionId);
+    expect(c.transactionId).toMatch(UUID_V8);
+    expect(c.transactionId).not.toBe(a.transactionId);
+  });
+
+  it('gives a clinic row and a platform row of one transaction the same id', async () => {
+    const [clinical, platform] = await prisma.$transaction(async (tx) => [
+      await tx.auditLog.create({ data: row(), select }),
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: operator.operator.id,
+          tenantId: clinic.tenantId,
+          targetUserId: user.id,
+          action: 'USER_DEVICES_DISCONNECTED',
+        },
+        select,
+      }),
+    ]);
+
+    expect(platform.transactionId).toBe(clinical.transactionId);
+  });
+
+  // pg_current_xact_id() is the top-level transaction's.
+  it('keeps the id inside a savepoint', async () => {
+    const [outer, inner] = await prisma.$transaction(async (tx) => {
+      const a = await tx.auditLog.create({ data: row(), select });
+      await tx.$executeRaw`SAVEPOINT inner_write`;
+      const b = await tx.auditLog.create({ data: row(), select });
+      await tx.$executeRaw`RELEASE SAVEPOINT inner_write`;
+      return [a, b];
+    });
+
+    expect(inner.transactionId).toBe(outer.transactionId);
+  });
+
+  it('replaces an id the caller sent, nil or not', async () => {
+    const chosen = randomUUID();
+    const sent = await prisma.auditLog.create({ data: row({ transactionId: chosen }), select });
+    const nil = await prisma.auditLog.create({ data: row({ transactionId: NIL }), select });
+
+    expect(sent.transactionId).not.toBe(chosen);
+    expect(sent.transactionId).toMatch(UUID_V8);
+    expect(nil.transactionId).toMatch(UUID_V8);
+  });
+
+  // Restoring rows keeps the ids they had; a row restored without one gets
+  // the restoring transaction's, never the nil default the CHECK refuses.
+  it('keeps an id sent under maintenance, and stamps one that was not sent', async () => {
+    const kept = randomUUID();
+    const [restored, stamped] = await inAuditMaintenance(async (tx) => [
+      await tx.auditLog.create({ data: row({ transactionId: kept }), select }),
+      await tx.auditLog.create({ data: row(), select }),
+    ]);
+
+    expect(restored.transactionId).toBe(kept);
+    expect(stamped.transactionId).toMatch(UUID_V8);
+  });
+
+  // The CHECK is what a missing trigger would run into: the column's
+  // default, nil, is refused. Probed on a TEMP copy without the trigger, so
+  // nothing shared changes.
+  it('refuses the nil default when no trigger stamps it', async () => {
+    const url = new URL(process.env.DIRECT_DATABASE_URL as string);
+    url.searchParams.set('connection_limit', '1');
+    const db = new PrismaClient({ datasourceUrl: url.toString() });
+    try {
+      await db.$executeRawUnsafe(
+        'CREATE TEMP TABLE audit_logs_probe (LIKE public.audit_logs INCLUDING DEFAULTS INCLUDING CONSTRAINTS)',
+      );
+      await expect(
+        db.$executeRawUnsafe(
+          `INSERT INTO pg_temp.audit_logs_probe (id, tenant_id, patient_id, user_id, entity, entity_id, action)
+           VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'PATIENT',
+                   gen_random_uuid(), 'PATIENT_DELETED')`,
+        ),
+      ).rejects.toThrow(/audit_logs_transaction_id_stamped/);
+    } finally {
+      await db.$disconnect();
+    }
   });
 });
 
@@ -449,17 +583,7 @@ describe('audit-guards.sql', () => {
     url.searchParams.set('connection_limit', '1');
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
-    const TABLES = ['audit_logs', 'platform_audit_logs', 'sysadmin_alerts', 'sysadmin_alert_deliveries'];
-    // No created_at, so no stamp trigger.
-    const REVISION_TABLES = [
-      'session_revisions',
-      'patient_revisions',
-      'episode_revisions',
-      'evaluation_revisions',
-      'consent_revisions',
-      'patient_event_revisions',
-    ];
-    const onCopies = [...TABLES, ...REVISION_TABLES].reduce(
+    const onCopies = AUDIT_TABLES.reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
     );
@@ -479,7 +603,8 @@ describe('audit-guards.sql', () => {
     };
 
     beforeAll(async () => {
-      for (const table of TABLES) {
+      // Revision tables have no created_at, so no stamp trigger.
+      for (const table of STAMPED_AUDIT_TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_created_at BEFORE INSERT ON pg_temp.${table}
           FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);
@@ -490,6 +615,12 @@ describe('audit-guards.sql', () => {
       }
       await db.$executeRawUnsafe(`CREATE TRIGGER audit_logs_check_session BEFORE INSERT ON pg_temp.audit_logs
         FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session()`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER platform_audit_logs_check_session BEFORE INSERT ON pg_temp.platform_audit_logs
+        FOR EACH ROW EXECUTE FUNCTION public.platform_audit_logs_check_session()`);
+      for (const table of ['audit_logs', 'platform_audit_logs']) {
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_transaction_id BEFORE INSERT ON pg_temp.${table}
+          FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_transaction_id()`);
+      }
       for (const table of REVISION_TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE ON pg_temp.${table}
@@ -532,18 +663,18 @@ describe('audit-guards.sql', () => {
     });
 
     it('notices a disabled trigger on a revisions table', async () => {
-      await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions DISABLE TRIGGER session_revisions_append_only');
+      await db.$executeRawUnsafe('ALTER TABLE pg_temp.encounter_revisions DISABLE TRIGGER encounter_revisions_append_only');
       try {
-        expect(await failure()).toMatch(/trigger session_revisions_append_only on session_revisions is not enabled/);
+        expect(await failure()).toMatch(/trigger encounter_revisions_append_only on encounter_revisions is not enabled/);
       } finally {
-        await db.$executeRawUnsafe('ALTER TABLE pg_temp.session_revisions ENABLE TRIGGER session_revisions_append_only');
+        await db.$executeRawUnsafe('ALTER TABLE pg_temp.encounter_revisions ENABLE TRIGGER encounter_revisions_append_only');
       }
     });
 
     it('notices a revisions table that lost its keys', async () => {
       // LIKE copies no foreign keys.
       expect(await failure()).toMatch(
-        /foreign key session_revisions_tenant_id_patient_id_audit_log_id_fkey on session_revisions is missing or changed/,
+        /foreign key encounter_revisions_tenant_id_patient_id_audit_log_id_fkey on encounter_revisions is missing or changed/,
       );
     });
 
@@ -566,7 +697,7 @@ describe('audit-guards.sql', () => {
       const message = await failure();
       expect(message).toMatch(/check constraint audit_logs_params_are_codes on audit_logs is missing or changed/);
       expect(message).toMatch(/check constraint platform_audit_logs_actor_is_operator on platform_audit_logs is missing/);
-      expect(message).toMatch(/index platform_audit_logs_action_entity_key on platform_audit_logs is missing or changed/);
+      expect(message).toMatch(/index platform_audit_logs_created_entity_key on platform_audit_logs is missing or changed/);
       expect(message).toMatch(/index audit_logs_tenant_id_patient_id_id_key on audit_logs is missing or changed/);
     });
 

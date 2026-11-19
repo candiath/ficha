@@ -1,0 +1,748 @@
+import { randomUUID } from 'node:crypto';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { User } from '@prisma/client';
+import app from '../src/app';
+import { prisma } from '../src/lib/prisma';
+import { DAY_MS } from '../src/lib/clinicalDate';
+import { deleteAuditRows, createTestClinic, createTestToken, sleep, waitFor, type TestClinic } from './helpers';
+import { fixture } from './fixtures';
+
+// El CRUD de sesiones por HTTP: los caminos que las otras suites no cubren.
+//
+// Lo que ya está fijado en otro lado y acá no se repite: la transacción del
+// POST con cobro (encounterAtomicCreate), la semántica parcial del PATCH
+// (encounterPatchPartial), el borrado lógico y su regla de "cobrada no se borra"
+// (encounterSoftDelete), los bloques por episodio (encounterBlocks), la
+// fecha (encounterDateValidation), los episodios ajenos (tenantIsolation) y el
+// vínculo con el turno (appointments).
+//
+// Acá va el resto: la forma completa del DTO y la atribución al usuario, la
+// validación de los campos clínicos, el cruce entre pacientes de la MISMA
+// clínica (el que el guard de tenant no puede atajar), el filtro por episodio,
+// el orden, el PATCH de fecha y de episodio, la auditoría, y qué pasa con el
+// turno cuando la sesión que salió de él se borra.
+describe('CRUD de sesiones por HTTP', () => {
+  let clinic: TestClinic;
+  let clinicB: TestClinic;
+  let user: User;
+  let token: string;
+
+  // Dos pacientes de la misma clínica: el segundo prueba el cruce dentro del
+  // tenant, que es justo lo que el scope por tenantId no puede detectar.
+  let patient: { id: string };
+  let otroPaciente: { id: string };
+  let episodeA: { id: string };
+  let episodeB: { id: string };
+  let episodeDelOtro: { id: string };
+  let packageDelOtro: { id: string };
+  let packageDeB: { id: string };
+
+  const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
+  const url = (patientId = patient.id) => `/api/patients/${patientId}/encounters`;
+  const anular = (encounterId: string, patientId = patient.id) =>
+    auth(request(app).post(`${url(patientId)}/${encounterId}/annul`)).send({ reason: 'DATA_ENTRY_ERROR' });
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    clinicB = await createTestClinic();
+    user = await clinic.createUser();
+    token = await createTestToken(user);
+
+    patient = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente CRUD', lastName: 'Sesiones' },
+      select: { id: true },
+    });
+    otroPaciente = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Otro Paciente Misma', lastName: 'Clínica' },
+      select: { id: true },
+    });
+
+    const crearEpisodio = (patientId: string, tenantId: string, mainComplaint: string) =>
+      fixture.clinicalEpisode.create({
+        data: { tenantId, patientId, mainComplaint },
+        select: { id: true },
+      });
+    episodeA = await crearEpisodio(patient.id, clinic.tenantId, 'Cervicalgia');
+    episodeB = await crearEpisodio(patient.id, clinic.tenantId, 'Lumbalgia');
+    episodeDelOtro = await crearEpisodio(otroPaciente.id, clinic.tenantId, 'Del otro');
+
+    packageDelOtro = await prisma.sessionPackage.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: otroPaciente.id,
+        name: 'Paquete del otro paciente',
+        totalSessions: 10,
+        pricePerSessionCents: 100,
+      },
+      select: { id: true },
+    });
+
+    const patientB = await fixture.patient.create({
+      data: { tenantId: clinicB.tenantId, firstName: 'Paciente de', lastName: 'B' },
+      select: { id: true },
+    });
+    packageDeB = await prisma.sessionPackage.create({
+      data: {
+        tenantId: clinicB.tenantId,
+        patientId: patientB.id,
+        name: 'Paquete de B',
+        totalSessions: 10,
+        pricePerSessionCents: 100,
+      },
+      select: { id: true },
+    });
+  });
+
+  afterAll(async () => {
+    await sleep(300);
+    const tenantIds = [clinic.tenantId, clinicB.tenantId];
+    await deleteAuditRows(tenantIds);
+    await prisma.appointment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    // An encounter's blocks (#238) restrict its deletion: they go first.
+    await prisma.encounterBlock.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.encounter.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await clinic.cleanup();
+    await clinicB.cleanup();
+  });
+
+  // An encounter treats an episode (#238): unless the body says otherwise, the
+  // patient's own (episode A, or the other patient's).
+  async function crearSesion(body: Record<string, unknown> = {}, patientId = patient.id) {
+    const episodio = patientId === otroPaciente.id ? episodeDelOtro.id : episodeA.id;
+    const res = await auth(request(app).post(url(patientId))).send({
+      encounterDate: new Date().toISOString(),
+      episodes: [{ episodeId: episodio }],
+      ...body,
+    });
+    expect(res.status).toBe(201);
+    return res.body.data as { id: string; [k: string]: unknown };
+  }
+
+  function filaCruda(id: string) {
+    return prisma.encounter.findUnique({
+      where: { id },
+      select: {
+        tenantId: true,
+        userId: true,
+        patientId: true,
+        encounterType: true,
+        encounterDate: true,
+        observations: true,
+        deletedAt: true,
+        episodes: { select: { episodeId: true, painScaleBefore: true, painScaleAfter: true } },
+      },
+    });
+  }
+
+  // ── POST: forma y defaults ────────────────────────────────────────────────
+
+  it('POST con todos los campos clínicos devuelve el DTO completo', async () => {
+    const fecha = new Date('2026-03-10T14:30:00.000Z').toISOString();
+    const res = await auth(request(app).post(url())).send({
+      encounterType: 'SESSION',
+      encounterDate: fecha,
+      episodes: [
+        {
+          episodeId: episodeA.id,
+          preEncounterState: 'Rigidez matinal',
+          treatment: 'Trabajo de cadena posterior',
+          reEvaluationNotes: 'Mejora el rango',
+          patientExercises: 'Parado en la pared',
+          painScaleBefore: 7,
+          painScaleAfter: 3,
+        },
+      ],
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data).toEqual({
+      id: expect.any(String),
+      version: 1,
+      patientId: patient.id,
+      encounterType: 'SESSION',
+      encounterDate: fecha,
+      observations: null,
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+      annulledAt: null,
+      episodes: [
+        {
+          episodeId: episodeA.id,
+          preEncounterState: 'Rigidez matinal',
+          treatment: 'Trabajo de cadena posterior',
+          reEvaluationNotes: 'Mejora el rango',
+          patientExercises: 'Parado en la pared',
+          painScaleBefore: 7,
+          painScaleAfter: 3,
+        },
+      ],
+    });
+    expect(typeof res.body.data.id).toBe('string');
+    expect(typeof res.body.data.createdAt).toBe('string');
+    expect(typeof res.body.data.updatedAt).toBe('string');
+    // Internos: no viajan.
+    expect(res.body.data).not.toHaveProperty('tenantId');
+    expect(res.body.data).not.toHaveProperty('userId');
+    expect(res.body.data).not.toHaveProperty('deletedAt');
+  });
+
+  it('POST atribuye la sesión al usuario del token y al tenant de la clínica', async () => {
+    const creada = await crearSesion();
+
+    await expect(filaCruda(creada.id)).resolves.toMatchObject({
+      tenantId: clinic.tenantId,
+      userId: user.id,
+      patientId: patient.id,
+      deletedAt: null,
+    });
+  });
+
+  it('POST con solo la fecha y un episodio nace como SESSION, con el resto en null', async () => {
+    const creada = await crearSesion();
+
+    expect(creada).toMatchObject({
+      encounterType: 'SESSION',
+      observations: null,
+      episodes: [
+        {
+          episodeId: episodeA.id,
+          preEncounterState: null,
+          treatment: null,
+          reEvaluationNotes: null,
+          patientExercises: null,
+          painScaleBefore: null,
+          painScaleAfter: null,
+        },
+      ],
+    });
+    // Sin payment en el body no se inventa ningún cobro.
+    await expect(
+      prisma.payment.findUnique({ where: { encounterId: creada.id } }),
+    ).resolves.toBeNull();
+  });
+
+  it('POST acepta NOTE y DISCHARGE como tipos', async () => {
+    const nota = await crearSesion({ encounterType: 'NOTE' });
+    const alta = await crearSesion({ encounterType: 'DISCHARGE' });
+
+    expect(nota.encounterType).toBe('NOTE');
+    expect(alta.encounterType).toBe('DISCHARGE');
+  });
+
+  // ── POST: validación ──────────────────────────────────────────────────────
+
+  it('POST rechaza un encounterType fuera del enum', async () => {
+    const res = await auth(request(app).post(url())).send({
+      encounterDate: new Date().toISOString(),
+      encounterType: 'CONSULTA',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Datos inválidos');
+    expect(res.body.details.encounterType).toBeDefined();
+  });
+
+  it('POST rechaza escalas de dolor fuera de 0..10 o no enteras', async () => {
+    for (const [campo, valor] of [
+      ['painScaleBefore', 11],
+      ['painScaleBefore', -1],
+      ['painScaleAfter', 3.5],
+      ['painScaleAfter', '5'],
+    ] as const) {
+      const res = await auth(request(app).post(url())).send({
+        encounterDate: new Date().toISOString(),
+        episodes: [{ episodeId: episodeA.id, [campo]: valor }],
+      });
+      expect(res.status, `${campo}=${valor}`).toBe(400);
+      expect(res.body.details.episodes, `${campo}=${valor}`).toBeDefined();
+    }
+  });
+
+  it('POST sin encounterDate se rechaza', async () => {
+    const res = await auth(request(app).post(url())).send({ observations: 'sin fecha' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.details.encounterDate).toBeDefined();
+  });
+
+  it('POST con un body inválido no deja sesión a medias', async () => {
+    const antes = await prisma.encounter.count({ where: { patientId: patient.id } });
+
+    await auth(request(app).post(url())).send({
+      encounterDate: new Date().toISOString(),
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: 99 }],
+    });
+
+    await expect(prisma.encounter.count({ where: { patientId: patient.id } })).resolves.toBe(
+      antes,
+    );
+  });
+
+  // ── POST: el paquete del cobro embebido ───────────────────────────────────
+
+  // tenantIsolation cubre el packageId ajeno en POST /api/payments; ésta es la
+  // otra puerta —el cobro que viaja dentro del alta de la sesión— y la que la
+  // app usa de verdad.
+  it('POST rechaza un packageId de otro paciente de la misma clínica, sin dejar sesión ni cobro', async () => {
+    const antes = await prisma.encounter.count({ where: { patientId: patient.id } });
+
+    const res = await auth(request(app).post(url())).send({
+      encounterDate: new Date().toISOString(),
+      payment: { packageId: packageDelOtro.id, baseAmountCents: 100 },
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Paquete no encontrado' });
+    await expect(prisma.encounter.count({ where: { patientId: patient.id } })).resolves.toBe(
+      antes,
+    );
+    await expect(
+      prisma.payment.count({ where: { packageId: packageDelOtro.id } }),
+    ).resolves.toBe(0);
+  });
+
+  it('POST rechaza un packageId de otra clínica', async () => {
+    const res = await auth(request(app).post(url())).send({
+      encounterDate: new Date().toISOString(),
+      payment: { packageId: packageDeB.id, baseAmountCents: 100 },
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Paquete no encontrado' });
+  });
+
+  // ── GET lista ─────────────────────────────────────────────────────────────
+
+  it('GET lista solo las sesiones de ese paciente, de la más reciente a la más vieja', async () => {
+    const vieja = await crearSesion({
+      encounterDate: new Date(Date.now() - 30 * DAY_MS).toISOString(),
+    });
+    const reciente = await crearSesion({
+      encounterDate: new Date(Date.now() - 1 * DAY_MS).toISOString(),
+    });
+    const delOtro = await crearSesion({}, otroPaciente.id);
+
+    const res = await auth(request(app).get(url()));
+
+    expect(res.status).toBe(200);
+    const ids = res.body.data.map((s: { id: string }) => s.id);
+    expect(ids).toContain(vieja.id);
+    expect(ids).toContain(reciente.id);
+    expect(ids).not.toContain(delOtro.id);
+    expect(ids.indexOf(reciente.id)).toBeLessThan(ids.indexOf(vieja.id));
+
+    const fechas = res.body.data.map((s: { encounterDate: string }) => s.encounterDate);
+    const ordenadas = [...fechas].sort((a, b) => b.localeCompare(a));
+    expect(fechas).toEqual(ordenadas);
+  });
+
+  // queryParams.test.ts prueba que el filtro se valida; acá, que filtra.
+  it('GET ?episodeId= devuelve solo las sesiones vinculadas a ese episodio', async () => {
+    const deA = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
+    const deB = await crearSesion({ episodes: [{ episodeId: episodeB.id }] });
+    const sinEpisodio = await crearSesion({ encounterType: 'NOTE', episodes: [] });
+
+    const res = await auth(request(app).get(`${url()}?episodeId=${episodeA.id}`));
+
+    expect(res.status).toBe(200);
+    const ids = res.body.data.map((s: { id: string }) => s.id);
+    expect(ids).toContain(deA.id);
+    expect(ids).not.toContain(deB.id);
+    expect(ids).not.toContain(sinEpisodio.id);
+  });
+
+  it('GET ?episodeId= de un episodio de otro paciente devuelve vacío, no las del otro', async () => {
+    const delOtro = await crearSesion({ episodes: [{ episodeId: episodeDelOtro.id }] }, otroPaciente.id);
+
+    const res = await auth(request(app).get(`${url()}?episodeId=${episodeDelOtro.id}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((s: { id: string }) => s.id)).not.toContain(delOtro.id);
+  });
+
+  // ── GET una ───────────────────────────────────────────────────────────────
+
+  it('GET /:encounterId devuelve lo mismo que devolvió el POST', async () => {
+    const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }], observations: 'leer' });
+
+    const res = await auth(request(app).get(`${url()}/${creada.id}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual(creada);
+  });
+
+  // La sesión existe y es de la clínica, pero la URL la pide bajo otro
+  // paciente. Es el cruce que el scope por tenant no ve.
+  it('GET /:encounterId bajo otro paciente de la misma clínica da 404', async () => {
+    const delOtro = await crearSesion({}, otroPaciente.id);
+
+    const res = await auth(request(app).get(`${url()}/${delOtro.id}`));
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Sesión no encontrada' });
+  });
+
+  it('GET /:encounterId inexistente da 404', async () => {
+    const res = await auth(request(app).get(`${url()}/${randomUUID()}`));
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Sesión no encontrada' });
+  });
+
+  // ── PATCH ─────────────────────────────────────────────────────────────────
+
+  it('PATCH cambia la fecha', async () => {
+    const creada = await crearSesion();
+    const nueva = new Date(Date.now() - 3 * DAY_MS).toISOString();
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      encounterDate: nueva,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.encounterDate).toBe(nueva);
+  });
+
+  it('PATCH con una fecha inválida se rechaza y no toca la fila', async () => {
+    const creada = await crearSesion();
+    const original = (await filaCruda(creada.id))!.encounterDate;
+
+    for (const fecha of [
+      'mañana',
+      new Date(Date.now() + 400 * DAY_MS).toISOString(),
+      '1025-01-01T10:00:00.000Z',
+    ]) {
+      const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+        reason: 'DATA_ENTRY_ERROR',
+        encounterDate: fecha,
+      });
+      expect(res.status, fecha).toBe(400);
+    }
+
+    await expect(filaCruda(creada.id)).resolves.toMatchObject({ encounterDate: original });
+  });
+
+  it('PATCH cambia las escalas de dolor y el texto clínico', async () => {
+    const creada = await crearSesion({
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: 8 }],
+      observations: 'antes',
+    });
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'después',
+      episodes: [
+        { episodeId: episodeA.id, painScaleBefore: 6, painScaleAfter: 2, patientExercises: 'Rana en el suelo' },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      observations: 'después',
+      episodes: [
+        { episodeId: episodeA.id, painScaleBefore: 6, painScaleAfter: 2, patientExercises: 'Rana en el suelo' },
+      ],
+    });
+  });
+
+  // El formulario web manda null en lo que el usuario vació: la API tiene que
+  // limpiar, no ignorar.
+  it('PATCH con null limpia el campo', async () => {
+    const creada = await crearSesion({
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: 8, painScaleAfter: 4 }],
+      observations: 'a borrar',
+    });
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: null, painScaleAfter: null }],
+      observations: null,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      observations: null,
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: null, painScaleAfter: null }],
+    });
+  });
+
+  it('PATCH rechaza una escala fuera de rango y deja la fila intacta', async () => {
+    const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id, painScaleBefore: 5 }] });
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: 12 }],
+    });
+
+    expect(res.status).toBe(400);
+    await expect(filaCruda(creada.id)).resolves.toMatchObject({
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: 5 }],
+    });
+  });
+
+  it('PATCH reemplaza el episodio vinculado por otro del mismo paciente', async () => {
+    const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      episodes: [{ episodeId: episodeB.id }],
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.episodes.map((b: { episodeId: string }) => b.episodeId)).toEqual([episodeB.id]);
+    // En la base quedó UNA fila del pivote, la nueva: no se acumulan.
+    await expect(filaCruda(creada.id)).resolves.toMatchObject({
+      episodes: [{ episodeId: episodeB.id }],
+    });
+  });
+
+  it('PATCH con el episodio de otro paciente de la misma clínica da 400 y no toca el vínculo', async () => {
+    const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      episodes: [{ episodeId: episodeDelOtro.id }],
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Episodio inexistente o de otro paciente' });
+    await expect(filaCruda(creada.id)).resolves.toMatchObject({
+      episodes: [{ episodeId: episodeA.id }],
+    });
+  });
+
+  it('PATCH bajo otro paciente de la misma clínica da 404 y deja la fila intacta', async () => {
+    const delOtro = await crearSesion({ observations: 'del otro' }, otroPaciente.id);
+
+    const res = await auth(request(app).patch(`${url()}/${delOtro.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'pisado desde otro paciente',
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Sesión no encontrada' });
+    await expect(filaCruda(delOtro.id)).resolves.toMatchObject({ observations: 'del otro' });
+  });
+
+  it('PATCH inexistente da 404', async () => {
+    const res = await auth(request(app).patch(`${url()}/${randomUUID()}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'nada',
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  // payment queda afuera del PATCH a propósito: el cobro se edita por
+  // /api/payments. Un cliente que lo mande igual no tiene que romper nada ni
+  // modificar el cobro.
+  it('PATCH ignora un payment en el body y no toca el cobro', async () => {
+    const creada = await crearSesion({ payment: { baseAmountCents: 5000 } });
+
+    const res = await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'con payment colado',
+      payment: { baseAmountCents: 1 },
+    });
+
+    expect(res.status).toBe(200);
+    const cobro = await prisma.payment.findUnique({
+      where: { encounterId: creada.id },
+      select: { baseAmountCents: true },
+    });
+    expect(Number(cobro?.baseAmountCents)).toBe(5000);
+  });
+
+  // ── Annul ─────────────────────────────────────────────────────────────────
+
+  it("annulling under another patient of the same clinic answers 404 and annuls nothing", async () => {
+    const delOtro = await crearSesion({}, otroPaciente.id);
+
+    const res = await anular(delOtro.id);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Sesión no encontrada' });
+    await expect(filaCruda(delOtro.id)).resolves.toMatchObject({ deletedAt: null });
+  });
+
+  it("an annulled encounter stays in the episode's list, marked", async () => {
+    const creada = await crearSesion({ episodes: [{ episodeId: episodeA.id }] });
+
+    expect((await anular(creada.id)).status).toBe(204);
+
+    const res = await auth(request(app).get(`${url()}?episodeId=${episodeA.id}`));
+    const listed = res.body.data.find((s: { id: string }) => s.id === creada.id);
+    expect(listed.annulledAt).toEqual(expect.any(String));
+  });
+
+  // La sesión salió de un turno y se anula porque se cargó por error. Si el
+  // turno quedara apuntando a la sesión borrada, la agenda diría para siempre
+  // "la sesión de este turno ya está registrada" y el POST con ese
+  // appointmentId daría 409: un turno atendido sin ninguna sesión que se pueda
+  // ver ni volver a registrar.
+  it('annulling releases the appointment the encounter came from, so it can be recorded again', async () => {
+    const turno = await prisma.appointment.create({
+      data: {
+        tenantId: clinic.tenantId,
+        patientId: patient.id,
+        userId: user.id,
+        startsAt: new Date(Date.now() - DAY_MS),
+        endsAt: new Date(Date.now() - DAY_MS + 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+    const primera = await crearSesion({ appointmentId: turno.id });
+    await expect(
+      prisma.appointment.findUnique({ where: { id: turno.id }, select: { encounterId: true } }),
+    ).resolves.toEqual({ encounterId: primera.id });
+
+    expect((await anular(primera.id)).status).toBe(204);
+
+    // El turno ya no apunta a nada...
+    await expect(
+      prisma.appointment.findUnique({ where: { id: turno.id }, select: { encounterId: true } }),
+    ).resolves.toEqual({ encounterId: null });
+
+    // ...y se puede registrar la sesión correcta.
+    const segunda = await auth(request(app).post(url())).send({
+      encounterDate: new Date().toISOString(),
+      episodes: [{ episodeId: episodeA.id }],
+      appointmentId: turno.id,
+    });
+    expect(segunda.status).toBe(201);
+    await expect(
+      prisma.appointment.findUnique({
+        where: { id: turno.id },
+        select: { encounterId: true, status: true },
+      }),
+    ).resolves.toEqual({ encounterId: segunda.body.data.id, status: 'COMPLETED' });
+  });
+
+  // ── Bajo un paciente borrado ──────────────────────────────────────────────
+
+  // patientRepository.test.ts cubre GET y POST bajo un paciente borrado; acá
+  // van las otras dos escrituras, que también pasan por patientRepo.exists.
+  it('PATCH and annul of an encounter of a deleted patient answer 404 and touch nothing', async () => {
+    const borrado = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Paciente Borrado Con', lastName: 'Sesión' },
+      select: { id: true },
+    });
+    const sesion = await crearSesion(
+      { encounterType: 'NOTE', episodes: [], observations: 'previa al borrado' },
+      borrado.id,
+    );
+    expect((await auth(request(app).delete(`/api/patients/${borrado.id}`))).status).toBe(204);
+
+    const editada = await auth(request(app).patch(`${url(borrado.id)}/${sesion.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      observations: 'post mortem',
+    });
+    expect(editada.status).toBe(404);
+    expect(editada.body).toEqual({ error: 'Paciente no encontrado' });
+
+    const borrada = await anular(sesion.id, borrado.id);
+    expect(borrada.status).toBe(404);
+    expect(borrada.body).toEqual({ error: 'Paciente no encontrado' });
+
+    await expect(filaCruda(sesion.id)).resolves.toMatchObject({
+      observations: 'previa al borrado',
+      deletedAt: null,
+    });
+  });
+
+  // ── Auditoría ─────────────────────────────────────────────────────────────
+
+  it('creating, editing and annulling leave their audit rows, without the pain', async () => {
+    const creada = await crearSesion({
+      episodes: [{ episodeId: episodeA.id, painScaleBefore: 7, painScaleAfter: 3 }],
+    });
+    await auth(request(app).patch(`${url()}/${creada.id}`)).send({ reason: 'DATA_ENTRY_ERROR', observations: 'x' });
+    await anular(creada.id);
+
+    const buscar = (action: 'ENCOUNTER_RECORDED' | 'ENCOUNTER_UPDATED' | 'ENCOUNTER_ANNULLED') =>
+      waitFor(() =>
+        prisma.auditLog.findFirst({
+          where: { tenantId: clinic.tenantId, entity: 'ENCOUNTER', entityId: creada.id, action },
+          select: { patientId: true, userId: true, params: true },
+        }),
+      );
+
+    const [alta, edicion, borrado] = await Promise.all([
+      buscar('ENCOUNTER_RECORDED'),
+      buscar('ENCOUNTER_UPDATED'),
+      buscar('ENCOUNTER_ANNULLED'),
+    ]);
+
+    for (const entrada of [alta, edicion, borrado]) {
+      expect(entrada).toMatchObject({ patientId: patient.id, userId: user.id });
+    }
+    // Codes only: the pain values stay in the encounter, never in the audit row.
+    expect(alta.params).toEqual({});
+    expect(edicion.params).toEqual({ encounterType: 'SESSION', changedFields: ['observations'], reason: 'DATA_ENTRY_ERROR' });
+    expect(borrado.params).toEqual({ encounterType: 'SESSION', reason: 'DATA_ENTRY_ERROR' });
+  });
+
+  it('editing the exercises records the field name, never the text', async () => {
+    const creada = await crearSesion();
+    await auth(request(app).patch(`${url()}/${creada.id}`)).send({
+      reason: 'DATA_ENTRY_ERROR',
+      episodes: [{ episodeId: episodeA.id, patientExercises: 'Rana en el suelo' }],
+    });
+
+    const edicion = await waitFor(() =>
+      prisma.auditLog.findFirst({
+        where: { tenantId: clinic.tenantId, entityId: creada.id, action: 'ENCOUNTER_UPDATED' },
+        select: { params: true },
+      }),
+    );
+    expect(edicion.params).toEqual({ encounterType: 'SESSION', changedFields: ['patientExercises'], reason: 'DATA_ENTRY_ERROR' });
+  });
+
+  it('una NOTE y un DISCHARGE se registran con su propia acción', async () => {
+    const nota = await crearSesion({ encounterType: 'NOTE' });
+    // Its own episode: an earlier test discharged episodeA, and a discharge of a
+    // closed episode is refused (#279).
+    const episodio = await fixture.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Para el alta' },
+      select: { id: true },
+    });
+    const alta = await crearSesion({ encounterType: 'DISCHARGE', episodes: [{ episodeId: episodio.id }] });
+
+    const accion = (entityId: string) =>
+      waitFor(() =>
+        prisma.auditLog.findFirst({
+          where: { entity: 'ENCOUNTER', entityId },
+          select: { action: true },
+        }),
+      );
+
+    await expect(accion(nota.id)).resolves.toEqual({ action: 'NOTE_RECORDED' });
+    await expect(accion(alta.id)).resolves.toEqual({ action: 'DISCHARGE_RECORDED' });
+  });
+
+  // ── Autenticación ─────────────────────────────────────────────────────────
+
+  it('sin token, las cinco rutas responden 401', async () => {
+    const creada = await crearSesion();
+
+    const pedidos = [
+      request(app).get(url()),
+      request(app).get(`${url()}/${creada.id}`),
+      request(app).post(url()).send({ encounterDate: new Date().toISOString() }),
+      request(app).patch(`${url()}/${creada.id}`).send({ reason: 'DATA_ENTRY_ERROR', observations: 'intruso' }),
+      request(app).post(`${url()}/${creada.id}/annul`).send({ reason: 'DATA_ENTRY_ERROR' }),
+    ];
+
+    for (const pedido of pedidos) {
+      const res = await pedido;
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: 'No autenticado' });
+    }
+  });
+});

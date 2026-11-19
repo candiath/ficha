@@ -5,7 +5,7 @@ import app from '../src/app';
 import { prisma } from '../src/lib/prisma';
 import { patientRepo } from '../src/repositories';
 import type { TenantContext } from '../src/repositories/types';
-import { deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit, splitName } from './helpers';
+import { createPatientRecord, deleteAuditRows, createTestContext, createTestClinic, createTestToken, sleep, type TestClinic, patientAudit, patientDeleteAudit, splitName } from './helpers';
 
 // patientRepo es el único lugar donde vive la política de borrado lógico:
 // TODO método opera sobre pacientes vigentes (deletedAt: null). Antes de estos
@@ -44,9 +44,9 @@ afterAll(async () => {
   // Los hijos no deberían existir (el test de sub-rutas verifica justamente
   // que no se creen), pero si ese test falla las FKs bloquearían el borrado
   // del paciente y el fallo se disfrazaría de error de limpieza.
-  // A session's blocks (#238) restrict its deletion: they go first.
-  await prisma.sessionEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
-  await prisma.session.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  // An encounter's blocks (#238) restrict its deletion: they go first.
+  await prisma.encounterBlock.deleteMany({ where: { tenantId: { in: tenantIds } } });
+  await prisma.encounter.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.sessionPackage.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.clinicalEpisode.deleteMany({ where: { tenantId: { in: tenantIds } } });
   await prisma.patient.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -57,7 +57,7 @@ afterAll(async () => {
 // Cada test crea su propio paciente: así el orden de ejecución no importa y un
 // test que borra no le saca el piso al siguiente.
 function crearPaciente(fullName: string, ctx: TenantContext = ctxA) {
-  return patientRepo.create(ctx, splitName(fullName), patientAudit('CREATED'));
+  return createPatientRecord(ctx, splitName(fullName), patientAudit('CREATED'));
 }
 
 // Lee la fila cruda con el cliente base (sin scope de tenant ni filtro de
@@ -71,7 +71,7 @@ function filaCruda(id: string) {
 
 describe('patientRepo: política de vigencia (repo directo)', () => {
   it('create devuelve el DTO con fechas ISO y sin campos internos', async () => {
-    const patient = await patientRepo.create(
+    const patient = await createPatientRecord(
       ctxA,
       { firstName: 'Paciente', lastName: 'Nuevo', birthDate: new Date('1990-05-10') },
       patientAudit('CREATED'),
@@ -79,7 +79,7 @@ describe('patientRepo: política de vigencia (repo directo)', () => {
 
     expect(patient.fullName).toBe('Paciente Nuevo');
     expect(typeof patient.createdAt).toBe('string');
-    expect(patient.birthDate).toMatch(/^1990-05-10T/);
+    expect(patient.birthDate).toBe('1990-05-10');
     // El select del repo es el contrato con el front: tenantId es interno y
     // deletedAt siempre sería null acá, así que ninguno debe viajar.
     expect(patient).not.toHaveProperty('tenantId');
@@ -267,11 +267,11 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
     // cosmético al lado de que un POST cuelgue una fila de un paciente que ya
     // no existe — esa fila queda huérfana, sin pantalla que la muestre.
     const subRutas: Array<[string, request.Test]> = [
-      ['GET sesiones', request(app).get(`${base}/sessions`)],
+      ['GET sesiones', request(app).get(`${base}/encounters`)],
       ['GET episodios', request(app).get(`${base}/episodes`)],
       [
         'POST sesión',
-        request(app).post(`${base}/sessions`).send({ sessionDate: new Date().toISOString() }),
+        request(app).post(`${base}/encounters`).send({ encounterDate: new Date().toISOString() }),
       ],
       [
         'POST episodio',
@@ -300,7 +300,7 @@ describe('patientRepo vía HTTP: el tenant sale del request', () => {
 
     // Contracara de los 404: ninguna escritura rechazada dejó una fila colgada.
     const [sesiones, episodios, paquetes] = await Promise.all([
-      prisma.session.count({ where: { patientId: patient.id } }),
+      prisma.encounter.count({ where: { patientId: patient.id } }),
       prisma.clinicalEpisode.count({ where: { patientId: patient.id } }),
       prisma.sessionPackage.count({ where: { patientId: patient.id } }),
     ]);

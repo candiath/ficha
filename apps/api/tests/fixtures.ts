@@ -3,7 +3,7 @@ import type {
   InformedConsent,
   InitialEvaluation,
   Patient,
-  PatientEvent,
+  PatientAntecedent,
   Prisma,
 } from '@prisma/client';
 import { EPISODE_SNAPSHOT_VERSION } from '@ficha/shared';
@@ -13,7 +13,7 @@ import {
   consentVersionOne,
   episodeVersionOne,
   evaluationVersionOne,
-  patientEventVersionOne,
+  patientAntecedentVersionOne,
   patientVersionOne,
   revisionFields,
 } from '../prisma/versionOne';
@@ -27,13 +27,51 @@ import {
 // is written by prisma/versionOne.ts, which the seed uses too.
 //
 // A test that expects an insert to fail keeps calling Prisma: no row, no version.
-// Sessions have their own, createSessionFixture in tests/helpers.ts.
+// Encounters have their own, createEncounterFixture in tests/helpers.ts.
 
 type Tx = Prisma.TransactionClient;
 
 async function createPatient(tx: Tx, data: Prisma.PatientUncheckedCreateInput): Promise<Patient> {
   const row = await tx.patient.create({ data });
   await patientVersionOne(tx, row);
+  return row;
+}
+
+// A patient as a release before the document left her: her version 1 was
+// written with schema version 1 of the patient snapshot, which has no document
+// (packages/shared clinicalSnapshots.ts). For the tests of a schema version
+// change: such a row is never rewritten, and must keep reading and editing.
+async function createPatientAtSchemaV1(tx: Tx, data: Prisma.PatientUncheckedCreateInput): Promise<Patient> {
+  const row = await tx.patient.create({ data });
+  const { id: auditLogId } = await tx.auditLog.create({
+    data: {
+      tenantId: row.tenantId,
+      patientId: row.id,
+      entity: 'PATIENT',
+      entityId: row.id,
+      action: 'PATIENT_CREATED',
+      params: {},
+      actorType: 'SYSTEM',
+    },
+    select: { id: true },
+  });
+  await tx.patientRevision.create({
+    data: {
+      tenantId: row.tenantId,
+      patientId: row.id,
+      version: 1,
+      auditLogId,
+      schemaVersion: 1,
+      snapshot: {
+        firstName: row.firstName,
+        lastName: row.lastName,
+        birthDate: row.birthDate?.toISOString() ?? null,
+        sex: row.sex,
+        occupation: row.occupation,
+        referringDoctor: row.referringDoctor,
+      },
+    },
+  });
   return row;
 }
 
@@ -92,9 +130,9 @@ async function createConsent(tx: Tx, data: Prisma.InformedConsentUncheckedCreate
   return row;
 }
 
-async function createPatientEvent(tx: Tx, data: Prisma.PatientEventUncheckedCreateInput): Promise<PatientEvent> {
-  const row = await tx.patientEvent.create({ data });
-  await patientEventVersionOne(tx, row);
+async function createPatientAntecedent(tx: Tx, data: Prisma.PatientAntecedentUncheckedCreateInput): Promise<PatientAntecedent> {
+  const row = await tx.patientAntecedent.create({ data });
+  await patientAntecedentVersionOne(tx, row);
   return row;
 }
 
@@ -111,7 +149,11 @@ function delegate<D, R>(create: (tx: Tx, data: D) => Promise<R>) {
 }
 
 export const fixture = {
-  patient: delegate(createPatient),
+  patient: {
+    ...delegate(createPatient),
+    createAtSchemaV1: ({ data }: { data: Prisma.PatientUncheckedCreateInput }): Promise<Patient> =>
+      prisma.$transaction((tx) => createPatientAtSchemaV1(tx, data)),
+  },
   clinicalEpisode: {
     ...delegate(createEpisode),
     update: (args: Parameters<typeof updateEpisode>[1]): Promise<ClinicalEpisode> =>
@@ -119,5 +161,5 @@ export const fixture = {
   },
   initialEvaluation: delegate(createEvaluation),
   informedConsent: delegate(createConsent),
-  patientEvent: delegate(createPatientEvent),
+  patientAntecedent: delegate(createPatientAntecedent),
 };

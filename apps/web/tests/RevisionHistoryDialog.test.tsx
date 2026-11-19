@@ -3,23 +3,23 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RevisionHistoryDialog from '@/components/patients/RevisionHistoryDialog';
-import { renderSessionSnapshot } from '@/lib/revisionRows';
+import { renderEncounterSnapshot } from '@/lib/revisionRows';
 import { revisionApi } from '@/services/revisions';
 import type { Revision, RevisionSummary } from '@/types/revision';
 
-// The history of a session (SPEC-clinical-revisions.md §7): the versions, and
+// The history of an encounter (SPEC-clinical-revisions.md §7): the versions, and
 // the selected one read-only from its snapshot, with what it changed marked.
 vi.mock('@/services/revisions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/revisions')>()),
   revisionApi: { list: vi.fn(), get: vi.fn() },
 }));
 
-const BASE = '/api/patients/p1/sessions/s1/revisions';
+const BASE = '/api/patients/p1/encounters/s1/revisions';
 const AUTHOR = { id: 'u1', name: 'Laura Revisora' };
 
 const block = (episodeId: string, treatment: string) => ({
   episodeId,
-  preSessionState: null,
+  preEncounterState: null,
   treatment,
   painScaleBefore: 6,
   painScaleAfter: 3,
@@ -29,16 +29,16 @@ const block = (episodeId: string, treatment: string) => ({
 
 const snapshot = (episodes: ReturnType<typeof block>[]) => ({
   userId: 'u1',
-  sessionType: 'SESSION',
-  sessionDate: '2026-11-02T13:00:00.000Z',
+  encounterType: 'SESSION',
+  encounterDate: '2026-11-02T13:00:00.000Z',
   observations: null,
   episodes,
 });
 
 const V1: Revision = {
   version: 1,
-  action: 'SESSION_RECORDED',
-  params: { sessionType: 'SESSION' },
+  action: 'ENCOUNTER_RECORDED',
+  params: { encounterType: 'SESSION' },
   actorType: 'USER',
   author: AUTHOR,
   createdAt: '2026-11-02T13:05:00.000Z',
@@ -50,8 +50,8 @@ const V1: Revision = {
 // The ankle's block was removed, and the back's treatment corrected.
 const V2: Revision = {
   version: 2,
-  action: 'SESSION_UPDATED',
-  params: { sessionType: 'SESSION', changedFields: ['episodeIds', 'treatment'], reason: 'LATE_INFORMATION' },
+  action: 'ENCOUNTER_UPDATED',
+  params: { encounterType: 'SESSION', changedFields: ['episodeIds', 'treatment'], reason: 'LATE_INFORMATION' },
   actorType: 'USER',
   author: AUTHOR,
   createdAt: '2026-11-03T10:00:00.000Z',
@@ -73,7 +73,7 @@ function renderDialog() {
         patientId="p1"
         base={BASE}
         title="Historial de la sesión"
-        render={renderSessionSnapshot}
+        render={renderEncounterSnapshot}
         renderContext={{ episodeName: (id) => EPISODES[id] }}
       />
     </QueryClientProvider>,

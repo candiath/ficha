@@ -15,7 +15,7 @@ import PatientDetailPage from '@/pages/PatientDetailPage'
 import PatientsPage from '@/pages/PatientsPage'
 import PaymentsPage from '@/pages/PaymentsPage'
 import ResetPasswordPage from '@/pages/ResetPasswordPage'
-import SessionsPage from '@/pages/SessionsPage'
+import EncountersPage from '@/pages/EncountersPage'
 import AlertsPage from '@/pages/AlertsPage'
 
 // Pantallas que todavía son maqueta: no tienen modelo ni endpoint detrás, así
@@ -110,7 +110,7 @@ export default function App() {
         <Route path="turnos" element={<Navigate to="/agenda" replace />} />
         <Route path="patients" element={<PatientsPage />} />
         <Route path="patients/:id" element={<PatientDetailPage />} />
-        <Route path="sessions" element={<SessionsPage />} />
+        <Route path="sessions" element={<EncountersPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="alerts" element={<AlertsPage />} />
         <Route path="account" element={<AccountPage />} />

@@ -1,4 +1,4 @@
-import type { Sex } from '@prisma/client';
+import type { DocumentType, Sex } from '@prisma/client';
 import type { TenantContext } from './types';
 import type { AUDIT_PATIENT_FIELDS } from '@ficha/shared';
 import type { AuditBuilder, AuditEntry, AuditUpdateBuilder } from './auditLogRepository';
@@ -15,6 +15,9 @@ export interface PatientDTO {
   fullName: string;
   birthDate: string | null;
   sex: Sex | null;
+  // Both or neither; the number as stored, normalized.
+  documentType: DocumentType | null;
+  documentNumber: string | null;
   phone: string | null;
   occupation: string | null;
   referringDoctor: string | null;
@@ -32,6 +35,8 @@ export interface PatientCreateInput {
   lastName: string;
   birthDate?: Date | null;
   sex?: Sex | null;
+  documentType?: DocumentType | null;
+  documentNumber?: string | null;
   phone?: string | null;
   occupation?: string | null;
   referringDoctor?: string | null;
@@ -56,9 +61,22 @@ export interface PatientRecordDTO extends PatientDTO {
   version: number;
 }
 
+// Who already has a document, when a write is refused for it: enough to find
+// her, and whether she has to be restored first.
+export interface DocumentHolder {
+  id: string;
+  fullName: string;
+  deleted: boolean;
+}
+
+export type PatientCreateResult =
+  | { ok: true; patient: PatientRecordDTO }
+  | { ok: false; reason: 'document_taken'; holder: DocumentHolder | null };
+
 export type PatientUpdateResult =
   | { ok: true; patient: PatientRecordDTO }
-  | { ok: false; reason: 'not_found' | 'stale' };
+  | { ok: false; reason: 'not_found' | 'stale' }
+  | { ok: false; reason: 'document_taken'; holder: DocumentHolder | null };
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
@@ -99,11 +117,15 @@ export interface PatientRepository {
   getById(ctx: TenantContext, id: string): Promise<PatientRecordDTO | null>;
   /** true si el paciente existe, es del tenant y no está borrado. */
   exists(ctx: TenantContext, id: string): Promise<boolean>;
-  /** Writes version 1 with its audit row. */
-  create(ctx: TenantContext, input: PatientCreateInput, audit: AuditBuilder<PatientDTO>): Promise<PatientRecordDTO>;
+  /**
+   * Writes version 1 with its audit row. `document_taken` if another patient
+   * of the clinic, deleted or not, has the document: decided by the database.
+   */
+  create(ctx: TenantContext, input: PatientCreateInput, audit: AuditBuilder<PatientDTO>): Promise<PatientCreateResult>;
   /**
    * `not_found` si el paciente no existe, es de otro tenant o está borrado;
-   * `stale` if `expectedVersion` is not the latest. Records an audit row only
+   * `stale` if `expectedVersion` is not the latest; `document_taken` as in
+   * create. Records an audit row only
    * when a field changed, with the changed fields' names, and a version only
    * when a versioned field changed (contact and coverage are not).
    */

@@ -3,11 +3,11 @@ import {
   AuditEntity,
   AppointmentStatus,
   EpisodeStatus,
-  PatientEventKind,
+  PatientAntecedentKind,
   PaymentStatus,
   PlatformAction,
   PlatformAuditEntity,
-  SessionType,
+  EncounterType,
   UserRole,
 } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
@@ -18,16 +18,15 @@ import {
   AUDIT_EPISODE_FIELDS,
   AUDIT_EPISODE_STATUSES,
   AUDIT_EVALUATION_FIELDS,
-  AUDIT_PATIENT_EVENT_FIELDS,
-  AUDIT_PATIENT_EVENT_KINDS,
+  AUDIT_PATIENT_ANTECEDENT_FIELDS,
+  AUDIT_PATIENT_ANTECEDENT_KINDS,
   AUDIT_PATIENT_FIELDS,
   AUDIT_PAYMENT_FIELDS,
   AUDIT_PAYMENT_STATUSES,
   AUDIT_REVISION_REASONS,
   AUDIT_ROLES,
-  AUDIT_SCALE_TYPES,
-  AUDIT_SESSION_FIELDS,
-  AUDIT_SESSION_TYPES,
+  AUDIT_ENCOUNTER_FIELDS,
+  AUDIT_ENCOUNTER_TYPES,
   type AuditActionDef,
   auditActionLabel,
   auditEntryProblem,
@@ -77,10 +76,10 @@ describe('the audit catalog matches the schema', () => {
   // The catalog's lists may hold more (a value the domain dropped keeps its
   // label for the rows that name it), never fewer.
   it.each([
-    ['SessionType', SessionType, AUDIT_SESSION_TYPES],
+    ['EncounterType', EncounterType, AUDIT_ENCOUNTER_TYPES],
     ['PaymentStatus', PaymentStatus, AUDIT_PAYMENT_STATUSES],
     ['UserRole', UserRole, AUDIT_ROLES],
-    ['PatientEventKind', PatientEventKind, AUDIT_PATIENT_EVENT_KINDS],
+    ['PatientAntecedentKind', PatientAntecedentKind, AUDIT_PATIENT_ANTECEDENT_KINDS],
     ['AppointmentStatus', AppointmentStatus, AUDIT_APPOINTMENT_STATUSES],
   ] as const)('every %s value has a label in the catalog', (_name, prismaEnum, labels) => {
     for (const value of Object.values(prismaEnum)) expect(Object.keys(labels)).toContain(value);
@@ -97,9 +96,9 @@ describe('the audit catalog matches the schema', () => {
     for (const fields of [
       AUDIT_PATIENT_FIELDS,
       AUDIT_EVALUATION_FIELDS,
-      AUDIT_SESSION_FIELDS,
+      AUDIT_ENCOUNTER_FIELDS,
       AUDIT_PAYMENT_FIELDS,
-      AUDIT_PATIENT_EVENT_FIELDS,
+      AUDIT_PATIENT_ANTECEDENT_FIELDS,
       AUDIT_EPISODE_FIELDS,
       AUDIT_APPOINTMENT_FIELDS,
     ]) {
@@ -109,11 +108,10 @@ describe('the audit catalog matches the schema', () => {
 
   it('every code value is upper case, with no three digits in a row', () => {
     for (const values of [
-      AUDIT_SCALE_TYPES,
-      AUDIT_SESSION_TYPES,
+      AUDIT_ENCOUNTER_TYPES,
       AUDIT_PAYMENT_STATUSES,
       AUDIT_ROLES,
-      AUDIT_PATIENT_EVENT_KINDS,
+      AUDIT_PATIENT_ANTECEDENT_KINDS,
       AUDIT_EPISODE_STATUSES,
       AUDIT_APPOINTMENT_STATUSES,
       AUDIT_REVISION_REASONS,
@@ -128,39 +126,56 @@ describe('the audit catalog matches the schema', () => {
 
 describe('writing is strict', () => {
   it('accepts an action with its parameters', () => {
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE' })).toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'FRACTURE' })).toBeNull();
     expect(
       auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['phone'], reason: 'DATA_ENTRY_ERROR' }),
     ).toBeNull();
   });
 
-  it('refuses unknown and deprecated actions', () => {
+  it('refuses unknown actions', () => {
     expect(auditEntryProblem('audit_logs', 'VIEWED', {})).toMatch(/unknown/);
-    expect(auditEntryProblem('audit_logs', 'CREATED', {})).toMatch(/deprecated/);
-    expect(auditEntryProblem('platform_audit_logs', 'USER_ACTIVE_CHANGED', {})).toMatch(/deprecated/);
-    expect(auditEntryProblem('audit_logs', 'SCALE_APPLIED', { scaleType: 'NDI' })).toMatch(/deprecated/);
     // A code is unique per table, not across them.
     expect(auditEntryProblem('platform_audit_logs', 'PATIENT_CREATED', {})).toMatch(/unknown/);
   });
 
+  // No action is deprecated today. The mechanism stays for the day one is: this
+  // adds a made-up one to the catalog for the length of the test.
+  it('refuses a deprecated action, but still reads and words its rows', () => {
+    const audit = AUDIT_ACTIONS.audit_logs as unknown as Record<string, AuditActionDef>;
+    audit.LEGACY_TEST_ACTION = {
+      deprecated: true,
+      kind: 'update',
+      params: {},
+      label: 'Acción antigua',
+      describe: () => 'Hizo algo antiguo',
+    };
+    try {
+      expect(auditEntryProblem('audit_logs', 'LEGACY_TEST_ACTION', {})).toMatch(/deprecated/);
+      expect(describeAuditEntry('audit_logs', 'LEGACY_TEST_ACTION', {})).toBe('Hizo algo antiguo');
+      expect(auditActionLabel('audit_logs', 'LEGACY_TEST_ACTION')).toBe('Acción antigua');
+    } finally {
+      delete audit.LEGACY_TEST_ACTION;
+    }
+  });
+
   it('refuses free text, unknown keys, unknown values and an empty change list', () => {
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'Fractura de tibia' })).not.toBeNull();
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'FRACTURE', year: 2024 })).not.toBeNull();
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', {})).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'Fractura de tibia' })).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'FRACTURE', year: 2024 })).not.toBeNull();
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', {})).not.toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: [] })).not.toBeNull();
     expect(auditEntryProblem('audit_logs', 'PATIENT_UPDATED', { changedFields: ['password'] })).not.toBeNull();
   });
 
   it('never repeats the value it refused', () => {
-    expect(auditEntryProblem('audit_logs', 'PATIENT_EVENT_RECORDED', { kind: 'juan@x.com' })).not.toContain('juan');
+    expect(auditEntryProblem('audit_logs', 'PATIENT_ANTECEDENT_RECORDED', { kind: 'juan@x.com' })).not.toContain('juan');
   });
 });
 
 describe('reading is lenient', () => {
   it('drops what it does not know, parameter by parameter', () => {
     expect(
-      readAuditParams('audit_logs', 'SESSION_UPDATED', {
-        sessionType: 'FUTURE_TYPE',
+      readAuditParams('audit_logs', 'ENCOUNTER_UPDATED', {
+        encounterType: 'FUTURE_TYPE',
         changedFields: ['painScaleAfter', 'futureField'],
         extra: 'x',
       }),
@@ -168,7 +183,7 @@ describe('reading is lenient', () => {
   });
 
   it('reads anything that is not an object as no parameters', () => {
-    for (const raw of [null, 'x', 3, ['a']]) expect(readAuditParams('audit_logs', 'SCALE_APPLIED', raw)).toEqual({});
+    for (const raw of [null, 'x', 3, ['a']]) expect(readAuditParams('audit_logs', 'ENCOUNTER_UPDATED', raw)).toEqual({});
   });
 
   it('every action has a sentence with none of its parameters', () => {

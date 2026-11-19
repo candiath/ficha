@@ -25,10 +25,9 @@ import { PASSWORD_TOO_LONG, passwordTooLong } from '@/lib/passwordLength';
 
 // Which session's password is being changed. The form, validation and
 // messages are the same for the clinic and the platform operator; only the
-// call differs, so it is the only thing injected. Whatever a session must do
-// with its token after the change is its own business: the clinic keeps its
-// session as is, the operator (still on a JWT) stores the new token it gets
-// back. Defaults to the clinic session (AccountPage passes nothing).
+// call differs, so it is the only thing injected. Both keep their current
+// session as is: the API revokes every other one. Defaults to the clinic
+// session (AccountPage passes nothing).
 export interface PasswordSession {
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { createSessionFixture, deleteAuditRows, createTestClinic, type TestClinic, splitName } from './helpers';
+import { createEncounterFixture, deleteAuditRows, createTestClinic, type TestClinic, splitName } from './helpers';
 import { fixture } from './fixtures';
 
 // The database refuses what the API already refuses (20261024120000_model_integrity):
@@ -17,7 +17,7 @@ describe('The database keeps the model consistent', () => {
   let otherPatient: string;
   let episode: string;
   let otherPatientsEpisode: string;
-  let otherPatientsSession: string;
+  let otherPatientsEncounter: string;
   let otherPatientsPackage: string;
 
   const DAY_MS = 24 * 60 * 60 * 1000;
@@ -39,8 +39,8 @@ describe('The database keeps the model consistent', () => {
     episode = await createEpisode(patient);
     otherPatientsEpisode = await createEpisode(otherPatient);
 
-    otherPatientsSession = (
-      await createSessionFixture({ tenantId, patientId: otherPatient, userId: user.id, sessionDate: new Date() })
+    otherPatientsEncounter = (
+      await createEncounterFixture({ tenantId, patientId: otherPatient, userId: user.id, encounterDate: new Date() })
     ).id;
     otherPatientsPackage = (
       await prisma.sessionPackage.create({
@@ -56,8 +56,8 @@ describe('The database keeps the model consistent', () => {
     await prisma.appointment.deleteMany({ where });
     await prisma.payment.deleteMany({ where });
     await prisma.sessionPackage.deleteMany({ where });
-    await prisma.sessionEpisode.deleteMany({ where });
-    await prisma.session.deleteMany({ where });
+    await prisma.encounterBlock.deleteMany({ where });
+    await prisma.encounter.deleteMany({ where });
     await prisma.initialEvaluation.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
@@ -65,40 +65,40 @@ describe('The database keeps the model consistent', () => {
     await otherClinic.cleanup();
   });
 
-  const session = () =>
-    createSessionFixture({ tenantId: clinic.tenantId, patientId: patient, userId: user.id, sessionDate: new Date() });
+  const encounter = () =>
+    createEncounterFixture({ tenantId: clinic.tenantId, patientId: patient, userId: user.id, encounterDate: new Date() });
 
   describe('a row cannot join two clinics or two patients', () => {
-    it("refuses a session by another clinic's therapist", async () => {
+    it("refuses an encounter by another clinic's therapist", async () => {
       await expect(
-        prisma.session.create({
-          data: { tenantId: clinic.tenantId, patientId: patient, userId: otherClinicsUser.id, sessionDate: new Date() },
+        prisma.encounter.create({
+          data: { tenantId: clinic.tenantId, patientId: patient, userId: otherClinicsUser.id, encounterDate: new Date() },
         }),
-      ).rejects.toThrow(/sessions_tenant_id_user_id_fkey/);
+      ).rejects.toThrow(/encounters_tenant_id_user_id_fkey/);
     });
 
-    it("refuses a payment for another patient's session", async () => {
+    it("refuses a payment for another patient's encounter", async () => {
       await expect(
         prisma.payment.create({
           data: {
             tenantId: clinic.tenantId,
             patientId: patient,
-            sessionId: otherPatientsSession,
+            encounterId: otherPatientsEncounter,
             baseAmountCents: 100,
             finalAmountCents: 100,
           },
         }),
-      ).rejects.toThrow(/payments_tenant_id_patient_id_session_id_fkey/);
+      ).rejects.toThrow(/payments_tenant_id_patient_id_encounter_id_fkey/);
     });
 
     it("refuses a payment from another patient's package", async () => {
-      const own = await session();
+      const own = await encounter();
       await expect(
         prisma.payment.create({
           data: {
             tenantId: clinic.tenantId,
             patientId: patient,
-            sessionId: own.id,
+            encounterId: own.id,
             packageId: otherPatientsPackage,
             baseAmountCents: 100,
             finalAmountCents: 100,
@@ -115,7 +115,7 @@ describe('The database keeps the model consistent', () => {
       ).rejects.toThrow(/initial_evaluations_tenant_id_patient_id_episode_id_fkey/);
     });
 
-    it("refuses an appointment with another patient's episode or session, or another clinic's therapist", async () => {
+    it("refuses an appointment with another patient's episode or encounter, or another clinic's therapist", async () => {
       const appointment = (extra: Record<string, string>) =>
         prisma.appointment.create({
           data: {
@@ -131,8 +131,8 @@ describe('The database keeps the model consistent', () => {
       await expect(appointment({ episodeId: otherPatientsEpisode })).rejects.toThrow(
         /appointments_tenant_id_patient_id_episode_id_fkey/,
       );
-      await expect(appointment({ sessionId: otherPatientsSession })).rejects.toThrow(
-        /appointments_tenant_id_patient_id_session_id_fkey/,
+      await expect(appointment({ encounterId: otherPatientsEncounter })).rejects.toThrow(
+        /appointments_tenant_id_patient_id_encounter_id_fkey/,
       );
       await expect(appointment({ userId: otherClinicsUser.id })).rejects.toThrow(
         /appointments_tenant_id_user_id_fkey/,
@@ -144,37 +144,37 @@ describe('The database keeps the model consistent', () => {
 
   describe('values stay in range', () => {
     it('refuses a pain outside 0–10', async () => {
-      const own = await session();
+      const own = await encounter();
       await expect(
-        prisma.sessionEpisode.create({
-          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, episodeId: episode, painScaleAfter: 11 },
+        prisma.encounterBlock.create({
+          data: { tenantId: clinic.tenantId, patientId: patient, encounterId: own.id, episodeId: episode, painScaleAfter: 11 },
         }),
-      ).rejects.toThrow(/session_episodes_pain_after_range/);
+      ).rejects.toThrow(/encounter_blocks_pain_after_range/);
     });
 
     it('refuses a discount larger than the amount', async () => {
-      const own = await session();
+      const own = await encounter();
       await expect(
         prisma.payment.create({
-          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmountCents: 100, discountCents: 150, finalAmountCents: 0 },
+          data: { tenantId: clinic.tenantId, patientId: patient, encounterId: own.id, baseAmountCents: 100, discountCents: 150, finalAmountCents: 0 },
         }),
       ).rejects.toThrow(/payments_discount_within_base/);
     });
 
     it('refuses a final amount that is not the base minus the discount', async () => {
-      const own = await session();
+      const own = await encounter();
       await expect(
         prisma.payment.create({
-          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmountCents: 10_000, discountCents: 1_000, finalAmountCents: 10_000 },
+          data: { tenantId: clinic.tenantId, patientId: patient, encounterId: own.id, baseAmountCents: 10_000, discountCents: 1_000, finalAmountCents: 10_000 },
         }),
       ).rejects.toThrow(/payments_final_is_base_minus_discount/);
     });
 
     it('refuses a PAID payment without its date or method, and either on one that is not PAID', async () => {
       const payment = async (data: object) => {
-        const own = await session();
+        const own = await encounter();
         return prisma.payment.create({
-          data: { tenantId: clinic.tenantId, patientId: patient, sessionId: own.id, baseAmountCents: 100, finalAmountCents: 100, ...data },
+          data: { tenantId: clinic.tenantId, patientId: patient, encounterId: own.id, baseAmountCents: 100, finalAmountCents: 100, ...data },
         });
       };
 
@@ -191,6 +191,17 @@ describe('The database keeps the model consistent', () => {
       await expect(
         prisma.patient.create({ data: { tenantId: clinic.tenantId, firstName: '', lastName: 'García' } }),
       ).rejects.toThrow(/patients_first_name_present/);
+    });
+
+    it('refuses a user with no name or a blank one', async () => {
+      const userWithName = (name: string | null) =>
+        prisma.$executeRaw`INSERT INTO users (id, tenant_id, email, password_hash, name, updated_at)
+          VALUES (gen_random_uuid(), ${clinic.tenantId}::uuid, ${clinic.email('sin-nombre')}, 'x', ${name}, now())`;
+
+      await expect(userWithName(null)).rejects.toThrow(/23502/); // not_null_violation
+      await expect(userWithName('   ')).rejects.toThrow(/users_name_present/);
+      await expect(prisma.user.create({ data: { tenantId: clinic.tenantId, email: clinic.email('vacio'), passwordHash: 'x', name: '' } }))
+        .rejects.toThrow(/users_name_present/);
     });
 
     it('refuses a consent revoked before it was signed', async () => {

@@ -1,6 +1,6 @@
 import type { PaymentMethod } from '@/types/payment';
 import type { UserRole } from '@ficha/shared';
-import type { PatientEventKind } from '@/types/patientEvent';
+import type { PatientAntecedentKind } from '@/types/patientAntecedent';
 
 export const SEX_LABELS: Record<string, string> = {
   MALE: 'Masculino',
@@ -27,7 +27,7 @@ export const EPISODE_STATUS_CLASS: Record<string, string> = {
 };
 
 // An entry of the patient's history (#238).
-export const PATIENT_EVENT_KIND_LABELS: Record<PatientEventKind, string> = {
+export const PATIENT_ANTECEDENT_KIND_LABELS: Record<PatientAntecedentKind, string> = {
   FRACTURE: 'Fractura',
   SURGERY: 'Cirugía',
   TRAUMA: 'Traumatismo',
@@ -36,13 +36,13 @@ export const PATIENT_EVENT_KIND_LABELS: Record<PatientEventKind, string> = {
   OTHER: 'Otro',
 };
 
-export const SESSION_TYPE_LABELS: Record<string, string> = {
+export const ENCOUNTER_TYPE_LABELS: Record<string, string> = {
   SESSION: 'Sesión RPG',
   NOTE: 'Nota clínica',
   DISCHARGE: 'Alta',
 };
 
-export const SESSION_TYPE_CLASS: Record<string, string> = {
+export const ENCOUNTER_TYPE_CLASS: Record<string, string> = {
   SESSION: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300',
   NOTE: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300',
   DISCHARGE: 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300',

@@ -21,14 +21,7 @@ import { z } from 'zod';
 // tests/auditCatalog.test.ts checks that every value of the mirrored Prisma
 // enum is here.
 
-// No Prisma enum since the functional scales were removed (2026-10-27): kept
-// for the SCALE_APPLIED rows.
-export const AUDIT_SCALE_TYPES = {
-  OSWESTRY: 'Oswestry (ODI)',
-  NDI: 'Neck Disability Index (NDI)',
-} as const;
-
-export const AUDIT_SESSION_TYPES = {
+export const AUDIT_ENCOUNTER_TYPES = {
   SESSION: 'sesión',
   NOTE: 'nota clínica',
   DISCHARGE: 'alta',
@@ -41,7 +34,7 @@ export const AUDIT_PAYMENT_STATUSES = {
 } as const;
 
 // What kind of thing the patient lived: an entry of her history (#238).
-export const AUDIT_PATIENT_EVENT_KINDS = {
+export const AUDIT_PATIENT_ANTECEDENT_KINDS = {
   FRACTURE: 'fractura',
   SURGERY: 'cirugía',
   TRAUMA: 'traumatismo',
@@ -67,18 +60,11 @@ export const AUDIT_APPOINTMENT_STATUSES = {
   NO_SHOW: 'no asistió',
 } as const;
 
-// What annulling a session did to its payment (SESSION_ANNULLED): a pending or
-// waived one is deleted with it, and a paid one refuses the annulment.
-export const AUDIT_ANNULLED_SESSION_PAYMENTS = {
-  NONE: 'sin cobro',
-  PENDING_DELETED: 'se eliminó su cobro pendiente',
-  WAIVED_DELETED: 'se eliminó su cobro eximido',
-} as const;
-
 // Why a clinical record was corrected or annulled (SPEC-clinical-revisions.md
 // §4). Attached to each *_UPDATED and annulment action in the step that
 // versions its aggregate: the catalog validates strictly, so a parameter is
-// required from the commit that adds it. The form preselects DATA_ENTRY_ERROR.
+// required from the commit that adds it. The form preselects nothing (since
+// 2026-11-08): the user picks the reason, so it is never a default left in place.
 export const AUDIT_REVISION_REASONS = {
   DATA_ENTRY_ERROR: 'error de confección',
   LATE_INFORMATION: 'información recibida después',
@@ -102,6 +88,8 @@ export const AUDIT_PATIENT_FIELDS = {
   lastName: 'el apellido',
   birthDate: 'la fecha de nacimiento',
   sex: 'el sexo',
+  documentType: 'el tipo de documento',
+  documentNumber: 'el número de documento',
   phone: 'el teléfono',
   occupation: 'la ocupación',
   referringDoctor: 'el médico derivante',
@@ -114,17 +102,16 @@ export const AUDIT_EVALUATION_FIELDS = {
   patientNarrative: 'el relato del paciente',
   otherHistory: 'los otros antecedentes',
   notes: 'las notas',
-  retractionMap: 'el mapa de retracciones',
   physicalActivity: 'la actividad física',
   painFrequency: 'la frecuencia del dolor',
-  evaScale: 'la escala EVA',
+  painScale: 'la escala EVA',
 } as const;
 
-export const AUDIT_SESSION_FIELDS = {
-  sessionType: 'el tipo',
-  sessionDate: 'la fecha',
+export const AUDIT_ENCOUNTER_FIELDS = {
+  encounterType: 'el tipo',
+  encounterDate: 'la fecha',
   episodeIds: 'los motivos de consulta',
-  preSessionState: 'el estado previo',
+  preEncounterState: 'el estado previo',
   treatment: 'el tratamiento',
   reEvaluationNotes: 'la reevaluación',
   patientExercises: 'los ejercicios',
@@ -133,7 +120,7 @@ export const AUDIT_SESSION_FIELDS = {
   observations: 'la nota',
 } as const;
 
-export const AUDIT_PATIENT_EVENT_FIELDS = {
+export const AUDIT_PATIENT_ANTECEDENT_FIELDS = {
   kind: 'el tipo',
   description: 'la descripción',
   occurred: 'la fecha',
@@ -155,9 +142,9 @@ export const AUDIT_APPOINTMENT_FIELDS = {
   status: 'el estado',
   episodeId: 'el motivo de consulta',
   notes: 'las notas',
-  // Linked when a session is registered from it, released when that session
+  // Linked when an encounter is registered from it, released when that encounter
   // is annulled (#312).
-  sessionId: 'la sesión',
+  encounterId: 'la sesión',
 } as const;
 
 export const AUDIT_PAYMENT_FIELDS = {
@@ -200,11 +187,10 @@ export type AuditReadParamsOf<S extends ParamShape> = Partial<AuditParamsOf<S>>;
 export type AuditEntity =
   | 'PATIENT'
   | 'EVALUATION'
-  | 'SCALE'
-  | 'SESSION'
+  | 'ENCOUNTER'
   | 'PAYMENT'
   | 'CONSENT'
-  | 'PATIENT_EVENT'
+  | 'PATIENT_ANTECEDENT'
   | 'EPISODE'
   | 'APPOINTMENT'
   | 'PACKAGE';
@@ -226,6 +212,11 @@ export interface AuditActionDef<S extends ParamShape = ParamShape> {
    * the clinic nor a user.
    */
   readonly entity?: AuditEntity | PlatformAuditEntity;
+  /**
+   * The timeline's colour. On platform_audit_logs, `create` with an entity also
+   * means the action makes that object: the database keeps one such row per
+   * object (platform_audit_logs_created_entity_key, which names these actions).
+   */
   readonly kind: AuditKind;
   readonly params: S;
   /** Short: badges and filters. */
@@ -319,87 +310,64 @@ export const AUDIT_ACTIONS = {
           : 'Actualizó la evaluación inicial';
       },
     }),
-    // The functional scales (Oswestry, NDI) were removed on 2026-10-27: no screen
-    // had offered them since June.
-    SCALE_APPLIED: action({
-      deprecated: true,
-      entity: 'SCALE',
-      kind: 'create',
-      params: { scaleType: code(AUDIT_SCALE_TYPES) },
-      label: 'Escala aplicada',
-      describe: (p) =>
-        p.scaleType ? `Aplicó la escala ${AUDIT_SCALE_TYPES[p.scaleType]}` : 'Aplicó una escala',
-    }),
-    SESSION_RECORDED: action({
-      entity: 'SESSION',
+    ENCOUNTER_RECORDED: action({
+      entity: 'ENCOUNTER',
       kind: 'create',
       params: {},
       label: 'Sesión registrada',
       describe: () => 'Registró una sesión',
     }),
     NOTE_RECORDED: action({
-      entity: 'SESSION',
+      entity: 'ENCOUNTER',
       kind: 'create',
       params: {},
       label: 'Nota clínica registrada',
       describe: () => 'Registró una nota clínica',
     }),
     DISCHARGE_RECORDED: action({
-      entity: 'SESSION',
+      entity: 'ENCOUNTER',
       kind: 'create',
       params: {},
       label: 'Alta registrada',
       describe: () => 'Registró el alta',
     }),
-    SESSION_UPDATED: action({
-      entity: 'SESSION',
+    ENCOUNTER_UPDATED: action({
+      entity: 'ENCOUNTER',
       kind: 'update',
-      // The type after the update: a session turned into a discharge by
+      // The type after the update: an encounter turned into a discharge by
       // editing it is findable too.
       params: {
-        sessionType: code(AUDIT_SESSION_TYPES),
-        changedFields: fields(AUDIT_SESSION_FIELDS),
+        encounterType: code(AUDIT_ENCOUNTER_TYPES),
+        changedFields: fields(AUDIT_ENCOUNTER_FIELDS),
         reason: code(AUDIT_REVISION_REASONS),
       },
       label: 'Sesión actualizada',
       describe: (p) => {
-        const what = p.sessionType === 'DISCHARGE' ? 'del alta' : p.sessionType === 'NOTE' ? 'de la nota clínica' : 'de la sesión';
-        const changed = joinFields(p.changedFields, AUDIT_SESSION_FIELDS);
+        const what = p.encounterType === 'DISCHARGE' ? 'del alta' : p.encounterType === 'NOTE' ? 'de la nota clínica' : 'de la sesión';
+        const changed = joinFields(p.changedFields, AUDIT_ENCOUNTER_FIELDS);
         return changed ? `Actualizó ${changed} ${what}` : `Actualizó los datos ${what}`;
       },
     }),
-    // Replaced by SESSION_ANNULLED (SPEC-clinical-revisions.md §8): a session
-    // is no longer deleted, only annulled with a reason.
-    SESSION_DELETED: action({
-      deprecated: true,
-      entity: 'SESSION',
-      kind: 'delete',
-      params: {},
-      label: 'Sesión eliminada',
-      describe: () => 'Eliminó una sesión',
-    }),
     // The entry stays in the record, struck through, and its content in its
     // history; lists and metrics leave it out.
-    SESSION_ANNULLED: action({
-      entity: 'SESSION',
+    ENCOUNTER_ANNULLED: action({
+      entity: 'ENCOUNTER',
       kind: 'delete',
-      // `payment`: a pending or waived payment goes with the session, and the
-      // row says so; there is no other trace of it.
+      // A pending or waived payment goes with the encounter: PAYMENT_DELETED,
+      // a row of its own in the same transaction (same transaction_id). Until
+      // 2026-11-19 a `payment` parameter here said so; it was removed before
+      // the relaunch, when no real row held it.
       params: {
-        sessionType: code(AUDIT_SESSION_TYPES),
+        encounterType: code(AUDIT_ENCOUNTER_TYPES),
         reason: code(AUDIT_REVISION_REASONS),
-        payment: code(AUDIT_ANNULLED_SESSION_PAYMENTS),
       },
       label: 'Sesión anulada',
-      describe: (p) => {
-        const what =
-          p.sessionType === 'DISCHARGE'
-            ? 'Anuló el alta'
-            : p.sessionType === 'NOTE'
-              ? 'Anuló una nota clínica'
-              : 'Anuló una sesión';
-        return p.payment && p.payment !== 'NONE' ? `${what} (${AUDIT_ANNULLED_SESSION_PAYMENTS[p.payment]})` : what;
-      },
+      describe: (p) =>
+        p.encounterType === 'DISCHARGE'
+          ? 'Anuló el alta'
+          : p.encounterType === 'NOTE'
+            ? 'Anuló una nota clínica'
+            : 'Anuló una sesión',
     }),
     PAYMENT_CREATED: action({
       entity: 'PAYMENT',
@@ -419,6 +387,16 @@ export const AUDIT_ACTIONS = {
         return withStatus(changed ? `Actualizó ${changed} del cobro` : 'Actualizó el cobro', p.status);
       },
     }),
+    // Only annulling its encounter deletes a payment, and only a pending or
+    // waived one (a paid one refuses the annulment). The status is the one
+    // deleted.
+    PAYMENT_DELETED: action({
+      entity: 'PAYMENT',
+      kind: 'delete',
+      params: { status: code(AUDIT_PAYMENT_STATUSES) },
+      label: 'Cobro eliminado',
+      describe: (p) => withStatus('Eliminó un cobro', p.status),
+    }),
     CONSENT_SIGNED: action({
       entity: 'CONSENT',
       kind: 'create',
@@ -433,42 +411,32 @@ export const AUDIT_ACTIONS = {
       label: 'Consentimiento revocado',
       describe: () => 'Registró la revocación del consentimiento informado',
     }),
-    PATIENT_EVENT_RECORDED: action({
-      entity: 'PATIENT_EVENT',
+    PATIENT_ANTECEDENT_RECORDED: action({
+      entity: 'PATIENT_ANTECEDENT',
       kind: 'create',
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
+      params: { kind: code(AUDIT_PATIENT_ANTECEDENT_KINDS) },
       label: 'Antecedente registrado',
       describe: (p) =>
-        p.kind ? `Registró un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Registró un antecedente',
+        p.kind ? `Registró un antecedente (${AUDIT_PATIENT_ANTECEDENT_KINDS[p.kind]})` : 'Registró un antecedente',
     }),
-    PATIENT_EVENT_UPDATED: action({
-      entity: 'PATIENT_EVENT',
+    PATIENT_ANTECEDENT_UPDATED: action({
+      entity: 'PATIENT_ANTECEDENT',
       kind: 'update',
-      // The kind after the update, as SESSION_UPDATED keeps the type.
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), changedFields: fields(AUDIT_PATIENT_EVENT_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
+      // The kind after the update, as ENCOUNTER_UPDATED keeps the type.
+      params: { kind: code(AUDIT_PATIENT_ANTECEDENT_KINDS), changedFields: fields(AUDIT_PATIENT_ANTECEDENT_FIELDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Antecedente actualizado',
       describe: (p) => {
-        const changed = joinFields(p.changedFields, AUDIT_PATIENT_EVENT_FIELDS);
+        const changed = joinFields(p.changedFields, AUDIT_PATIENT_ANTECEDENT_FIELDS);
         return changed ? `Actualizó ${changed} de un antecedente` : 'Actualizó un antecedente';
       },
     }),
-    // Replaced by PATIENT_EVENT_ANNULLED (SPEC-clinical-revisions.md §8).
-    PATIENT_EVENT_DELETED: action({
-      deprecated: true,
-      entity: 'PATIENT_EVENT',
+    PATIENT_ANTECEDENT_ANNULLED: action({
+      entity: 'PATIENT_ANTECEDENT',
       kind: 'delete',
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS) },
-      label: 'Antecedente eliminado',
-      describe: (p) =>
-        p.kind ? `Eliminó un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Eliminó un antecedente',
-    }),
-    PATIENT_EVENT_ANNULLED: action({
-      entity: 'PATIENT_EVENT',
-      kind: 'delete',
-      params: { kind: code(AUDIT_PATIENT_EVENT_KINDS), reason: code(AUDIT_REVISION_REASONS) },
+      params: { kind: code(AUDIT_PATIENT_ANTECEDENT_KINDS), reason: code(AUDIT_REVISION_REASONS) },
       label: 'Antecedente anulado',
       describe: (p) =>
-        p.kind ? `Anuló un antecedente (${AUDIT_PATIENT_EVENT_KINDS[p.kind]})` : 'Anuló un antecedente',
+        p.kind ? `Anuló un antecedente (${AUDIT_PATIENT_ANTECEDENT_KINDS[p.kind]})` : 'Anuló un antecedente',
     }),
     // An episode's status changes are facts with actions of their own, and take
     // no reason; EPISODE_UPDATED is only a correction of its data. One request
@@ -549,29 +517,6 @@ export const AUDIT_ACTIONS = {
       label: 'Paquete eliminado',
       describe: () => 'Eliminó un paquete de sesiones',
     }),
-    // Before the catalog (until 2026-10), an action was the entity plus one of
-    // these, and the fact itself lived in a Spanish description.
-    CREATED: action({
-      deprecated: true,
-      kind: 'create',
-      params: {},
-      label: 'Creación',
-      describe: () => 'Registro creado',
-    }),
-    UPDATED: action({
-      deprecated: true,
-      kind: 'update',
-      params: {},
-      label: 'Actualización',
-      describe: () => 'Registro actualizado',
-    }),
-    DELETED: action({
-      deprecated: true,
-      kind: 'delete',
-      params: {},
-      label: 'Eliminación',
-      describe: () => 'Registro eliminado',
-    }),
   },
 
   platform_audit_logs: {
@@ -648,15 +593,6 @@ export const AUDIT_ACTIONS = {
       params: {},
       label: 'Alerta de prueba enviada',
       describe: () => 'Envió una alerta de prueba',
-    }),
-    // Until 2026-10, deactivating and reactivating were one action, and which
-    // one lived in the description.
-    USER_ACTIVE_CHANGED: action({
-      deprecated: true,
-      kind: 'update',
-      params: {},
-      label: 'Cambio de estado',
-      describe: () => 'Cambió el estado de la usuaria',
     }),
   },
 } as const;

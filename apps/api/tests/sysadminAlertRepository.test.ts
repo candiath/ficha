@@ -26,7 +26,7 @@ describe('sysadminAlertRepo', () => {
   });
 
   it('records a test alert and the operator action, with no clinic', async () => {
-    const { id } = await sysadminAlertRepo.createTestAlert({ operatorId: operator.operator.id });
+    const { id } = await sysadminAlertRepo.createTestAlert({ operatorId: operator.operator.id, operatorSessionId: operator.operatorSessionId });
 
     const alert = await prisma.sysadminAlert.findUniqueOrThrow({ where: { id } });
     expect(alert).toMatchObject({ kind: 'TEST', operatorId: operator.operator.id });
@@ -48,7 +48,7 @@ describe('sysadminAlertRepo', () => {
       errorCode: 429,
       detail: 'Too Many Requests: retry after 90',
     });
-    const test = await sysadminAlertRepo.createTestAlert({ operatorId: operator.operator.id });
+    const test = await sysadminAlertRepo.createTestAlert({ operatorId: operator.operator.id, operatorSessionId: operator.operatorSessionId });
     await sysadminAlertRepo.recordDelivery(test.id, { outcome: 'SENT', errorCode: null, detail: null });
 
     const overview = await sysadminAlertRepo.overview();

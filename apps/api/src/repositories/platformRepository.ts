@@ -34,11 +34,17 @@ export interface OperatorLogin extends OperatorProfile {
   isActive: boolean;
 }
 
-// Para authenticateOperator: lo justo para armar req.operator y validar el
-// token contra passwordChangedAt.
-export interface OperatorAuth {
-  id: string;
-  passwordChangedAt: Date | null;
+// An operator session that still grants access (authenticateOperator).
+export interface ValidOperatorSession {
+  operatorSessionId: string;
+  operatorId: string;
+  lastUsedAt: Date;
+}
+
+export interface CreateOperatorSessionInput {
+  operatorId: string;
+  ip: string | null;
+  userAgent: string | null;
 }
 
 export interface OperatorCredentials {
@@ -89,7 +95,7 @@ export interface PlatformAuditLogDTO {
   tenantId: string | null;
   targetUserId: string | null;
   // Resolved when the list is read: an audit row never names the person (#186).
-  targetUser: { email: string; name: string | null } | null;
+  targetUser: { email: string; name: string } | null;
   // The operator who acted, read now (area 3 review, M2).
   operator: { name: string | null; email: string } | null;
   action: PlatformAction;
@@ -107,13 +113,24 @@ export interface PlatformAuditLogDTO {
 export interface PlatformRepository {
   /** Para el login. Incluye inactivos: la ruta decide el mensaje único. */
   findOperatorByEmailForLogin(email: string): Promise<OperatorLogin | null>;
-  /** Para authenticateOperator: solo operadores activos. */
-  findOperatorForAuth(id: string): Promise<OperatorAuth | null>;
   getOperatorProfile(id: string): Promise<OperatorProfile | null>;
   getOperatorCredentials(id: string): Promise<OperatorCredentials | null>;
   touchOperatorLastLogin(id: string): Promise<void>;
-  /** Cambia el hash y estampa passwordChangedAt (invalida tokens previos). */
-  updateOperatorPassword(id: string, passwordHash: string): Promise<void>;
+
+  // ─── Operator sessions (SPEC-operator-sessions.md) ───
+  // Like the clinic's sessions in authRepository, they run before any
+  // context exists, so they take ids, not an OperatorContext.
+
+  /** Creates a session and returns its opaque token; only its hash is stored. */
+  createOperatorSession(input: CreateOperatorSessionInput): Promise<{ token: string }>;
+  /** One query: session unrevoked, unexpired, not idle, operator active. */
+  findValidOperatorSession(token: string): Promise<ValidOperatorSession | null>;
+  /** Refreshes last_used_at, at most once per throttle window. */
+  touchOperatorSession(operatorSessionId: string): Promise<void>;
+  /** Logout. false if it was already revoked or does not exist. */
+  revokeOperatorSession(operatorSessionId: string): Promise<boolean>;
+  /** New hash and every other session of hers revoked, in one transaction. */
+  changeOperatorPassword(operatorId: string, passwordHash: string, keepSessionId: string): Promise<void>;
 
   /** Todas las clínicas, activas y desactivadas, por fecha de alta. */
   listTenants(): Promise<PlatformTenantDTO[]>;

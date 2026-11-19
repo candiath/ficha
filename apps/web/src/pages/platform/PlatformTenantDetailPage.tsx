@@ -156,7 +156,7 @@ export default function PlatformTenantDetailPage() {
       queryClient.invalidateQueries({ queryKey: platformKeys.users(tenantId) });
       queryClient.invalidateQueries({ queryKey: platformKeys.audit(tenantId) });
       setPending(null);
-      setResetLink({ name: u.name ?? u.email, link, invitation: u.lastLoginAt === null });
+      setResetLink({ name: u.name, link, invitation: u.lastLoginAt === null });
     },
     onError: (err: Error) => {
       toast.error(err.message || 'No se pudo generar el enlace');
@@ -172,14 +172,14 @@ export default function PlatformTenantDetailPage() {
 
   function onResetPassword(u: PlatformUser) {
     setPending({
-      ...passwordResetConfirmation(u.name ?? u.email, u.lastLoginAt === null),
+      ...passwordResetConfirmation(u.name, u.lastLoginAt === null),
       run: () => resetPassword.mutate(u),
     });
   }
 
   function onDisconnect(u: PlatformUser) {
     setPending({
-      title: `¿Desconectar los dispositivos de ${u.name ?? u.email}?`,
+      title: `¿Desconectar los dispositivos de ${u.name}?`,
       description:
         'Se cierra su sesión en todos los dispositivos. Su cuenta sigue activa: puede volver a ingresar con su contraseña.',
       run: () => disconnectDevices.mutate(u.id),
@@ -193,7 +193,7 @@ export default function PlatformTenantDetailPage() {
       return;
     }
     setPending({
-      title: `¿Quitarle el rol de administración a ${u.name ?? u.email}?`,
+      title: `¿Quitarle el rol de administración a ${u.name}?`,
       description: 'Deja de poder gestionar usuarios y configuración de la clínica al instante.',
       run: () => updateUser.mutate({ userId: u.id, input: { role } }),
     });
@@ -205,7 +205,7 @@ export default function PlatformTenantDetailPage() {
       return;
     }
     setPending({
-      title: `¿Desactivar a ${u.name ?? u.email}?`,
+      title: `¿Desactivar a ${u.name}?`,
       description: 'Pierde el acceso en su próximo request. Se puede reactivar desde acá.',
       run: () => updateUser.mutate({ userId: u.id, input: { isActive: false } }),
     });
@@ -310,7 +310,7 @@ export default function PlatformTenantDetailPage() {
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium truncate">{u.name ?? u.email}</p>
+                      <p className="text-sm font-medium truncate">{u.name}</p>
                       {!u.isActive && (
                         <Badge variant="outline" className="text-xs">
                           Inactivo
@@ -330,7 +330,7 @@ export default function PlatformTenantDetailPage() {
                       onValueChange={(v) => v !== null && onRoleChange(u, v as UserRole)}
                       disabled={busy}
                     >
-                      <SelectTrigger size="sm" aria-label={`Rol de ${u.name ?? u.email}`}>
+                      <SelectTrigger size="sm" aria-label={`Rol de ${u.name}`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -509,7 +509,7 @@ function CreateAdminForm({
       }),
     onSuccess: ({ user, invitation }) => {
       onClose();
-      onCreated(user.name ?? user.email, invitation);
+      onCreated(user.name, invitation);
     },
     onError: (err: Error) => toast.error(err.message || 'No se pudo crear el ADMIN'),
   });

@@ -18,18 +18,18 @@ export interface DashboardStatsParams {
 export interface DashboardCounts {
   /** Pacientes vigentes con al menos un episodio clínico abierto. */
   activePatients: number;
-  totalSessions: number;
-  sessionsThisMonth: number;
+  totalEncounters: number;
+  encountersThisMonth: number;
   pendingPayments: number;
   /** Motivos de consulta más frecuentes, ya ordenados y recortados. */
   pathologies: { name: string; count: number }[];
   /** Fechas de las sesiones clínicas de la ventana, para agregar por mes. */
-  sessionDates: Date[];
+  encounterDates: Date[];
 }
 
 // ─── Port ────────────────────────────────────────────────────────────────────
 
-// Las notas rápidas (sessionType NOTE) no son sesiones clínicas: quedan fuera
+// Las notas rápidas (encounterType NOTE) no son sesiones clínicas: quedan fuera
 // de todos los conteos. Esa regla vive en la implementación, una sola vez.
 export interface DashboardRepository {
   getStats(ctx: TenantContext, params: DashboardStatsParams): Promise<DashboardCounts>;

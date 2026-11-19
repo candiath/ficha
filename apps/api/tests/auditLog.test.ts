@@ -66,7 +66,7 @@ describe('historial de auditoría de un paciente', () => {
     userId: string | null = user.id,
   ) {
     // Backdated rows go through the maintenance helper (#186); a row with an
-    // author names her session.
+    // author names her encounter.
     const [row] = await insertAuditRowsAt([
       {
         tenantId,
@@ -134,6 +134,10 @@ describe('historial de auditoría de un paciente', () => {
     expect(typeof res.body.data[0].createdAt).toBe('string');
     expect(res.body.data[0]).not.toHaveProperty('tenantId');
     expect(res.body.data[0]).not.toHaveProperty('authSessionId');
+    // The transaction id stays in the database (migration
+    // 20261121120000_audit_transaction_id): the DTO spreads its select, so
+    // adding the column there would hand it to the clinic.
+    for (const row of res.body.data) expect(row).not.toHaveProperty('transactionId');
   });
 
   it('no mezcla el historial de otro paciente de la misma clínica', async () => {

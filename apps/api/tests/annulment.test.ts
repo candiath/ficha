@@ -8,10 +8,10 @@ import { episodeRepo } from '../src/repositories';
 import { createTestClinic, createTestContext, createTestToken, deleteAuditRows, type TestClinic } from './helpers';
 import { fixture } from './fixtures';
 
-// Annulment (SPEC-clinical-revisions.md §8): a session or a patient event
+// Annulment (SPEC-clinical-revisions.md §8): an encounter or a patient antecedent
 // entered by mistake is annulled with a reason, never deleted. It stays in the
 // patient's record, marked, with its content in its history, and leaves every
-// other reader. tests/sessionAnnul.test.ts covers what a session's annulment
+// other reader. tests/encounterAnnul.test.ts covers what an encounter's annulment
 // does to its payment and its appointment.
 describe('annulment', () => {
   let clinic: TestClinic;
@@ -21,22 +21,22 @@ describe('annulment', () => {
   let episodeId: string;
 
   const auth = (r: request.Test) => r.set('Authorization', `Bearer ${token}`);
-  const sessionsUrl = () => `/api/patients/${patientId}/sessions`;
-  const eventsUrl = () => `/api/patients/${patientId}/events`;
-  const annulSession = (id: string, body: object) => auth(request(app).post(`${sessionsUrl()}/${id}/annul`)).send(body);
-  const annulEvent = (id: string, body: object) => auth(request(app).post(`${eventsUrl()}/${id}/annul`)).send(body);
+  const encountersUrl = () => `/api/patients/${patientId}/encounters`;
+  const antecedentsUrl = () => `/api/patients/${patientId}/antecedents`;
+  const annulEncounter = (id: string, body: object) => auth(request(app).post(`${encountersUrl()}/${id}/annul`)).send(body);
+  const annulAntecedent = (id: string, body: object) => auth(request(app).post(`${antecedentsUrl()}/${id}/annul`)).send(body);
 
-  const newSession = async (body: object = {}): Promise<string> => {
-    const res = await auth(request(app).post(sessionsUrl())).send({
-      sessionDate: new Date().toISOString(),
+  const newEncounter = async (body: object = {}): Promise<string> => {
+    const res = await auth(request(app).post(encountersUrl())).send({
+      encounterDate: new Date().toISOString(),
       episodes: [{ episodeId, treatment: 'Cadena posterior', painScaleBefore: 6 }],
       ...body,
     });
     expect(res.status).toBe(201);
     return res.body.data.id as string;
   };
-  const newEvent = async (): Promise<string> => {
-    const res = await auth(request(app).post(eventsUrl())).send({ kind: 'FRACTURE', description: 'Fractura de muñeca', occurred: null });
+  const newAntecedent = async (): Promise<string> => {
+    const res = await auth(request(app).post(antecedentsUrl())).send({ kind: 'FRACTURE', description: 'Fractura de muñeca', occurred: null });
     expect(res.status).toBe(201);
     return res.body.data.id as string;
   };
@@ -62,52 +62,52 @@ describe('annulment', () => {
     const where = { tenantId: clinic.tenantId };
     await deleteAuditRows([clinic.tenantId]);
     await prisma.payment.deleteMany({ where });
-    await prisma.sessionEpisode.deleteMany({ where });
-    await prisma.session.deleteMany({ where });
-    await prisma.patientEvent.deleteMany({ where });
+    await prisma.encounterBlock.deleteMany({ where });
+    await prisma.encounter.deleteMany({ where });
+    await prisma.patientAntecedent.deleteMany({ where });
     await prisma.clinicalEpisode.deleteMany({ where });
     await prisma.patient.deleteMany({ where });
     await clinic.cleanup();
   });
 
-  describe('a session', () => {
+  describe('an encounter', () => {
     it('records the action with its reason, and a final version with the note', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
 
-      const res = await annulSession(id, { reason: 'LATE_INFORMATION', reasonNote: 'La paciente no vino ese día' });
+      const res = await annulEncounter(id, { reason: 'LATE_INFORMATION', reasonNote: 'La paciente no vino ese día' });
       expect(res.status).toBe(204);
 
       const rows = await auditRows(id);
-      expect(rows.map((r) => r.action)).toEqual(['SESSION_RECORDED', 'SESSION_ANNULLED']);
-      expect(rows[1]).toMatchObject({ userId: user.id, params: { sessionType: 'SESSION', reason: 'LATE_INFORMATION', payment: 'NONE' } });
-      const [first, last] = await prisma.sessionRevision.findMany({ where: { sessionId: id }, orderBy: { version: 'asc' } });
+      expect(rows.map((r) => r.action)).toEqual(['ENCOUNTER_RECORDED', 'ENCOUNTER_ANNULLED']);
+      expect(rows[1]).toMatchObject({ userId: user.id, params: { encounterType: 'SESSION', reason: 'LATE_INFORMATION' } });
+      const [first, last] = await prisma.encounterRevision.findMany({ where: { encounterId: id }, orderBy: { version: 'asc' } });
       expect(last).toMatchObject({ version: 2, auditLogId: rows[1].id, reasonNote: 'La paciente no vino ese día' });
       // The content does not change: the annulment is what the audit row says.
       expect(last.snapshot).toEqual(first.snapshot);
     });
 
     it('answers 400 without a reason, or with one the catalog does not know, and writes nothing', async () => {
-      const id = await newSession();
+      const id = await newEncounter();
 
       for (const body of [{}, { reasonNote: 'Sin motivo' }, { reason: 'WRONG_PATIENT' }, { reason: 'OTHER', extra: 1 }]) {
-        expect((await annulSession(id, body)).status).toBe(400);
+        expect((await annulEncounter(id, body)).status).toBe(400);
       }
 
-      expect((await prisma.session.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
-      expect(await prisma.sessionRevision.count({ where: { sessionId: id } })).toBe(1);
-      expect((await auditRows(id)).map((r) => r.action)).toEqual(['SESSION_RECORDED']);
+      expect((await prisma.encounter.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      expect(await prisma.encounterRevision.count({ where: { encounterId: id } })).toBe(1);
+      expect((await auditRows(id)).map((r) => r.action)).toEqual(['ENCOUNTER_RECORDED']);
     });
 
-    it('answers 409 to a paid session and writes nothing', async () => {
-      const id = await newSession({ payment: { baseAmountCents: 1000 } });
-      await prisma.payment.updateMany({ where: { sessionId: id }, data: { status: 'PAID', paidAt: new Date(), method: 'CASH' } });
+    it('answers 409 to a paid encounter and writes nothing', async () => {
+      const id = await newEncounter({ payment: { baseAmountCents: 1000 } });
+      await prisma.payment.updateMany({ where: { encounterId: id }, data: { status: 'PAID', paidAt: new Date(), method: 'CASH' } });
 
-      expect((await annulSession(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(409);
+      expect((await annulEncounter(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(409);
 
-      expect((await prisma.session.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
-      expect(await prisma.sessionRevision.count({ where: { sessionId: id } })).toBe(1);
+      expect((await prisma.encounter.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      expect(await prisma.encounterRevision.count({ where: { encounterId: id } })).toBe(1);
       expect(await auditRows(id)).toHaveLength(1);
-      await prisma.payment.deleteMany({ where: { sessionId: id } });
+      await prisma.payment.deleteMany({ where: { encounterId: id } });
     });
 
     it('stays in the record marked, and leaves every other reader', async () => {
@@ -117,51 +117,51 @@ describe('annulment', () => {
         select: { id: true },
       });
       const block = { episodes: [{ episodeId: ownEpisode }] };
-      const kept = await newSession({ ...block, sessionDate: new Date(Date.now() - 86_400_000).toISOString() });
-      const id = await newSession(block);
-      expect((await annulSession(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(204);
+      const kept = await newEncounter({ ...block, encounterDate: new Date(Date.now() - 86_400_000).toISOString() });
+      const id = await newEncounter(block);
+      expect((await annulEncounter(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(204);
 
       // The record's list, with and without the episode's filter.
-      for (const url of [sessionsUrl(), `${sessionsUrl()}?episodeId=${ownEpisode}`]) {
+      for (const url of [encountersUrl(), `${encountersUrl()}?episodeId=${ownEpisode}`]) {
         const list = (await auth(request(app).get(url))).body.data as { id: string; annulledAt: string | null }[];
         expect(list.find((s) => s.id === id)?.annulledAt).toEqual(expect.any(String));
         expect(list.find((s) => s.id === kept)?.annulledAt).toBeNull();
       }
 
       // Read alone, edited or annulled again: gone.
-      expect((await auth(request(app).get(`${sessionsUrl()}/${id}`))).status).toBe(404);
-      const edit = await auth(request(app).patch(`${sessionsUrl()}/${id}`)).send({ reason: 'OTHER', observations: 'Tarde' });
+      expect((await auth(request(app).get(`${encountersUrl()}/${id}`))).status).toBe(404);
+      const edit = await auth(request(app).patch(`${encountersUrl()}/${id}`)).send({ reason: 'OTHER', observations: 'Tarde' });
       expect(edit.status).toBe(404);
-      expect((await annulSession(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(404);
+      expect((await annulEncounter(id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(404);
 
       // The clinic's index.
-      const index = (await auth(request(app).get('/api/sessions'))).body.data as { id: string }[];
+      const index = (await auth(request(app).get('/api/encounters'))).body.data as { id: string }[];
       expect(index.map((s) => s.id)).toContain(kept);
       expect(index.map((s) => s.id)).not.toContain(id);
 
       // The episode's last activity (the inactivity alert's reader) is the
-      // session that was kept: a cutoff ahead of now lists every open episode.
+      // encounter that was kept: a cutoff ahead of now lists every open episode.
       const ctx = await createTestContext(clinic.tenantId, user);
       const stale = await episodeRepo.listStale(ctx, new Date(Date.now() + 86_400_000));
-      const keptDate = (await prisma.session.findUniqueOrThrow({ where: { id: kept } })).sessionDate.toISOString();
+      const keptDate = (await prisma.encounter.findUniqueOrThrow({ where: { id: kept } })).encounterDate.toISOString();
       expect(stale.find((e) => e.episodeId === ownEpisode)?.lastActivityAt).toBe(keptDate);
     });
 
     it('keeps its history readable, with the annulment as its last version', async () => {
-      const id = await newSession();
-      expect((await annulSession(id, { reason: 'CLARIFICATION' })).status).toBe(204);
+      const id = await newEncounter();
+      expect((await annulEncounter(id, { reason: 'CLARIFICATION' })).status).toBe(204);
 
-      const res = await auth(request(app).get(`${sessionsUrl()}/${id}/revisions`));
+      const res = await auth(request(app).get(`${encountersUrl()}/${id}/revisions`));
       expect(res.status).toBe(200);
       expect(res.body.data.map((r: { version: number; action: string }) => [r.version, r.action])).toEqual(
         expect.arrayContaining([
-          [1, 'SESSION_RECORDED'],
-          [2, 'SESSION_ANNULLED'],
+          [1, 'ENCOUNTER_RECORDED'],
+          [2, 'ENCOUNTER_ANNULLED'],
         ]),
       );
     });
 
-    it("answers 404 to another patient's session and to an unknown id", async () => {
+    it("answers 404 to another patient's encounter and to an unknown id", async () => {
       const { id: other } = await fixture.patient.create({
         data: { tenantId: clinic.tenantId, firstName: 'Otra', lastName: 'Paciente' },
         select: { id: true },
@@ -170,67 +170,67 @@ describe('annulment', () => {
         data: { tenantId: clinic.tenantId, patientId: other },
         select: { id: true },
       });
-      const created = await auth(request(app).post(`/api/patients/${other}/sessions`)).send({
-        sessionDate: new Date().toISOString(),
+      const created = await auth(request(app).post(`/api/patients/${other}/encounters`)).send({
+        encounterDate: new Date().toISOString(),
         episodes: [{ episodeId: otherEpisode }],
       });
 
-      expect((await annulSession(created.body.data.id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(404);
-      expect((await annulSession(randomUUID(), { reason: 'DATA_ENTRY_ERROR' })).status).toBe(404);
-      expect((await prisma.session.findUniqueOrThrow({ where: { id: created.body.data.id } })).deletedAt).toBeNull();
+      expect((await annulEncounter(created.body.data.id, { reason: 'DATA_ENTRY_ERROR' })).status).toBe(404);
+      expect((await annulEncounter(randomUUID(), { reason: 'DATA_ENTRY_ERROR' })).status).toBe(404);
+      expect((await prisma.encounter.findUniqueOrThrow({ where: { id: created.body.data.id } })).deletedAt).toBeNull();
     });
 
     it('cannot be deleted any more', async () => {
-      const id = await newSession();
-      expect((await auth(request(app).delete(`${sessionsUrl()}/${id}`))).status).toBe(404);
-      expect((await prisma.session.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      const id = await newEncounter();
+      expect((await auth(request(app).delete(`${encountersUrl()}/${id}`))).status).toBe(404);
+      expect((await prisma.encounter.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
     });
   });
 
-  describe('a patient event', () => {
+  describe('a patient antecedent', () => {
     it('records the action with its reason, and a final version with the note', async () => {
-      const id = await newEvent();
+      const id = await newAntecedent();
 
-      const res = await annulEvent(id, { reason: 'DATA_ENTRY_ERROR', reasonNote: '   ' });
+      const res = await annulAntecedent(id, { reason: 'DATA_ENTRY_ERROR', reasonNote: '   ' });
       expect(res.status).toBe(204);
 
       const rows = await auditRows(id);
-      expect(rows.map((r) => r.action)).toEqual(['PATIENT_EVENT_RECORDED', 'PATIENT_EVENT_ANNULLED']);
+      expect(rows.map((r) => r.action)).toEqual(['PATIENT_ANTECEDENT_RECORDED', 'PATIENT_ANTECEDENT_ANNULLED']);
       expect(rows[1].params).toEqual({ kind: 'FRACTURE', reason: 'DATA_ENTRY_ERROR' });
-      const [first, last] = await prisma.patientEventRevision.findMany({ where: { patientEventId: id }, orderBy: { version: 'asc' } });
+      const [first, last] = await prisma.patientAntecedentRevision.findMany({ where: { patientAntecedentId: id }, orderBy: { version: 'asc' } });
       // A blank note is no note (single empty).
       expect(last).toMatchObject({ version: 2, auditLogId: rows[1].id, reasonNote: null });
       expect(last.snapshot).toEqual(first.snapshot);
     });
 
     it('answers 400 without a reason and writes nothing', async () => {
-      const id = await newEvent();
+      const id = await newAntecedent();
 
-      expect((await annulEvent(id, {})).status).toBe(400);
+      expect((await annulAntecedent(id, {})).status).toBe(400);
 
-      expect((await prisma.patientEvent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      expect((await prisma.patientAntecedent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
       expect(await auditRows(id)).toHaveLength(1);
     });
 
     it('stays in the record marked, cannot be edited, and keeps its history', async () => {
-      const id = await newEvent();
-      expect((await annulEvent(id, { reason: 'OTHER' })).status).toBe(204);
+      const id = await newAntecedent();
+      expect((await annulAntecedent(id, { reason: 'OTHER' })).status).toBe(204);
 
-      const list = (await auth(request(app).get(eventsUrl()))).body.data as { id: string; annulledAt: string | null }[];
+      const list = (await auth(request(app).get(antecedentsUrl()))).body.data as { id: string; annulledAt: string | null }[];
       expect(list.find((e) => e.id === id)?.annulledAt).toEqual(expect.any(String));
 
-      const edit = await auth(request(app).patch(`${eventsUrl()}/${id}`)).send({ reason: 'OTHER', description: 'Tarde' });
+      const edit = await auth(request(app).patch(`${antecedentsUrl()}/${id}`)).send({ reason: 'OTHER', description: 'Tarde' });
       expect(edit.status).toBe(404);
-      expect((await annulEvent(id, { reason: 'OTHER' })).status).toBe(404);
+      expect((await annulAntecedent(id, { reason: 'OTHER' })).status).toBe(404);
 
-      const history = await auth(request(app).get(`${eventsUrl()}/${id}/revisions`));
-      expect(history.body.data.map((r: { action: string }) => r.action)).toContain('PATIENT_EVENT_ANNULLED');
+      const history = await auth(request(app).get(`${antecedentsUrl()}/${id}/revisions`));
+      expect(history.body.data.map((r: { action: string }) => r.action)).toContain('PATIENT_ANTECEDENT_ANNULLED');
     });
 
     it('cannot be deleted any more', async () => {
-      const id = await newEvent();
-      expect((await auth(request(app).delete(`${eventsUrl()}/${id}`))).status).toBe(404);
-      expect((await prisma.patientEvent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+      const id = await newAntecedent();
+      expect((await auth(request(app).delete(`${antecedentsUrl()}/${id}`))).status).toBe(404);
+      expect((await prisma.patientAntecedent.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
     });
   });
 });

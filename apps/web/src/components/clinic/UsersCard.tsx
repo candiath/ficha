@@ -115,7 +115,7 @@ export default function UsersCard() {
       // The pending badge comes with the list.
       queryClient.invalidateQueries({ queryKey: userKeys.list });
       setPending(null);
-      setResetLink({ name: u.name ?? u.email, link, invitation: u.lastLoginAt === null });
+      setResetLink({ name: u.name, link, invitation: u.lastLoginAt === null });
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar el enlace');
@@ -133,14 +133,14 @@ export default function UsersCard() {
   }
 
   function onResetPassword(u: TenantUser) {
-    setPending({ kind: 'reset', user: u, ...passwordResetConfirmation(u.name ?? u.email, u.lastLoginAt === null) });
+    setPending({ kind: 'reset', user: u, ...passwordResetConfirmation(u.name, u.lastLoginAt === null) });
   }
 
   function onDisconnect(u: TenantUser) {
     setPending({
       kind: 'disconnect',
       user: u,
-      title: `¿Desconectar los dispositivos de ${u.name ?? u.email}?`,
+      title: `¿Desconectar los dispositivos de ${u.name}?`,
       description:
         'Se cierra su sesión en todos los dispositivos. Su cuenta sigue activa: puede volver a ingresar con su contraseña.',
     });
@@ -156,7 +156,7 @@ export default function UsersCard() {
       kind: 'update',
       user: u,
       input: { role },
-      title: `¿Quitarle el rol de administración a ${u.name ?? u.email}?`,
+      title: `¿Quitarle el rol de administración a ${u.name}?`,
       description:
         u.id === me?.id
           ? 'Vas a dejar de administrar la clínica en este mismo momento: no vas a poder gestionar usuarios ni editar la configuración hasta que otra persona administradora te devuelva el rol.'
@@ -173,7 +173,7 @@ export default function UsersCard() {
       kind: 'update',
       user: u,
       input: { isActive: false },
-      title: `¿Desactivar a ${u.name ?? u.email}?`,
+      title: `¿Desactivar a ${u.name}?`,
       description:
         'Pierde el acceso en su próximo request, aunque tenga la sesión abierta. Sus sesiones y registros quedan intactos y se puede reactivar desde acá.',
     });
@@ -209,7 +209,7 @@ export default function UsersCard() {
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium truncate">{u.name ?? u.email}</p>
+                      <p className="text-sm font-medium truncate">{u.name}</p>
                       {esYo && (
                         <Badge variant="secondary" className="text-xs">
                           Vos
@@ -235,7 +235,7 @@ export default function UsersCard() {
                       onValueChange={(v) => v !== null && onRoleChange(u, v as UserRole)}
                       disabled={busy}
                     >
-                      <SelectTrigger size="sm" aria-label={`Rol de ${u.name ?? u.email}`}>
+                      <SelectTrigger size="sm" aria-label={`Rol de ${u.name}`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

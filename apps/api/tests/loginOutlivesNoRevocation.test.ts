@@ -22,7 +22,7 @@ describe('a login does not outlive a revocation that landed after its password c
     await clinic.cleanup();
   });
 
-  const sessionsOf = (userId: string) => prisma.authSession.count({ where: { userId } });
+  const encountersOf = (userId: string) => prisma.authSession.count({ where: { userId } });
   const ask = (user: User, verifiedPasswordHash: string, trusted = false) =>
     authRepo.createAuthSession({
       userId: user.id,
@@ -38,7 +38,7 @@ describe('a login does not outlive a revocation that landed after its password c
     const session = await ask(user, user.passwordHash);
 
     expect(session?.token).toEqual(expect.any(String));
-    expect(await sessionsOf(user.id)).toBe(1);
+    expect(await encountersOf(user.id)).toBe(1);
     const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(after.lastLoginAt).not.toBeNull();
   });
@@ -50,7 +50,7 @@ describe('a login does not outlive a revocation that landed after its password c
 
     expect(await ask(user, verified)).toBeNull();
     expect(await ask(user, verified, true)).toBeNull();
-    expect(await sessionsOf(user.id)).toBe(0);
+    expect(await encountersOf(user.id)).toBe(0);
   });
 
   it('creates none after the user was deactivated', async () => {
@@ -58,7 +58,7 @@ describe('a login does not outlive a revocation that landed after its password c
     await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
 
     expect(await ask(user, user.passwordHash)).toBeNull();
-    expect(await sessionsOf(user.id)).toBe(0);
+    expect(await encountersOf(user.id)).toBe(0);
   });
 
   it('creates none after the clinic was deactivated', async () => {
@@ -68,7 +68,7 @@ describe('a login does not outlive a revocation that landed after its password c
       await prisma.tenant.update({ where: { id: other.tenantId }, data: { deactivatedAt: new Date() } });
 
       expect(await ask(user, user.passwordHash)).toBeNull();
-      expect(await sessionsOf(user.id)).toBe(0);
+      expect(await encountersOf(user.id)).toBe(0);
     } finally {
       await other.cleanup();
     }

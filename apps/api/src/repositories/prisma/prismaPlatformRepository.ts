@@ -8,8 +8,10 @@ import type {
   UserUpdateInput,
   UserUpdateResult,
 } from '../userRepository';
+import { LAST_USED_THROTTLE_MS, OPERATOR_SESSION } from '../../lib/authSessionPolicy';
+import { generateOpaqueToken, hashOpaqueToken } from '../../lib/opaqueToken';
 import type {
-  OperatorAuth,
+  CreateOperatorSessionInput,
   OperatorCredentials,
   OperatorLogin,
   OperatorProfile,
@@ -20,6 +22,7 @@ import type {
   PlatformTenantCreateInput,
   PlatformTenantDTO,
   PlatformUserDTO,
+  ValidOperatorSession,
 } from '../platformRepository';
 import {
   issuePasswordReset,
@@ -107,6 +110,16 @@ function toAuditDTO(row: AuditRow): PlatformAuditLogDTO {
   };
 }
 
+// An operator session that still grants access: not revoked, not past its
+// absolute timeout, not past its idle timeout.
+function liveOperatorSessionWhere(now: Date): Prisma.PlatformOperatorSessionWhereInput {
+  return {
+    revokedAt: null,
+    expiresAt: { gt: now },
+    lastUsedAt: { gt: new Date(now.getTime() - OPERATOR_SESSION.idleMs) },
+  };
+}
+
 function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
@@ -118,13 +131,6 @@ export const prismaPlatformRepository: PlatformRepository = {
     return prisma.platformOperator.findUnique({
       where: { email },
       select: { ...operatorProfileSelect, passwordHash: true, isActive: true },
-    });
-  },
-
-  async findOperatorForAuth(id: string): Promise<OperatorAuth | null> {
-    return prisma.platformOperator.findFirst({
-      where: { id, isActive: true },
-      select: { id: true, passwordChangedAt: true },
     });
   },
 
@@ -143,11 +149,67 @@ export const prismaPlatformRepository: PlatformRepository = {
     await prisma.platformOperator.update({ where: { id }, data: { lastLoginAt: new Date() } });
   },
 
-  async updateOperatorPassword(id: string, passwordHash: string): Promise<void> {
-    await prisma.platformOperator.update({
-      where: { id },
-      data: { passwordHash, passwordChangedAt: new Date() },
+  // ─── Operator sessions ─────────────────────────────────────────────────────
+
+  async createOperatorSession(input: CreateOperatorSessionInput): Promise<{ token: string }> {
+    const token = generateOpaqueToken();
+    await prisma.platformOperatorSession.create({
+      data: {
+        operatorId: input.operatorId,
+        tokenHash: hashOpaqueToken(token),
+        expiresAt: new Date(Date.now() + OPERATOR_SESSION.absoluteMs),
+        ip: input.ip,
+        userAgent: input.userAgent,
+      },
+      select: { id: true },
     });
+    return { token };
+  },
+
+  async findValidOperatorSession(token: string): Promise<ValidOperatorSession | null> {
+    // The join to platform_operators is the safety net: a deactivated
+    // operator is denied here even if whoever deactivated her forgot to
+    // revoke her sessions.
+    const row = await prisma.platformOperatorSession.findFirst({
+      where: {
+        ...liveOperatorSessionWhere(new Date()),
+        tokenHash: hashOpaqueToken(token),
+        operator: { isActive: true },
+      },
+      select: { id: true, operatorId: true, lastUsedAt: true },
+    });
+    if (!row) return null;
+    return { operatorSessionId: row.id, operatorId: row.operatorId, lastUsedAt: row.lastUsedAt };
+  },
+
+  async touchOperatorSession(operatorSessionId: string): Promise<void> {
+    // Conditioned write: concurrent requests on a stale session match at most
+    // once, and a session touched a moment ago is left alone.
+    await prisma.platformOperatorSession.updateMany({
+      where: { id: operatorSessionId, lastUsedAt: { lt: new Date(Date.now() - LAST_USED_THROTTLE_MS) } },
+      data: { lastUsedAt: new Date() },
+    });
+  },
+
+  async revokeOperatorSession(operatorSessionId: string): Promise<boolean> {
+    const { count } = await prisma.platformOperatorSession.updateMany({
+      where: { id: operatorSessionId, revokedAt: null },
+      data: { revokedAt: new Date(), revocationReason: 'LOGOUT' },
+    });
+    return count > 0;
+  },
+
+  async changeOperatorPassword(operatorId: string, passwordHash: string, keepSessionId: string): Promise<void> {
+    // The panic button against a stolen token: every other session dies with
+    // the old password, in the same transaction, so a failure cannot leave
+    // the new password in place with old sessions alive.
+    await prisma.$transaction([
+      prisma.platformOperator.update({ where: { id: operatorId }, data: { passwordHash } }),
+      prisma.platformOperatorSession.updateMany({
+        where: { operatorId, id: { not: keepSessionId }, revokedAt: null },
+        data: { revokedAt: new Date(), revocationReason: 'PASSWORD_CHANGED' },
+      }),
+    ]);
   },
 
   // ─── Clínicas ──────────────────────────────────────────────────────────────
