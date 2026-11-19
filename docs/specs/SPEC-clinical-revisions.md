@@ -169,7 +169,7 @@ All of it before the relaunch's wipe (#238).
 
 Depends on this module and on #206 (a runtime role that owns nothing; migrations under an owner role whose credential is not on Render). Sketch, to be specified:
 
-- A deferred constraint trigger on every versioned table that, at commit, requires a revision of that aggregate and its audit row in the same transaction (`xact_id xid8` stamped by a `BEFORE INSERT` trigger on revisions and on `audit_logs`), for the same entity, with contiguous versions. Hard deletes and inserts without a revision only under maintenance.
+- A deferred constraint trigger on every versioned table that, at commit, requires a revision of that aggregate and its audit row in the same transaction, for the same entity, with contiguous versions. "Same transaction" is the `transaction_id` that `audit_logs` carries since `20261121120000_audit_transaction_id`, stamped the same way on the revisions tables (decided 2026-11-19). Not a stored `xid8`: after a restore into another cluster the counter starts over, and new transactions would repeat the ids of old ones. Hard deletes and inserts without a revision only under maintenance.
 - One full comparison when it is switched on, to find any write that skipped versioning during stage 1.
 - The backup restore procedure (`docs/infra.md`) updated and rehearsed in the same PR.
 - An external anchor: the daily backup records per-table row counts and hashes in the private repository.

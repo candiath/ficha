@@ -37,7 +37,7 @@ From the conversation of 2026-10-11, after reviewing OWASP's Logging and Logging
 1. **One action per business fact** (mode B), as `platform_audit_logs` already does.
 2. **Parameters in a JSON column**, validated against the catalog and constrained by the database.
 3. **The catalog lives in `packages/shared`**, so the API, the web and a future PDF export use the same one.
-4. **`request_id` comes with #220**, when the logs carry it: until then it would point at nothing.
+4. **`request_id` never goes into audit rows** (decided 2026-11-19, replacing "it comes with #220"). #220 takes it from the client's `X-Request-Id` when one is sent: free text in a row that can never change. And it would point at logs that Render keeps only for a short time. Instead, #220 logs, with each request's id, the ids of the audit rows the request wrote. The rows of one write are grouped by `transaction_id` (SPEC-audit-hardening.md), not by request.
 5. Map decisions 2 (descriptions name the action, never a value) and 3 (people are ids, resolved when read) still hold; this module enforces 2 by construction instead of by review.
 
 ## Design
@@ -233,7 +233,7 @@ Later modules add their sections and actions to the same catalog.
 
 ### Out of scope
 
-- **`request_id`**: with #220.
+- **`request_id`**: never in the rows (decision 4).
 - **Tying `entity` to `action` in the database.** `recordAudit` derives one from the other; a `CHECK` listing every pair would change with every new action.
 - **Translations**: the catalog has Spanish only; a second language is a second wording table, not a schema change.
 
