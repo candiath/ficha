@@ -10,6 +10,7 @@ import {
   createTestOperator,
   deleteAuditRows,
   expectRestrictedDelete,
+  inAuditMaintenance,
   type TestClinic,
   type TestOperator,
 } from './helpers';
@@ -138,6 +139,136 @@ describe('audit rows are append-only', () => {
       FROM audit_logs a, audit_logs b
       WHERE a.id = ${first.id}::uuid AND b.id = ${second.id}::uuid`;
     expect(gap).toBeGreaterThanOrEqual(0.04);
+  });
+});
+
+// Every audit row names the database transaction that wrote it, stamped like
+// created_at (migration 20261121120000_audit_transaction_id): the rows of one
+// audited write share it, in either table, and the caller cannot choose it.
+describe('audit rows name the transaction that wrote them', () => {
+  const NIL = '00000000-0000-0000-0000-000000000000';
+  const UUID_V8 = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  let clinic: TestClinic;
+  let operator: TestOperator;
+  let user: User;
+  let patientId: string;
+
+  beforeAll(async () => {
+    clinic = await createTestClinic();
+    operator = await createTestOperator();
+    user = await clinic.createUser();
+    ({ id: patientId } = await fixture.patient.create({
+      data: { tenantId: clinic.tenantId, firstName: 'Grouped', lastName: 'Patient' },
+      select: { id: true },
+    }));
+  });
+
+  afterAll(async () => {
+    await deleteAuditRows([clinic.tenantId]);
+    await prisma.patient.deleteMany({ where: { tenantId: clinic.tenantId } });
+    await operator.cleanup();
+    await clinic.cleanup();
+  });
+
+  const row = (overrides: { transactionId?: string } = {}) => ({
+    tenantId: clinic.tenantId,
+    patientId,
+    userId: user.id,
+    entity: 'PATIENT' as const,
+    entityId: patientId,
+    action: 'PATIENT_DELETED' as const,
+    ...overrides,
+  });
+  const select = { transactionId: true } as const;
+
+  it('gives the rows of one transaction one id, and another transaction another', async () => {
+    const [a, b] = await prisma.$transaction(async (tx) => [
+      await tx.auditLog.create({ data: row(), select }),
+      await tx.auditLog.create({ data: row(), select }),
+    ]);
+    const c = await prisma.auditLog.create({ data: row(), select });
+
+    expect(a.transactionId).toMatch(UUID_V8);
+    expect(b.transactionId).toBe(a.transactionId);
+    expect(c.transactionId).toMatch(UUID_V8);
+    expect(c.transactionId).not.toBe(a.transactionId);
+  });
+
+  it('gives a clinic row and a platform row of one transaction the same id', async () => {
+    const [clinical, platform] = await prisma.$transaction(async (tx) => [
+      await tx.auditLog.create({ data: row(), select }),
+      await tx.platformAuditLog.create({
+        data: {
+          operatorId: operator.operator.id,
+          tenantId: clinic.tenantId,
+          targetUserId: user.id,
+          action: 'USER_DEVICES_DISCONNECTED',
+        },
+        select,
+      }),
+    ]);
+
+    expect(platform.transactionId).toBe(clinical.transactionId);
+  });
+
+  // pg_current_xact_id() is the top-level transaction's.
+  it('keeps the id inside a savepoint', async () => {
+    const [outer, inner] = await prisma.$transaction(async (tx) => {
+      const a = await tx.auditLog.create({ data: row(), select });
+      await tx.$executeRaw`SAVEPOINT inner_write`;
+      const b = await tx.auditLog.create({ data: row(), select });
+      await tx.$executeRaw`RELEASE SAVEPOINT inner_write`;
+      return [a, b];
+    });
+
+    expect(inner.transactionId).toBe(outer.transactionId);
+  });
+
+  it('replaces an id the caller sent, nil or not', async () => {
+    const chosen = randomUUID();
+    const sent = await prisma.auditLog.create({ data: row({ transactionId: chosen }), select });
+    const nil = await prisma.auditLog.create({ data: row({ transactionId: NIL }), select });
+
+    expect(sent.transactionId).not.toBe(chosen);
+    expect(sent.transactionId).toMatch(UUID_V8);
+    expect(nil.transactionId).toMatch(UUID_V8);
+  });
+
+  // Restoring rows keeps the ids they had; a row restored without one gets
+  // the restoring transaction's, never the nil default the CHECK refuses.
+  it('keeps an id sent under maintenance, and stamps one that was not sent', async () => {
+    const kept = randomUUID();
+    const [restored, stamped] = await inAuditMaintenance(async (tx) => [
+      await tx.auditLog.create({ data: row({ transactionId: kept }), select }),
+      await tx.auditLog.create({ data: row(), select }),
+    ]);
+
+    expect(restored.transactionId).toBe(kept);
+    expect(stamped.transactionId).toMatch(UUID_V8);
+  });
+
+  // The CHECK is what a missing trigger would run into: the column's
+  // default, nil, is refused. Probed on a TEMP copy without the trigger, so
+  // nothing shared changes.
+  it('refuses the nil default when no trigger stamps it', async () => {
+    const url = new URL(process.env.DIRECT_DATABASE_URL as string);
+    url.searchParams.set('connection_limit', '1');
+    const db = new PrismaClient({ datasourceUrl: url.toString() });
+    try {
+      await db.$executeRawUnsafe(
+        'CREATE TEMP TABLE audit_logs_probe (LIKE public.audit_logs INCLUDING DEFAULTS INCLUDING CONSTRAINTS)',
+      );
+      await expect(
+        db.$executeRawUnsafe(
+          `INSERT INTO pg_temp.audit_logs_probe (id, tenant_id, patient_id, user_id, entity, entity_id, action)
+           VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'PATIENT',
+                   gen_random_uuid(), 'PATIENT_DELETED')`,
+        ),
+      ).rejects.toThrow(/audit_logs_transaction_id_stamped/);
+    } finally {
+      await db.$disconnect();
+    }
   });
 });
 
@@ -486,6 +617,10 @@ describe('audit-guards.sql', () => {
         FOR EACH ROW EXECUTE FUNCTION public.audit_logs_check_session()`);
       await db.$executeRawUnsafe(`CREATE TRIGGER platform_audit_logs_check_session BEFORE INSERT ON pg_temp.platform_audit_logs
         FOR EACH ROW EXECUTE FUNCTION public.platform_audit_logs_check_session()`);
+      for (const table of ['audit_logs', 'platform_audit_logs']) {
+        await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_transaction_id BEFORE INSERT ON pg_temp.${table}
+          FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_transaction_id()`);
+      }
       for (const table of REVISION_TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE ON pg_temp.${table}

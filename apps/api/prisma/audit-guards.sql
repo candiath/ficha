@@ -57,12 +57,16 @@ BEGIN
      'audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_check_session 7 public.audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
+     'audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'
+' ||
+     'audit_logs_stamp_transaction_id 7 public.audit_rows_stamp_transaction_id() when=- cols= args=0 constraint=f'),
     (platform,
      'platform_audit_logs_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_check_session 7 public.platform_audit_logs_check_session() when=- cols= args=0 constraint=f' || E'\n' ||
      'platform_audit_logs_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
-     'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f'),
+     'platform_audit_logs_stamp_created_at 7 public.audit_rows_stamp_created_at() when=- cols= args=0 constraint=f' || E'
+' ||
+     'platform_audit_logs_stamp_transaction_id 7 public.audit_rows_stamp_transaction_id() when=- cols= args=0 constraint=f'),
     (alerts,
      'sysadmin_alerts_append_only 27 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
      'sysadmin_alerts_no_truncate 34 public.audit_rows_are_append_only() when=- cols= args=0 constraint=f' || E'\n' ||
@@ -207,6 +211,12 @@ BEGIN
        $$CHECK (((actor_type <> 'OPERATOR'::"AuditActorType") AND ((actor_type = 'USER'::"AuditActorType") = (user_id IS NOT NULL))))$$),
       (platform, 'platform_audit_logs_actor_is_operator', $$CHECK ((actor_type = 'OPERATOR'::"AuditActorType"))$$),
       (platform, 'platform_audit_logs_entity_with_id', $$CHECK (((entity IS NULL) = (entity_id IS NULL)))$$),
+      -- The nil default is what a row gets if the stamp trigger is missing
+      -- (20261121120000_audit_transaction_id): refused, so the insert fails.
+      (clinical, 'audit_logs_transaction_id_stamped',
+       $$CHECK ((transaction_id <> '00000000-0000-0000-0000-000000000000'::uuid))$$),
+      (platform, 'platform_audit_logs_transaction_id_stamped',
+       $$CHECK ((transaction_id <> '00000000-0000-0000-0000-000000000000'::uuid))$$),
       (encounter_revs, 'encounter_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (patient_revs, 'patient_revisions_version_positive', $$CHECK ((version >= 1))$$),
       (episode_revs, 'episode_revisions_version_positive', $$CHECK ((version >= 1))$$),
@@ -230,8 +240,10 @@ BEGIN
       (platform, 'operator_id'),
       (clinical, 'params'),
       (clinical, 'actor_type'),
+      (clinical, 'transaction_id'),
       (platform, 'params'),
       (platform, 'actor_type'),
+      (platform, 'transaction_id'),
       (alerts, 'kind'),
       (deliveries, 'alert_id'),
       (deliveries, 'outcome'),
@@ -296,7 +308,9 @@ BEGIN
       ('public.audit_logs_check_session()', 'd6f9e9aa7014b9600e7c11f516f02af6'),
       -- Since 20261119120000_operator_session_revocation_and_audit.
       ('public.platform_audit_logs_check_session()', '989bc29d29b7fbce61f9e4b0f690957c'),
-      ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d')
+      ('public.audit_params_are_codes(jsonb)', 'a141296e0ed6c1d189f1b9364c51cf9d'),
+      -- Since 20261121120000_audit_transaction_id.
+      ('public.audit_rows_stamp_transaction_id()', 'f7f42ea45920934aa98d600bada602f5')
     ) AS f(signature, hash)
   LOOP
     IF to_regprocedure(r.signature) IS NULL THEN

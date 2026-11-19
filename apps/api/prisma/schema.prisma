@@ -358,6 +358,9 @@ model PlatformAuditLog {
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  // As audit_logs.transaction_id: stamped by the database, shared by the rows
+  // of one transaction.
+  transactionId     String               @default(dbgenerated("'00000000-0000-0000-0000-000000000000'::uuid")) @map("transaction_id") @db.Uuid
 
   // Restrict everywhere (#186): an audit row can never change, so it cannot
   // lose its operator or target, and nobody it names can be deleted. The
@@ -1103,6 +1106,12 @@ model AuditLog {
   // Stamped by the database on insert (audit_rows_stamp_created_at), in UTC;
   // whatever the caller sends is replaced. (#186)
   createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  // The database transaction that wrote the row, stamped on insert
+  // (audit_rows_stamp_transaction_id): the rows of one audited write share it.
+  // A hash, not Postgres's xid. The nil default is refused by a CHECK, so a
+  // missing trigger fails the insert. Never in a clinic-facing DTO
+  // (migration 20261121120000_audit_transaction_id says why).
+  transactionId String         @default(dbgenerated("'00000000-0000-0000-0000-000000000000'::uuid")) @map("transaction_id") @db.Uuid
 
   // Restrict everywhere (#186): an audit row can never change, so it cannot
   // lose its patient or author, and neither can be deleted while it exists.
