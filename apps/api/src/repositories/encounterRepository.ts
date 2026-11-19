@@ -100,14 +100,25 @@ export type EncounterCreateResult =
   // sesión" o si otra pestaña ganó de mano: la sesión NO se crea, para no
   // duplicar el registro clínico de una misma visita.
   | { ok: false; reason: 'appointment_taken' | EncounterBlockRuleViolation }
-  // A discharge closes its episode now, and this one's opening is dated ahead
-  // of now. Nothing is recorded.
-  | { ok: false; reason: 'discharge_before_opening' };
+  // A discharge closes its episode on the discharge's date (#278), and this
+  // one's opening is later. Nothing is recorded.
+  | { ok: false; reason: 'discharge_before_opening' }
+  // The episode is already closed, discharged or abandoned (#279). Nothing is
+  // recorded.
+  | { ok: false; reason: 'episode_not_active' };
+
+// What an edit of a discharge may not do (#278): the closing of its episode is
+// the discharge's, so it cannot become another type, another type cannot
+// become one, and it cannot move to another episode. Annul it and record it
+// again instead.
+export type DischargeEditViolation = 'discharge_type_fixed' | 'discharge_episode_fixed';
 
 export type EncounterUpdateResult =
   | { ok: true; encounter: EncounterDTO }
   // No current encounter of that patient with that id.
-  | { ok: false; reason: 'not_found' | EncounterBlockRuleViolation }
+  | { ok: false; reason: 'not_found' | EncounterBlockRuleViolation | DischargeEditViolation }
+  // A discharge's corrected date is before its episode's opening.
+  | { ok: false; reason: 'discharge_before_opening' }
   // The editor loaded another version: someone saved in between. Nothing is written.
   | { ok: false; reason: 'stale' };
 

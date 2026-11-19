@@ -37,6 +37,61 @@ const VIGENTE = { deletedAt: null } as const;
 // transacción interactiva sin que el error salga como un 500.
 class TurnoYaRegistrado extends Error {}
 class DischargeBeforeOpening extends Error {}
+class EpisodeNotActive extends Error {}
+
+type Tx = Prisma.TransactionClient;
+
+// The episode a discharge closed, while that closing is still the discharge's
+// (#278): discharged on the discharge's date, and not discharged again by a
+// later one (recorded after it, once the episode was reopened). An episode
+// reopened since, or whose closing was corrected by hand, is no longer the
+// discharge's: correcting or annulling the discharge leaves it alone.
+function closedBy(tenantId: string, discharge: { id: string; encounterDate: Date; createdAt: Date }) {
+  return {
+    tenantId,
+    status: 'DISCHARGED' as const,
+    closedAt: discharge.encounterDate,
+    blocks: {
+      none: {
+        tenantId,
+        encounter: {
+          id: { not: discharge.id },
+          encounterType: 'DISCHARGE' as const,
+          deletedAt: null,
+          createdAt: { gt: discharge.createdAt },
+        },
+      },
+    },
+  };
+}
+
+// What an encounter's write did to each episode it changed is a fact of its
+// own: an audit row for the episode (built by `entryFor`, in the encounter's
+// transaction, so it shares its transaction_id), which owns the episode's next
+// version (SPEC-clinical-revisions.md §4), taken from what the rows hold.
+async function versionEpisodes(
+  tx: Tx,
+  ctx: TenantContext,
+  patientId: string,
+  ids: string[],
+  entryFor: (episodeId: string) => AuditEntry,
+) {
+  const episodes = await tx.clinicalEpisode.findMany({
+    where: { id: { in: ids }, tenantId: ctx.tenantId },
+    select: { id: true, ...episodeSnapshotSelect, revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 } },
+    orderBy: { id: 'asc' },
+  });
+  for (const episode of episodes) {
+    const auditLogId = await recordAudit(tx, ctx, entryFor(episode.id));
+    await recordRevision(tx, ctx, 'episode_revisions', {
+      aggregateId: episode.id,
+      patientId,
+      version: (episode.revisions[0]?.version ?? 0) + 1,
+      auditLogId,
+      snapshot: episodeSnapshot(episode),
+    });
+  }
+}
 
 const blockSelect = {
   episodeId: true,
@@ -314,25 +369,29 @@ export const prismaEncounterRepository: EncounterRepository = {
       // Cierre automático del episodio al registrar el alta: un alta cierra
       // exactamente uno. Dentro de la transacción: antes era fire-and-forget
       // y un fallo dejaba el alta registrada con el episodio todavía abierto.
-      // An opening dated ahead of now refuses the discharge: the condition
-      // goes in the where, and no date is adjusted to fit it.
+      // It closes on the discharge's own date, not when it is entered (#278),
+      // and only an active episode (#279). Both conditions go in the where,
+      // and no date is adjusted to fit them; the episode is locked, so what
+      // is read after a refusal is what refused it.
       if (input.encounterType === 'DISCHARGE') {
-        const closedAt = new Date();
+        const closedAt = input.encounterDate;
         const { count } = await tx.clinicalEpisode.updateMany({
           where: {
-            id: { in: episodes.map((b) => b.episodeId) },
+            id: { in: closing },
             tenantId: ctx.tenantId,
+            status: 'ACTIVE',
             openedAt: { lte: closedAt },
           },
           data: { status: 'DISCHARGED', closedAt },
         });
-        if (count === 0) throw new DischargeBeforeOpening();
+        if (count === 0) {
+          const episode = await tx.clinicalEpisode.findFirst({
+            where: { id: { in: closing }, tenantId: ctx.tenantId },
+            select: { status: true },
+          });
+          throw episode?.status === 'ACTIVE' ? new DischargeBeforeOpening() : new EpisodeNotActive();
+        }
       }
-      const closed = await tx.clinicalEpisode.findMany({
-        where: { id: { in: closing }, tenantId: ctx.tenantId },
-        select: { id: true, ...episodeSnapshotSelect, revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 } },
-        orderBy: { id: 'asc' },
-      });
 
       // El vínculo con el turno va en la MISMA transacción: si la sesión se
       // crea y el vínculo no, el turno queda pidiendo que se registre algo
@@ -397,31 +456,23 @@ export const prismaEncounterRepository: EncounterRepository = {
         auditLogId,
         snapshot: encounterSnapshot(row),
       });
-      // The closed episode's next version belongs to its own row, as when an
-      // episode is closed by hand (EPISODE_CLOSED, routes/episodes.ts).
-      for (const episode of closed) {
-        const closedLogId = await recordAudit(tx, ctx, {
-          action: 'EPISODE_CLOSED',
-          patientId,
-          entityId: episode.id,
-          params: { status: 'DISCHARGED' },
-        });
-        await recordRevision(tx, ctx, 'episode_revisions', {
-          aggregateId: episode.id,
-          patientId,
-          version: (episode.revisions[0]?.version ?? 0) + 1,
-          auditLogId: closedLogId,
-          snapshot: episodeSnapshot(episode),
-        });
-      }
+      // The episode it closed: EPISODE_CLOSED, as when closed by hand
+      // (routes/episodes.ts).
+      await versionEpisodes(tx, ctx, patientId, closing, (episodeId) => ({
+        action: 'EPISODE_CLOSED',
+        patientId,
+        entityId: episodeId,
+        params: { status: 'DISCHARGED' },
+      }));
 
       return { ...dto, version: 1 };
     }).catch((e: unknown) => {
-      // The two cases where the transaction is aborted on purpose: the
-      // appointment already had its encounter, or the episode opens later.
-      // Anything else is a real error.
+      // The cases where the transaction is aborted on purpose: the
+      // appointment already had its encounter, the episode opens after the
+      // discharge, or it is not active. Anything else is a real error.
       if (e instanceof TurnoYaRegistrado) return 'appointment_taken' as const;
       if (e instanceof DischargeBeforeOpening) return 'discharge_before_opening' as const;
+      if (e instanceof EpisodeNotActive) return 'episode_not_active' as const;
       throw e;
     });
 
@@ -465,8 +516,18 @@ export const prismaEncounterRepository: EncounterRepository = {
         // missing field is "leave it", never "empty it").
         const blocks =
           input.episodes === undefined ? before.episodes : mergeBlocks(before.episodes, input.episodes);
-        const violation = episodeRuleViolation(input.encounterType ?? before.encounterType, blocks.length);
+        const encounterType = input.encounterType ?? before.encounterType;
+        const violation = episodeRuleViolation(encounterType, blocks.length);
         if (violation) return { ok: false, reason: violation };
+
+        // A discharge's episode follows its date (#278), so what makes it a
+        // discharge of that episode does not change: annul it and record it
+        // again instead.
+        const isDischarge = before.encounterType === 'DISCHARGE';
+        if (isDischarge !== (encounterType === 'DISCHARGE')) return { ok: false, reason: 'discharge_type_fixed' };
+        if (isDischarge && blocks[0].episodeId !== before.episodes[0]?.episodeId) {
+          return { ok: false, reason: 'discharge_episode_fixed' };
+        }
 
         // Compared with the latest snapshot, before writing: a save that changes
         // nothing writes nothing. An encounter with no revision yet (version 0) is
@@ -525,12 +586,31 @@ export const prismaEncounterRepository: EncounterRepository = {
           }
         }
 
+        // A corrected discharge date moves its episode's closing, while that
+        // closing is the discharge's (#278). The episode is locked after the
+        // encounter, as the annulment does. A date before the opening refuses
+        // the whole edit; nothing is adjusted to fit it.
+        const moved: string[] = [];
+        if (isDischarge && input.encounterDate && input.encounterDate.getTime() !== beforeRow.encounterDate.getTime()) {
+          const episodeId = blocks[0].episodeId;
+          await lockRow(tx, 'clinical_episodes', episodeId, ctx.tenantId);
+          const { count } = await tx.clinicalEpisode.updateMany({
+            where: { id: episodeId, ...closedBy(ctx.tenantId, beforeRow), openedAt: { lte: input.encounterDate } },
+            data: { closedAt: input.encounterDate },
+          });
+          if (count === 1) moved.push(episodeId);
+          else if (await tx.clinicalEpisode.count({ where: { id: episodeId, ...closedBy(ctx.tenantId, beforeRow) } })) {
+            throw new DischargeBeforeOpening();
+          }
+        }
+
         const row = await tx.encounter.findUniqueOrThrow({
           where: { id, tenantId: ctx.tenantId },
           select: encounterSelect,
         });
         const encounter = { ...toDTO(row), version: version + 1 };
-        const auditLogId = await recordAudit(tx, ctx, audit(encounter, changed));
+        const entry = audit(encounter, changed);
+        const auditLogId = await recordAudit(tx, ctx, entry);
         await recordRevision(tx, ctx, 'encounter_revisions', {
           aggregateId: id,
           patientId,
@@ -540,12 +620,24 @@ export const prismaEncounterRepository: EncounterRepository = {
           snapshot: encounterSnapshot(row),
           reasonNote: input.reasonNote,
         });
+        // The closing it moved: a correction of the episode, for the
+        // encounter's own reason.
+        if (entry.action === 'ENCOUNTER_UPDATED') {
+          const { reason } = entry.params;
+          await versionEpisodes(tx, ctx, patientId, moved, (episodeId) => ({
+            action: 'EPISODE_UPDATED',
+            patientId,
+            entityId: episodeId,
+            params: { changedFields: ['closedAt'], reason },
+          }));
+        }
         return { ok: true, encounter };
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
         return notFound;
       }
+      if (e instanceof DischargeBeforeOpening) return { ok: false, reason: 'discharge_before_opening' };
       throw e;
     }
   },
@@ -635,6 +727,19 @@ export const prismaEncounterRepository: EncounterRepository = {
           where: { id, tenantId: ctx.tenantId },
           select: encounterSelect,
         });
+        // An annulled discharge reopens the episode it closed, while that
+        // closing is still its own (#278); its next version goes under the
+        // annulment's audit row, as the closing went under the discharge's.
+        const reopened: string[] = [];
+        if (row.encounterType === 'DISCHARGE' && row.episodes[0]) {
+          const episodeId = row.episodes[0].episodeId;
+          await lockRow(tx, 'clinical_episodes', episodeId, ctx.tenantId);
+          const { count: reopenedCount } = await tx.clinicalEpisode.updateMany({
+            where: { id: episodeId, ...closedBy(ctx.tenantId, row) },
+            data: { status: 'ACTIVE', closedAt: null },
+          });
+          if (reopenedCount === 1) reopened.push(episodeId);
+        }
         const encounter = toDTO(row);
         const version = encounter.version + 1;
         const auditLogId = await recordAudit(tx, ctx, audit({ ...encounter, version }));
@@ -657,6 +762,13 @@ export const prismaEncounterRepository: EncounterRepository = {
             params: { status: payment.status },
           });
         }
+        // The episode it reopened, as when reopened by hand.
+        await versionEpisodes(tx, ctx, patientId, reopened, (episodeId) => ({
+          action: 'EPISODE_REOPENED',
+          patientId,
+          entityId: episodeId,
+          params: {},
+        }));
         return 'annulled';
       }
 

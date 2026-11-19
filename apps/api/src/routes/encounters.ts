@@ -123,6 +123,19 @@ const EPISODE_RULE_ERROR = {
   discharge_needs_one_episode: 'Un alta cierra exactamente un episodio',
 } as const;
 
+// A discharge closes its episode on its own date (#278): before the opening it
+// is refused, and the date is not adjusted to fit.
+const DISCHARGE_BEFORE_OPENING = {
+  error: 'La fecha del alta no puede ser anterior a la apertura del episodio',
+  code: 'discharge_before_opening',
+} as const;
+
+// What an edit of a discharge may not change (#278), and what to do instead.
+const DISCHARGE_EDIT_ERROR = {
+  discharge_type_fixed: 'Una sesión no se convierte en alta ni un alta en otra cosa: anulala y registrala de nuevo',
+  discharge_episode_fixed: 'El alta no cambia de episodio: anulala y registrala de nuevo',
+} as const;
+
 // GET /api/patients/:patientId/encounters
 // Acepta ?episodeId= para filtrar por episodio (sesiones que abordaron ese motivo).
 router.get<ParentParams>('/', async (req, res) => {
@@ -214,7 +227,13 @@ router.post<ParentParams>('/', async (req, res) => {
       return;
     }
     if (result.reason === 'discharge_before_opening') {
-      res.status(400).json({ error: 'El episodio abre más adelante: no se puede dar de alta antes de su apertura' });
+      res.status(400).json(DISCHARGE_BEFORE_OPENING);
+      return;
+    }
+    // The episode is discharged or abandoned already (#279): a conflict with
+    // its state, not a malformed request.
+    if (result.reason === 'episode_not_active') {
+      res.status(409).json({ error: 'El episodio ya está cerrado', code: 'episode_not_active' });
       return;
     }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });
@@ -267,6 +286,14 @@ router.patch<EncounterParams>('/:encounterId', async (req, res) => {
     }
     if (result.reason === 'stale') {
       res.status(409).json(STALE_EDIT);
+      return;
+    }
+    if (result.reason === 'discharge_before_opening') {
+      res.status(400).json(DISCHARGE_BEFORE_OPENING);
+      return;
+    }
+    if (result.reason === 'discharge_type_fixed' || result.reason === 'discharge_episode_fixed') {
+      res.status(400).json({ error: DISCHARGE_EDIT_ERROR[result.reason], code: result.reason });
       return;
     }
     res.status(400).json({ error: EPISODE_RULE_ERROR[result.reason] });

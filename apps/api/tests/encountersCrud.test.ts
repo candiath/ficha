@@ -706,7 +706,13 @@ describe('CRUD de sesiones por HTTP', () => {
 
   it('una NOTE y un DISCHARGE se registran con su propia acción', async () => {
     const nota = await crearSesion({ encounterType: 'NOTE' });
-    const alta = await crearSesion({ encounterType: 'DISCHARGE' });
+    // Its own episode: an earlier test discharged episodeA, and a discharge of a
+    // closed episode is refused (#279).
+    const episodio = await fixture.clinicalEpisode.create({
+      data: { tenantId: clinic.tenantId, patientId: patient.id, mainComplaint: 'Para el alta' },
+      select: { id: true },
+    });
+    const alta = await crearSesion({ encounterType: 'DISCHARGE', episodes: [{ episodeId: episodio.id }] });
 
     const accion = (entityId: string) =>
       waitFor(() =>

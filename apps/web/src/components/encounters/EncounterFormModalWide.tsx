@@ -527,7 +527,7 @@ export default function EncounterFormModalWide({
           )}
           {!isEditing && encounterType === 'DISCHARGE' && (
             <DialogDescription>
-              Al guardar, el motivo queda cerrado con fecha de alta.
+              Al guardar, el motivo queda cerrado en la fecha de esta alta.
             </DialogDescription>
           )}
         </DialogHeader>

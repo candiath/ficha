@@ -146,7 +146,7 @@ describe('creación atómica de sesión con pago', () => {
     const res = await postEncounter({ encounterType: 'DISCHARGE', episodes: [{ episodeId: episode.id }] });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('El episodio abre más adelante: no se puede dar de alta antes de su apertura');
+    expect(res.body.error).toBe('La fecha del alta no puede ser anterior a la apertura del episodio');
     await expect(
       prisma.clinicalEpisode.findUnique({ where: { id: episode.id }, select: { status: true, closedAt: true } }),
     ).resolves.toEqual({ status: 'ACTIVE', closedAt: null });

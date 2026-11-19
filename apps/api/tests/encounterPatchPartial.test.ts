@@ -101,15 +101,16 @@ describe('PATCH de sesiones: campos ausentes no pisan datos', () => {
     expect(res.body.data.encounterType).toBe('NOTE');
   });
 
+  // A discharge keeps its type (#278): a note is changed here instead.
   it('un PATCH que sí manda encounterType lo cambia', async () => {
-    const { encounterId } = await crearConEpisodio();
+    const { encounterId } = await crearConEpisodio('NOTE');
 
     const res = await request(app)
       .patch(`/api/patients/${patient.id}/encounters/${encounterId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ reason: 'DATA_ENTRY_ERROR', encounterType: 'NOTE' });
+      .send({ reason: 'DATA_ENTRY_ERROR', encounterType: 'SESSION' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.encounterType).toBe('NOTE');
+    expect(res.body.data.encounterType).toBe('SESSION');
   });
 });
