@@ -307,13 +307,13 @@ BEGIN
   END LOOP;
 
   -- Indexes a guarantee rests on, by exact definition: one platform row per
-  -- action on an object its action makes, a reset link or a test alert
+  -- object for the action that made it, a reset link or a test alert
   -- (SPEC-audit-structured-entries.md §2), and the key the
   -- clinical revisions point at, so a version names an audit row of its own
   -- clinic and patient (SPEC-clinical-revisions.md §2).
   FOR r IN SELECT * FROM (VALUES
-      (platform, 'platform_audit_logs_action_entity_key',
-       'CREATE UNIQUE INDEX platform_audit_logs_action_entity_key ON public.platform_audit_logs USING btree (action, entity, entity_id) WHERE (entity = ANY (ARRAY[''PASSWORD_RESET_TOKEN''::"PlatformAuditEntity", ''SYSADMIN_ALERT''::"PlatformAuditEntity"]))'),
+      (platform, 'platform_audit_logs_created_entity_key',
+       $$CREATE UNIQUE INDEX platform_audit_logs_created_entity_key ON public.platform_audit_logs USING btree (entity, entity_id) WHERE (action = ANY (ARRAY['PASSWORD_RESET_LINK_CREATED'::"PlatformAction", 'INVITATION_LINK_CREATED'::"PlatformAction", 'TEST_ALERT_SENT'::"PlatformAction"]))$$),
       (clinical, 'audit_logs_tenant_id_patient_id_id_key',
        'CREATE UNIQUE INDEX audit_logs_tenant_id_patient_id_id_key ON public.audit_logs USING btree (tenant_id, patient_id, id)'),
       (encounter_revs, 'encounter_revisions_encounter_id_version_key',

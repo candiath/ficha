@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PlatformAuditEntity, type Prisma, type User } from '@prisma/client';
+import type { PlatformAction, PlatformAuditEntity, Prisma, User } from '@prisma/client';
+import { AUDIT_ACTIONS, type AuditActionDef } from '@ficha/shared';
 import { prisma } from '../src/lib/prisma';
 import {
   createTestClinic,
@@ -47,13 +48,14 @@ const REFUSED: Prisma.InputJsonValue[] = [
   'X',
 ];
 
-// The values of PlatformAuditEntity that can receive the same action more than
-// once, each with its reason. They stay out of the unique index
-// platform_audit_logs_action_entity_key, which keeps one row per action on an
-// object its action makes; in it, a second row would be a unique violation
-// that rolls the action back. None today: a reset link and a test alert are
-// made by the action that names them.
-const REPEATABLE_PLATFORM_ENTITIES: Readonly<Record<string, string>> = {};
+// The platform actions that make the object their row names: an entity and
+// kind 'create' in the catalog. The database keeps one such row per object
+// (platform_audit_logs_created_entity_key); every other action may repeat.
+const CREATING_PLATFORM_ACTIONS = Object.entries(
+  AUDIT_ACTIONS.platform_audit_logs as Readonly<Record<string, AuditActionDef>>,
+)
+  .filter(([, def]) => def.entity !== undefined && def.kind === 'create')
+  .map(([code, def]) => ({ action: code as PlatformAction, entity: def.entity as PlatformAuditEntity }));
 
 describe('audit rows hold codes, and say who acted', () => {
   let clinic: TestClinic;
@@ -149,24 +151,51 @@ describe('audit rows hold codes, and say who acted', () => {
       );
     });
 
-    it('is acted on once per action, and may be acted on again by another action', async () => {
-      const entityId = randomUUID();
-      const row = { action: 'PASSWORD_RESET_LINK_CREATED' as const, entity: 'PASSWORD_RESET_TOKEN' as const, entityId };
-
-      await expect(platform(row)).resolves.toBeTruthy();
-      await expect(platform(row)).rejects.toThrow(/Unique constraint failed/);
-      await expect(platform({ ...row, action: 'USER_DEVICES_DISCONNECTED' })).resolves.toBeTruthy();
+    // TEST_ALERT_SENT is the one action with no clinic
+    // (platform_audit_logs_tenant_only_off_platform).
+    const creationRow = ({ action, entity }: (typeof CREATING_PLATFORM_ACTIONS)[number], entityId: string) => ({
+      action,
+      entity,
+      entityId,
+      tenantId: action === 'TEST_ALERT_SENT' ? null : clinic.tenantId,
     });
 
-    // A new entity fails here until someone decides which it is.
-    it('is either made by its action, and in the unique index, or listed as repeatable', async () => {
-      const [{ def }] = await prisma.$queryRaw<{ def: string }[]>`
-        SELECT pg_get_indexdef('public.platform_audit_logs_action_entity_key'::regclass) AS def`;
-      const indexed = [...def.matchAll(/'([A-Z_]+)'::"PlatformAuditEntity"/g)].map((m) => m[1]);
-      const repeatable = Object.keys(REPEATABLE_PLATFORM_ENTITIES);
+    it('is created once: a second creation row for it is refused, by any creating action', async () => {
+      expect(CREATING_PLATFORM_ACTIONS.length).toBeGreaterThan(0);
+      for (const creating of CREATING_PLATFORM_ACTIONS) {
+        const entityId = randomUUID();
+        await expect(platform(creationRow(creating, entityId)), creating.action).resolves.toBeTruthy();
+        // The same action again, and every other action that creates this kind
+        // of object (a link is an invitation or a reset, never both).
+        for (const again of CREATING_PLATFORM_ACTIONS.filter((c) => c.entity === creating.entity)) {
+          await expect(platform(creationRow(again, entityId)), `${creating.action} then ${again.action}`).rejects.toThrow(
+            /Unique constraint failed/,
+          );
+        }
+      }
+    });
 
-      expect(indexed.filter((e) => repeatable.includes(e))).toEqual([]);
-      expect([...indexed, ...repeatable].sort()).toEqual(Object.values(PlatformAuditEntity).sort());
+    // Past the catalog, which gives USER_DEVICES_DISCONNECTED no entity: it
+    // stands for a later action on an object, such as revoking a link.
+    it('may receive any other action, again and again', async () => {
+      const entityId = randomUUID();
+      const later = { action: 'USER_DEVICES_DISCONNECTED' as const, entity: 'PASSWORD_RESET_TOKEN' as const, entityId };
+
+      await expect(platform({ ...later, action: 'PASSWORD_RESET_LINK_CREATED' })).resolves.toBeTruthy();
+      await expect(platform(later)).resolves.toBeTruthy();
+      await expect(platform(later)).resolves.toBeTruthy();
+    });
+
+    // A new creating action fails here until the index names it.
+    it('the unique index names exactly the creating actions of the catalog', async () => {
+      const [{ def }] = await prisma.$queryRaw<{ def: string }[]>`
+        SELECT pg_get_indexdef('public.platform_audit_logs_created_entity_key'::regclass) AS def`;
+      // An inclusion list on the action, keyed on the object: what the
+      // parsing below assumes.
+      expect(def).toMatch(/USING btree \(entity, entity_id\) WHERE \(action = ANY \(ARRAY\[/);
+      const indexed = [...def.matchAll(/'([A-Z_]+)'::"PlatformAction"/g)].map((m) => m[1]);
+
+      expect(indexed.sort()).toEqual(CREATING_PLATFORM_ACTIONS.map((c) => c.action).sort());
     });
   });
 });
