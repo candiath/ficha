@@ -99,6 +99,8 @@ $$;
 
 **Since `20261116120000_timestamptz`** every `created_at` is `timestamptz(3)`, and the stamp is `clock_timestamp()` itself: `clock_timestamp() AT TIME ZONE 'UTC'` is a UTC wall time, right for a column without time zone, which a `timestamptz` column would read in the session's zone.
 
+**Since `20261121120000_audit_transaction_id`** `audit_logs` and `platform_audit_logs` also carry `transaction_id`, stamped by `audit_rows_stamp_transaction_id` (`BEFORE INSERT`, row): `md5(xid8 : the transaction's start in microseconds)`, shaped as a version-8 UUID, shared by every row of one transaction. The xid alone would repeat after a restore into another cluster, whose counter starts over; the start time tells those transactions apart. Under maintenance a value sent is kept (restoring rows). The column defaults to the nil UUID, which a `CHECK` refuses, so a missing trigger fails the insert. The guards pin the triggers, the function, the `CHECK`s and the `NOT NULL`s.
+
 The switch is turned on with `SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`.
 
 Seven triggers, and no others:

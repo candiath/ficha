@@ -126,7 +126,7 @@ The backups repository's history (the plain-SQL dumps of before the bucket) was 
 
 ## Audit tables
 
-Since #186 (`docs/specs/SPEC-audit-hardening.md`) the database itself keeps `audit_logs` and `platform_audit_logs` honest, and since sysadmin-alerts `sysadmin_alerts` and `sysadmin_alert_deliveries` too: triggers reject every `UPDATE` and `TRUNCATE`, stamp `created_at` on insert, and check that a row's encounter belongs to its author; foreign keys `RESTRICT` and keep a row inside its clinic. Deleting an audit row, or inserting one with a past date, needs **maintenance**: two things at once.
+Since #186 (`docs/specs/SPEC-audit-hardening.md`) the database itself keeps `audit_logs` and `platform_audit_logs` honest, and since sysadmin-alerts `sysadmin_alerts` and `sysadmin_alert_deliveries` too: triggers reject every `UPDATE` and `TRUNCATE`, stamp `created_at` (and, on the first two, `transaction_id`) on insert, and check that a row's encounter belongs to its author; foreign keys `RESTRICT` and keep a row inside its clinic. Deleting an audit row, or inserting one with a past date, needs **maintenance**: two things at once. Under maintenance an insert also keeps the `transaction_id` it sends; without one, it gets the inserting transaction's, as every row of a manual recovery would outside maintenance.
 
 - **The flag**: the table `ficha_ops.audit_maintenance_allowed` exists. **Only `development` and `ci` have it.** It lives outside `public`, so `prisma migrate reset` keeps it (checked on 2026-10-10).
 - **The switch**: `SELECT set_config('ficha.audit_maintenance', pg_current_xact_id()::text, true)`, inside the same transaction as the delete. A switch with any other value, or set at session level, does nothing.
@@ -210,13 +210,13 @@ age --decrypt --identity /path/to/ficha-backup.key ficha.counts.age
 docker rm -f ficha-restore; rm ficha.dump.age ficha.counts.age
 ```
 
-**No trigger is switched off.** In a custom-format restore, `pg_restore` creates the tables, loads their rows, and only then creates indexes, constraints and triggers (the post-data section). So the audit triggers do not exist while the rows load. No `created_at` is restamped, no session check rejects an audit row whose session was pruned, and the foreign keys are checked when they are created. The single transaction means a failure loads nothing. Tested on 2026-11-15 in Docker, with Ficha's migrations and an audit row whose session had been deleted. The row came back with its `created_at` and session, every table matched its dump-time count, and the guards passed. `restore-test.yml` repeats the check every month when it holds the key.
+**No trigger is switched off.** In a custom-format restore, `pg_restore` creates the tables, loads their rows, and only then creates indexes, constraints and triggers (the post-data section). So the audit triggers do not exist while the rows load. No `created_at` or `transaction_id` is restamped, no session check rejects an audit row whose session was pruned, and the foreign keys are checked when they are created. The single transaction means a failure loads nothing. Tested on 2026-11-15 in Docker, with Ficha's migrations and an audit row whose session had been deleted. The row came back with its `created_at` and session, every table matched its dump-time count, and the guards passed. `restore-test.yml` repeats the check every month when it holds the key.
 
 #### Plain-SQL dumps (before the bucket)
 
 The dumps committed to the backups repository until 2026-11 (`dump/schema.sql`, `dump/data.sql`) load with the triggers already in place: `schema.sql` creates them before `data.sql` inserts. Loaded naively:
 - the session check rejects audit rows whose session was pruned, or not loaded yet (`audit_logs` sorts before `auth_sessions`);
-- the stamp trigger would rewrite every `created_at` to the moment of the restore.
+- the stamp triggers would rewrite every `created_at` to the moment of the restore, and give every row the restore's one `transaction_id`.
 
 So the triggers of the four audit tables (since sysadmin-alerts, the two alert tables too) are off **for the load only**, in one transaction that stops at the first error:
 
