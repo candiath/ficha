@@ -105,6 +105,13 @@ describe('audit rows record codes, never values', () => {
     expect(await actionsOf(appointment.id)).toEqual([
       { action: 'APPOINTMENT_UPDATED', params: { status: 'COMPLETED', changedFields: ['status', 'encounterId'] } },
     ]);
+    // One write, one transaction: the three rows share its id.
+    const ids = await prisma.auditLog.findMany({
+      where: { entityId: { in: [encounter.id, payment.id, appointment.id] } },
+      select: { transactionId: true },
+    });
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids.map((r) => r.transactionId)).size).toBe(1);
   });
 
   // Annulled, the encounter releases the appointment (still attended), and a
@@ -168,6 +175,11 @@ describe('audit rows record codes, never values', () => {
 
     expect(await actionsOf(note.id)).toEqual([{ action: 'NOTE_RECORDED', params: {} }]);
     expect(await actionsOf(discharge.id)).toEqual([{ action: 'DISCHARGE_RECORDED', params: {} }]);
+    // The episode it closed is a fact of its own, as when closed by hand.
+    expect((await actionsOf(discharge.episodeId)).at(-1)).toEqual({
+      action: 'EPISODE_CLOSED',
+      params: { status: 'DISCHARGED' },
+    });
   });
 
   it('an encounter update names the fields it changed, and its type after the change', async () => {

@@ -60,6 +60,20 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261121120000_audit_transaction_id': {
+    reason:
+      'Every audit row names the transaction that wrote it, stamped by the database like created_at. ' +
+      'The column is added with a random default, so each existing row gets an id of its own, and then ' +
+      'its default becomes the nil UUID, which a CHECK refuses: a missing trigger fails the insert instead ' +
+      'of writing rows with no transaction. The new BEFORE INSERT triggers only stamp the new column; ' +
+      'audit-guards.sql pins them, their function, the CHECKs and the NOT NULLs.',
+    violations: [
+      'ALTER COLUMN: ALTER TABLE "audit_logs" ALTER COLUMN "transaction_id" SET DEFAULT \'00000000-0000-0000-0000-000000000000\'::uuid',
+      'ALTER COLUMN: ALTER TABLE "platform_audit_logs" ALTER COLUMN "transaction_id" SET DEFAULT \'00000000-0000-0000-0000-000000000000\'::uuid',
+      'CREATE TRIGGER: CREATE TRIGGER audit_logs_stamp_transaction_id BEFORE INSERT ON public.audit_logs FOR EACH ROW EXECUTE FUNCTION public.a',
+      'CREATE TRIGGER: CREATE TRIGGER platform_audit_logs_stamp_transaction_id BEFORE INSERT ON public.platform_audit_logs FOR EACH ROW EXECUTE',
+    ],
+  },
   '20261120120000_platform_audit_once_per_entity': {
     reason:
       'The platform unique index becomes one creation row per object (#338): the old one, on ' +

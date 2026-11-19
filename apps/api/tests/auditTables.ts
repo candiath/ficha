@@ -36,6 +36,7 @@ export const AUDIT_FUNCTIONS = [
   'audit_maintenance_on',
   'audit_rows_are_append_only',
   'audit_rows_stamp_created_at',
+  'audit_rows_stamp_transaction_id',
   'audit_logs_check_session',
   'platform_audit_logs_check_session',
   'audit_params_are_codes',

@@ -164,24 +164,34 @@ describe('episode revisions', () => {
   });
 
   describe('a discharge', () => {
-    it('writes the encounter and the closed episode under its one audit row', async () => {
+    it("closes its episode with a row of its own, in the discharge's transaction", async () => {
       const id = await newEpisode();
       await patch(id, { mainComplaint: 'Lumbalgia crónica', reason: 'DATA_ENTRY_ERROR' });
 
       const res = await discharge(id);
       expect(res.status).toBe(201);
 
-      const [audit, ...others] = await auditRows(res.body.data.id);
+      const [recorded, ...others] = await auditRows(res.body.data.id);
       expect(others).toEqual([]);
-      expect(audit.action).toBe('DISCHARGE_RECORDED');
-      const encounterRevisions = await prisma.encounterRevision.findMany({ where: { auditLogId: audit.id } });
-      const episodeRevisions = await prisma.episodeRevision.findMany({ where: { auditLogId: audit.id } });
+      expect(recorded.action).toBe('DISCHARGE_RECORDED');
+      const episodeRows = await auditRows(id);
+      expect(episodeRows.map((r) => [r.action, r.params])).toEqual([
+        ['EPISODE_OPENED', {}],
+        ['EPISODE_UPDATED', { changedFields: ['mainComplaint'], reason: 'DATA_ENTRY_ERROR' }],
+        ['EPISODE_CLOSED', { status: 'DISCHARGED' }],
+      ]);
+      const closed = episodeRows[2];
+      expect(closed.transactionId).toBe(recorded.transactionId);
+      expect(episodeRows[1].transactionId).not.toBe(recorded.transactionId);
+
+      // Each version belongs to the row of its own aggregate.
+      const encounterRevisions = await prisma.encounterRevision.findMany({ where: { auditLogId: recorded.id } });
       expect(encounterRevisions.map((r) => [r.encounterId, r.version])).toEqual([[res.body.data.id, 1]]);
+      expect(await prisma.episodeRevision.count({ where: { auditLogId: recorded.id } })).toBe(0);
+      const episodeRevisions = await prisma.episodeRevision.findMany({ where: { auditLogId: closed.id } });
       // Consecutive: after the opening and the correction.
       expect(episodeRevisions.map((r) => [r.episodeId, r.version])).toEqual([[id, 3]]);
       expect(episodeRevisions[0].snapshot).toMatchObject({ status: 'DISCHARGED', mainComplaint: 'Lumbalgia crónica' });
-      // The discharge wrote no episode audit row of its own: one action, one row.
-      expect((await auditRows(id)).map((r) => r.action)).toEqual(['EPISODE_OPENED', 'EPISODE_UPDATED']);
     });
 
     it('does not deadlock with a concurrent edit of its episode', async () => {

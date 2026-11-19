@@ -56,6 +56,21 @@ describe('a discharge and its episode', () => {
     return prisma.episodeRevision.count({ where: { episodeId: id } });
   }
 
+  // The episode's latest version, with the audit row that owns it: a row of
+  // the episode's own, in the encounter's transaction.
+  async function latestEpisodeRow(episodeId: string) {
+    const revision = await prisma.episodeRevision.findFirstOrThrow({
+      where: { episodeId },
+      orderBy: { version: 'desc' },
+      select: { auditLog: { select: { entity: true, entityId: true, action: true, params: true, transactionId: true } } },
+    });
+    return revision.auditLog;
+  }
+
+  async function encounterRow(encounterId: string, action: 'ENCOUNTER_UPDATED' | 'ENCOUNTER_ANNULLED') {
+    return prisma.auditLog.findFirstOrThrow({ where: { entityId: encounterId, action }, select: { transactionId: true } });
+  }
+
   beforeAll(async () => {
     clinic = await createTestClinic();
     const user = await clinic.createUser();
@@ -142,6 +157,14 @@ describe('a discharge and its episode', () => {
       expect(res.status).toBe(200);
       await expect(episodeState(episode.id)).resolves.toEqual({ status: 'DISCHARGED', closedAt: corrected });
       await expect(episodeVersions(episode.id)).resolves.toBe(versions + 1);
+      const row = await latestEpisodeRow(episode.id);
+      expect(row).toMatchObject({
+        entity: 'EPISODE',
+        entityId: episode.id,
+        action: 'EPISODE_UPDATED',
+        params: { changedFields: ['closedAt'], reason: 'DATA_ENTRY_ERROR' },
+      });
+      expect(row.transactionId).toBe((await encounterRow(created.body.data.id, 'ENCOUNTER_UPDATED')).transactionId);
     });
 
     it('refuses a corrected date before the opening, and changes nothing', async () => {
@@ -241,6 +264,9 @@ describe('a discharge and its episode', () => {
       expect(res.status).toBe(204);
       await expect(episodeState(episode.id)).resolves.toEqual({ status: 'ACTIVE', closedAt: null });
       await expect(episodeVersions(episode.id)).resolves.toBe(versions + 1);
+      const row = await latestEpisodeRow(episode.id);
+      expect(row).toMatchObject({ entity: 'EPISODE', entityId: episode.id, action: 'EPISODE_REOPENED', params: {} });
+      expect(row.transactionId).toBe((await encounterRow(created.body.data.id, 'ENCOUNTER_ANNULLED')).transactionId);
     });
 
     it('leaves the episode alone when a later discharge closed it', async () => {

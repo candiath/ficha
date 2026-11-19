@@ -316,15 +316,11 @@ router.post<EncounterParams>('/:encounterId/annul', async (req, res) => {
     req.params.patientId,
     req.params.encounterId,
     { reasonNote },
-    (s, removedPayment) => ({
+    (s) => ({
       action: 'ENCOUNTER_ANNULLED',
       patientId: req.params.patientId,
       entityId: s.id,
-      params: {
-        encounterType: s.encounterType,
-        reason,
-        payment: removedPayment === null ? 'NONE' : `${removedPayment}_DELETED`,
-      },
+      params: { encounterType: s.encounterType, reason },
     }),
   );
 

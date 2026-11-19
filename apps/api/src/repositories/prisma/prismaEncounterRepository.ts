@@ -65,15 +65,24 @@ function closedBy(tenantId: string, discharge: { id: string; encounterDate: Date
   };
 }
 
-// The next version of each episode an encounter's write changed, under that
-// write's audit row (SPEC-clinical-revisions.md §4), from what the rows hold.
-async function versionEpisodes(tx: Tx, ctx: TenantContext, patientId: string, ids: string[], auditLogId: string) {
+// What an encounter's write did to each episode it changed is a fact of its
+// own: an audit row for the episode (built by `entryFor`, in the encounter's
+// transaction, so it shares its transaction_id), which owns the episode's next
+// version (SPEC-clinical-revisions.md §4), taken from what the rows hold.
+async function versionEpisodes(
+  tx: Tx,
+  ctx: TenantContext,
+  patientId: string,
+  ids: string[],
+  entryFor: (episodeId: string) => AuditEntry,
+) {
   const episodes = await tx.clinicalEpisode.findMany({
     where: { id: { in: ids }, tenantId: ctx.tenantId },
     select: { id: true, ...episodeSnapshotSelect, revisions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 } },
     orderBy: { id: 'asc' },
   });
   for (const episode of episodes) {
+    const auditLogId = await recordAudit(tx, ctx, entryFor(episode.id));
     await recordRevision(tx, ctx, 'episode_revisions', {
       aggregateId: episode.id,
       patientId,
@@ -416,11 +425,11 @@ export const prismaEncounterRepository: EncounterRepository = {
 
       // The audit row and version 1 go in the same transaction as everything
       // above (#188, SPEC-clinical-revisions.md §5).
-      // A discharge's audit row owns one revision per aggregate it wrote: the
-      // encounter's first and each closed episode's next (§4).
       const auditLogId = await recordAudit(tx, ctx, audit(dto));
       // What the encounter also wrote, each a fact of its own (#312): the
-      // payment it created, and the appointment it completed.
+      // payment it created, the appointment it completed and, for a
+      // discharge, the episode it closed. They share the encounter's
+      // transaction_id.
       if (createdPayment) {
         await recordAudit(tx, ctx, {
           action: 'PAYMENT_CREATED',
@@ -447,7 +456,14 @@ export const prismaEncounterRepository: EncounterRepository = {
         auditLogId,
         snapshot: encounterSnapshot(row),
       });
-      await versionEpisodes(tx, ctx, patientId, closing, auditLogId);
+      // The episode it closed: EPISODE_CLOSED, as when closed by hand
+      // (routes/episodes.ts).
+      await versionEpisodes(tx, ctx, patientId, closing, (episodeId) => ({
+        action: 'EPISODE_CLOSED',
+        patientId,
+        entityId: episodeId,
+        params: { status: 'DISCHARGED' },
+      }));
 
       return { ...dto, version: 1 };
     }).catch((e: unknown) => {
@@ -593,7 +609,8 @@ export const prismaEncounterRepository: EncounterRepository = {
           select: encounterSelect,
         });
         const encounter = { ...toDTO(row), version: version + 1 };
-        const auditLogId = await recordAudit(tx, ctx, audit(encounter, changed));
+        const entry = audit(encounter, changed);
+        const auditLogId = await recordAudit(tx, ctx, entry);
         await recordRevision(tx, ctx, 'encounter_revisions', {
           aggregateId: id,
           patientId,
@@ -603,7 +620,17 @@ export const prismaEncounterRepository: EncounterRepository = {
           snapshot: encounterSnapshot(row),
           reasonNote: input.reasonNote,
         });
-        await versionEpisodes(tx, ctx, patientId, moved, auditLogId);
+        // The closing it moved: a correction of the episode, for the
+        // encounter's own reason.
+        if (entry.action === 'ENCOUNTER_UPDATED') {
+          const { reason } = entry.params;
+          await versionEpisodes(tx, ctx, patientId, moved, (episodeId) => ({
+            action: 'EPISODE_UPDATED',
+            patientId,
+            entityId: episodeId,
+            params: { changedFields: ['closedAt'], reason },
+          }));
+        }
         return { ok: true, encounter };
       });
     } catch (e) {
@@ -620,7 +647,7 @@ export const prismaEncounterRepository: EncounterRepository = {
     patientId: string,
     id: string,
     input: { reasonNote?: string | null },
-    audit: (encounter: EncounterDTO, removedPayment: 'PENDING' | 'WAIVED' | null) => AuditEntry,
+    audit: (encounter: EncounterDTO) => AuditEntry,
   ): Promise<'annulled' | 'not_found' | 'paid'> {
     const db = forTenant(ctx);
 
@@ -649,14 +676,14 @@ export const prismaEncounterRepository: EncounterRepository = {
       //    The patient goes in the where too: an encounter of another patient,
       //    sent under this patient's URL, is not found below, and its payment
       //    must not be deleted on the way.
-      //    RETURNING says which status it had, for the audit row: the one
-      //    trace of a deleted payment (review of #292). Raw SQL, so the
-      //    tenant goes in the where by hand.
-      const removed = await tx.$queryRaw<{ status: 'PENDING' | 'WAIVED' }[]>`
+      //    RETURNING says which payment it was and its status, for its audit
+      //    row (PAYMENT_DELETED): the one trace of a deleted payment (review
+      //    of #292). Raw SQL, so the tenant goes in the where by hand.
+      const removed = await tx.$queryRaw<{ id: string; status: 'PENDING' | 'WAIVED' }[]>`
         DELETE FROM payments
          WHERE encounter_id = ${id}::uuid AND patient_id = ${patientId}::uuid
            AND tenant_id = ${ctx.tenantId}::uuid AND status <> 'PAID'
-        RETURNING status::text AS status`;
+        RETURNING id::text AS id, status::text AS status`;
 
       // 2. Annul the encounter only if no payment is left on it. If the payment
       //    was paid it still exists and this updateMany touches nothing: the
@@ -715,7 +742,7 @@ export const prismaEncounterRepository: EncounterRepository = {
         }
         const encounter = toDTO(row);
         const version = encounter.version + 1;
-        const auditLogId = await recordAudit(tx, ctx, audit({ ...encounter, version }, removed[0]?.status ?? null));
+        const auditLogId = await recordAudit(tx, ctx, audit({ ...encounter, version }));
         await recordRevision(tx, ctx, 'encounter_revisions', {
           aggregateId: id,
           patientId,
@@ -724,7 +751,24 @@ export const prismaEncounterRepository: EncounterRepository = {
           snapshot: encounterSnapshot(row),
           reasonNote: input.reasonNote,
         });
-        await versionEpisodes(tx, ctx, patientId, reopened, auditLogId);
+        // The payment deleted with it, a fact of its own (as PAYMENT_CREATED
+        // is when an encounter creates one): its row names it, and shares the
+        // annulment's transaction_id.
+        for (const payment of removed) {
+          await recordAudit(tx, ctx, {
+            action: 'PAYMENT_DELETED',
+            patientId,
+            entityId: payment.id,
+            params: { status: payment.status },
+          });
+        }
+        // The episode it reopened, as when reopened by hand.
+        await versionEpisodes(tx, ctx, patientId, reopened, (episodeId) => ({
+          action: 'EPISODE_REOPENED',
+          patientId,
+          entityId: episodeId,
+          params: {},
+        }));
         return 'annulled';
       }
 

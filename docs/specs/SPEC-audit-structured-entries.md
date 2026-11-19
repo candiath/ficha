@@ -37,7 +37,7 @@ From the conversation of 2026-10-11, after reviewing OWASP's Logging and Logging
 1. **One action per business fact** (mode B), as `platform_audit_logs` already does.
 2. **Parameters in a JSON column**, validated against the catalog and constrained by the database.
 3. **The catalog lives in `packages/shared`**, so the API, the web and a future PDF export use the same one.
-4. **`request_id` comes with #220**, when the logs carry it: until then it would point at nothing.
+4. **`request_id` never goes into audit rows** (decided 2026-11-19, replacing "it comes with #220"). #220 takes it from the client's `X-Request-Id` when one is sent: free text in a row that can never change. And it would point at logs that Render keeps only for a short time. Instead, #220 logs, with each request's id, the ids of the audit rows the request wrote. The rows of one write are grouped by `transaction_id` (SPEC-audit-hardening.md), not by request.
 5. Map decisions 2 (descriptions name the action, never a value) and 3 (people are ids, resolved when read) still hold; this module enforces 2 by construction instead of by review.
 
 ## Design
@@ -47,6 +47,7 @@ From the conversation of 2026-10-11, after reviewing OWASP's Logging and Logging
 The rule every later module follows, and the reason for most of what is below:
 
 - **Exception, once (2026-11-15):** before the relaunch, with no row holding them, the deprecated codes this spec lists (`CREATED`, `UPDATED`, `DELETED`, `SCALE_APPLIED`, `SESSION_DELETED`, `PATIENT_EVENT_DELETED`, `PlatformAction.USER_ACTIVE_CHANGED`, entity `SCALE`) were removed from the enums and the catalog (migration `20261117120000_drop_dead_audit_codes`). The `deprecated` mechanism stays for the first code replaced after the relaunch.
+- **Second exception (decided 2026-11-19):** the parameter `payment` of `ENCOUNTER_ANNULLED` (`NONE`, `PENDING_DELETED`, `WAIVED_DELETED`) was removed with no real row holding it. The payment an annulment deletes is now a row of its own, `PAYMENT_DELETED`, tied to the annulment by `transaction_id` (SPEC-audit-hardening.md). Old rows on test databases still carry the key; readers ignore it.
 - **An action code is never renamed, reused or removed** once a release has written it. Its Postgres enum value stays; a replaced code is marked *deprecated* in the catalog, which keeps a wording for it and refuses to write it.
 - **The same holds for parameter values.** The catalog keeps its own list of the values each parameter accepts (`AUDIT_SCALE_TYPES`…), separate from the domain enums and from request validation, and that list only grows: a scale type the clinic stops offering still renders in the rows that name it, and dropping it from the domain does not let anyone create one again.
 - **Parameters are additive, and optional for readers.** A new parameter may be required when writing, but every reader treats it as possibly missing: the rows written before it exist. Changing the meaning or type of an existing parameter is a new action.
@@ -232,7 +233,7 @@ Later modules add their sections and actions to the same catalog.
 
 ### Out of scope
 
-- **`request_id`**: with #220.
+- **`request_id`**: never in the rows (decision 4).
 - **Tying `entity` to `action` in the database.** `recordAudit` derives one from the other; a `CHECK` listing every pair would change with every new action.
 - **Translations**: the catalog has Spanish only; a second language is a second wording table, not a schema change.
 
