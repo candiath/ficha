@@ -366,11 +366,11 @@ export const prismaEncounterRepository: EncounterRepository = {
 
       // The audit row and version 1 go in the same transaction as everything
       // above (#188, SPEC-clinical-revisions.md §5).
-      // A discharge's audit row owns one revision per aggregate it wrote: the
-      // encounter's first and each closed episode's next (§4).
       const auditLogId = await recordAudit(tx, ctx, audit(dto));
       // What the encounter also wrote, each a fact of its own (#312): the
-      // payment it created, and the appointment it completed.
+      // payment it created, the appointment it completed and, for a
+      // discharge, the episode it closed. They share the encounter's
+      // transaction_id.
       if (createdPayment) {
         await recordAudit(tx, ctx, {
           action: 'PAYMENT_CREATED',
@@ -397,12 +397,20 @@ export const prismaEncounterRepository: EncounterRepository = {
         auditLogId,
         snapshot: encounterSnapshot(row),
       });
+      // The closed episode's next version belongs to its own row, as when an
+      // episode is closed by hand (EPISODE_CLOSED, routes/episodes.ts).
       for (const episode of closed) {
+        const closedLogId = await recordAudit(tx, ctx, {
+          action: 'EPISODE_CLOSED',
+          patientId,
+          entityId: episode.id,
+          params: { status: 'DISCHARGED' },
+        });
         await recordRevision(tx, ctx, 'episode_revisions', {
           aggregateId: episode.id,
           patientId,
           version: (episode.revisions[0]?.version ?? 0) + 1,
-          auditLogId,
+          auditLogId: closedLogId,
           snapshot: episodeSnapshot(episode),
         });
       }

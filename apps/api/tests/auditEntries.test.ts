@@ -175,6 +175,11 @@ describe('audit rows record codes, never values', () => {
 
     expect(await actionsOf(note.id)).toEqual([{ action: 'NOTE_RECORDED', params: {} }]);
     expect(await actionsOf(discharge.id)).toEqual([{ action: 'DISCHARGE_RECORDED', params: {} }]);
+    // The episode it closed is a fact of its own, as when closed by hand.
+    expect((await actionsOf(discharge.episodeId)).at(-1)).toEqual({
+      action: 'EPISODE_CLOSED',
+      params: { status: 'DISCHARGED' },
+    });
   });
 
   it('an encounter update names the fields it changed, and its type after the change', async () => {
