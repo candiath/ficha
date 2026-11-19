@@ -42,6 +42,11 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Whether any form on screen has unsaved changes, read once (outside React). */
+export function hasUnsavedChanges(): boolean {
+  return dirtyForms.size > 0;
+}
+
 /** Whether any form on screen has unsaved changes. */
 export function useHasUnsavedChanges(): boolean {
   return useSyncExternalStore(subscribe, () => dirtyForms.size > 0);
