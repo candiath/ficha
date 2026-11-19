@@ -280,8 +280,9 @@ const FORBIDDEN: [string, RegExp][] = [
 // SQL built at run time (EXECUTE in a DO block or a function) names no table
 // the scan can read: a loop over every table with created_at reaches the
 // audit tables unseen. Flagged whatever it names; EXECUTE FUNCTION and
-// EXECUTE PROCEDURE are a trigger's, not dynamic SQL.
-const DYNAMIC_SQL = /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE)\b)/i;
+// EXECUTE PROCEDURE are a trigger's, and EXECUTE ON (GRANT, REVOKE) a
+// privilege, not dynamic SQL.
+const DYNAMIC_SQL = /\bEXECUTE\b(?!\s+(?:FUNCTION|PROCEDURE|ON)\b)/i;
 
 // The flag that allows deleting audit rows (docs/infra.md#audit-tables) exists
 // only on development, ci and the test database. A migration that creates it
@@ -417,10 +418,16 @@ describe('migrations leave the audit tables alone', () => {
       END LOOP; END $$;`;
     expect(auditDdlViolations(loop)).toHaveLength(1);
     expect(auditDdlViolations(loop)[0]).toMatch(/^DYNAMIC SQL: /);
-    // A trigger's EXECUTE FUNCTION is not dynamic SQL.
+    // A trigger's EXECUTE FUNCTION or PROCEDURE is not dynamic SQL, nor is the
+    // EXECUTE privilege.
     expect(
       auditDdlViolations('CREATE TRIGGER t BEFORE INSERT ON "patients" FOR EACH ROW EXECUTE FUNCTION public.f();'),
     ).toEqual([]);
+    expect(auditDdlViolations('CREATE TRIGGER t AFTER UPDATE ON "patients" FOR EACH ROW EXECUTE PROCEDURE f();')).toEqual(
+      [],
+    );
+    expect(auditDdlViolations('REVOKE EXECUTE ON FUNCTION public.audit_maintenance_on() FROM PUBLIC;')).toEqual([]);
+    expect(auditDdlViolations('ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO app;')).toEqual([]);
   });
 
   it('catches the maintenance flag created', () => {
