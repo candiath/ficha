@@ -302,7 +302,8 @@ const MAINTENANCE_FLAG = /\b(ficha_ops|audit_maintenance_allowed)\b/i;
 // it. Dynamic SQL and the maintenance flag count wherever they appear; the
 // rest only in a statement that names an audit table, function or enum.
 function auditDdlViolations(sql: string): string[] {
-  const code = sql.replace(/--[^\n]*/g, '');
+  // Comments are not statements: both forms go, as in noMaintenanceFlagMigration.test.ts.
+  const code = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
   const violations: string[] = [];
   if (/session_replication_role/i.test(code)) violations.push('session_replication_role');
   for (const statement of code.split(';')) {
@@ -365,6 +366,20 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TYPE "AuditAction" ADD VALUE \'VIEWED\';')).toEqual([]);
     expect(auditDdlViolations('ALTER TABLE "patients" DROP COLUMN "notes";')).toEqual([]);
     expect(auditDdlViolations('-- DROP TRIGGER audit_logs_append_only (a comment)')).toEqual([]);
+    // Prisma's warnings, a block comment glued to the first statement, can name
+    // an audit table that statement does not touch.
+    const warned = `/*
+  Warnings:
+
+  - A unique constraint covering the columns \`[tenant_id,id]\` on the table \`audit_logs\` will be added. If there are existing duplicate values, this will fail.
+
+*/
+-- DropIndex
+DROP INDEX "patients_tenant_id_idx";
+
+-- CreateIndex
+CREATE UNIQUE INDEX "audit_logs_tenant_id_id_key" ON "audit_logs"("tenant_id", "id");`;
+    expect(auditDdlViolations(warned)).toEqual([]);
 
     // The alert tables are audit tables too.
     expect(auditDdlViolations('DROP TRIGGER sysadmin_alerts_append_only ON sysadmin_alerts;')).toHaveLength(1);
