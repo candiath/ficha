@@ -53,6 +53,23 @@ describe('the audit tables are listed everywhere they are checked', () => {
     expect(sorted(checked)).toEqual(sorted(AUDIT_TABLES));
   });
 
+  // The migration scan sees an index by its name starting with its table's.
+  it('every index audit-guards.sql pins is on an audit table and named after it', () => {
+    const pinned = [...guards.matchAll(/CREATE UNIQUE INDEX (\w+) ON public\.(\w+)/g)].map((m) => ({
+      index: m[1],
+      table: m[2],
+    }));
+    expect(pinned.length).toBeGreaterThan(0);
+    for (const { index, table } of pinned) {
+      expect({ index, table, audit: AUDIT_TABLES.includes(table), prefixed: index.startsWith(`${table}_`) }).toEqual({
+        index,
+        table,
+        audit: true,
+        prefixed: true,
+      });
+    }
+  });
+
   it('every function a trigger on an audit table calls is listed', async () => {
     const rows = await prisma.$queryRaw<{ fn: string }[]>`
       SELECT DISTINCT p.proname AS fn

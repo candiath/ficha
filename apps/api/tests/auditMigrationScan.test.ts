@@ -74,7 +74,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
     reason:
       'PatientEvent becomes PatientAntecedent ("Antecedentes" in the record) before the relaunch, while no ' +
       'deployed database holds clinical rows (#238). Only names change, as in the Encounter rename above: ' +
-      'the revisions table, its column, constraints and triggers keep their definitions (audit-guards.sql ' +
+      'the revisions table, its column, indexes, constraints and triggers keep their definitions (audit-guards.sql ' +
       'pins the new names), and the audit codes PATIENT_EVENT* are renamed in place.',
     violations: [
       "RENAME: ALTER TYPE \"AuditEntity\" RENAME VALUE 'PATIENT_EVENT' TO 'PATIENT_ANTECEDENT'",
@@ -83,6 +83,10 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
       "RENAME: ALTER TYPE \"AuditAction\" RENAME VALUE 'PATIENT_EVENT_ANNULLED' TO 'PATIENT_ANTECEDENT_ANNULLED'",
       "RENAME: ALTER TABLE \"patient_event_revisions\" RENAME TO \"patient_antecedent_revisions\"",
       "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME COLUMN \"patient_event_id\" TO \"patient_antecedent_id\"",
+      "RENAME: ALTER INDEX \"patient_event_revisions_pkey\" RENAME TO \"patient_antecedent_revisions_pkey\"",
+      "RENAME: ALTER INDEX \"patient_event_revisions_audit_log_id_idx\" RENAME TO \"patient_antecedent_revisions_audit_log_id_idx\"",
+      "RENAME: ALTER INDEX \"patient_event_revisions_patient_event_id_version_key\" RENAME TO \"patient_antecedent_revisions_patient_antec",
+      "RENAME: ALTER INDEX \"patient_event_revisions_tenant_id_idx\" RENAME TO \"patient_antecedent_revisions_tenant_id_idx\"",
       "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_tenant_id_fkey\" TO \"patient_antece",
       "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_tenant_id_patient_id_audit_log_id_",
       "RENAME: ALTER TABLE \"patient_antecedent_revisions\" RENAME CONSTRAINT \"patient_event_revisions_tenant_id_patient_id_patient_event",
@@ -94,7 +98,7 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
   '20261118120000_rename_session_to_encounter': {
     reason:
       'The clinical Session becomes Encounter before the relaunch, while no deployed database holds ' +
-      'clinical rows (#238). Only names change: the revisions table, its column, constraints and ' +
+      'clinical rows (#238). Only names change: the revisions table, its column, indexes, constraints and ' +
       'triggers keep their definitions (audit-guards.sql pins the new names), and the audit codes ' +
       'SESSION, SESSION_RECORDED, SESSION_UPDATED and SESSION_ANNULLED are renamed in place, so a row ' +
       'that held one reads the new code.',
@@ -105,6 +109,10 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
       "RENAME: ALTER TYPE \"AuditAction\" RENAME VALUE 'SESSION_ANNULLED' TO 'ENCOUNTER_ANNULLED'",
       "RENAME: ALTER TABLE \"session_revisions\" RENAME TO \"encounter_revisions\"",
       "RENAME: ALTER TABLE \"encounter_revisions\" RENAME COLUMN \"session_id\" TO \"encounter_id\"",
+      "RENAME: ALTER INDEX \"session_revisions_pkey\" RENAME TO \"encounter_revisions_pkey\"",
+      "RENAME: ALTER INDEX \"session_revisions_audit_log_id_idx\" RENAME TO \"encounter_revisions_audit_log_id_idx\"",
+      "RENAME: ALTER INDEX \"session_revisions_session_id_version_key\" RENAME TO \"encounter_revisions_encounter_id_version_key\"",
+      "RENAME: ALTER INDEX \"session_revisions_tenant_id_idx\" RENAME TO \"encounter_revisions_tenant_id_idx\"",
       "RENAME: ALTER TABLE \"encounter_revisions\" RENAME CONSTRAINT \"session_revisions_tenant_id_fkey\" TO \"encounter_revisions_tenant_id",
       "RENAME: ALTER TABLE \"encounter_revisions\" RENAME CONSTRAINT \"session_revisions_tenant_id_patient_id_audit_log_id_fkey\" TO \"encou",
       "RENAME: ALTER TABLE \"encounter_revisions\" RENAME CONSTRAINT \"session_revisions_tenant_id_patient_id_session_id_fkey\" TO \"encount",
@@ -208,8 +216,12 @@ const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
 // From tests/auditTables.ts, which auditTablesCoverage.test.ts checks against
 // the database: a new audit table, trigger function or enum cannot be left
 // out of the scan.
+// A table's name also matches as the start of a longer one: its indexes,
+// constraints and triggers are named after it (audit_logs_tenant_id_patient_id_id_key),
+// and `_` is a word character, so \b alone would not see them.
 const AUDIT_NAMES = new RegExp(
-  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES, ...AUDIT_FUNCTIONS, ...AUDIT_ENUMS].join('|')})\\b`,
+  `\\b(${[...AUDIT_TABLES, ...FORMER_AUDIT_TABLE_NAMES].join('|')})(_\\w+)?\\b` +
+    `|\\b(${[...AUDIT_FUNCTIONS, ...AUDIT_ENUMS].join('|')})\\b`,
   'i',
 );
 
@@ -219,6 +231,9 @@ const FORBIDDEN: [string, RegExp][] = [
   ['RENAME', /\bRENAME\b/i],
   ['DROP TABLE', /\bDROP\s+TABLE\b/i],
   ['DROP CONSTRAINT', /\bDROP\s+CONSTRAINT\b/i],
+  // A unique index can be a guarantee (audit-guards.sql pins the ones that
+  // are); dropping it removes the guarantee. Creating one is additive.
+  ['DROP INDEX', /\bDROP\s+INDEX\b/i],
   ['SET UNLOGGED', /\bSET\s+UNLOGGED\b/i],
   ['OWNER TO', /\bOWNER\s+TO\b/i],
   ['CREATE TRIGGER', /\bCREATE\s+(OR\s+REPLACE\s+)?(CONSTRAINT\s+)?TRIGGER\b/i],
@@ -310,5 +325,15 @@ describe('migrations leave the audit tables alone', () => {
     expect(auditDdlViolations('ALTER TABLE "sysadmin_alert_deliveries" DROP COLUMN "detail";')).toHaveLength(1);
     expect(auditDdlViolations('ALTER TYPE "SysadminAlertOutcome" RENAME VALUE \'SENT\' TO \'OK\';')).toHaveLength(1);
     expect(auditDdlViolations('ALTER TYPE "SysadminAlertKind" ADD VALUE \'ACCESS_BURST\';')).toEqual([]);
+
+    // Indexes, named after their table: dropping or renaming one is seen,
+    // creating one is additive.
+    expect(auditDdlViolations('DROP INDEX public.platform_audit_logs_action_entity_key;')).toHaveLength(1);
+    expect(auditDdlViolations('DROP INDEX "audit_logs_tenant_id_patient_id_id_key";')).toHaveLength(1);
+    expect(
+      auditDdlViolations('ALTER INDEX "encounter_revisions_encounter_id_version_key" RENAME TO "x_key";'),
+    ).toHaveLength(1);
+    expect(auditDdlViolations('CREATE INDEX "audit_logs_user_id_idx" ON "audit_logs"("user_id");')).toEqual([]);
+    expect(auditDdlViolations('DROP INDEX "patients_tenant_id_idx";')).toEqual([]);
   });
 });
