@@ -452,8 +452,6 @@ describe('audit-guards.sql', () => {
     url.searchParams.set('connection_limit', '1');
     const db = new PrismaClient({ datasourceUrl: url.toString() });
 
-    // Revision tables have no created_at, so no stamp trigger.
-    const TABLES = STAMPED_AUDIT_TABLES;
     const onCopies = AUDIT_TABLES.reduce(
       (sql, table) => swap(sql, `'public.${table}'`, `'pg_temp.${table}'`),
       guards,
@@ -474,7 +472,8 @@ describe('audit-guards.sql', () => {
     };
 
     beforeAll(async () => {
-      for (const table of TABLES) {
+      // Revision tables have no created_at, so no stamp trigger.
+      for (const table of STAMPED_AUDIT_TABLES) {
         await db.$executeRawUnsafe(`CREATE TEMP TABLE ${table} (LIKE public.${table})`);
         await db.$executeRawUnsafe(`CREATE TRIGGER ${table}_stamp_created_at BEFORE INSERT ON pg_temp.${table}
           FOR EACH ROW EXECUTE FUNCTION public.audit_rows_stamp_created_at()`);

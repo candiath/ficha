@@ -242,7 +242,9 @@ const FORBIDDEN: [string, RegExp][] = [
   ['DROP TABLE', /\bDROP\s+TABLE\b/i],
   ['DROP CONSTRAINT', /\bDROP\s+CONSTRAINT\b/i],
   // A unique index can be a guarantee (audit-guards.sql pins the ones that
-  // are); dropping it removes the guarantee. Creating one is additive.
+  // are); dropping it removes the guarantee. Any index of an audit table, on
+  // purpose: a name does not say whether it is unique, so dropping a plain
+  // @@index needs an entry too. Creating one is additive.
   ['DROP INDEX', /\bDROP\s+INDEX\b/i],
   ['SET UNLOGGED', /\bSET\s+UNLOGGED\b/i],
   ['OWNER TO', /\bOWNER\s+TO\b/i],
@@ -345,5 +347,8 @@ describe('migrations leave the audit tables alone', () => {
     ).toHaveLength(1);
     expect(auditDdlViolations('CREATE INDEX "audit_logs_user_id_idx" ON "audit_logs"("user_id");')).toEqual([]);
     expect(auditDdlViolations('DROP INDEX "patients_tenant_id_idx";')).toEqual([]);
+    expect(auditDdlViolations('DROP INDEX CONCURRENTLY IF EXISTS "audit_logs_created_at_idx";')).toHaveLength(1);
+    // A column named after a table in the singular is not the table.
+    expect(auditDdlViolations('ALTER TABLE "x" DROP COLUMN "audit_log_id";')).toEqual([]);
   });
 });

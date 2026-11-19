@@ -53,6 +53,15 @@ export const AUDIT_ENUMS = [
   'SysadminAlertOutcome',
 ] as const;
 
-// A table named like an audit table: one created without the append-only
-// triggers would otherwise be in no list at all.
-export const AUDIT_TABLE_NAME = /(^|_)audit_logs$|_revisions$|_access_logs$/;
+// A table named like an audit table: one created without any trigger would
+// otherwise be in no list at all. Only the names that are append-only by rule
+// (an audit log, a clinical revisions table); record_access_logs is left to
+// its own spec (docs/specs/audit-map.md, record-access-log).
+export const AUDIT_TABLE_NAME = /(^|_)audit_logs$|_revisions$/;
+
+// Every table of the public schema with a trigger is an audit table, and every
+// function of the public schema (outside extensions) is an audit function,
+// unless listed here with the reason. Both empty today: a new trigger or
+// function is audit machinery until someone says otherwise.
+export const NON_AUDIT_TRIGGER_TABLES: Readonly<Record<string, string>> = {};
+export const NON_AUDIT_FUNCTIONS: Readonly<Record<string, string>> = {};
