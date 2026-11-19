@@ -60,6 +60,16 @@ const FROZEN = new Set([
 ]);
 
 const ALLOWED: Record<string, { reason: string; violations: string[] }> = {
+  '20261120120000_platform_audit_once_per_entity': {
+    reason:
+      'The platform unique index becomes one creation row per object (#338): the old one, on ' +
+      '(action, entity, entity_id) for every row with an entity, would have failed the second row of any ' +
+      'repeatable action on an object. It is dropped and its replacement created under the same lock, in ' +
+      'the migration\'s one transaction, so no row is ever written without the guarantee; audit-guards.sql ' +
+      'pins the new index. (The migration\'s comment says the scan does not look at indexes: true when it ' +
+      'was written, before #337 taught it to.)',
+    violations: ['DROP INDEX: DROP INDEX public.platform_audit_logs_action_entity_key'],
+  },
   '20261119120000_operator_session_revocation_and_audit': {
     reason:
       'Platform audit rows record the operator session they came from (SPEC-audit-hardening.md, decision 2). ' +
