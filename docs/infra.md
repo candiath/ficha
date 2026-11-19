@@ -106,9 +106,10 @@ Neon's point-in-time recovery covers **6 hours** back on the free plan (`history
 
 So production is also dumped every day by a **separate, private backups repository**, where the production credential lives (its README has the details and the setup). Since 2026-11 the dumps are no longer committed there: git never forgets, so a patient who asked to be deleted stayed in every old dump, in plain text.
 
-- `backup.yml` pipes `pg_dump -Fc` to [`age`](https://age-encryption.org), encrypting to one public key, and uploads the ciphertext to a **Backblaze B2 bucket**. The plaintext never touches a disk. The private key is kept offline by Nath, not in any repository.
+- `backup.yml` pipes `pg_dump -Fc` to [`age`](https://age-encryption.org), encrypting to one public key, and uploads the ciphertext to an **AWS S3 bucket** (`us-east-2`, Ohio, like Neon's production project). The plaintext never touches a disk. The private key is kept offline by Nath, not in any repository.
 - Every object is uploaded **locked in COMPLIANCE mode** until it expires: dailies 30 days, a monthly copy (the run of the 1st) 12 months. Nobody can delete it or shorten the lock before then, not even the account owner. The bucket's lifecycle rules delete it afterwards.
-- The upload key can write and set locks, nothing else: it cannot read, list or delete. A stolen one cannot destroy a backup. B2 was picked over Cloudflare R2 for this: R2's tokens that write also read and list.
+- The upload key is an IAM user that can only write and set locks under `daily/` and `monthly/`: it cannot read, list or delete. A stolen one cannot destroy a backup. S3 over Backblaze B2 or Cloudflare R2: the API already runs on AWS, and IAM grants exactly those two actions (R2's tokens that write also read and list; B2's write-only key could not be confirmed to upload).
+- **For now the bucket is in the same AWS account as the API.** A stolen account could stop new backups, but not read the existing ones (encrypted) nor delete them (locked). A separate account needs AWS's irreversible "advanced features" upgrade of the new console, which removes the spend limits, so it is postponed. Moving later: a new bucket in the new account, the backups repository pointed at it, and the old bucket left to expire (its README has the steps).
 - Next to each dump goes an encrypted file with every table's row count at dump time. `restore-test.yml`, on the 3rd of each month, checks that the newest daily is at most 48 hours old. If the private key is in that repository as `AGE_IDENTITY`, it also restores the dump into a throwaway Postgres 18, compares every count, and runs `audit-guards.sql`. Without the key, the restore is a manual drill every quarter (*Restoring a backup*).
 - A failure of either workflow sends a fixed Telegram message through the sysadmin bot.
 
@@ -185,13 +186,14 @@ It was rehearsed on a branch copied from `production` (same tables, triggers, co
 
 **Never restore over production.** Bring a copy up next to it, take what is needed, and put it back by hand; for a total disaster, the same steps target a new, empty Postgres 18 or newer.
 
-The dumps in the bucket are custom-format (`pg_dump -Fc`) and encrypted with `age`. Run these in Git Bash, not PowerShell 5.1, whose pipes re-encode binary data. You need `age`, Docker, the B2 CLI and the private key:
+The dumps in the bucket are custom-format (`pg_dump -Fc`) and encrypted with `age`. Run these in Git Bash, not PowerShell 5.1, whose pipes re-encode binary data. You need `age`, Docker, the AWS CLI (or the S3 console) and the private key:
 
 ```bash
-# 1. Download a dump and its counts (B2 CLI with the account's key, or the web UI).
-b2 ls b2://<bucket>/daily/
-b2 file download b2://<bucket>/daily/ficha-<time>.dump.age ./ficha.dump.age
-b2 file download b2://<bucket>/daily/ficha-<time>.counts.age ./ficha.counts.age
+# 1. Download a dump and its counts (AWS CLI with a user that can read the
+#    bucket, or the S3 console: bucket -> daily/ -> the object -> Download).
+aws s3 ls s3://<bucket>/daily/
+aws s3 cp s3://<bucket>/daily/ficha-<time>.dump.age ./ficha.dump.age
+aws s3 cp s3://<bucket>/daily/ficha-<time>.counts.age ./ficha.counts.age
 
 # 2. An empty Postgres 18.
 docker run -d --name ficha-restore -e POSTGRES_PASSWORD=x -p 55432:5432 postgres:18
