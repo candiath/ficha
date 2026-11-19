@@ -17,6 +17,7 @@ import PaymentsPage from '@/pages/PaymentsPage'
 import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import EncountersPage from '@/pages/EncountersPage'
 import AlertsPage from '@/pages/AlertsPage'
+import SessionExpiredDialog from '@/components/layout/SessionExpiredDialog'
 
 // Pantallas que todavía son maqueta: no tienen modelo ni endpoint detrás, así
 // que lo único que pueden mostrar son datos inventados. Fuera de desarrollo no
@@ -84,7 +85,12 @@ function RequireAuth() {
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <SessionExpiredDialog />
+    </>
+  );
 }
 
 export default function App() {
