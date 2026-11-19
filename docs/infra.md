@@ -38,7 +38,7 @@ Esa branch se creó desde `production` y después se le borró el esquema, así 
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen.
 
-**`production` is handled as holding real clinical data**: it holds them from the relaunch (#238), and until then the clinic's trial. So no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
+**`production` holds real clinical data** since the relaunch of 2026-11-19 (#238); before it, the clinic's trial. So no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
 
 ## El ciclo de vida de un cambio
 
@@ -165,21 +165,20 @@ Interrupted test runs leave test clinics behind, and their audit rows now block 
 
 ### The pre-launch wipe
 
-Run on 2026-10-12 (#223), when production's data was fictitious, and run once more before the relaunch (#238): the launch was postponed to correct the data model, and what production holds since the first wipe is the clinic's trial. The wipe drops the schema, which no trigger sees, and rebuilds it:
+Run on production twice: on 2026-10-12 (#223), when its data was fictitious, and on 2026-11-19 for the relaunch (#238), removing the clinic's trial. **Never again**: production holds real clinical data since then, and `wipe.yml` no longer has a `production` target (#233). It still empties `staging` (first done on 2026-11-19, when staging held audit codes the migrations drop) and a rehearsal branch. The wipe drops the schema, which no trigger sees, and rebuilds it:
 
 ```sql
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in every deploy). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in every deploy). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, never a laptop:
 
-- it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
-- for `production` it first runs the backup and stops if the backup fails;
-- the rehearsal refuses a URL whose endpoint is production's;
-- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Restart the API afterwards: new connections, and the startup audit checks run again. On Lightsail, `deploy.sh` does nothing while the image is unchanged, so restart the container: `docker compose restart api-prod` in `/opt/ficha`.
+- it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `staging`, with `ficha_ref=dev`) and a confirmation that must read `wipe <target>`;
+- it refuses a URL whose endpoint is production's;
+- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Redeploy the API afterwards (`ficha-staging` on Render): new connections, and the startup audit checks run again.
 
-It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. The second wipe follows the same steps (checklist in #238). **After the relaunch, with real data, it is never run on production again**, and its `production` target is removed (#233). Never use `migrate reset` with the seed on a deployed database.
+Both production wipes were followed by the redeploy, the operator (`create:operator`, run from a laptop with the URL typed in, never saved) and the clinic. Never use `migrate reset` with the seed on a deployed database.
 
 ### Restoring a backup
 
