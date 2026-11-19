@@ -368,8 +368,11 @@ model PlatformAuditLog {
 
   @@index([tenantId])
   @@index([createdAt])
-  // One row per action on an object (a partial unique index in the
-  // migration, WHERE entity IS NOT NULL; Prisma cannot express it).
+  // One row per object for the action that made it, a reset link generated or
+  // a test alert sent; any other action on an object may repeat. A partial
+  // unique index on (entity, entity_id) for the catalog's creating actions,
+  // in the migration (Prisma cannot express it), compared with the catalog by
+  // tests/auditRowChecks.test.ts.
   @@map("platform_audit_logs")
 }
 

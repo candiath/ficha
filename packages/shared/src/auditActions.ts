@@ -220,6 +220,11 @@ export interface AuditActionDef<S extends ParamShape = ParamShape> {
    * the clinic nor a user.
    */
   readonly entity?: AuditEntity | PlatformAuditEntity;
+  /**
+   * The timeline's colour. On platform_audit_logs, `create` with an entity also
+   * means the action makes that object: the database keeps one such row per
+   * object (platform_audit_logs_created_entity_key, which names these actions).
+   */
   readonly kind: AuditKind;
   readonly params: S;
   /** Short: badges and filters. */

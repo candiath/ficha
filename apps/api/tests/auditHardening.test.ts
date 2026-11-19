@@ -563,7 +563,7 @@ describe('audit-guards.sql', () => {
       const message = await failure();
       expect(message).toMatch(/check constraint audit_logs_params_are_codes on audit_logs is missing or changed/);
       expect(message).toMatch(/check constraint platform_audit_logs_actor_is_operator on platform_audit_logs is missing/);
-      expect(message).toMatch(/index platform_audit_logs_action_entity_key on platform_audit_logs is missing or changed/);
+      expect(message).toMatch(/index platform_audit_logs_created_entity_key on platform_audit_logs is missing or changed/);
       expect(message).toMatch(/index audit_logs_tenant_id_patient_id_id_key on audit_logs is missing or changed/);
     });
 
