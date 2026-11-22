@@ -22,7 +22,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 - **AWS Lightsail** — the production API since 2026-11-14, and only it: a Docker container behind Caddy, deployed by `ops/deploy.sh` from the image `image.yml` publishes to GHCR ([`ops/README.md`](ops/README.md)). Domain `cliniplus.com.ar`.
 - **Render** — staging (`ficha-staging`), plan free (cold start ~50s). `Ficha`, production's old service, stays as a backup and takes no traffic.
 - **Netlify** — la web. Un sitio (`fichita`) con dos contextos de deploy.
-- **Neon** — Postgres 18. `production` is in the project `rapid-band-cliniplus-ohio` (us-east-2, next to Lightsail); `staging`, `development` and `ci` are in `ficha-pg18` (sa-east-1). Both projects also hold branches that are not in use (`docs/infra.md`).
+- **Neon** — Postgres 18, two projects in us-east-2 (Ohio, next to Lightsail). `rapid-band-cliniplus-ohio` holds only `production`; `cliniplus-staging-dev-ci` holds `staging`, `development` and `ci` (since 2026-11-22). No branch of production's project serves another environment: a child branch starts with its parent's role password. `ficha-pg18` (sa-east-1), the old project of the other three, is no longer used (`docs/infra.md`).
 
 **Production holds no real clinical data yet, and is handled as if it did.** The launch of 2026-10-12 (the first wipe, #223) was postponed to correct the data model: what production holds since then is the clinic's trial, and it is wiped again before the relaunch (#238). Real clinical data starts at the relaunch. `staging`, `development` and `ci` hold only test data, and no branch is ever created from `production` except a temporary rehearsal branch, deleted when the rehearsal ends (see `docs/infra.md`).
 
@@ -31,7 +31,7 @@ El porqué de cada regla de esta sección y la historia del split a tres entorno
 | Rama | `main` | `dev` | working tree local |
 | API | api.cliniplus.com.ar (Lightsail) | staging-api.cliniplus.com.ar (Render, `ficha-staging`) | `localhost:3001` |
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` | `localhost:5173` |
-| DB (branch de Neon) | `production` (Ohio project) | `staging` | `development` |
+| DB (branch de Neon) | `production` (`rapid-band-cliniplus-ohio`) | `staging` (`cliniplus-staging-dev-ci`) | `development` (`cliniplus-staging-dev-ci`) |
 
 Staging went back to Render on 2026-11-18, so that a staging failure (memory, disk, a bad image) cannot reach production's host, and production's secrets are the only ones on it. Its domain is `staging-api.cliniplus.com.ar`, a custom domain of `ficha-staging`.
 
