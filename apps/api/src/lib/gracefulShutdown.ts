@@ -16,8 +16,6 @@ interface Options {
 // accepting connections and lets the requests in flight finish, then exits.
 // Without it Node, as PID 1 in the container, ignores SIGTERM: it keeps
 // serving until Docker kills it, and a request in progress is cut.
-// server.close() also closes idle keep-alive connections (Node 19+), so the
-// proxy's pooled connections do not hold the process open.
 // Returns the shutdown itself (tests call it instead of sending a signal) and
 // a function that removes the signal handlers.
 export function installGracefulShutdown(
@@ -41,8 +39,14 @@ export function installGracefulShutdown(
       exit(1);
     }, timeoutMs);
     timer.unref();
+    // close() drops the connections idle at that moment, but a keep-alive
+    // connection whose request finishes later stays open, and the proxy keeps
+    // its pool: without this the process would always wait for the timeout.
+    const sweeper = setInterval(() => server.closeIdleConnections(), 250);
+    sweeper.unref();
     server.close((error) => {
       clearTimeout(timer);
+      clearInterval(sweeper);
       if (error) {
         log.error('[api] close failed:', error.message);
         exit(1);
