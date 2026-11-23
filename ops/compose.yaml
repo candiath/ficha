@@ -15,6 +15,9 @@ x-api: &api
   # Only Caddy publishes anything.
   expose: ["3001"]
   mem_limit: 320m
+  # The API closes on SIGTERM once its open requests finish, within 25 s
+  # (lib/gracefulShutdown.ts); this is how long Docker waits before SIGKILL.
+  stop_grace_period: 30s
   healthcheck:
     # /health pings the database: an API that cannot reach Neon is unhealthy.
     test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -32,7 +35,18 @@ x-migrate: &migrate
   profiles: ["tools"]   # never started by `up`; only by `run --rm`
 
 services:
-  api-prod:
+  # Two slots for the same API, blue and green (ops/README.md, *Blue/green*).
+  # One serves; deploy.sh starts the new image in the other, waits until it is
+  # healthy, points Caddy at it and then stops the old one. Which one serves is
+  # the single line of active/upstream.caddy. Both have the same 320m limit:
+  # the server holds both for the seconds of the switch (measured 2026-11-23:
+  # 428 MB left with two APIs running).
+  api-blue:
+    <<: *api
+    image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
+    env_file: [{ path: prod.env, required: false }]
+
+  api-green:
     <<: *api
     image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
     env_file: [{ path: prod.env, required: false }]
@@ -50,6 +64,10 @@ services:
       PROD_DOMAIN: ${PROD_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Which slot serves, rewritten by deploy.sh. A directory and not the
+      # file: deploy.sh replaces the file with a rename, which a single-file
+      # bind mount would not see.
+      - ./active:/etc/caddy/active:ro
       # The certificates. Deleting this volume makes Caddy ask Let's Encrypt
       # again, and Let's Encrypt limits how many it issues per week.
       - caddy_data:/data
