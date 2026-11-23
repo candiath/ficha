@@ -45,8 +45,9 @@ describe('installGracefulShutdown', () => {
     const exit = vi.fn();
     const { shutdown } = installGracefulShutdown(server, { exit, log: quietLog, signals: [] });
 
+    // Node 22's default agent keeps the connection alive after the response:
+    // the case that once held the shutdown until its timeout.
     const inFlight = get(port, '/slow');
-    await vi.waitFor(() => expect(server.listening).toBe(true));
     await new Promise((r) => setTimeout(r, 50)); // the request reaches the handler
 
     shutdown('SIGTERM');
@@ -56,6 +57,9 @@ describe('installGracefulShutdown', () => {
     release();
     await expect(inFlight).resolves.toBe('done');
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    // Well before the 25 s timeout, which never fires afterwards.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
   });
 
   it('exits 1 when requests are still open after the timeout', async () => {
@@ -74,14 +78,30 @@ describe('installGracefulShutdown', () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
   });
 
-  it('runs once when the signal repeats', async () => {
-    const { server } = await startServer();
+  it('exits 1 at once on a second signal', async () => {
+    const { server, port } = await startServer();
     const exit = vi.fn();
     const { shutdown } = installGracefulShutdown(server, { exit, log: quietLog, signals: [] });
 
-    shutdown('SIGTERM');
-    shutdown('SIGTERM');
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledTimes(1));
-    expect(exit).toHaveBeenCalledWith(0);
+    void get(port, '/slow').catch(() => {});
+    await new Promise((r) => setTimeout(r, 50));
+    shutdown('SIGINT');
+    expect(exit).not.toHaveBeenCalled();
+    shutdown('SIGINT');
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it('starts on the signals it is given', async () => {
+    const { server } = await startServer();
+    const exit = vi.fn();
+    const { dispose } = installGracefulShutdown(server, { exit, log: quietLog, signals: ['SIGUSR2'] });
+    try {
+      process.emit('SIGUSR2', 'SIGUSR2');
+      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+      expect(server.listening).toBe(false);
+    } finally {
+      dispose();
+    }
+    expect(process.listenerCount('SIGUSR2')).toBe(0);
   });
 });

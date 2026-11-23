@@ -16,6 +16,9 @@ interface Options {
 // accepting connections and lets the requests in flight finish, then exits.
 // Without it Node, as PID 1 in the container, ignores SIGTERM: it keeps
 // serving until Docker kills it, and a request in progress is cut.
+// Known limit: work a request starts after its response (a sysadmin alert's
+// delivery, the no-show alert) is not awaited; the process exits once the
+// last connection closes. A transaction cut that way rolls back.
 // Returns the shutdown itself (tests call it instead of sending a signal) and
 // a function that removes the signal handlers.
 export function installGracefulShutdown(
@@ -31,7 +34,12 @@ export function installGracefulShutdown(
   let stopping = false;
 
   const shutdown = (signal: NodeJS.Signals) => {
-    if (stopping) return;
+    // A second signal means "now" (Ctrl-C twice in dev).
+    if (stopping) {
+      log.error(`[api] ${signal} again: exiting without waiting`);
+      exit(1);
+      return;
+    }
     stopping = true;
     log.log(`[api] ${signal}: closing, waiting for open requests`);
     const timer = setTimeout(() => {
