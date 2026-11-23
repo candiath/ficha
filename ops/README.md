@@ -48,28 +48,46 @@ it.
 
 The API has two slots, `api-blue` and `api-green`, with the same image tag.
 One serves; the other is stopped. Caddy sends every request to the slot named
-in `active/upstream.caddy`, a single line (`reverse_proxy api-green:3001`), and
-nothing else decides it: the two never share traffic, so a user never gets
-answers from two versions at once.
+in `active/upstream.caddy`, a single line (`reverse_proxy api-green:3001`): the
+two never share traffic, so a user never gets answers from two versions at
+once. When the file and Caddy's live config disagree (a deploy interrupted
+between the two), the next run follows Caddy, since that is what users reach,
+and rewrites the file.
 
 A deploy (`deploy.sh prod`), when the tag points at an image the serving slot
 does not run:
 
 1. Runs the migration (`migrate-prod`) while the serving slot keeps serving.
+   From here on it uses the image by the digest it just pulled, so a tag moved
+   mid-deploy cannot split migration and slot.
 2. Starts the image in the idle slot and waits up to 90 s until `/health`
    answers from inside it (it reaches the database). If it does not, the slot
    is stopped and the old one never stopped serving.
 3. Rewrites `active/upstream.caddy` and reloads Caddy. A reload is graceful:
    requests already sent to the old slot finish there; new ones go to the new
-   slot. Then, through Caddy, `/health` must report the new image's commit
-   within 30 s; if not, Caddy is switched back and the new slot stopped.
-4. Waits 10 s and stops the old slot. The API closes on `SIGTERM` once its
-   open requests end (`apps/api/src/lib/gracefulShutdown.ts`, up to 25 s;
-   Docker waits 30 s). The stopped container stays until the next deploy
-   recreates that slot.
+   slot. Within about 50 s, Caddy's live config must name the new slot and
+   `/health` through Caddy must report the new image's commit. If not, Caddy is
+   switched back (started again if it is down) and the new slot stopped; if
+   switching back fails too, both slots are left running, never the one Caddy
+   points at stopped.
+4. Stops the old slot. The API closes on `SIGTERM` once its open requests end
+   (`apps/api/src/lib/gracefulShutdown.ts`, up to 25 s; Docker waits 30 s). The
+   stopped container stays until the next deploy recreates that slot.
 
-Both slots run for about 20 s per deploy. Measured on 2026-11-23, with two
-APIs running the 1 GB instance had 428 MB available.
+A failure in 1–3 records the image in `active/rejected` and alerts once: the
+timer does not retry that image every 5 minutes. A new image on the tag is
+deployed as usual; `deploy.sh prod --force` retries the same one (after a
+Neon outage, say). A failed deploy leaves the old version serving **on the
+new schema** when the migration had already run: the same reason as for
+rollbacks below that destructive migrations take two releases.
+
+`--force` also redeploys the image already serving, blue/green: that is how a
+change to `prod.env` takes effect without dropping requests.
+
+Both slots run from the start of step 2 to the end of step 4: usually under a
+minute, at most about three. Measured on 2026-11-23, with two APIs running the
+1 GB instance had 428 MB available. A run that finds a slot left running
+beside the serving one (an interrupted deploy) stops it and says so.
 
 Never run a bare `docker compose up -d`: it starts both slots. Start a service
 by name (`docker compose up -d --no-deps caddy`). Which slot serves is
@@ -81,7 +99,8 @@ Before blue/green, production ran one service, `api-prod`. The first run of
 the new `deploy.sh` moves it on its own: with no `active/upstream.caddy`, it
 starts `api-blue`, recreates Caddy (to mount `active/`; a second or two
 without answers, once) and removes the old `api-prod` container. If the
-switch fails, Caddy goes back to `api-prod`, which is still running.
+switch fails, Caddy goes back to `api-prod`, which is still running, and
+the image is rejected: fix the cause and run `deploy.sh prod --force`.
 
 1. `sudo systemctl stop ficha-deploy@prod.timer`
 2. Copy `compose.yaml`, `Caddyfile` and `deploy.sh` to `/opt/ficha`.
@@ -108,7 +127,7 @@ destructive migrations take two releases (`CLAUDE.md`, *Reglas*). The
 migration step still runs on a rollback; `migrate deploy` with an older image
 finds nothing to apply and the audit checks pass, unless the newer migration
 changed what they check: then the rollback stops there, with an alert, and the
-current version keeps serving.
+current version keeps serving, and the rollback has to be done by hand.
 
 ## Gotchas
 

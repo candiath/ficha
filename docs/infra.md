@@ -177,7 +177,7 @@ followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `
 - it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
 - for `production` it first runs the backup and stops if the backup fails;
 - the rehearsal refuses a URL whose endpoint is production's;
-- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Restart the API afterwards: new connections, and the startup audit checks run again. On Lightsail, `deploy.sh` does nothing while the image is unchanged, so restart the serving slot in `/opt/ficha`: `docker compose restart api-blue` or `api-green`, whichever `active/upstream.caddy` names.
+- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Restart the API afterwards: new connections, and the startup audit checks run again. On Lightsail, `deploy.sh` does nothing while the image is unchanged, so redeploy the same image: `sudo /opt/ficha/deploy.sh prod --force` (blue/green: a fresh process with new connections, no requests dropped).
 
 It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. The second wipe follows the same steps (checklist in #238). **After the relaunch, with real data, it is never run on production again**, and its `production` target is removed (#233). Never use `migrate reset` with the seed on a deployed database.
 
@@ -252,7 +252,7 @@ The API tells the platform operator by Telegram when something needs her (`docs/
 1. In Telegram, talk to **@BotFather**: `/newbot`, a name (`Ficha staging alerts`) and a username ending in `bot`. It answers with the token.
 2. Open a chat with the new bot and send it any message (a bot cannot write first). Use **a private chat with the bot, or a private group with only the operator**: never a public channel, whose messages anyone can read. The API rejects `@channel` ids for that reason.
 3. Find the chat id: open `https://api.telegram.org/bot<token>/getUpdates` in your own browser and read `result[].message.chat.id` (a number; negative for a group). Do it on your machine, not through any tool that logs URLs: the URL carries the token.
-4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: for production its env file on Lightsail (`/opt/ficha/prod.env`), then recreate the serving slot in `/opt/ficha` (`docker compose up -d --no-deps --force-recreate api-blue`, or `api-green`: the one `active/upstream.caddy` names); for staging, `ficha-staging`'s environment on Render (saving redeploys).
+4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: for production its env file on Lightsail (`/opt/ficha/prod.env`), then `sudo /opt/ficha/deploy.sh prod --force` (the same image, blue/green, with the new variables); for staging, `ficha-staging`'s environment on Render (saving redeploys).
 5. In `/platform`, the *Alertas* card says "Configurado · bot @…". Press **Enviar alerta de prueba**: the message arrives, and the card shows the result.
 
 The label at the start of every message is `RENDER_SERVICE_NAME` (`[Ficha]`, `[ficha-staging]`): Render sets it itself, and on Lightsail each env file sets it (`ops/README.md`); `[local]` when it is missing.

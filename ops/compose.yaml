@@ -40,20 +40,21 @@ services:
   # healthy, points Caddy at it and then stops the old one. Which one serves is
   # the single line of active/upstream.caddy. Both have the same 320m limit:
   # the server holds both for the seconds of the switch (measured 2026-11-23:
-  # 428 MB left with two APIs running).
+  # 428 MB left with two APIs running). API_IMAGE is set only by deploy.sh,
+  # to the digest it pulled; otherwise the tag.
   api-blue:
     <<: *api
-    image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
+    image: ${API_IMAGE:-ghcr.io/candiath/ficha-api:${PROD_TAG:-main}}
     env_file: [{ path: prod.env, required: false }]
 
   api-green:
     <<: *api
-    image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
+    image: ${API_IMAGE:-ghcr.io/candiath/ficha-api:${PROD_TAG:-main}}
     env_file: [{ path: prod.env, required: false }]
 
   migrate-prod:
     <<: *migrate
-    image: ghcr.io/candiath/ficha-api:${PROD_TAG:-main}
+    image: ${API_IMAGE:-ghcr.io/candiath/ficha-api:${PROD_TAG:-main}}
     env_file: [{ path: prod.env, required: false }]
 
   caddy:
