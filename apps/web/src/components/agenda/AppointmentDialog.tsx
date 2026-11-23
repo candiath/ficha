@@ -143,6 +143,7 @@ function NewAppointmentForm({
         <div className="space-y-1.5">
           <Label>Paciente</Label>
           <Select
+            items={patients.map((p) => ({ value: p.id, label: p.fullName }))}
             value={patientId}
             onValueChange={(v) => {
               if (v === null) return;
@@ -170,6 +171,7 @@ function NewAppointmentForm({
               Motivo <span className="text-muted-foreground font-normal">(opcional)</span>
             </Label>
             <Select
+              items={activos.map((e) => ({ value: e.id, label: e.mainComplaint || 'Sin motivo' }))}
               value={episodeId}
               onValueChange={(v) => v !== null && setEpisodeId(v as string)}
             >
@@ -200,6 +202,7 @@ function NewAppointmentForm({
           <div className="space-y-1.5">
             <Label>Duración</Label>
             <Select
+              items={DURACIONES.map((d) => ({ value: String(d), label: `${d} minutos` }))}
               value={String(durationMinutes)}
               onValueChange={(v) => v !== null && setDuration(Number(v))}
             >
@@ -246,6 +249,10 @@ function NewAppointmentForm({
                 <div className="space-y-1.5">
                   <Label>Cada</Label>
                   <Select
+                    items={[1, 2, 3, 4].map((n) => ({
+                      value: String(n),
+                      label: `${n} ${n === 1 ? 'semana' : 'semanas'}`,
+                    }))}
                     value={String(everyWeeks)}
                     onValueChange={(v) => v !== null && setEveryWeeks(Number(v))}
                   >

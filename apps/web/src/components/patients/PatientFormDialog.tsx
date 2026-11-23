@@ -270,7 +270,11 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Sexo</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                    <Select
+                      items={SEX_LABELS}
+                      onValueChange={field.onChange}
+                      value={field.value ?? ''}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Seleccionar" />
@@ -297,7 +301,17 @@ export default function PatientFormDialog({ open, onClose, patient }: Props) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tipo de documento</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      items={[
+                        { value: NO_DOCUMENT, label: 'Sin documento' },
+                        ...DOCUMENT_TYPES.map((type) => ({
+                          value: type,
+                          label: DOCUMENT_TYPE_LABELS[type],
+                        })),
+                      ]}
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
                       <FormControl>
                         <SelectTrigger aria-label="Tipo de documento">
                           <SelectValue />
