@@ -9,6 +9,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { getToken, setToken, TOKEN_KEY, UNAUTHORIZED_EVENT } from '@/lib/api';
 import { useVersionSkew, VersionSkewError } from '@/lib/buildVersion';
+import { hasUnsavedChanges } from '@/lib/unsavedChanges';
 import { authApi } from '@/services/auth';
 import type { AuthUser } from '@ficha/shared';
 
@@ -23,6 +24,13 @@ interface AuthContextValue {
   // en esta misma sesión: una ADMIN que se cambia el rol a sí misma dejaría
   // de serlo en la API pero seguiría viéndose ADMIN acá hasta recargar.
   refresh: () => Promise<void>;
+  // The session ended (a 401) while a form held unsaved text. The user is
+  // kept, so nothing navigates away and the form keeps its text; the
+  // SessionExpiredDialog asks for her password over it.
+  sessionExpired: boolean;
+  // Logs the same user in again, keeping what is on screen. A different
+  // account ends the session instead: the form must not save as someone else.
+  relogin: (password: string, trustDevice?: boolean) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -30,6 +38,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   // Arranca en true solo si hay token guardado: hasta validar contra /me
   // no sabemos si esa sesión sigue viva, y ProtectedRoute no debe
   // redirigir al login durante esa ventana (causaría un flash de login
@@ -72,9 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Cuando cualquier request devuelve 401, el cliente HTTP limpia el token
   // y dispara este evento; acá solo se refleja en el estado de React para
-  // que ProtectedRoute redirija al login.
+  // que ProtectedRoute redirija al login. Not while a form holds unsaved
+  // text: going to /login would unmount it and lose a clinical entry. The
+  // user stays, and the session is asked for again over the form.
   useEffect(() => {
-    const onUnauthorized = () => setUser(null);
+    const onUnauthorized = () => {
+      if (hasUnsavedChanges()) setSessionExpired(true);
+      else setUser(null);
+    };
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
@@ -88,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (e.storageArea !== localStorage || (e.key !== TOKEN_KEY && e.key !== null)) return;
       queryClient.clear();
       setUser(null);
+      setSessionExpired(false);
       setIsLoading(getToken() !== null);
       setTokenChanges((n) => n + 1);
     };
@@ -102,7 +117,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     setToken(token);
     setUser(loggedUser);
+    setSessionExpired(false);
   }, [queryClient]);
+
+  // Her email, so only her password is asked. The cache stays: it is hers.
+  const relogin = useCallback(async (password: string, trustDevice = false) => {
+    if (!user) throw new Error('No hay una sesión que retomar');
+    const { token, user: loggedUser } = await authApi.login(user.email, password, trustDevice);
+    if (loggedUser.id !== user.id) {
+      authApi.logout().catch(() => {});
+      queryClient.clear();
+      setToken(null);
+      setUser(null);
+      setSessionExpired(false);
+      return;
+    }
+    setToken(token);
+    setUser(loggedUser);
+    setSessionExpired(false);
+  }, [queryClient, user]);
 
   // Revokes the session on the server, then forgets it locally whatever the
   // outcome: a failed request (offline, API down, session already gone) must
@@ -114,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setToken(null);
     setUser(null);
+    setSessionExpired(false);
     // Records read in this session stay out of reach of the next person on
     // this tab, whose views no access log would ever see (#186).
     queryClient.clear();
@@ -127,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, refresh, sessionExpired, relogin }}>
       {children}
     </AuthContext.Provider>
   );
