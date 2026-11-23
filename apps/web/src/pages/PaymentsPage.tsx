@@ -265,7 +265,16 @@ export default function PaymentsPage() {
           onChange={(e) => table.getColumn('patientName')?.setFilterValue(e.target.value)}
           className="max-w-xs"
         />
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? 'all')}>
+        <Select
+          items={[
+            { value: 'all', label: 'Todos' },
+            { value: 'PENDING', label: 'Pendientes' },
+            { value: 'PAID', label: 'Pagados' },
+            { value: 'WAIVED', label: 'Eximidos' },
+          ]}
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v ?? 'all')}
+        >
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>

@@ -676,7 +676,20 @@ export default function EncounterFormModalWide({
                             name="packageId"
                             render={({ field }) => (
                               <DirtyFieldItem dirty={dirtyFields.packageId} label="Paquete">
-                                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                                <Select
+                                  items={[
+                                    { value: '', label: 'Sin paquete' },
+                                    ...activePackages.map((pkg) => {
+                                      const n = pkg.remainingSessions;
+                                      return {
+                                        value: pkg.id,
+                                        label: `${pkg.name} — ${n} sesión${n !== 1 ? 'es' : ''} restante${n !== 1 ? 's' : ''}`,
+                                      };
+                                    }),
+                                  ]}
+                                  value={field.value ?? ''}
+                                  onValueChange={field.onChange}
+                                >
                                   <FormControl>
                                     <SelectTrigger>
                                       <SelectValue placeholder="Sin paquete (precio individual)" />

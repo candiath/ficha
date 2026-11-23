@@ -221,7 +221,11 @@ export default function MensajesPage() {
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <Label>Paciente</Label>
-                <Select value={selectedPatient} onValueChange={v => v !== null && handlePatientSelect(v)}>
+                <Select
+                  items={mockPatients.map(p => ({ value: p.id, label: p.fullName }))}
+                  value={selectedPatient}
+                  onValueChange={v => v !== null && handlePatientSelect(v)}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Seleccionar paciente" />
                   </SelectTrigger>
@@ -234,7 +238,11 @@ export default function MensajesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Plantilla</Label>
-                <Select value={selectedTemplate} onValueChange={v => v !== null && handleTemplateSelect(v)}>
+                <Select
+                  items={messageTemplates.map(t => ({ value: t.id, label: t.name }))}
+                  value={selectedTemplate}
+                  onValueChange={v => v !== null && handleTemplateSelect(v)}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Seleccionar plantilla" />
                   </SelectTrigger>
@@ -300,7 +308,7 @@ export default function MensajesPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Categoría</Label>
-              <Select value={newCategory} onValueChange={v => v !== null && setNewCategory(v)}>
+              <Select items={CATEGORY_LABELS} value={newCategory} onValueChange={v => v !== null && setNewCategory(v)}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
