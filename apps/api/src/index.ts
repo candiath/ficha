@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import app from './app';
 import { checkAuditGuardsAtStartup } from './lib/auditGuards';
+import { installGracefulShutdown } from './lib/gracefulShutdown';
 import { authSessionRetentionJob, startRetention } from './lib/retention';
 import { sysadminAlerts } from './lib/sysadminAlerts';
 
@@ -9,7 +10,7 @@ import { sysadminAlerts } from './lib/sysadminAlerts';
 // los tests puedan importarla sin abrir un puerto.
 const PORT = process.env.PORT ?? 3001;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[api] corriendo en http://localhost:${PORT}`);
   // Which alerts can go out, by name only (SPEC-sysadmin-alerts.md §7).
   const { configuration, variables } = sysadminAlerts.status();
@@ -25,3 +26,6 @@ app.listen(PORT, () => {
   // request; the timers never keep the process alive.
   startRetention([authSessionRetentionJob]);
 });
+
+// Finish the requests in flight on `docker stop` (ops/deploy.sh).
+installGracefulShutdown(server);
