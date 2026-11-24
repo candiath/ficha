@@ -18,6 +18,11 @@ x-api: &api
   # The API closes on SIGTERM once its open requests finish, within 25 s
   # (lib/gracefulShutdown.ts); this is how long Docker waits before SIGKILL.
   stop_grace_period: 30s
+  # From .env, so deploy.sh and the API read one value: set, every deploy
+  # stops the old API first, and the API alerts on every start (ops/README.md,
+  # *Without blue/green*).
+  environment:
+    DEPLOY_NO_BLUE_GREEN: ${DEPLOY_NO_BLUE_GREEN:-}
   healthcheck:
     # /health pings the database: an API that cannot reach Neon is unhealthy.
     test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

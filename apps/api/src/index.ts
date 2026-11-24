@@ -2,6 +2,7 @@ import 'dotenv/config';
 import app from './app';
 import { checkAuditGuardsAtStartup } from './lib/auditGuards';
 import { installGracefulShutdown } from './lib/gracefulShutdown';
+import { blueGreenDisabled } from './lib/deployMode';
 import { authSessionRetentionJob, startRetention } from './lib/retention';
 import { sysadminAlerts } from './lib/sysadminAlerts';
 
@@ -25,6 +26,12 @@ const server = app.listen(PORT, () => {
   // Retention purges (#178): a minute after start, then daily, off every
   // request; the timers never keep the process alive.
   startRetention([authSessionRetentionJob]);
+  // Production with blue/green deploys turned off (ops/README.md): every
+  // deploy cuts the service, so the operator is told on every start.
+  if (blueGreenDisabled(process.env)) {
+    console.log('[deploy] blue/green deploys are off (DEPLOY_NO_BLUE_GREEN)');
+    void sysadminAlerts.raise('BLUE_GREEN_DISABLED');
+  }
 });
 
 // Finish the requests in flight on `docker stop` (ops/deploy.sh).
