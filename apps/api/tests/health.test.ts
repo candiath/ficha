@@ -1,6 +1,7 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import app from '../src/app';
+import { prisma } from '../src/lib/prisma';
 
 // Smoke test de la infraestructura: si esto pasa, la app se importa sin
 // levantar puerto, el .env se cargó y la conexión a la DB funciona.
@@ -15,5 +16,20 @@ describe('GET /health', () => {
     // El body ahora es { status, buildMarker }, asi que el toEqual exacto
     // que habia aca ya no sirve. Decidi que tan estricto queres ser.
     expect(res.body.buildMarker).toEqual(expect.any(String));
+  });
+});
+
+describe('GET /health/live', () => {
+  it('answers ok without touching the database', async () => {
+    const ping = vi.spyOn(prisma, '$queryRaw');
+    try {
+      const res = await request(app).get('/health/live');
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
+      expect(ping).not.toHaveBeenCalled();
+    } finally {
+      ping.mockRestore();
+    }
   });
 });

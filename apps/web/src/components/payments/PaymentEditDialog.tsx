@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { paymentApi, paymentKeys } from '@/services/payments';
+import { PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/labels';
 import { centsToInput, formatCents, parsePesos } from '@/lib/money';
 import type { Payment, PaymentMethod, PaymentStatus } from '@/types/payment';
 
@@ -156,6 +157,7 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
           <div className="space-y-1.5">
             <Label>Estado</Label>
             <Select
+              items={PAYMENT_STATUS_LABELS}
               value={status}
               onValueChange={(v) => v !== null && setStatus(v as PaymentStatus)}
             >
@@ -172,6 +174,7 @@ function EditForm({ payment, onClose }: { payment: Payment; onClose: () => void 
           <div className="space-y-1.5">
             <Label>Método</Label>
             <Select
+              items={PAYMENT_METHOD_LABELS}
               value={method}
               onValueChange={(v) => v !== null && setMethod(v as PaymentMethod)}
               disabled={status !== 'PAID'}

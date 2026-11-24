@@ -17,6 +17,7 @@ import PaymentsPage from '@/pages/PaymentsPage'
 import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import EncountersPage from '@/pages/EncountersPage'
 import AlertsPage from '@/pages/AlertsPage'
+import SessionExpiredDialog from '@/components/layout/SessionExpiredDialog'
 
 // Pantallas que todavía son maqueta: no tienen modelo ni endpoint detrás, así
 // que lo único que pueden mostrar son datos inventados. Fuera de desarrollo no
@@ -48,7 +49,9 @@ function ApiStatusBanner() {
 
     async function check() {
       try {
-        const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(4000) });
+        // Liveness only: polling /health, which queries the database, from
+        // every open tab would keep Neon's compute from scaling to zero.
+        const res = await fetch(`${API_URL}/health/live`, { signal: AbortSignal.timeout(4000) });
         if (!cancelled) setDown(!res.ok);
       } catch {
         if (!cancelled) setDown(true);
@@ -68,7 +71,7 @@ function ApiStatusBanner() {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-center gap-2 bg-destructive/10 border-t border-destructive/30 px-4 py-2 text-sm text-destructive">
       <AlertTriangle className="h-4 w-4 shrink-0" />
-      No se puede conectar con el servidor. Verificá que la API y la base de datos estén corriendo.
+      No se puede conectar con el servidor.
     </div>
   );
 }
@@ -84,7 +87,12 @@ function RequireAuth() {
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <SessionExpiredDialog />
+    </>
+  );
 }
 
 export default function App() {

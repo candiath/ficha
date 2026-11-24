@@ -12,5 +12,8 @@
 
 {$PROD_DOMAIN} {
 	import common
-	reverse_proxy api-prod:3001
+	# The serving slot, api-blue or api-green: one reverse_proxy line that
+	# deploy.sh rewrites before `caddy reload` (ops/README.md, *Blue/green*).
+	# A reload is graceful: requests already proxied finish on the old slot.
+	import /etc/caddy/active/upstream.caddy
 }

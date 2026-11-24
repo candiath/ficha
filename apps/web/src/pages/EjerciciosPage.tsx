@@ -235,7 +235,7 @@ export default function EjerciciosPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Dificultad</Label>
-                <Select value={newDifficulty} onValueChange={v => v !== null && setNewDifficulty(v)}>
+                <Select items={DIFFICULTY_LABELS} value={newDifficulty} onValueChange={v => v !== null && setNewDifficulty(v)}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>

@@ -28,6 +28,7 @@ const PATIENT_REF = { id: true, fullName: true } as const;
 
 export const LIST_SCOPE: Record<string, ListScope> = {
   'GET /health': exempt('Database ping and build marker: no data.'),
+  'GET /health/live': exempt('Liveness and build marker: no data, no database.'),
 
   // ── Clinic-wide lists: no clinical text ──────────────────────────────────
   'GET /api/encounters': probed({

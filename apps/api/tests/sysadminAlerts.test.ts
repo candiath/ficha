@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createBackgroundWork } from '../src/lib/backgroundWork';
 import { prisma } from '../src/lib/prisma';
 import { createSysadminAlerts, type SysadminAlertsDeps } from '../src/lib/sysadminAlerts';
 import { sysadminAlertRepo } from '../src/repositories';
@@ -190,6 +191,24 @@ describe('raise', () => {
     });
 
     await expect(alerts.raise('AUDIT_GUARDS_FAILED')).resolves.toBeUndefined();
+  });
+  it('registers the whole raise, retries included, as background work', async () => {
+    const background = createBackgroundWork();
+    let releaseSleep = () => {};
+    const { alerts } = setup([() => json({ ok: false, error_code: 502, description: 'Bad Gateway' }, 502), SENT], {
+      track: (work) => background.track(work),
+      sleep: () => new Promise<void>((resolve) => (releaseSleep = resolve)),
+    });
+
+    const raised = alerts.raise('AUDIT_GUARDS_FAILED');
+    expect(background.pending()).toBe(1);
+    await vi.waitFor(() => expect(deliveriesOf(alertIds.at(-1)!)).resolves.toHaveLength(1));
+    expect(background.pending()).toBe(1); // still waiting to retry
+    releaseSleep();
+    await raised;
+    await background.idle();
+    expect(background.pending()).toBe(0);
+    expect((await deliveriesOf(alertIds.at(-1)!)).map((d) => d.outcome)).toEqual(['REJECTED', 'SENT']);
   });
 });
 
