@@ -22,11 +22,14 @@ describe('GET /health', () => {
 describe('GET /health/live', () => {
   it('answers ok without touching the database', async () => {
     const ping = vi.spyOn(prisma, '$queryRaw');
-    const res = await request(app).get('/health/live');
+    try {
+      const res = await request(app).get('/health/live');
 
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe('ok');
-    expect(ping).not.toHaveBeenCalled();
-    ping.mockRestore();
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
+      expect(ping).not.toHaveBeenCalled();
+    } finally {
+      ping.mockRestore();
+    }
   });
 });

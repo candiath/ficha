@@ -62,8 +62,10 @@ for _ in $(seq 1 18); do
   sleep 5
 done
 [ "$status" = healthy ] || fail "$api is $status after 90 s ($img)"
-docker compose exec -T "$api" node -e \
-  "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
+# Bounded twice: a hung check would hold the deploy lock and silence every
+# later run of the timer.
+timeout 30 docker compose exec -T "$api" node -e \
+  "fetch('http://127.0.0.1:3001/health',{signal:AbortSignal.timeout(15000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
   || fail "$api cannot reach its database ($img)"
 
 commit=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$img" \

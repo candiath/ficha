@@ -74,7 +74,7 @@ The web (Netlify) and the API (Lightsail, Render for staging) deploy separately 
 2. `git log -1 --format=%ct`, which works on a shallow clone: Netlify's build (and Render's) clones the repository.
 3. Nothing: the build carries no version (the build log says so) and the web does no check. It fails open on purpose.
 
-- **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health`, so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
+- **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health` and `/health/live` (the second never queries the database, so polling it does not keep Neon's compute awake), so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
 - **Web**: `vite build` inlines it as `import.meta.env.VITE_BUILD_VERSION`. The dev server inlines nothing.
 
 **It relies on both sides deploying every commit.** Neither `image.yml` nor Netlify has a build filter or ignore rule today: if one is added (say, Netlify skipping API-only commits), the side that skipped a commit looks older forever and its users get the notice for nothing. The same goes for a **rollback**: rolling back one side alone makes the other look newer until the rollback is undone, so roll back both, or neither.
