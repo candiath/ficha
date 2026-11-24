@@ -16,8 +16,9 @@ x-api: &api
   expose: ["3001"]
   mem_limit: 320m
   healthcheck:
-    # /health pings the database: an API that cannot reach Neon is unhealthy.
-    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    # Liveness only. Not /health, which pings the database: every 30 s it would
+    # keep Neon's compute from ever scaling to zero. deploy.sh checks /health.
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
     interval: 30s
     timeout: 10s
     retries: 3

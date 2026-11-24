@@ -24,11 +24,16 @@ PR → main ─push─▶ image.yml ─▶ ghcr.io/candiath/ficha-api:main ─�
 2. On the server, `ficha-deploy@prod.timer` runs `deploy.sh prod` every
    5 minutes. When the tag points at a new image:
    pull it, run `migrate-prod` (the same `npm run migrate:prod` Render ran:
-   audit checks, `migrate deploy`, audit checks), start the new container, and
-   wait until it is healthy.
-3. A failed migration or health check leaves the previous version serving and
-   sends an alert. Every outcome goes to Telegram through
-   `/usr/local/bin/vps-notify`.
+   audit checks, `migrate deploy`, audit checks), start the new container,
+   wait until it is healthy, and check once that it reaches its database.
+   The container's healthcheck is `/health/live`, which never queries the
+   database, so that Neon's compute can scale to zero; the database check is
+   `/health`, run once from inside the container. A database outage after the
+   deploy therefore does not mark the container unhealthy.
+3. A failed migration leaves the previous version serving. A failed health or
+   database check does not: the new container has already replaced the old one
+   and stays running. Either way an alert is sent. Every outcome goes to
+   Telegram through `/usr/local/bin/vps-notify`.
 
 The VPS pulls; GitHub never connects to the server and holds no credential of
 it.

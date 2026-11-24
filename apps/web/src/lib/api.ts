@@ -153,7 +153,8 @@ export const platformApi = createApiClient({
  */
 export async function recheckApiVersion(): Promise<void> {
   try {
-    const res = await fetch(`${API_BASE}/health`);
+    // /health/live: only the version header matters, and it never wakes Neon.
+    const res = await fetch(`${API_BASE}/health/live`);
     recordApiVersion(res.headers.get(BUILD_VERSION_HEADER));
   } catch {
     // The API is down mid-deploy: the next check will tell.

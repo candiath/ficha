@@ -52,14 +52,21 @@ fi
 docker compose run --rm "migrate-$env_name" || fail "migration of $img"
 docker compose up -d --no-deps "$api"
 
-# Healthy means the container's own check passed: the API is up and reaches
-# its database. Checked from inside, so it does not depend on DNS or TLS.
+# Healthy means the container's own check passed: the API is up. That check
+# is liveness only (it must not keep Neon awake), so whether the new version
+# reaches its database is asked once here, through /health. Both from inside,
+# so they do not depend on DNS or TLS.
 for _ in $(seq 1 18); do
   status=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$api")" 2>/dev/null || echo "not running")
   [ "$status" = healthy ] && break
   sleep 5
 done
 [ "$status" = healthy ] || fail "$api is $status after 90 s ($img)"
+# Bounded twice: a hung check would hold the deploy lock and silence every
+# later run of the timer.
+timeout 30 docker compose exec -T "$api" node -e \
+  "fetch('http://127.0.0.1:3001/health',{signal:AbortSignal.timeout(15000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
+  || fail "$api cannot reach its database ($img)"
 
 commit=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$img" \
   | sed -n 's/^RENDER_GIT_COMMIT=//p' | cut -c1-7)
