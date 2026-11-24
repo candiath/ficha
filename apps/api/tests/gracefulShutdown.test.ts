@@ -1,9 +1,17 @@
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createBackgroundWork } from '../src/lib/backgroundWork';
 import { installGracefulShutdown } from '../src/lib/gracefulShutdown';
 
 const quietLog = { log: () => {}, error: () => {} };
+
+// Work that ends only when its `finish` is called.
+function deferredWork() {
+  let finish = () => {};
+  const work = new Promise<void>((resolve) => (finish = resolve));
+  return { work, finish: () => finish() };
+}
 let servers: Server[] = [];
 
 afterEach(() => {
@@ -103,5 +111,59 @@ describe('installGracefulShutdown', () => {
       dispose();
     }
     expect(process.listenerCount('SIGUSR2')).toBe(0);
+  });
+
+  it('waits for the work requests left running before exiting 0', async () => {
+    const { server } = await startServer();
+    const exit = vi.fn();
+    const background = createBackgroundWork();
+    const { shutdown } = installGracefulShutdown(server, { exit, log: quietLog, signals: [], background });
+
+    const first = deferredWork();
+    void background.track(first.work);
+    shutdown('SIGTERM');
+    await new Promise((r) => setTimeout(r, 50)); // the server has closed
+    expect(server.listening).toBe(false);
+    // Work tracked while it waits is waited for too (an alert raised by a
+    // request that was finishing).
+    const second = deferredWork();
+    void background.track(second.work);
+    first.finish();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(exit).not.toHaveBeenCalled();
+
+    second.finish();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledExactlyOnceWith(0));
+  });
+
+  it('exits 1 at the timeout when background work is still running, and only once', async () => {
+    const { server } = await startServer();
+    const exit = vi.fn();
+    const background = createBackgroundWork();
+    const { shutdown } = installGracefulShutdown(server, {
+      exit,
+      log: quietLog,
+      signals: [],
+      timeoutMs: 100,
+      background,
+    });
+
+    const late = deferredWork();
+    void background.track(late.work);
+    shutdown('SIGTERM');
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+    late.finish();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+  });
+});
+
+describe('createBackgroundWork', () => {
+  it('waits for rejected work without rejecting, and forgets settled work', async () => {
+    const background = createBackgroundWork();
+    const failing = background.track(Promise.reject(new Error('boom')));
+    await expect(failing).rejects.toThrow('boom');
+    await expect(background.idle()).resolves.toBeUndefined();
+    expect(background.pending()).toBe(0);
   });
 });
