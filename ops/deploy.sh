@@ -36,6 +36,11 @@ cd /opt/ficha
 # One deploy per environment at a time: the timer and a manual run never overlap.
 exec 9>"/run/ficha-deploy-$env_name.lock"
 flock -n 9 || exit 0
+# Nothing here reads input. Run by hand from a terminal, `timeout` puts its
+# command in a background process group, and a `docker compose exec` there
+# that touches the terminal is stopped by SIGTTIN, where SIGTERM cannot end it
+# (2026-11-24: the first blue/green run hung for minutes on the /health check).
+exec </dev/null
 
 # Every message is printed (the terminal, or the journal under systemd) and
 # also sent through the host's Telegram notifier (/usr/local/bin/vps-notify,
@@ -79,8 +84,16 @@ write_upstream() {
   mv -f "$UPSTREAM.tmp" "$UPSTREAM"
 }
 
+# Retried: a Caddy container that was just (re)created takes a moment to open
+# its admin API, and a reload sent before that is refused (2026-11-24: the
+# first blue/green run failed its switch on exactly that).
 reload_caddy() {
-  docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >&2
+  local _
+  for _ in $(seq 1 10); do
+    docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >&2       && return 0
+    sleep 1
+  done
+  return 1
 }
 
 # The slot Caddy is serving right now (blue, green, or prod for the single
@@ -190,7 +203,7 @@ fi
 # Healthy means liveness passed. Whether the new version reaches its database
 # is asked once here, through /health, bounded so a hung check cannot hold the
 # deploy lock. Failing it stops the new slot: the old one keeps serving.
-if ! timeout 30 docker compose exec -T "api-$target" node -e \
+if ! timeout -k 5 30 docker compose exec -T "api-$target" node -e \
   "fetch('http://127.0.0.1:3001/health',{signal:AbortSignal.timeout(15000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
   docker compose stop "api-$target" >/dev/null || true
   reject
