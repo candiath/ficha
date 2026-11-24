@@ -84,8 +84,16 @@ write_upstream() {
   mv -f "$UPSTREAM.tmp" "$UPSTREAM"
 }
 
+# Retried: a Caddy container that was just (re)created takes a moment to open
+# its admin API, and a reload sent before that is refused (2026-11-24: the
+# first blue/green run failed its switch on exactly that).
 reload_caddy() {
-  docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >&2
+  local _
+  for _ in $(seq 1 10); do
+    docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >&2       && return 0
+    sleep 1
+  done
+  return 1
 }
 
 # The slot Caddy is serving right now (blue, green, or prod for the single
