@@ -116,6 +116,13 @@ app.get('/health', async (_req, res) => {
   }
 });
 
+// Liveness only: never touches the database. The container's healthcheck
+// calls it every 30 s; if it pinged Neon, the compute would never scale to
+// zero. Whether the API reaches its database is /health, checked per deploy.
+app.get('/health/live', (_req, res) => {
+  res.json({ status: 'ok', buildMarker: BUILD_MARKER, buildVersion: buildVersion() });
+});
+
 // Rutas públicas: login (y el propio /health más arriba).
 app.use('/api/auth', authRouter);
 

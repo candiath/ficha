@@ -70,7 +70,7 @@ esac
 UPSTREAM=active/upstream.caddy
 REJECTED=active/rejected
 # The same request as compose.yaml's healthcheck, run in the container.
-PROBE="fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+PROBE="fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # Replace the upstream file in one rename, so Caddy never reads half of it.
 write_upstream() {
@@ -136,6 +136,8 @@ digest=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$
 [ -n "$digest" ] || fail "no registry digest for $tag_img"
 export API_IMAGE="$digest"
 
+# The loop waits for liveness (/health/live, the container check). Whether the
+# new version reaches its database is asked once, through /health, before the switch.
 if [ "$active" != legacy ] && [ "$force" = no ]; then
   serving=$(running_id "api-$active")
   if [ -n "$serving" ] && [ "$(docker inspect -f '{{.Image}}' "$serving")" = "$new" ]; then
@@ -184,6 +186,15 @@ if [ "$healthy" != yes ]; then
   docker compose stop "api-$target" >/dev/null || true
   reject
   fail "api-$target not healthy after 90 s ($tag_img); $old_upstream still serving"
+fi
+# Healthy means liveness passed. Whether the new version reaches its database
+# is asked once here, through /health, bounded so a hung check cannot hold the
+# deploy lock. Failing it stops the new slot: the old one keeps serving.
+if ! timeout 30 docker compose exec -T "api-$target" node -e \
+  "fetch('http://127.0.0.1:3001/health',{signal:AbortSignal.timeout(15000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+  docker compose stop "api-$target" >/dev/null || true
+  reject
+  fail "api-$target cannot reach its database ($tag_img); $old_upstream still serving"
 fi
 
 # --- 3. Switch and check ------------------------------------------------------

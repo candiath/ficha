@@ -28,6 +28,10 @@ PR → main ─push─▶ image.yml ─▶ ghcr.io/candiath/ficha-api:main ─�
 3. A failed migration, health check or switch leaves the previous version
    serving and sends an alert. Every outcome goes to Telegram through
    `/usr/local/bin/vps-notify`.
+   The container healthcheck is `/health/live`, which never queries the
+   database, so that Neon's compute can scale to zero. The database check
+   is `/health`, run once from inside the new container before the switch;
+   if it fails, the new slot is stopped and the old one keeps serving.
 
 The VPS pulls; GitHub never connects to the server and holds no credential of
 it.
