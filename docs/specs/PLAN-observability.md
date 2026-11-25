@@ -75,16 +75,20 @@ effort.
 - Grafana Cloud stack, region closest to us-east-2 (Lightsail and Neon).
 - **Access policies**: one write-only token (logs:write, metrics:write) for the
   host; nothing else holds a write token.
-- **Synthetic checks** (HTTP): `https://api.cliniplus.com.ar/health/live` every
-  5 min from 2 locations (~17k executions/month); `https://fichita.netlify.app`
-  every 15 min; `https://api.cliniplus.com.ar/health` (the one that reaches
-  Neon) **every 6 h**, to notice a broken database credential with no traffic,
-  at the cost of four wake-ups a day.
-- **Telegram contact point** (Grafana's alerting has a Telegram integration;
-  confirm it on the free plan at sign-up): a bot of its own (not the sysadmin-alert bot or
-  `vps-notify`'s), so a leaked token only lets someone send ops noise.
-- Alerts: `/health/live` failing from both locations for 10 min; the web
-  failing for 15 min; `/health` failing twice in a row.
+- **Synthetic checks** (HTTP): `health-live`,
+  `https://api.cliniplus.com.ar/health/live`, every 5 min from 2 locations
+  (~18k executions/month); `web`, `https://fichita.netlify.app`, every 15 min
+  from Ohio and São Paulo. **No periodic check of `/health`**: Grafana's
+  longest interval is 1 h, which would wake Neon 24 times a day. A broken
+  database credential is caught by the deploy's own `/health` check and by the
+  first real request.
+- **Telegram contact point** (`Telegram`), a bot of its own (not the
+  sysadmin-alert bot or `vps-notify`'s), so a leaked token only lets someone
+  send ops noise. The default notification policy delivers to it; a test
+  notification arrived on 2026-11-24.
+- Alerts (each check's *Failed Checks* alert): `health-live`, 3 of 4
+  executions failed in 10 min (not 4 of 4: an execution that never ran must
+  not hold the alert back); `web`, 2 of 2 in 15 min.
 
 Done when: stopping the serving slot by hand produces a Telegram message within
 10 minutes and its recovery another.
