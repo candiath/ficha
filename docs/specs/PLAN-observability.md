@@ -93,6 +93,9 @@ effort.
 Done when: stopping the serving slot by hand produces a Telegram message within
 10 minutes and its recovery another.
 
+**Done on 2026-11-24**: `api-blue` stopped by hand; the firing alert (3 of
+3 executions failed) and the resolved one both reached Telegram.
+
 ### Phase 1 — Host: journald, Fluent Bit, deploy records
 
 **Host (private runbook, mirrored in `ops/README.md`):**
