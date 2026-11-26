@@ -10,7 +10,7 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 - **AWS Lightsail** — the production API since 2026-11-14, and only it (*Production on AWS* below): the image runs as a container behind Caddy, which serves `api.cliniplus.com.ar`. The instance pulls new images itself (`ops/`).
 - **Render** — staging (`ficha-staging`, `staging-api.cliniplus.com.ar`), plan free (cold start ~50s). `Ficha`, production's old service, stays as a backup with no traffic.
 - **Netlify** — la web de Vite, build estático. Un solo sitio (`fichita`) con dos contextos de deploy.
-- **Neon** — Postgres 18, two projects in us-east-2, next to the Lightsail instance: `rapid-band-cliniplus-ohio` holds only `production`, and `cliniplus-staging-dev-ci` holds `staging`, `development` and `ci` (*The non-production project* below). `ficha-pg18` (sa-east-1), where those three lived until 2026-11-22, is no longer used.
+- **Neon** — Postgres 18. `production` is in the project `rapid-band-cliniplus-ohio` (us-east-2), next to the Lightsail instance; `staging`, `development` and `ci` are still in `ficha-pg18` (sa-east-1). The Ohio project also has `staging` and `ci` branches, and `ficha-pg18` still has its old `production`: neither is the environment of the same name (*Production on AWS*).
 
 ## Los tres entornos
 
@@ -20,13 +20,13 @@ Nada se hostea junto: cada capa vive en un proveedor distinto y ninguno conoce a
 | Quién lo consume | los usuarios | solo Nath | solo Nath |
 | API | api.cliniplus.com.ar (Lightsail) | staging-api.cliniplus.com.ar (Render, `ficha-staging`) | `localhost:3001` |
 | Web | fichita.netlify.app | `dev--fichita.netlify.app` (branch deploy) | `localhost:5173` |
-| DB (branch de Neon) | `production` (`rapid-band-cliniplus-ohio`) | `staging` (`cliniplus-staging-dev-ci`) | `development` (`cliniplus-staging-dev-ci`) |
+| DB (branch de Neon) | `production` (Ohio project) | `staging` | `development` |
 
 Los tres están aislados de verdad, no solo por URL: **cada uno tiene su propia branch de Neon**, así que un token de testing no vale en producción (every session, the clinic's and the operator's, is a row in that environment's database: there is no signing secret since operator-sessions) y una migración local no toca datos reales. Los dos desplegados corren con `NODE_ENV=production`, que gatea el guard del seed y vuelve obligatorio `CORS_ORIGIN`; en local `NODE_ENV` no es production, por eso ahí el seed sí corre.
 
 Hay un cuarto consumidor de la DB que no es un entorno: **CI**, con su propia branch de Neon (`ci`) y su propia `CI_DATABASE_URL` (secret de GitHub). Since 2026-10-29 only release PRs to `main` and manual runs use it; PRs to `dev` run on a throwaway Postgres in Docker on the runner (see *PRs to `dev` no longer use `ci`* below).
 
-Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila. Since the move to Postgres 18 (2026-11-01) it is a branch of the new project, created while its root was still empty and migrated from zero; since 2026-11-22, of `cliniplus-staging-dev-ci`, created the same way (*The non-production project*).
+Esa branch se creó desde `production` y después se le borró el esquema, así que **arrancó** vacía — a propósito: los logs del CI de este repo son públicos, y una base de CI con datos de producción los expondría en cuanto un test fallara imprimiendo una fila. Since the move to Postgres 18 (2026-11-01) it is a branch of the new project, created while its root was still empty and migrated from zero.
 
 *Correction (2026-10-05):* this paragraph used to say that `migrate deploy` rebuilds the branch from the first migration on every run. It does not: the branch persists, and `migrate deploy` only applies the migrations it has not seen yet (checked in Neon: the 32 migrations were applied one by one since 2026-09-03). So CI verifies that each new migration applies on top of the previous state, not that the whole chain applies on an empty database. And it is no longer empty of rows either: interrupted runs leave orphaned test clinics behind (8 on 2026-10-05). They are fictitious test data, so the public logs expose nothing real.
 
@@ -38,7 +38,7 @@ Esa branch se creó desde `production` y después se le borró el esquema, así 
 
 Las branches de Neon son copy-on-write: se crean en segundos con los datos del padre y solo ocupan las páginas que divergen.
 
-**`production` is handled as holding real clinical data**: it holds them from the relaunch (#238), and until then the clinic's trial. So no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
+**`production` holds real clinical data** since the relaunch of 2026-11-19 (#238); before it, the clinic's trial. So no long-lived branch is created from it any more: `staging`, `development` and `ci` keep only test data. A branch copied from `production` is still the way to rehearse a risky migration, but it lives only for the rehearsal and is deleted afterwards. Its connection string never goes into a laptop's `.env` or a CI secret of this repository.
 
 ## El ciclo de vida de un cambio
 
@@ -74,7 +74,7 @@ The web (Netlify) and the API (Lightsail, Render for staging) deploy separately 
 2. `git log -1 --format=%ct`, which works on a shallow clone: Netlify's build (and Render's) clones the repository.
 3. Nothing: the build carries no version (the build log says so) and the web does no check. It fails open on purpose.
 
-- **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health` and `/health/live` (the second never queries the database, so polling it does not keep Neon's compute awake), so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
+- **API**: `npm run build -w apps/api` writes `dist/build-version.json`; the API sends it as `X-Build-Version` on every response and as `buildVersion` in `/health`, so a deploy can be checked with `curl -s <api>/health`. `FICHA_BUILD_VERSION` at runtime overrides the file.
 - **Web**: `vite build` inlines it as `import.meta.env.VITE_BUILD_VERSION`. The dev server inlines nothing.
 
 **It relies on both sides deploying every commit.** Neither `image.yml` nor Netlify has a build filter or ignore rule today: if one is added (say, Netlify skipping API-only commits), the side that skipped a commit looks older forever and its users get the notice for nothing. The same goes for a **rollback**: rolling back one side alone makes the other look newer until the rollback is undone, so roll back both, or neither.
@@ -165,21 +165,20 @@ Interrupted test runs leave test clinics behind, and their audit rows now block 
 
 ### The pre-launch wipe
 
-Run on 2026-10-12 (#223), when production's data was fictitious, and run once more before the relaunch (#238): the launch was postponed to correct the data model, and what production holds since the first wipe is the clinic's trial. The wipe drops the schema, which no trigger sees, and rebuilds it:
+Run on production twice: on 2026-10-12 (#223), when its data was fictitious, and on 2026-11-19 for the relaunch (#238), removing the clinic's trial. **Never again**: production holds real clinical data since then, and `wipe.yml` no longer has a `production` target (#233). It still empties `staging` (first done on 2026-11-19, when staging held audit codes the migrations drop) and a rehearsal branch. The wipe drops the schema, which no trigger sees, and rebuilds it:
 
 ```sql
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 ```
 
-followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in every deploy). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, where the production credential lives, never a laptop:
+followed by `npm run db:migrate:prod -w apps/api` (the maintenance-flag check, `prisma migrate deploy`, the flag check again and `audit-guards.sql`, as in every deploy). The clinical revisions tables go with the schema, so the wipe needs no step of its own for them. It is `wipe.yml` in the backups repository, never a laptop:
 
-- it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `production`) and a confirmation that must read `wipe <target>`;
-- for `production` it first runs the backup and stops if the backup fails;
-- the rehearsal refuses a URL whose endpoint is production's;
-- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Restart the API afterwards: new connections, and the startup audit checks run again. On Lightsail, `deploy.sh` does nothing while the image is unchanged, so redeploy the same image: `sudo /opt/ficha/deploy.sh prod --force` (blue/green: a fresh process with new connections, no requests dropped).
+- it takes a `target` (`rehearsal`, a Neon branch copied from `production`, or `staging`, with `ficha_ref=dev`) and a confirmation that must read `wipe <target>`;
+- it refuses a URL whose endpoint is production's;
+- at the end it checks every migration is applied and every table is empty, and cuts the role's open connections. Redeploy the API afterwards (`ficha-staging` on Render): new connections, and the startup audit checks run again.
 
-It was rehearsed on a branch copied from `production` (same tables, triggers, constraints and functions afterwards), then run on production, followed by the redeploy, the operator (`create:operator`) and the clinic. The second wipe follows the same steps (checklist in #238). **After the relaunch, with real data, it is never run on production again**, and its `production` target is removed (#233). Never use `migrate reset` with the seed on a deployed database.
+Both production wipes were followed by the redeploy, the operator (`create:operator`, run from a laptop with the URL typed in, never saved) and the clinic. Never use `migrate reset` with the seed on a deployed database.
 
 ### Restoring a backup
 
@@ -252,7 +251,7 @@ The API tells the platform operator by Telegram when something needs her (`docs/
 1. In Telegram, talk to **@BotFather**: `/newbot`, a name (`Ficha staging alerts`) and a username ending in `bot`. It answers with the token.
 2. Open a chat with the new bot and send it any message (a bot cannot write first). Use **a private chat with the bot, or a private group with only the operator**: never a public channel, whose messages anyone can read. The API rejects `@channel` ids for that reason.
 3. Find the chat id: open `https://api.telegram.org/bot<token>/getUpdates` in your own browser and read `result[].message.chat.id` (a number; negative for a group). Do it on your machine, not through any tool that logs URLs: the URL carries the token.
-4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: for production its env file on Lightsail (`/opt/ficha/prod.env`), then `sudo /opt/ficha/deploy.sh prod --force` (the same image, blue/green, with the new variables); for staging, `ficha-staging`'s environment on Render (saving redeploys).
+4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to that environment's secrets: for production its env file on Lightsail (`/opt/ficha/prod.env`), then `docker compose up -d --force-recreate api-prod` in `/opt/ficha`; for staging, `ficha-staging`'s environment on Render (saving redeploys).
 5. In `/platform`, the *Alertas* card says "Configurado · bot @…". Press **Enviar alerta de prueba**: the message arrives, and the card shows the result.
 
 The label at the start of every message is `RENDER_SERVICE_NAME` (`[Ficha]`, `[ficha-staging]`): Render sets it itself, and on Lightsail each env file sets it (`ops/README.md`); `[local]` when it is missing.
@@ -290,7 +289,7 @@ The card lists the last 20 real alerts with the outcome of their last attempt; t
 
 ## Postgres 18
 
-The move from 16 started on 2026-11-01 (rollout step 0 of `docs/specs/PLAN-clinical-revisions.md`). A Neon project has one major version, so the move is a new project, `ficha-pg18`, and each branch moves by dump and restore (*Restoring a backup*). `production` moved to Ohio instead (*Production on AWS*), and since 2026-11-22 no environment uses `ficha-pg18` (*The non-production project*).
+The move from 16 started on 2026-11-01 (rollout step 0 of `docs/specs/PLAN-clinical-revisions.md`). A Neon project has one major version, so the move is a new project, `ficha-pg18`, and each branch moves by dump and restore (*Restoring a backup*). It is renamed `ficha` once the old project is deleted.
 
 - `staging` and `development` were restored from dumps of the old branches; `ci` was created empty and migrated. `production` moves last, in a window agreed with the clinic, with the `Ficha` service suspended from the dump to the switch. Before that, the backups repository's `backup.yml` moves to `postgresql-client-18` and checks its dump on `postgres:18`.
 - **A new branch starts with its parent's role password.** Every branch of a new project starts with the root's, so a laptop's `development` URL or the `CI_DATABASE_URL` secret would open `production` by swapping the endpoint. Reset `neondb_owner`'s password on each branch, in the console, right after creating it; the MCP's reset returns the password, so it is not used.
@@ -301,20 +300,11 @@ The move from 16 started on 2026-11-01 (rollout step 0 of `docs/specs/PLAN-clini
 
 The production API moved from Render to an **AWS Lightsail** instance, and its database to a new Neon project in **Ohio** (`rapid-band-cliniplus-ohio`, us-east-2), next to it. The domain is `cliniplus.com.ar`; the production web reads from `api.cliniplus.com.ar` (checked in the published bundle on 2026-11-18).
 
-- **How a change reaches it**: `ops/README.md`. In short: a push to `main` publishes `ghcr.io/candiath/ficha-api:main`; every 5 minutes the instance runs `ops/deploy.sh prod`, which pulls a new image, runs `migrate:prod` with it, starts it in the idle one of two slots (`api-blue`, `api-green`), and switches Caddy to it once it is healthy, then stops the old slot (blue/green, no downtime). A failure leaves the previous version serving and sends a Telegram message. Rolling back is pinning `PROD_TAG` to an older `sha-<commit>`.
+- **How a change reaches it**: `ops/README.md`. In short: a push to `main` publishes `ghcr.io/candiath/ficha-api:main`; every 5 minutes the instance runs `ops/deploy.sh prod`, which pulls a new image, runs `migrate:prod` with it, starts it and waits for its health check. A failure leaves the previous version serving and sends a Telegram message. Rolling back is pinning `PROD_TAG` to an older `sha-<commit>`.
 - **Render's `Ficha` stays as a backup** (decided 2026-11-18), with no traffic: the web no longer calls it. Before switching back to it, check which database its `DATABASE_URL` names: it must be the Ohio `production`.
 - **Staging went back to Render** (decided 2026-11-18). For a few days it ran on the same instance (`staging.3-147-5-12.sslip.io`); it left so that a staging failure (memory, disk, a bad image) cannot reach production's host, and production's secrets are the only ones there. It is `ficha-staging` again, at `staging-api.cliniplus.com.ar`. What is given up: staging no longer exercises `deploy.sh`, so production's deploy path is first run by each release. `image.yml` still builds the `dev` image, which at least proves the Dockerfile builds before a release.
-- **Production's project holds only `production`** since 2026-11-22: its `staging` and `ci` branches, created from it, were deleted (*The non-production project*).
+- **The Ohio project's `staging` and `ci` branches** were created from its `production`, so they started with its role password (*Postgres 18*). Reset it on each before any URL of theirs is used anywhere.
 - The CSP in `netlify.toml` still lists the `onrender.com` and `sslip.io` origins next to the two `cliniplus.com.ar` ones; they leave once the dev context reads from `staging-api.cliniplus.com.ar` (#320 generates the CSP from `VITE_API_URL`).
-
-## The non-production project (2026-11-22)
-
-`staging`, `development` and `ci` live in their own Neon project, `cliniplus-staging-dev-ci`, in us-east-2 like production. **Production's project holds only `production`.**
-
-- **Why a separate project.** A child branch starts with its parent's role password (*Postgres 18*) unless the parent is a protected branch, a paid-plan feature. The Ohio project had `staging` and `ci` branches created from `production`, so their URLs opened production by swapping the endpoint. On 2026-11-22 `ficha-staging` ran for about half an hour on that `staging`, which was empty, and every login failed. Two projects share no data, no roles and no passwords, so no URL of a test environment can reach production, whatever branch or endpoint it names. The other reason for branches, starting a test environment from a copy of production, does not apply: with clinical data that copy is what is avoided (*Los tres entornos*).
-- **Layout.** `staging` is the project's root; `ci` and `development` are its children, created before `staging` was migrated, so both started empty. **Both keep `staging`'s role password** (decided 2026-11-22): the `CI_DATABASE_URL` secret or a laptop's `.env` opens `staging` by swapping the endpoint, which is accepted because the three hold only test data. Production's password was reset the same day, since it had been in `ficha-staging`'s environment for that half hour.
-- **The audit maintenance flag** is on `ci` and `development` (*Setting up a branch*), never on `staging`. The first release PR on the new `ci` failed its cleanup without it.
-- **`ficha-pg18`** (sa-east-1) held these three until 2026-11-22 and no environment uses it now.
 
 ## Cómo se llegó acá (2026-08-29)
 
