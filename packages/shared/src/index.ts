@@ -335,6 +335,7 @@ export interface PlatformAuditEntry {
 export type SysadminAlertKind =
   | 'AUDIT_GUARDS_FAILED'
   | 'AUDIT_MAINTENANCE_FLAG_PRESENT'
+  | 'BLUE_GREEN_DISABLED'
   | 'OPERATOR_PASSWORD_RESET'
   | 'TEST';
 

@@ -6,6 +6,7 @@ import type {
   SysadminAlertRepository,
 } from '../repositories/sysadminAlertRepository';
 import type { OperatorContext } from '../repositories/types';
+import { backgroundWork } from './backgroundWork';
 import {
   getTelegramBot,
   readTelegramConfig,
@@ -46,6 +47,9 @@ const MESSAGES: Record<SysadminAlertKind, string> = {
   AUDIT_MAINTENANCE_FLAG_PRESENT:
     'La base tiene la marca de mantenimiento de auditoría (no-audit-maintenance.sql). ' +
     'En este entorno las filas de auditoría se pueden borrar. El detalle está en los logs del servicio.',
+  BLUE_GREEN_DISABLED:
+    'La API arrancó con los deploys blue/green desactivados (DEPLOY_NO_BLUE_GREEN). ' +
+    'Cada deploy corta el servicio unos segundos. Sacá la variable cuando vuelva a alcanzar la memoria.',
   OPERATOR_PASSWORD_RESET:
     'Se reemplazó la contraseña de un operador desde la terminal (reset:operator-password). ' +
     'Si no fuiste vos, alguien con acceso a la base de este entorno puede entrar como operador.',
@@ -61,6 +65,9 @@ export interface SysadminAlertsDeps {
   sleep: (ms: number) => Promise<void>;
   log: Pick<Console, 'log' | 'error'>;
   now?: () => Date;
+  // Registers a raise with the API's background work, so a stopping API waits
+  // for its delivery (gracefulShutdown.ts).
+  track?: <T>(work: Promise<T>) => Promise<T>;
 }
 
 export interface AlertsConfigStatus {
@@ -77,7 +84,8 @@ export interface TestAlertResult extends SysadminAlertDeliveryInput {
 
 export interface SysadminAlerts {
   // Records the alert and delivers it, with retries. Never rejects: a caller
-  // on a request path writes `void sysadminAlerts.raise(kind)`.
+  // on a request path writes `void sysadminAlerts.raise(kind)`; a stopping
+  // API waits for it (lib/backgroundWork.ts).
   raise(kind: RealAlertKind): Promise<void>;
   // The operator's test: records the alert with its platform audit row (a
   // failure there is the caller's), sends once, records the attempt, and
@@ -162,26 +170,31 @@ export function createSysadminAlerts(deps: SysadminAlertsDeps): SysadminAlerts {
     return { result, delivery };
   }
 
-  return {
-    async raise(kind) {
+  async function raise(kind: RealAlertKind): Promise<void> {
+    try {
+      let alertId: string | null = null;
       try {
-        let alertId: string | null = null;
-        try {
-          alertId = (await deps.repo.createAlert(kind)).id;
-        } catch (error) {
-          // The database may be what is wrong: the message still goes out.
-          log('error', `[alerts] ${kind}: could not record the alert (${errorName(error)}); sending it anyway`);
-        }
-        const config = readTelegramConfig(deps.env());
-        for (let attempt = 1; ; attempt++) {
-          const { result } = await send(kind, alertId, config);
-          const wait = retryWait(result, attempt);
-          if (wait === null) break;
-          await deps.sleep(wait);
-        }
+        alertId = (await deps.repo.createAlert(kind)).id;
       } catch (error) {
-        log('error', `[alerts] ${kind}: raising failed (${errorName(error)})`);
+        // The database may be what is wrong: the message still goes out.
+        log('error', `[alerts] ${kind}: could not record the alert (${errorName(error)}); sending it anyway`);
       }
+      const config = readTelegramConfig(deps.env());
+      for (let attempt = 1; ; attempt++) {
+        const { result } = await send(kind, alertId, config);
+        const wait = retryWait(result, attempt);
+        if (wait === null) break;
+        await deps.sleep(wait);
+      }
+    } catch (error) {
+      log('error', `[alerts] ${kind}: raising failed (${errorName(error)})`);
+    }
+  }
+
+  return {
+    raise(kind) {
+      const work = raise(kind);
+      return deps.track ? deps.track(work) : work;
     },
 
     async sendTest(op) {
@@ -221,4 +234,5 @@ export const sysadminAlerts = createSysadminAlerts({
   fetch: () => globalThis.fetch,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   log: console,
+  track: (work) => backgroundWork.track(work),
 });

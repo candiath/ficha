@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { backgroundWork } from '../lib/backgroundWork';
 import { IdSchema, OptionalIdSchema, optionalText } from '../lib/validation';
 import {
   addClinicDays,
@@ -255,22 +256,25 @@ router.patch('/:id', async (req, res) => {
   //
   // Fire-and-forget: que falle registrarla no debe hacer fallar el cambio de
   // estado, que es lo que el usuario pidió.
+  // Tracked, so an API that is stopping (a deploy) waits for it.
   if (body.status === 'NO_SHOW') {
     const desde = new Date();
     desde.setDate(desde.getDate() - ALERTA_COOLDOWN_DIAS);
     const inicio = instantToClinicTime(new Date(turno.startsAt), timezone);
 
-    clinicalAlertRepo
-      .hasRecentUnread(req.context, turno.patientId, 'NO_SHOW', desde)
-      .then((yaHay) => {
-        if (yaHay) return;
-        return clinicalAlertRepo.create(req.context, {
-          patientId: turno.patientId,
-          type: 'NO_SHOW',
-          message: `Faltó sin avisar al turno del ${inicio.date} a las ${inicio.time}.`,
-        });
-      })
-      .catch((err) => console.error('[alerta no-show]', err));
+    void backgroundWork.track(
+      clinicalAlertRepo
+        .hasRecentUnread(req.context, turno.patientId, 'NO_SHOW', desde)
+        .then((yaHay) => {
+          if (yaHay) return;
+          return clinicalAlertRepo.create(req.context, {
+            patientId: turno.patientId,
+            type: 'NO_SHOW',
+            message: `Faltó sin avisar al turno del ${inicio.date} a las ${inicio.time}.`,
+          });
+        })
+        .catch((err) => console.error('[alerta no-show]', err)),
+    );
   }
 
   res.json({ data: serialize(turno, timezone) });

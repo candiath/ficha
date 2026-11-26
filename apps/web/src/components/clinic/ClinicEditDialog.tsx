@@ -170,6 +170,7 @@ function EditForm({ tenant, onClose }: { tenant: TenantConfig; onClose: () => vo
         <div className="space-y-1.5">
           <Label>Zona horaria</Label>
           <Select
+            items={ARGENTINA_TIMEZONES}
             value={timezone}
             onValueChange={(v) => v !== null && setTimezone(v as string)}
           >

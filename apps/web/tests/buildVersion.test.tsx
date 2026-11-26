@@ -156,7 +156,7 @@ describe('the notice of a web out of step with the API', () => {
     expect(screen.queryByRole('button', { name: 'Recargar' })).toBeNull();
 
     await act(() => vi.advanceTimersByTimeAsync(RECHECK_INTERVAL_MS));
-    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/\/health$/));
+    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/\/health\/live$/));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
     fetch.mockResolvedValue(respond(WEB));

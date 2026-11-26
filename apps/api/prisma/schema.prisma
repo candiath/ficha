@@ -392,6 +392,7 @@ model PlatformAuditLog {
 enum SysadminAlertKind {
   AUDIT_GUARDS_FAILED // audit-guards.sql failed at startup
   AUDIT_MAINTENANCE_FLAG_PRESENT // no-audit-maintenance.sql failed at startup
+  BLUE_GREEN_DISABLED // the API started with DEPLOY_NO_BLUE_GREEN set (ops/README.md)
   OPERATOR_PASSWORD_RESET // reset:operator-password replaced an operator's password
   TEST // sent by the operator from /platform
 }
